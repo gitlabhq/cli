@@ -113,7 +113,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	cmd.Flags().VarP(&opts.expireAt, "expires-at", "E", "Sets the token's expiration date and time, in YYYY-MM-DD format. If not specified, --duration is used.")
 	cmd.Flags().StringSliceVarP(&opts.scopes, "scope", "S", []string{"read_repository"}, "Scopes for the token. Multiple scopes can be comma-separated or specified by repeating the flag. For a list, see https://docs.gitlab.com/user/profile/personal_access_tokens/#personal-access-token-scopes.")
 	cmd.Flags().VarP(&opts.accessLevel, "access-level", "A", "Access level of the token: one of 'guest', 'reporter', 'developer', 'maintainer', 'owner'.")
-	cmd.Flags().StringVarP(&opts.outputFormat, "output", "F", "text", "Format output as 'text' for the token value, 'json' for the actual API token structure.")
+	cmdutils.EnableJSONOutput(cmd, &opts.outputFormat, "Format output as 'text' for the token value, 'json' for the actual API token structure.")
 	cmd.MarkFlagsMutuallyExclusive("user", "group")
 	cmd.MarkFlagsMutuallyExclusive("expires-at", "duration")
 	return cmd

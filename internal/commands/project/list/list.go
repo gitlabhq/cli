@@ -66,7 +66,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 	repoListCmd.Flags().BoolVarP(&opts.includeSubgroups, "include-subgroups", "G", false, "Include projects in subgroups of this group. Default is false. Used with the '--group' flag.")
 	repoListCmd.Flags().IntVarP(&opts.page, "page", "p", 1, "Page number.")
 	repoListCmd.Flags().IntVarP(&opts.perPage, "per-page", "P", 30, "Number of items to list per page.")
-	repoListCmd.Flags().StringVarP(&opts.outputFormat, "output", "F", "text", "Format output as: text, json.")
+	cmdutils.EnableJSONOutput(repoListCmd, &opts.outputFormat)
 	repoListCmd.Flags().BoolVarP(&opts.filterAll, "all", "a", false, "List all projects on the instance.")
 	repoListCmd.Flags().BoolVarP(&opts.filterOwner, "mine", "m", false, "List only projects you own. Default if no filters are provided.")
 	repoListCmd.Flags().StringVarP(&opts.user, "user", "u", "", "List user projects.")

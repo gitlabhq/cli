@@ -57,7 +57,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 
 	iterationListCmd.Flags().IntVarP(&opts.page, "page", "p", 1, "Page number.")
 	iterationListCmd.Flags().IntVarP(&opts.perPage, "per-page", "P", 30, "Number of items to list per page.")
-	iterationListCmd.Flags().StringVarP(&opts.outputFormat, "output", "F", "text", "Format output as: text, json.")
+	cmdutils.EnableJSONOutput(iterationListCmd, &opts.outputFormat)
 	iterationListCmd.Flags().StringVarP(&opts.group, "group", "g", "", "List iterations for a group.")
 	return iterationListCmd
 }

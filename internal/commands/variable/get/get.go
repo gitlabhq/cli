@@ -63,7 +63,7 @@ func NewCmdGet(f cmdutils.Factory, runE func(opts *options) error) *cobra.Comman
 
 	cmd.Flags().StringVarP(&opts.scope, "scope", "s", "*", "The environment_scope of the variable. Values: all (*), or specific environments.")
 	cmd.Flags().StringVarP(&opts.group, "group", "g", "", "Get variable for a group.")
-	cmd.Flags().StringVarP(&opts.outputFormat, "output", "F", "text", "Format output as: text, json.")
+	cmdutils.EnableJSONOutput(cmd, &opts.outputFormat)
 	return cmd
 }
 
