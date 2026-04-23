@@ -74,9 +74,9 @@ func NewCmdUpdate(f cmdutils.Factory, runE func(opts *options) error) *cobra.Com
 	cmd.Flags().StringVarP(&opts.typ, "type", "t", "env_var", "The type of a variable: env_var, file.")
 	cmd.Flags().StringVarP(&opts.scope, "scope", "s", "*", "The environment_scope of the variable. Values: all (*), or specific environments.")
 	cmd.Flags().StringVarP(&opts.group, "group", "g", "", "Set variable for a group.")
-	cmd.Flags().BoolVarP(&opts.masked, "masked", "m", false, "Whether the variable is masked.")
-	cmd.Flags().BoolVarP(&opts.raw, "raw", "r", false, "Whether the variable is treated as a raw string.")
-	cmd.Flags().BoolVarP(&opts.protected, "protected", "p", false, "Whether the variable is protected.")
+	cmd.Flags().BoolVarP(&opts.masked, "masked", "m", false, "Whether the variable is masked. (default false)")
+	cmd.Flags().BoolVarP(&opts.raw, "raw", "r", false, "Whether the variable is treated as a raw string. (default false)")
+	cmd.Flags().BoolVarP(&opts.protected, "protected", "p", false, "Whether the variable is protected. (default false)")
 	cmd.Flags().StringVarP(&opts.description, "description", "d", "", "Set description of a variable.")
 	return cmd
 }

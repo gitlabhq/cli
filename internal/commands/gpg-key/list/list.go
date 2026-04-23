@@ -43,7 +43,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.showKeyIDs, "show-id", "", false, "Shows IDs of GPG keys.")
+	cmd.Flags().BoolVarP(&opts.showKeyIDs, "show-id", "", false, "Shows IDs of GPG keys. (default false)")
 	cmdutils.EnableJSONOutput(cmd, &opts.outputFormat)
 
 	return cmd

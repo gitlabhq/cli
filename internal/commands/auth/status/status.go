@@ -63,8 +63,8 @@ func NewCmdStatus(f cmdutils.Factory, runE func(*options) error) *cobra.Command 
 	}
 
 	cmd.Flags().StringVarP(&opts.hostname, "hostname", "", "", "Check a specific instance's authentication status.")
-	cmd.Flags().BoolVarP(&opts.showToken, "show-token", "t", false, "Display the authentication token.")
-	cmd.Flags().BoolVarP(&opts.all, "all", "a", false, "Check all configured instances.")
+	cmd.Flags().BoolVarP(&opts.showToken, "show-token", "t", false, "Display the authentication token. (default false)")
+	cmd.Flags().BoolVarP(&opts.all, "all", "a", false, "Check all configured instances. (default false)")
 
 	cmd.MarkFlagsMutuallyExclusive("all", "hostname")
 

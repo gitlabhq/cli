@@ -49,7 +49,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			return opts.run(cmd.Context())
 		},
 	}
-	cmd.Flags().BoolVarP(&opts.force, "force", "f", false, "Force delete the state without prompting.")
+	cmd.Flags().BoolVarP(&opts.force, "force", "f", false, "Force delete the state without prompting. (default false)")
 
 	return cmd
 }

@@ -33,7 +33,7 @@ Current respected settings:
 		Aliases: []string{"conf"},
 	}
 
-	configCmd.Flags().BoolVarP(&isGlobal, "global", "g", false, "Use global config file.")
+	configCmd.Flags().BoolVarP(&isGlobal, "global", "g", false, "Use global config file. (default false)")
 
 	configCmd.AddCommand(getCmd.NewCmdGet(f))
 	configCmd.AddCommand(setCmd.NewCmdSet(f))

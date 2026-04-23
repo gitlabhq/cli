@@ -28,7 +28,7 @@ glab ssh-key list
   -F, --output string   Format output as: text, json. (default "text")
   -p, --page int        Page number. (default 1)
   -P, --per-page int    Number of items to list per page. (default 30)
-      --show-id         Shows IDs of SSH keys.
+      --show-id         Shows IDs of SSH keys. (default false)
 ```
 
 ## Options inherited from parent commands

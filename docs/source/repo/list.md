@@ -31,18 +31,18 @@ glab repo list
 ## Options
 
 ```plaintext
-  -a, --all                 List all projects on the instance.
-      --archived            Limit by archived status. Use 'false' to exclude archived repositories. Used with the '--group' flag.
+  -a, --all                 List all projects on the instance. (default false)
+      --archived            Limit by archived status. Use 'false' to exclude archived repositories. Used with the '--group' flag. (default false)
   -g, --group string        Return repositories in only the given group.
   -G, --include-subgroups   Include projects in subgroups of this group. Default is false. Used with the '--group' flag.
-      --member              List only projects of which you are a member.
+      --member              List only projects of which you are a member. (default false)
   -m, --mine                List only projects you own. Default if no filters are provided.
   -o, --order string        Return repositories ordered by id, name, path, created_at, updated_at, similarity, star_count, last_activity_at. (default "last_activity_at")
   -F, --output string       Format output as: text, json. (default "text")
   -p, --page int            Page number. (default 1)
   -P, --per-page int        Number of items to list per page. (default 30)
   -s, --sort string         Sort direction for --order field: asc or desc.
-      --starred             List only starred projects.
+      --starred             List only starred projects. (default false)
   -u, --user string         List user projects.
 ```
 

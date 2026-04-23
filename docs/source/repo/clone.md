@@ -71,16 +71,16 @@ GITLAB_HOST=salsa.debian.org glab repo clone myrepo
 
 ```plaintext
   -g, --group string          Specify the group to clone repositories from.
-  -p, --preserve-namespace    Clone the repository in a subdirectory based on namespace.
+  -p, --preserve-namespace    Clone the repository in a subdirectory based on namespace. (default false)
       --active                Limit by project status. When true, returns active projects. When false, returns projects that are archived or marked for deletion. Used with the --group flag.
-  -a, --archived              Limit by archived status. Use with '-a=false' to exclude archived repositories. Used with the --group flag.
+  -a, --archived              Limit by archived status. Use with '-a=false' to exclude archived repositories. Used with the --group flag. (default false)
   -G, --include-subgroups     Include projects in subgroups of this group. Default is true. Used with the --group flag. (default true)
-  -m, --mine                  Limit by projects in the group owned by the current authenticated user. Used with the --group flag.
+  -m, --mine                  Limit by projects in the group owned by the current authenticated user. Used with the --group flag. (default false)
   -v, --visibility string     Limit by visibility: public, internal, private. Used with the --group flag.
   -I, --with-issues-enabled   Limit by projects with the issues feature enabled. Default is false. Used with the --group flag.
   -M, --with-mr-enabled       Limit by projects with the merge request feature enabled. Default is false. Used with the --group flag.
   -S, --with-shared           Include projects shared to this group. Default is true. Used with the --group flag. (default true)
-      --paginate              Make additional HTTP requests to fetch all pages of projects before cloning. Respects --per-page.
+      --paginate              Make additional HTTP requests to fetch all pages of projects before cloning. Respects --per-page. (default false)
       --page int              Page number. (default 1)
       --per-page int          Number of items to list per page. (default 30)
 ```

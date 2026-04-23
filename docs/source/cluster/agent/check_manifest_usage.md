@@ -34,7 +34,7 @@ glab cluster agent check_manifest_usage [flags]
   -g, --group string         Group ID to check.
   -p, --page int             Page number for projects. (default 1)
   -P, --per-page int         Number of projects to list per page. (default 30)
-  -r, --recursive            Recursively check subgroups.
+  -r, --recursive            Recursively check subgroups. (default false)
 ```
 
 ## Options inherited from parent commands

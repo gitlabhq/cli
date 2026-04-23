@@ -58,7 +58,7 @@ The command uses the following order when choosing the editor to use:
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.isLocal, "local", "l", false, "Open '.git/glab-cli/config.yml' file instead of the global '~/.config/glab-cli/config.yml' file.")
+	cmd.Flags().BoolVarP(&opts.isLocal, "local", "l", false, "Open '.git/glab-cli/config.yml' file instead of the global '~/.config/glab-cli/config.yml' file. (default false)")
 	return cmd
 }
 

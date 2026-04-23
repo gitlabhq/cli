@@ -101,7 +101,7 @@ func NewCmdTransfer(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	repoTransferCmd.Flags().BoolP("yes", "y", false, "Warning: Skip confirmation prompt and force transfer operation. Transfer cannot be undone.")
+	repoTransferCmd.Flags().BoolP("yes", "y", false, "Warning: Skip confirmation prompt and force transfer operation. Transfer cannot be undone. (default false)")
 	repoTransferCmd.Flags().StringP("target-namespace", "t", "", "The namespace where your project should be transferred to.")
 
 	_ = repoTransferCmd.MarkFlagRequired("target-namespace")

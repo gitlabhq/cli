@@ -66,7 +66,7 @@ func NewCmdAdd(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&opts.title, "title", "t", "", "New deploy key's title.")
-	cmd.Flags().BoolVarP(&opts.canPush, "can-push", "c", false, "If true, deploy keys can be used for pushing code to the repository.")
+	cmd.Flags().BoolVarP(&opts.canPush, "can-push", "c", false, "If true, deploy keys can be used for pushing code to the repository. (default false)")
 	cmd.Flags().StringVarP(&opts.expiresAt, "expires-at", "e", "", "The expiration date of the deploy key, using the ISO-8601 format: YYYY-MM-DDTHH:MM:SSZ.")
 
 	_ = cmd.MarkFlagRequired("title")

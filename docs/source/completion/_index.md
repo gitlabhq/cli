@@ -108,7 +108,7 @@ glab completion [flags]
 ## Options
 
 ```plaintext
-      --no-desc        Do not include shell completion description.
+      --no-desc        Do not include shell completion description. (default false)
   -s, --shell string   Shell type: bash, zsh, fish, powershell. (default "bash")
 ```
 

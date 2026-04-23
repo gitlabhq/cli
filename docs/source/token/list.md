@@ -55,7 +55,7 @@ glab token list --user johndoe
 ## Options
 
 ```plaintext
-  -a, --active            List only the active tokens.
+  -a, --active            List only the active tokens. (default false)
   -g, --group string      List group access tokens. Ignored if a user or repository argument is set.
   -F, --output string     Format output as: text, json. text provides a readable table, json outputs the tokens with metadata. (default "text")
   -R, --repo OWNER/REPO   Select another repository. Can use either OWNER/REPO or `GROUP/NAMESPACE/REPO` format. Also accepts full URL or Git URL.

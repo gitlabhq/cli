@@ -92,10 +92,10 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	projectCreateCmd.Flags().String("remoteName", "origin", "Remote name for the Git repository you're in. Defaults to `origin` if not provided.")
 	projectCreateCmd.Flags().StringArrayP("tag", "t", []string{}, "The list of tags for the project.")
 	projectCreateCmd.Flags().Bool("internal", false, "Make project internal: visible to any authenticated user. Default.")
-	projectCreateCmd.Flags().BoolP("private", "p", false, "Make project private: visible only to project members.")
-	projectCreateCmd.Flags().BoolP("public", "P", false, "Make project public: visible without any authentication.")
-	projectCreateCmd.Flags().Bool("readme", false, "Initialize project with `README.md`.")
-	projectCreateCmd.Flags().BoolP("skipGitInit", "s", false, "Skip run 'git init'.")
+	projectCreateCmd.Flags().BoolP("private", "p", false, "Make project private: visible only to project members. (default false)")
+	projectCreateCmd.Flags().BoolP("public", "P", false, "Make project public: visible without any authentication. (default false)")
+	projectCreateCmd.Flags().Bool("readme", false, "Initialize project with `README.md`. (default false)")
+	projectCreateCmd.Flags().BoolP("skipGitInit", "s", false, "Skip run 'git init'. (default false)")
 
 	return projectCreateCmd
 }

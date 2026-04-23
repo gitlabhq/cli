@@ -67,8 +67,8 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.forceDelete, "yes", "y", false, "Skip the confirmation prompt.")
-	cmd.Flags().BoolVarP(&opts.deleteTag, "with-tag", "t", false, "Delete the associated tag.")
+	cmd.Flags().BoolVarP(&opts.forceDelete, "yes", "y", false, "Skip the confirmation prompt. (default false)")
+	cmd.Flags().BoolVarP(&opts.deleteTag, "with-tag", "t", false, "Delete the associated tag. (default false)")
 
 	return cmd
 }

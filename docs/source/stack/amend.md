@@ -44,7 +44,7 @@ glab stack amend . -m "refactored file into new files"
 ## Options
 
 ```plaintext
-  -a, --all                  Automatically stage modified and deleted tracked files
+  -a, --all                  Automatically stage modified and deleted tracked files (default false)
   -d, --description string   a description of the change
   -m, --message string       alias for the description flag
 ```

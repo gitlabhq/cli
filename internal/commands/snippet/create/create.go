@@ -93,7 +93,7 @@ glab snippet create [flags] -t <title> -f <filename>  # reads from stdin`,
 	snippetCreateCmd.Flags().StringVarP(&opts.displayFilename, "filename", "f", "", "Filename of the snippet in GitLab.")
 	snippetCreateCmd.Flags().StringVarP(&opts.description, "description", "d", "", "Description of the snippet. Set to \"-\" to open an editor.")
 	snippetCreateCmd.Flags().StringVarP(&opts.visibility, "visibility", "v", "private", "Limit by visibility: 'public', 'internal', or 'private'")
-	snippetCreateCmd.Flags().BoolVarP(&opts.personal, "personal", "p", false, "Create a personal snippet.")
+	snippetCreateCmd.Flags().BoolVarP(&opts.personal, "personal", "p", false, "Create a personal snippet. (default false)")
 
 	return snippetCreateCmd
 }

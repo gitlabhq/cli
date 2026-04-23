@@ -96,8 +96,8 @@ func NewCmdMirror(f cmdutils.Factory) *cobra.Command {
 	projectMirrorCmd.Flags().StringVar(&opts.url, "url", "", "The target URL to which the repository is mirrored.")
 	projectMirrorCmd.Flags().StringVar(&opts.direction, "direction", "pull", "Mirror direction. Options: pull, push.")
 	projectMirrorCmd.Flags().BoolVar(&opts.enabled, "enabled", true, "Determines if the mirror is enabled.")
-	projectMirrorCmd.Flags().BoolVar(&opts.protectedBranchesOnly, "protected-branches-only", false, "Determines if only protected branches are mirrored.")
-	projectMirrorCmd.Flags().BoolVar(&opts.allowDivergence, "allow-divergence", false, "Determines if divergent refs are skipped.")
+	projectMirrorCmd.Flags().BoolVar(&opts.protectedBranchesOnly, "protected-branches-only", false, "Determines if only protected branches are mirrored. (default false)")
+	projectMirrorCmd.Flags().BoolVar(&opts.allowDivergence, "allow-divergence", false, "Determines if divergent refs are skipped. (default false)")
 
 	_ = projectMirrorCmd.MarkFlagRequired("url")
 	_ = projectMirrorCmd.MarkFlagRequired("direction")

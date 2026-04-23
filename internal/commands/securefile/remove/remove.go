@@ -65,7 +65,7 @@ func NewCmdRemove(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	securefileRemoveCmd.Flags().BoolVarP(&opts.forceDelete, "yes", "y", false, "Skip the confirmation prompt.")
+	securefileRemoveCmd.Flags().BoolVarP(&opts.forceDelete, "yes", "y", false, "Skip the confirmation prompt. (default false)")
 
 	return securefileRemoveCmd
 }

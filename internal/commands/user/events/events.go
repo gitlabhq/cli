@@ -101,7 +101,7 @@ func NewCmdEvents(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolP("all", "a", false, "Get events from all projects.")
+	cmd.Flags().BoolP("all", "a", false, "Get events from all projects. (default false)")
 	cmd.Flags().IntP("page", "p", 1, "Page number.")
 	cmd.Flags().IntP("per-page", "P", 30, "Number of items to list per page.")
 	cmd.Flags().StringP("output", "F", "text", "Format output as: 'text', 'json'.")

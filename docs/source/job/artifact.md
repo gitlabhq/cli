@@ -42,7 +42,7 @@ glab job artifact refs/merge-requests/123/head build
 ## Options
 
 ```plaintext
-  -l, --list-paths    Print the paths of downloaded artifacts.
+  -l, --list-paths    Print the paths of downloaded artifacts. (default false)
   -p, --path string   Path to download the artifact files. (default "./")
 ```
 

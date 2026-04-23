@@ -38,7 +38,7 @@ glab deploy-key add ~/.ssh/id_ed25519.pub -t "my title" --can-push true
 ## Options
 
 ```plaintext
-  -c, --can-push            If true, deploy keys can be used for pushing code to the repository.
+  -c, --can-push            If true, deploy keys can be used for pushing code to the repository. (default false)
   -e, --expires-at string   The expiration date of the deploy key, using the ISO-8601 format: YYYY-MM-DDTHH:MM:SSZ.
   -t, --title string        New deploy key's title.
 ```

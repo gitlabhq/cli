@@ -55,7 +55,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.force, "force", "f", false, "Skip confirmation prompt.")
+	cmd.Flags().BoolVarP(&opts.force, "force", "f", false, "Skip confirmation prompt. (default false)")
 
 	return cmd
 }

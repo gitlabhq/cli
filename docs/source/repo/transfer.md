@@ -26,7 +26,7 @@ glab repo transfer profclems/glab --target-namespace notprofclems
 
 ```plaintext
   -t, --target-namespace string   The namespace where your project should be transferred to.
-  -y, --yes                       Warning: Skip confirmation prompt and force transfer operation. Transfer cannot be undone.
+  -y, --yes                       Warning: Skip confirmation prompt and force transfer operation. Transfer cannot be undone. (default false)
 ```
 
 ## Options inherited from parent commands

@@ -50,6 +50,6 @@ func NewCmdArtifact(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 	jobArtifactCmd.Flags().StringP("path", "p", "./", "Path to download the artifact files.")
-	jobArtifactCmd.Flags().BoolP("list-paths", "l", false, "Print the paths of downloaded artifacts.")
+	jobArtifactCmd.Flags().BoolP("list-paths", "l", false, "Print the paths of downloaded artifacts. (default false)")
 	return jobArtifactCmd
 }

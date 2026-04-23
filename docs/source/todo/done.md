@@ -27,7 +27,7 @@ glab todo done --all
 ## Options
 
 ```plaintext
-      --all   Mark all pending to-do items as done.
+      --all   Mark all pending to-do items as done. (default false)
 ```
 
 ## Options inherited from parent commands

@@ -171,16 +171,16 @@ func NewCmdClone(f cmdutils.Factory, runE func(*options, *ContextOpts) error) *c
 	}
 
 	repoCloneCmd.Flags().StringVarP(&opts.groupName, "group", "g", "", "Specify the group to clone repositories from.")
-	repoCloneCmd.Flags().BoolVarP(&opts.preserveNamespace, "preserve-namespace", "p", false, "Clone the repository in a subdirectory based on namespace.")
+	repoCloneCmd.Flags().BoolVarP(&opts.preserveNamespace, "preserve-namespace", "p", false, "Clone the repository in a subdirectory based on namespace. (default false)")
 	repoCloneCmd.Flags().BoolVarP(&opts.active, "active", "", false, "Limit by project status. When true, returns active projects. When false, returns projects that are archived or marked for deletion. Used with the --group flag.")
-	repoCloneCmd.Flags().BoolVarP(&opts.archived, "archived", "a", false, "Limit by archived status. Use with '-a=false' to exclude archived repositories. Used with the --group flag.")
+	repoCloneCmd.Flags().BoolVarP(&opts.archived, "archived", "a", false, "Limit by archived status. Use with '-a=false' to exclude archived repositories. Used with the --group flag. (default false)")
 	repoCloneCmd.Flags().BoolVarP(&opts.includeSubgroups, "include-subgroups", "G", true, "Include projects in subgroups of this group. Default is true. Used with the --group flag.")
-	repoCloneCmd.Flags().BoolVarP(&opts.owned, "mine", "m", false, "Limit by projects in the group owned by the current authenticated user. Used with the --group flag.")
+	repoCloneCmd.Flags().BoolVarP(&opts.owned, "mine", "m", false, "Limit by projects in the group owned by the current authenticated user. Used with the --group flag. (default false)")
 	repoCloneCmd.Flags().StringVarP(&opts.visibility, "visibility", "v", "", "Limit by visibility: public, internal, private. Used with the --group flag.")
 	repoCloneCmd.Flags().BoolVarP(&opts.withIssuesEnabled, "with-issues-enabled", "I", false, "Limit by projects with the issues feature enabled. Default is false. Used with the --group flag.")
 	repoCloneCmd.Flags().BoolVarP(&opts.withMREnabled, "with-mr-enabled", "M", false, "Limit by projects with the merge request feature enabled. Default is false. Used with the --group flag.")
 	repoCloneCmd.Flags().BoolVarP(&opts.withShared, "with-shared", "S", true, "Include projects shared to this group. Default is true. Used with the --group flag.")
-	repoCloneCmd.Flags().BoolVarP(&opts.paginate, "paginate", "", false, "Make additional HTTP requests to fetch all pages of projects before cloning. Respects --per-page.")
+	repoCloneCmd.Flags().BoolVarP(&opts.paginate, "paginate", "", false, "Make additional HTTP requests to fetch all pages of projects before cloning. Respects --per-page. (default false)")
 	repoCloneCmd.Flags().IntVarP(&opts.page, "page", "", 1, "Page number.")
 	repoCloneCmd.Flags().IntVarP(&opts.perPage, "per-page", "", 30, "Number of items to list per page.")
 

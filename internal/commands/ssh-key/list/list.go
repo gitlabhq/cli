@@ -46,7 +46,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.showKeyIDs, "show-id", "", false, "Shows IDs of SSH keys.")
+	cmd.Flags().BoolVarP(&opts.showKeyIDs, "show-id", "", false, "Shows IDs of SSH keys. (default false)")
 	cmd.Flags().IntVarP(&opts.page, "page", "p", 1, "Page number.")
 	cmd.Flags().IntVarP(&opts.perPage, "per-page", "P", 30, "Number of items to list per page.")
 	cmdutils.EnableJSONOutput(cmd, &opts.outputFormat)

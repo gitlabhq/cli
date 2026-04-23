@@ -48,11 +48,11 @@ glab securefile download --all --output-dir secure_files/
 ## Options
 
 ```plaintext
-      --all                 Download all (limit 100) of a project's secure files. Files are downloaded with their original name and file extension.
-      --force-download      Force download file(s) even if checksum verification fails. Warning: when enabled, this setting allows the download of files that are corrupt or tampered with.
+      --all                 Download all (limit 100) of a project's secure files. Files are downloaded with their original name and file extension. (default false)
+      --force-download      Force download file(s) even if checksum verification fails. Warning: when enabled, this setting allows the download of files that are corrupt or tampered with. (default false)
       --id int              ID of the secure file to download.
       --name string         Name of the secure file to download. Saves the file with this name, or to the path specified by --path.
-      --no-verify           Do not verify the checksum of the downloaded file(s). Warning: when enabled, this setting allows the download of files that are corrupt or tampered with.
+      --no-verify           Do not verify the checksum of the downloaded file(s). Warning: when enabled, this setting allows the download of files that are corrupt or tampered with. (default false)
       --output-dir string   Output directory for files downloaded with --all. (default ".")
   -p, --path string         Path to download the secure file to, including filename and extension. (default "./downloaded.tmp")
 ```

@@ -66,12 +66,12 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 	repoListCmd.Flags().IntVarP(&opts.page, "page", "p", 1, "Page number.")
 	repoListCmd.Flags().IntVarP(&opts.perPage, "per-page", "P", 30, "Number of items to list per page.")
 	cmdutils.EnableJSONOutput(repoListCmd, &opts.outputFormat)
-	repoListCmd.Flags().BoolVarP(&opts.filterAll, "all", "a", false, "List all projects on the instance.")
+	repoListCmd.Flags().BoolVarP(&opts.filterAll, "all", "a", false, "List all projects on the instance. (default false)")
 	repoListCmd.Flags().BoolVarP(&opts.filterOwner, "mine", "m", false, "List only projects you own. Default if no filters are provided.")
 	repoListCmd.Flags().StringVarP(&opts.user, "user", "u", "", "List user projects.")
-	repoListCmd.Flags().BoolVar(&opts.filterMember, "member", false, "List only projects of which you are a member.")
-	repoListCmd.Flags().BoolVar(&opts.filterStarred, "starred", false, "List only starred projects.")
-	repoListCmd.Flags().BoolVar(&opts.archived, "archived", false, "Limit by archived status. Use 'false' to exclude archived repositories. Used with the '--group' flag.")
+	repoListCmd.Flags().BoolVar(&opts.filterMember, "member", false, "List only projects of which you are a member. (default false)")
+	repoListCmd.Flags().BoolVar(&opts.filterStarred, "starred", false, "List only starred projects. (default false)")
+	repoListCmd.Flags().BoolVar(&opts.archived, "archived", false, "Limit by archived status. Use 'false' to exclude archived repositories. Used with the '--group' flag. (default false)")
 
 	repoListCmd.MarkFlagsMutuallyExclusive("user", "group")
 	return repoListCmd

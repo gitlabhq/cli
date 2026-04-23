@@ -28,9 +28,9 @@ glab auth status [flags]
 ## Options
 
 ```plaintext
-  -a, --all               Check all configured instances.
+  -a, --all               Check all configured instances. (default false)
       --hostname string   Check a specific instance's authentication status.
-  -t, --show-token        Display the authentication token.
+  -t, --show-token        Display the authentication token. (default false)
 ```
 
 ## Options inherited from parent commands

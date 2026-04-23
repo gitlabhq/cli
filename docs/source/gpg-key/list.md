@@ -26,7 +26,7 @@ glab gpg-key list
 
 ```plaintext
   -F, --output string   Format output as: text, json. (default "text")
-      --show-id         Shows IDs of GPG keys.
+      --show-id         Shows IDs of GPG keys. (default false)
 ```
 
 ## Options inherited from parent commands

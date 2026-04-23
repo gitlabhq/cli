@@ -73,7 +73,7 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().Bool(archiveFlag, false, "Whether the project should be archived.")
+	cmd.Flags().Bool(archiveFlag, false, "Whether the project should be archived. (default false)")
 	cmd.Flags().String(defaultBranchFlag, "", "New default branch for the project.")
 	cmd.Flags().StringP(descriptionFlag, "d", "", "New description for the project.")
 	cmd.MarkFlagsOneRequired(archiveFlag, defaultBranchFlag, descriptionFlag)

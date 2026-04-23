@@ -83,7 +83,7 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	projectViewCmd.Flags().BoolVarP(&opts.web, "web", "w", false, "Open a project in the browser.")
+	projectViewCmd.Flags().BoolVarP(&opts.web, "web", "w", false, "Open a project in the browser. (default false)")
 	cmdutils.EnableJSONOutput(projectViewCmd, &opts.outputFormat)
 	projectViewCmd.Flags().StringVarP(&opts.branch, "branch", "b", "", "View a specific branch of the repository.")
 

@@ -50,7 +50,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.all, "all", false, "Mark all pending to-do items as done.")
+	cmd.Flags().BoolVar(&opts.all, "all", false, "Mark all pending to-do items as done. (default false)")
 
 	return cmd
 }

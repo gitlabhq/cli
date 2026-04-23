@@ -39,7 +39,7 @@ glab runner delete 6 --force
 ## Options
 
 ```plaintext
-  -f, --force   Skip confirmation prompt.
+  -f, --force   Skip confirmation prompt. (default false)
 ```
 
 ## Options inherited from parent commands

@@ -73,10 +73,10 @@ glab auth login --hostname $CI_SERVER_FQDN --job-token $CI_JOB_TOKEN --api-proto
       --hostname string                     The hostname of the GitLab instance to authenticate with.
   -j, --job-token string                    CI job token.
       --ssh-hostname string                 SSH hostname for instances with a different SSH endpoint. Port is not required. Git uses the port from the remote URL directly.
-      --stdin                               Read token from standard input.
+      --stdin                               Read token from standard input. (default false)
   -t, --token string                        Your GitLab access token.
-      --use-keyring                         Store token in your operating system's keyring.
-      --web                                 Skip the login type prompt and use web/OAuth login.
+      --use-keyring                         Store token in your operating system's keyring. (default false)
+      --web                                 Skip the login type prompt and use web/OAuth login. (default false)
 ```
 
 ## Options inherited from parent commands

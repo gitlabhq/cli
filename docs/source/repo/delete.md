@@ -45,7 +45,7 @@ glab repo delete myorg/mynamespace/dotfiles
 ## Options
 
 ```plaintext
-  -y, --yes   Skip the confirmation prompt and immediately delete the project.
+  -y, --yes   Skip the confirmation prompt and immediately delete the project. (default false)
 ```
 
 ## Options inherited from parent commands

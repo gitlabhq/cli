@@ -56,10 +56,10 @@ glab repo mirror mygroup/myproject --direction=push --url="https://gitlab-backup
 ## Options
 
 ```plaintext
-      --allow-divergence          Determines if divergent refs are skipped.
+      --allow-divergence          Determines if divergent refs are skipped. (default false)
       --direction string          Mirror direction. Options: pull, push. (default "pull")
       --enabled                   Determines if the mirror is enabled. (default true)
-      --protected-branches-only   Determines if only protected branches are mirrored.
+      --protected-branches-only   Determines if only protected branches are mirrored. (default false)
       --url string                The target URL to which the repository is mirrored.
 ```
 

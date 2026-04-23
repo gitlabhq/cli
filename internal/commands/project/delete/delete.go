@@ -67,7 +67,7 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	projectCreateCmd.Flags().BoolVarP(&opts.forceDelete, "yes", "y", false, "Skip the confirmation prompt and immediately delete the project.")
+	projectCreateCmd.Flags().BoolVarP(&opts.forceDelete, "yes", "y", false, "Skip the confirmation prompt and immediately delete the project. (default false)")
 
 	return projectCreateCmd
 }

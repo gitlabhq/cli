@@ -19,7 +19,7 @@ glab opentofu state delete <state> [<serial>] [flags]
 ## Options
 
 ```plaintext
-  -f, --force   Force delete the state without prompting.
+  -f, --force   Force delete the state without prompting. (default false)
 ```
 
 ## Options inherited from parent commands

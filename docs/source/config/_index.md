@@ -37,7 +37,7 @@ conf
 ## Options
 
 ```plaintext
-  -g, --global   Use global config file.
+  -g, --global   Use global config file. (default false)
 ```
 
 ## Options inherited from parent commands

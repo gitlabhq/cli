@@ -38,8 +38,8 @@ glab release delete v1.0.1 --with-tag
 ## Options
 
 ```plaintext
-  -t, --with-tag   Delete the associated tag.
-  -y, --yes        Skip the confirmation prompt.
+  -t, --with-tag   Delete the associated tag. (default false)
+  -y, --yes        Skip the confirmation prompt. (default false)
 ```
 
 ## Options inherited from parent commands

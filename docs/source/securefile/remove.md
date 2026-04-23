@@ -42,7 +42,7 @@ glab securefile delete 1
 ## Options
 
 ```plaintext
-  -y, --yes   Skip the confirmation prompt.
+  -y, --yes   Skip the confirmation prompt. (default false)
 ```
 
 ## Options inherited from parent commands

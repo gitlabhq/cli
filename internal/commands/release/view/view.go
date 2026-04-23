@@ -62,7 +62,7 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.openInBrowser, "web", "w", false, "Open the release in the browser.")
+	cmd.Flags().BoolVarP(&opts.openInBrowser, "web", "w", false, "Open the release in the browser. (default false)")
 	cmdutils.EnableJSONOutput(cmd, &opts.outputFormat)
 
 	return cmd

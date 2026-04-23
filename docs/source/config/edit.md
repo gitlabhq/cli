@@ -45,7 +45,7 @@ glab config edit -l
 ## Options
 
 ```plaintext
-  -l, --local   Open '.git/glab-cli/config.yml' file instead of the global '~/.config/glab-cli/config.yml' file.
+  -l, --local   Open '.git/glab-cli/config.yml' file instead of the global '~/.config/glab-cli/config.yml' file. (default false)
 ```
 
 ## Options inherited from parent commands

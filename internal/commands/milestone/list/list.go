@@ -67,11 +67,11 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.title, "title", "", "Return only the milestones having the given title.")
 	cmd.Flags().StringVar(&opts.search, "search", "", "Return only milestones with a title or description matching the provided string.")
 	cmd.Flags().StringVar(&opts.state, "state", "", "Return only 'active' or 'closed' milestones.")
-	cmd.Flags().BoolVar(&opts.includeAncestors, "include-ancestors", false, "Include milestones from all parent groups.")
+	cmd.Flags().BoolVar(&opts.includeAncestors, "include-ancestors", false, "Include milestones from all parent groups. (default false)")
 
 	cmd.Flags().IntVarP(&opts.page, "page", "p", 1, "Page number.")
 	cmd.Flags().IntVarP(&opts.perPage, "per-page", "P", 20, "Number of items to list per page.")
-	cmd.Flags().BoolVar(&opts.showIDs, "show-id", false, "Show IDs in table output.")
+	cmd.Flags().BoolVar(&opts.showIDs, "show-id", false, "Show IDs in table output. (default false)")
 	cmdutils.EnableJSONOutput(cmd, &opts.outputFormat)
 
 	cmd.MarkFlagsOneRequired("project", "group")

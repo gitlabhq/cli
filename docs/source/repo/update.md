@@ -36,7 +36,7 @@ glab repo update my-project --archive=false
 ## Options
 
 ```plaintext
-      --archive                Whether the project should be archived.
+      --archive                Whether the project should be archived. (default false)
       --defaultBranch string   New default branch for the project.
   -d, --description string     New description for the project.
 ```

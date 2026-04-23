@@ -165,7 +165,7 @@ func NewCmdSaveStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.GetT
 	}
 	stackSaveCmd.Flags().StringVarP(&description, "description", "d", "", "Description of the change.")
 	stackSaveCmd.Flags().StringVarP(&description, "message", "m", "", "Alias for the description flag.")
-	stackSaveCmd.Flags().BoolVarP(&stageAll, "all", "a", false, "Automatically stage modified and deleted tracked files")
+	stackSaveCmd.Flags().BoolVarP(&stageAll, "all", "a", false, "Automatically stage modified and deleted tracked files (default false)")
 
 	return stackSaveCmd
 }

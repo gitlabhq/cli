@@ -60,7 +60,7 @@ glab issue list --assignee="user" | grep "foo"
 ## Options
 
 ```plaintext
-  -s, --shell   Declare an alias to be passed through a shell interpreter.
+  -s, --shell   Declare an alias to be passed through a shell interpreter. (default false)
 ```
 
 ## Options inherited from parent commands

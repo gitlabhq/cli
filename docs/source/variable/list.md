@@ -36,7 +36,7 @@ glab variable list --group gitlab-org --per-page 100
 
 ```plaintext
   -g, --group string      Select a group or subgroup. Ignored if a repository argument is set.
-  -i, --instance          Display instance variables.
+  -i, --instance          Display instance variables. (default false)
   -F, --output string     Format output as: text, json. (default "text")
   -p, --page int          Page number. (default 1)
   -P, --per-page int      Number of items to list per page. (default 20)

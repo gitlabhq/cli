@@ -155,9 +155,9 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 	securefileDownloadCmd.Flags().String("output-dir", ".", "Output directory for files downloaded with --all.")
 	securefileDownloadCmd.Flags().Int64("id", 0, "ID of the secure file to download.")
 	securefileDownloadCmd.Flags().String("name", "", "Name of the secure file to download. Saves the file with this name, or to the path specified by --path.")
-	securefileDownloadCmd.Flags().Bool("no-verify", false, "Do not verify the checksum of the downloaded file(s). Warning: when enabled, this setting allows the download of files that are corrupt or tampered with.")
-	securefileDownloadCmd.Flags().Bool("force-download", false, "Force download file(s) even if checksum verification fails. Warning: when enabled, this setting allows the download of files that are corrupt or tampered with.")
-	securefileDownloadCmd.Flags().Bool("all", false, "Download all (limit 100) of a project's secure files. Files are downloaded with their original name and file extension.")
+	securefileDownloadCmd.Flags().Bool("no-verify", false, "Do not verify the checksum of the downloaded file(s). Warning: when enabled, this setting allows the download of files that are corrupt or tampered with. (default false)")
+	securefileDownloadCmd.Flags().Bool("force-download", false, "Force download file(s) even if checksum verification fails. Warning: when enabled, this setting allows the download of files that are corrupt or tampered with. (default false)")
+	securefileDownloadCmd.Flags().Bool("all", false, "Download all (limit 100) of a project's secure files. Files are downloaded with their original name and file extension. (default false)")
 
 	securefileDownloadCmd.MarkFlagsMutuallyExclusive("no-verify", "force-download")
 	securefileDownloadCmd.MarkFlagsMutuallyExclusive("path", "output-dir")

@@ -138,6 +138,6 @@ func NewCmdCompletion(io *iostreams.IOStreams) *cobra.Command {
 	}
 
 	completionCmd.Flags().StringVarP(&shellType, "shell", "s", "bash", "Shell type: bash, zsh, fish, powershell.")
-	completionCmd.Flags().BoolVarP(&excludeDesc, "no-desc", "", false, "Do not include shell completion description.")
+	completionCmd.Flags().BoolVarP(&excludeDesc, "no-desc", "", false, "Do not include shell completion description. (default false)")
 	return completionCmd
 }

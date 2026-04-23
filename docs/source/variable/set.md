@@ -41,10 +41,10 @@ cat token.txt | glab variable set GROUP_TOKEN -g mygroup --scope=prod
 ```plaintext
   -d, --description string   Set description of a variable.
   -g, --group string         Set variable for a group.
-      --hidden               Whether the variable is hidden.
-  -m, --masked               Whether the variable is masked.
-  -p, --protected            Whether the variable is protected.
-  -r, --raw                  Whether the variable is treated as a raw string.
+      --hidden               Whether the variable is hidden. (default false)
+  -m, --masked               Whether the variable is masked. (default false)
+  -p, --protected            Whether the variable is protected. (default false)
+  -r, --raw                  Whether the variable is treated as a raw string. (default false)
   -s, --scope string         The environment_scope of the variable. Values: all (*), or specific environments. (default "*")
   -t, --type string          The type of a variable: env_var, file. (default "env_var")
   -v, --value string         The value of a variable.

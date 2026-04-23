@@ -58,7 +58,7 @@ The output can be piped to a tab-separated value (TSV) file.
 	checkManifestUsageCmd.Flags().IntVarP(&opts.projectPerPage, "per-page", "P", 30, "Number of projects to list per page.")
 	checkManifestUsageCmd.Flags().IntVarP(&opts.agentPage, "agent-page", "a", 1, "Page number for projects.")
 	checkManifestUsageCmd.Flags().IntVarP(&opts.agentPerPage, "agent-per-page", "A", 30, "Number of projects to list per page.")
-	checkManifestUsageCmd.Flags().BoolVarP(&opts.recursive, "recursive", "r", false, "Recursively check subgroups.")
+	checkManifestUsageCmd.Flags().BoolVarP(&opts.recursive, "recursive", "r", false, "Recursively check subgroups. (default false)")
 
 	return checkManifestUsageCmd
 }

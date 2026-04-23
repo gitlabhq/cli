@@ -44,7 +44,7 @@ glab stack save . -m "added new file"
 ## Options
 
 ```plaintext
-  -a, --all                  Automatically stage modified and deleted tracked files
+  -a, --all                  Automatically stage modified and deleted tracked files (default false)
   -d, --description string   Description of the change.
   -m, --message string       Alias for the description flag.
 ```

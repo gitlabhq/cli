@@ -34,13 +34,13 @@ glab milestone list --group example-group --state active
 
 ```plaintext
       --group string        The ID or URL-encoded path of the group.
-      --include-ancestors   Include milestones from all parent groups.
+      --include-ancestors   Include milestones from all parent groups. (default false)
   -F, --output string       Format output as: text, json. (default "text")
   -p, --page int            Page number. (default 1)
   -P, --per-page int        Number of items to list per page. (default 20)
       --project string      The ID or URL-encoded path of the project.
       --search string       Return only milestones with a title or description matching the provided string.
-      --show-id             Show IDs in table output.
+      --show-id             Show IDs in table output. (default false)
       --state string        Return only 'active' or 'closed' milestones.
       --title string        Return only the milestones having the given title.
 ```

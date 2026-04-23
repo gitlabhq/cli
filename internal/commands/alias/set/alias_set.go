@@ -79,7 +79,7 @@ func NewCmdSet(f cmdutils.Factory) *cobra.Command {
 			return opts.run()
 		},
 	}
-	aliasSetCmd.Flags().BoolVarP(&opts.isShell, "shell", "s", false, "Declare an alias to be passed through a shell interpreter.")
+	aliasSetCmd.Flags().BoolVarP(&opts.isShell, "shell", "s", false, "Declare an alias to be passed through a shell interpreter. (default false)")
 	return aliasSetCmd
 }
 

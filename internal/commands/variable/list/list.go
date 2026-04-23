@@ -68,7 +68,7 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *options) error) *cobra.Comma
 	cmdutils.EnableJSONOutput(cmd, &opts.outputFormat)
 	cmd.Flags().IntVarP(&opts.perPage, "per-page", "P", 20, "Number of items to list per page.")
 	cmd.Flags().IntVarP(&opts.page, "page", "p", 1, "Page number.")
-	cmd.Flags().BoolVarP(&opts.instance, "instance", "i", false, "Display instance variables.")
+	cmd.Flags().BoolVarP(&opts.instance, "instance", "i", false, "Display instance variables. (default false)")
 
 	return cmd
 }

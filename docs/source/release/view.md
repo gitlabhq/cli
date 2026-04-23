@@ -36,7 +36,7 @@ glab release view v1.0.1
 
 ```plaintext
   -F, --output string   Format output as: text, json. (default "text")
-  -w, --web             Open the release in the browser.
+  -w, --web             Open the release in the browser. (default false)
 ```
 
 ## Options inherited from parent commands

@@ -53,11 +53,11 @@ glab repo create <host>/path/to/repository
   -g, --group string           Namespace or group for the new project. Defaults to the current user's namespace.
       --internal               Make project internal: visible to any authenticated user. Default.
   -n, --name string            Name of the new project.
-  -p, --private                Make project private: visible only to project members.
-  -P, --public                 Make project public: visible without any authentication.
-      --readme README.md       Initialize project with README.md.
+  -p, --private                Make project private: visible only to project members. (default false)
+  -P, --public                 Make project public: visible without any authentication. (default false)
+      --readme README.md       Initialize project with README.md. (default false)
       --remoteName origin      Remote name for the Git repository you're in. Defaults to origin if not provided. (default "origin")
-  -s, --skipGitInit            Skip run 'git init'.
+  -s, --skipGitInit            Skip run 'git init'. (default false)
   -t, --tag stringArray        The list of tags for the project.
 ```
 
