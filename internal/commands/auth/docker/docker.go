@@ -29,7 +29,7 @@ func NewCmdConfigureDocker(f cmdutils.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure-docker",
 		Args:  cobra.ExactArgs(0),
-		Short: "Register glab as a Docker credential helper",
+		Short: "Register glab as a Docker credential helper.",
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
@@ -61,7 +61,7 @@ func NewCmdCredentialHelper(f cmdutils.Factory) *cobra.Command {
 			helperArgCheck,
 			cobra.OnlyValidArgs,
 		),
-		Short: "A Docker credential helper for GitLab container registries",
+		Short: "A Docker credential helper for GitLab container registries.",
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

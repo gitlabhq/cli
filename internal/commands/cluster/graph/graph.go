@@ -89,7 +89,7 @@ func NewCmdGraph(f cmdutils.Factory) *cobra.Command {
 	fl.BoolVarP(&opts.ignoreArcDirection, "ignore-arc-direction", "", opts.ignoreArcDirection, "Ignore arc direction when evaluating roots connectivity. GitLab and agent 18.3+ required.")
 
 	fl.StringArrayVarP(&opts.resources, "resource", "r", opts.resources, "A list of resources to watch. You can see the list of resources your cluster supports by running 'kubectl api-resources'.")
-	fl.BoolVar(&opts.groupCore, "core", opts.groupCore, "Watch pods, secrets, configmaps, and serviceaccounts in the core/v1 group")
+	fl.BoolVar(&opts.groupCore, "core", opts.groupCore, "Watch pods, secrets, configmaps, and serviceaccounts in the core/v1 group.")
 	fl.BoolVar(&opts.groupBatch, "batch", opts.groupBatch, "Watch jobs and cronjobs in the batch/v1 group.")
 	fl.BoolVar(&opts.groupApps, "apps", opts.groupApps, "Watch deployments, replicasets, daemonsets, and statefulsets in apps/v1 group.")
 	fl.BoolVar(&opts.groupRBAC, "rbac", opts.groupRBAC, "Watch roles, and rolebindings in the rbac.authorization.k8s.io/v1 group.")

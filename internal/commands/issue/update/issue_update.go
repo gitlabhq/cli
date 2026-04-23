@@ -19,7 +19,7 @@ import (
 func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 	issueUpdateCmd := &cobra.Command{
 		Use:   "update <id>",
-		Short: `Update issue`,
+		Short: `Update issue.`,
 		Long:  ``,
 		Example: heredoc.Doc(`
 			glab issue update 42 --label ui,ux
@@ -206,7 +206,7 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 	issueUpdateCmd.Flags().StringSliceP("label", "l", []string{}, "Add labels.")
 	issueUpdateCmd.Flags().StringSliceP("unlabel", "u", []string{}, "Remove labels.")
 	issueUpdateCmd.Flags().BoolP("public", "p", false, "Make issue public.")
-	issueUpdateCmd.Flags().BoolP("confidential", "c", false, "Make issue confidential")
+	issueUpdateCmd.Flags().BoolP("confidential", "c", false, "Make issue confidential.")
 	issueUpdateCmd.Flags().StringP("milestone", "m", "", "Title of the milestone to assign Set to \"\" or 0 to unassign.")
 	issueUpdateCmd.Flags().
 		StringSliceP("assignee", "a", []string{}, "Assign users by username. Prefix with '!' or '-' to remove from existing assignees, or '+' to add new. Otherwise, replace existing assignees with these users. Multiple usernames can be comma-separated or specified by repeating the flag.")

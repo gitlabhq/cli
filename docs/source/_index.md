@@ -71,7 +71,7 @@ in the main README.
 
 ```plaintext
   -h, --help      Show help for this command.
-  -v, --version   show glab version information
+  -v, --version   Show glab version information.
 ```
 
 ## Commands

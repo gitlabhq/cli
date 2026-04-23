@@ -15,7 +15,7 @@ import (
 
 func NewCmdApprove(f cmdutils.Factory) *cobra.Command {
 	mrApproveCmd := &cobra.Command{
-		Use:   "approve {<id> | <branch>}",
+		Use:   "approve [<id | branch>]",
 		Short: `Approve merge requests.`,
 		Long:  ``,
 		Example: heredoc.Doc(`

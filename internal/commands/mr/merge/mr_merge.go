@@ -58,7 +58,7 @@ func NewCmdMerge(f cmdutils.Factory) *cobra.Command {
 	}
 
 	mrMergeCmd := &cobra.Command{
-		Use:     "merge {<id> | <branch>}",
+		Use:     "merge [<id | branch>]",
 		Short:   `Merge or accept a merge request.`,
 		Long:    ``,
 		Aliases: []string{"accept"},

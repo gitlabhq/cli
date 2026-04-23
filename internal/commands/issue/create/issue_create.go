@@ -156,7 +156,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	issueCreateCmd.Flags().BoolVarP(&opts.yes, "yes", "y", false, "Don't prompt for confirmation to submit the issue.")
 	issueCreateCmd.Flags().BoolVar(&opts.web, "web", false, "Continue issue creation with web interface.")
 	issueCreateCmd.Flags().IntSliceVarP(&opts.LinkedIssues, "linked-issues", "", []int{}, "The IIDs of issues that this issue links to. Multiple IIDs can be comma-separated or specified by repeating the flag.")
-	issueCreateCmd.Flags().StringVarP(&opts.IssueLinkType, "link-type", "", "relates_to", "Type for the issue link")
+	issueCreateCmd.Flags().StringVarP(&opts.IssueLinkType, "link-type", "", "relates_to", "Type for the issue link.")
 	issueCreateCmd.Flags().StringVarP(&opts.TimeEstimate, "time-estimate", "e", "", "Set time estimate for the issue.")
 	issueCreateCmd.Flags().StringVarP(&opts.TimeSpent, "time-spent", "s", "", "Set time spent for the issue.")
 	issueCreateCmd.Flags().BoolVar(&opts.recover, "recover", false, "Save the options to a file if the issue fails to be created. If the file exists, the options will be loaded from the recovery file. (EXPERIMENTAL)")

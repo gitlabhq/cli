@@ -62,8 +62,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmdutils.EnableRepoOverride(cmd, f)
 
 	fl := cmd.Flags()
-	fl.Int64VarP(&opts.userID, "user-id", "u", 0, "User ID instead of username")
-	fl.StringVarP(&opts.username, "username", "", "", "Username instead of user-id")
+	fl.Int64VarP(&opts.userID, "user-id", "u", 0, "User ID instead of username.")
+	fl.StringVarP(&opts.username, "username", "", "", "Username instead of user-id.")
 	cmd.MarkFlagsMutuallyExclusive("username", "user-id")
 
 	return cmd

@@ -15,7 +15,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	duoCmd := &cobra.Command{
 		Use:   "duo <command> prompt",
-		Short: "Work with GitLab Duo",
+		Short: "Work with GitLab Duo.",
 		Long: heredoc.Doc(`
 			Work with GitLab Duo directly in your terminal. Receive AI-native assistance
 			across the software development lifecycle, without switching contexts.

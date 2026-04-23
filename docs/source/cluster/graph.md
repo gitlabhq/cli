@@ -113,7 +113,7 @@ glab cluster graph -R user/project -a 123 --root-expression 'group == "" && reso
       --apps                          Watch deployments, replicasets, daemonsets, and statefulsets in apps/v1 group.
       --batch                         Watch jobs and cronjobs in the batch/v1 group.
       --cluster-rbac                  Watch clusterroles and clusterrolebindings in the rbac.authorization.k8s.io/v1 group.
-      --core                          Watch pods, secrets, configmaps, and serviceaccounts in the core/v1 group
+      --core                          Watch pods, secrets, configmaps, and serviceaccounts in the core/v1 group.
       --crd                           Watch customresourcedefinitions in the apiextensions.k8s.io/v1 group.
       --ignore-arc-direction          Ignore arc direction when evaluating roots connectivity. GitLab and agent 18.3+ required.
       --listen-addr string            Address to listen on. (default "localhost:0")

@@ -32,7 +32,7 @@ glab mr diff 123 --color=never
 
 ```plaintext
       --color string   Use color in diff output: always, never, auto. (default "auto")
-      --raw            Use raw diff format that can be piped to commands
+      --raw            Use raw diff format that can be piped to commands.
 ```
 
 ## Options inherited from parent commands

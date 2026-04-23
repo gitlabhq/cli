@@ -49,7 +49,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "clear [flags]",
-		Short: "Clear cached GitLab Agent tokens",
+		Short: "Clear cached GitLab Agent tokens.",
 		Long:  longHelp,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
@@ -63,11 +63,11 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	}
 
 	fl := cmd.Flags()
-	fl.BoolVar(&opts.filesystem, "filesystem", true, "Clear tokens from filesystem cache")
-	fl.BoolVar(&opts.keyring, "keyring", true, "Clear tokens from keyring cache")
-	fl.BoolVar(&opts.revoke, "revoke", true, "Revoke tokens on GitLab server before clearing cache")
-	fl.Int64SliceVar(&opts.agents, "agent", nil, "Clear tokens for specific agent IDs only")
-	fl.StringVarP(&opts.repo, "repo", "R", "", "Select another repository using the OWNER/REPO format")
+	fl.BoolVar(&opts.filesystem, "filesystem", true, "Clear tokens from filesystem cache.")
+	fl.BoolVar(&opts.keyring, "keyring", true, "Clear tokens from keyring cache.")
+	fl.BoolVar(&opts.revoke, "revoke", true, "Revoke tokens on GitLab server before clearing cache.")
+	fl.Int64SliceVar(&opts.agents, "agent", nil, "Clear tokens for specific agent IDs only.")
+	fl.StringVarP(&opts.repo, "repo", "R", "", "Select another repository using the OWNER/REPO format.")
 
 	cmdutils.EnableRepoOverride(cmd, f)
 

@@ -25,7 +25,7 @@ new
 ## Options
 
 ```plaintext
-  -n, --name string   The name of the new board
+  -n, --name string   The name of the new board.
 ```
 
 ## Options inherited from parent commands

@@ -13,7 +13,7 @@ import (
 func NewTokenCmd(f cmdutils.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "token",
-		Short:   "Manage personal, project, or group tokens",
+		Short:   "Manage personal, project, or group tokens.",
 		Aliases: []string{"token"},
 	}
 

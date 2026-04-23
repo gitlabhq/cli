@@ -41,7 +41,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list [flags]",
-		Short: "List cached GitLab Agent tokens",
+		Short: "List cached GitLab Agent tokens.",
 		Long:  longHelp,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
@@ -52,10 +52,10 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	}
 
 	fl := cmd.Flags()
-	fl.BoolVar(&opts.filesystem, "filesystem", true, "Include tokens from filesystem cache")
-	fl.BoolVar(&opts.keyring, "keyring", true, "Include tokens from keyring cache")
-	fl.Int64SliceVar(&opts.agents, "agent", nil, "Filter by specific agent IDs")
-	fl.StringVarP(&opts.repo, "repo", "R", "", "Select another repository using the OWNER/REPO format")
+	fl.BoolVar(&opts.filesystem, "filesystem", true, "Include tokens from filesystem cache.")
+	fl.BoolVar(&opts.keyring, "keyring", true, "Include tokens from keyring cache.")
+	fl.Int64SliceVar(&opts.agents, "agent", nil, "Filter by specific agent IDs.")
+	fl.StringVarP(&opts.repo, "repo", "R", "", "Select another repository using the OWNER/REPO format.")
 
 	cmdutils.EnableRepoOverride(cmd, f)
 

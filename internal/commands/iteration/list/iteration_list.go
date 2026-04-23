@@ -37,7 +37,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 
 	iterationListCmd := &cobra.Command{
 		Use:     "list [flags]",
-		Short:   `List project iterations`,
+		Short:   `List project iterations.`,
 		Long:    ``,
 		Aliases: []string{"ls"},
 		Example: heredoc.Doc(`

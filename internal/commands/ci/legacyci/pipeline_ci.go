@@ -16,7 +16,7 @@ import (
 func NewCmdCI(f cmdutils.Factory) *cobra.Command {
 	pipelineCICmd := &cobra.Command{
 		Use:   "ci <command> [flags]",
-		Short: `Work with GitLab CI/CD pipelines and jobs`,
+		Short: `Work with GitLab CI/CD pipelines and jobs.`,
 		Example: heredoc.Doc(`
 			$ glab pipeline ci trace
 		`),

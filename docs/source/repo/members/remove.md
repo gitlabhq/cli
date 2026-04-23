@@ -34,8 +34,8 @@ glab repo members remove --user-id=123
 
 ```plaintext
   -R, --repo OWNER/REPO   Select another repository. Can use either OWNER/REPO or `GROUP/NAMESPACE/REPO` format. Also accepts full URL or Git URL.
-  -u, --user-id int       User ID instead of username
-      --username string   Username instead of user-id
+  -u, --user-id int       User ID instead of username.
+      --username string   Username instead of user-id.
 ```
 
 ## Options inherited from parent commands

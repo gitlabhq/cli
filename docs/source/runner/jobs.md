@@ -38,13 +38,13 @@ glab runner jobs 9 --output json
 ## Options
 
 ```plaintext
-      --order-by string   Order jobs by: id (default "id")
+      --order-by string   Order jobs by: id. (default "id")
   -F, --output string     Format output as: text, json. (default "text")
-  -p, --page int          Page number (default 1)
-  -P, --per-page int      Number of items to list per page (default 30)
+  -p, --page int          Page number. (default 1)
+  -P, --per-page int      Number of items to list per page. (default 30)
   -R, --repo OWNER/REPO   Select another repository. Can use either OWNER/REPO or `GROUP/NAMESPACE/REPO` format. Also accepts full URL or Git URL.
-      --sort string       Sort order: asc or desc (default "desc")
-      --status string     Filter jobs by status: running, success, failed, canceled
+      --sort string       Sort order: asc or desc. (default "desc")
+      --status string     Filter jobs by status: running, success, failed, canceled.
 ```
 
 ## Options inherited from parent commands

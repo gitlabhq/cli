@@ -78,7 +78,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	issueCmd.Flags().StringVarP(&boardName, "name", "n", "", "The name of the new board")
+	issueCmd.Flags().StringVarP(&boardName, "name", "n", "", "The name of the new board.")
 
 	return issueCmd
 }

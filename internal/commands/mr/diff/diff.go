@@ -67,7 +67,7 @@ func NewCmdDiff(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&opts.useColor, "color", "auto", "Use color in diff output: always, never, auto.")
-	cmd.Flags().BoolVar(&opts.rawDiff, "raw", false, "Use raw diff format that can be piped to commands")
+	cmd.Flags().BoolVar(&opts.rawDiff, "raw", false, "Use raw diff format that can be piped to commands.")
 
 	return cmd
 }

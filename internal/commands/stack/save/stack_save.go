@@ -26,7 +26,7 @@ func NewCmdSaveStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.GetT
 	var stageAll bool
 	stackSaveCmd := &cobra.Command{
 		Use:   "save",
-		Short: `Save your progress within a stacked diff. (EXPERIMENTAL)`,
+		Short: `Save your progress in a stacked diff. (EXPERIMENTAL)`,
 		Long: `Save your current progress with a diff on the stack.
 ` + text.ExperimentalString,
 		Example: heredoc.Doc(`
@@ -165,7 +165,7 @@ func NewCmdSaveStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.GetT
 	}
 	stackSaveCmd.Flags().StringVarP(&description, "description", "d", "", "Description of the change.")
 	stackSaveCmd.Flags().StringVarP(&description, "message", "m", "", "Alias for the description flag.")
-	stackSaveCmd.Flags().BoolVarP(&stageAll, "all", "a", false, "Automatically stage modified and deleted tracked files (default false)")
+	stackSaveCmd.Flags().BoolVarP(&stageAll, "all", "a", false, "Automatically stage modified and deleted tracked files. (default false)")
 
 	return stackSaveCmd
 }

@@ -51,9 +51,9 @@ func NewCmdAmendStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.Get
 			return nil
 		},
 	}
-	stackSaveCmd.Flags().StringVarP(&description, "description", "d", "", "a description of the change")
-	stackSaveCmd.Flags().StringVarP(&description, "message", "m", "", "alias for the description flag")
-	stackSaveCmd.Flags().BoolVarP(&amendStageAll, "all", "a", false, "Automatically stage modified and deleted tracked files (default false)")
+	stackSaveCmd.Flags().StringVarP(&description, "description", "d", "", "A description of the change.")
+	stackSaveCmd.Flags().StringVarP(&description, "message", "m", "", "Alias for the description flag.")
+	stackSaveCmd.Flags().BoolVarP(&amendStageAll, "all", "a", false, "Automatically stage modified and deleted tracked files. (default false)")
 	stackSaveCmd.MarkFlagsMutuallyExclusive("message", "description")
 
 	return stackSaveCmd

@@ -185,6 +185,6 @@ func NewCmdRoot(f cmdutils.Factory) *cobra.Command {
 	// Add global repo override flag but keep it hidden
 	cmdutils.AddGlobalRepoOverride(rootCmd, f)
 
-	rootCmd.Flags().BoolP("version", "v", false, "show glab version information")
+	rootCmd.Flags().BoolP("version", "v", false, "Show glab version information.")
 	return rootCmd
 }
