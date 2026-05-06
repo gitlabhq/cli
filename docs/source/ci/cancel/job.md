@@ -14,7 +14,7 @@ Cancel CI/CD jobs.
 
 ## Synopsis
 
-Use `--dry-run` to list jobs that would be cancelled without making changes.
+Use `--dry-run` to list jobs that would be canceled without making changes.
 
 ```plaintext
 glab ci cancel job <id> [flags]

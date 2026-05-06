@@ -14,7 +14,8 @@ Trigger a manual CI/CD job.
 
 ## Synopsis
 
-Without a job argument, you can select one interactively. Only jobs with manual status can be triggered.
+Without a job argument, you can select one interactively.
+You can trigger only jobs with manual status.
 
 ```plaintext
 glab ci trigger <job-id> [flags]

@@ -14,7 +14,7 @@ Cancel CI/CD pipelines.
 
 ## Synopsis
 
-Use `--dry-run` to list pipelines that would be cancelled without making changes.
+Use `--dry-run` to list pipelines that would be canceled without making changes.
 
 ```plaintext
 glab ci cancel pipeline <id> [flags]

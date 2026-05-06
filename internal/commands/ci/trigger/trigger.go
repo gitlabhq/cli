@@ -19,7 +19,8 @@ func NewCmdTrigger(f cmdutils.Factory) *cobra.Command {
 		Short:   `Trigger a manual CI/CD job.`,
 		Aliases: []string{},
 		Long: heredoc.Doc(`
-			Without a job argument, you can select one interactively. Only jobs with manual status can be triggered.
+			Without a job argument, you can select one interactively.
+			You can trigger only jobs with manual status.
 		`),
 		Example: heredoc.Doc(`
 			# Interactively select a job to trigger
