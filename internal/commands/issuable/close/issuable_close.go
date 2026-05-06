@@ -35,8 +35,8 @@ func NewCmdClose(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Comman
 	}
 
 	issueCloseCmd := &cobra.Command{
-		Use:     "close [<id> | <url>] [flags]",
-		Short:   fmt.Sprintf(`Close an %s.`, issueType),
+		Use:   "close [<id> | <url>] [flags]",
+		Short: fmt.Sprintf(`Close an %s.`, issueType),
 		Long: heredoc.Doc(`
 			You can use a full GitLab URL instead of an ID.
 		`),

@@ -24,7 +24,7 @@ func NewCmdNote(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Command
 		Long: heredoc.Docf(`
 			Opens an editor for the comment if you don't use %[1]s--message%[1]s.
 		`, "`"),
-		Args:    cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

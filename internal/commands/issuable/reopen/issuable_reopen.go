@@ -40,8 +40,8 @@ func NewCmdReopen(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Comma
 	}
 
 	issueReopenCmd := &cobra.Command{
-		Use:     "reopen [<id> | <url>] [flags]",
-		Short:   description[issueType],
+		Use:   "reopen [<id> | <url>] [flags]",
+		Short: description[issueType],
 		Long: heredoc.Doc(`
 			You can use a full GitLab URL instead of an ID.
 		`),
