@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -20,7 +21,9 @@ func NewCmdNote(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Command
 		Use:     fmt.Sprintf("note <%s-id>", issueType),
 		Aliases: []string{"comment"},
 		Short:   fmt.Sprintf("Comment on an %s in GitLab.", issueType),
-		Long:    ``,
+		Long: heredoc.Docf(`
+			Opens an editor for the comment if you don't use %[1]s--message%[1]s.
+		`, "`"),
 		Args:    cobra.ExactArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
