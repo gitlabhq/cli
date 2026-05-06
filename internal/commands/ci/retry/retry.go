@@ -16,6 +16,9 @@ func NewCmdRetry(f cmdutils.Factory) *cobra.Command {
 		Use:     "retry <job-id>",
 		Short:   `Retry a CI/CD job.`,
 		Aliases: []string{},
+		Long: heredoc.Doc(`
+			Without a job argument, you can select one interactively.
+		`),
 		Example: heredoc.Doc(`
 			# Interactively select a job to retry
 			glab ci retry
@@ -25,7 +28,6 @@ func NewCmdRetry(f cmdutils.Factory) *cobra.Command {
 
 			# Retry job with the name 'lint'
 			glab ci retry lint`),
-		Long: heredoc.Doc(`Without a job argument, you can select one interactively.`),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

@@ -18,6 +18,9 @@ func NewCmdTrigger(f cmdutils.Factory) *cobra.Command {
 		Use:     "trigger <job-id>",
 		Short:   `Trigger a manual CI/CD job.`,
 		Aliases: []string{},
+		Long: heredoc.Doc(`
+			Without a job argument, you can select one interactively. Only jobs with manual status can be triggered.
+		`),
 		Example: heredoc.Doc(`
 			# Interactively select a job to trigger
 			glab ci trigger
@@ -27,7 +30,6 @@ func NewCmdTrigger(f cmdutils.Factory) *cobra.Command {
 
 			# Trigger manual job with name lint
 			glab ci trigger lint`),
-		Long: heredoc.Doc(`Without a job argument, you can select one interactively. Only jobs with manual status can be triggered.`),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

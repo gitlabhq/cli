@@ -29,13 +29,13 @@ func NewCmdGet(f cmdutils.Factory) *cobra.Command {
 		Use:     "get [flags]",
 		Short:   `Get JSON of a running CI/CD pipeline on the current or other specified branch.`,
 		Aliases: []string{"stats"},
-		Example: heredoc.Doc(`
-			glab ci get
-			glab ci -R some/project -p 12345`),
 		Long: heredoc.Docf(`
 			Defaults to the current branch. Use %[1]s--pipeline-id%[1]s to specify a pipeline
 			instead of fetching the latest for a branch.
 		`, "`"),
+		Example: heredoc.Doc(`
+			glab ci get
+			glab ci -R some/project -p 12345`),
 		Args: cobra.ExactArgs(0),
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",

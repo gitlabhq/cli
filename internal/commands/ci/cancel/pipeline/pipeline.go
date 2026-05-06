@@ -25,14 +25,14 @@ func NewCmdCancel(f cmdutils.Factory) *cobra.Command {
 	pipelineCancelCmd := &cobra.Command{
 		Use:   "pipeline <id> [flags]",
 		Short: `Cancel CI/CD pipelines.`,
+		Long: heredoc.Docf(`
+			Use %[1]s--dry-run%[1]s to list pipelines that would be cancelled without making changes.
+		`, "`"),
 		Example: heredoc.Doc(`
 			glab ci cancel pipeline 1504182795
 			glab ci cancel pipeline 1504182795,1504182796
 			glab ci cancel pipeline "1504182795 1504182796"
 			glab ci cancel pipeline 1504182795,1504182796 --dry-run`),
-		Long: heredoc.Docf(`
-			Use %[1]s--dry-run%[1]s to list pipelines that would be cancelled without making changes.
-		`, "`"),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 1 {
 				return fmt.Errorf("You must pass a pipeline ID.")

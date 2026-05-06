@@ -25,14 +25,14 @@ func NewCmdCancel(f cmdutils.Factory) *cobra.Command {
 	jobCancelCmd := &cobra.Command{
 		Use:   "job <id> [flags]",
 		Short: `Cancel CI/CD jobs.`,
+		Long: heredoc.Docf(`
+			Use %[1]s--dry-run%[1]s to list jobs that would be cancelled without making changes.
+		`, "`"),
 		Example: heredoc.Doc(`
 			glab ci cancel job 1504182795
 			glab ci cancel job 1504182795,1504182795
 			glab ci cancel job "1504182795 1504182795"
 			glab ci cancel job 1504182795,1504182795 --dry-run`),
-		Long: heredoc.Docf(`
-			Use %[1]s--dry-run%[1]s to list jobs that would be cancelled without making changes.
-		`, "`"),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 1 {
 				return fmt.Errorf("You must pass a job ID.")
