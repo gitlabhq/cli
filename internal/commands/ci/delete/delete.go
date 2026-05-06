@@ -49,7 +49,10 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 			glab ci delete --status=failed
 			glab ci delete --older-than 24h
 			glab ci delete --older-than 24h --status=failed`),
-		Long: ``,
+		Long: heredoc.Docf(`
+			You can delete by ID, or filter by status, source, or age. Use %[1]s--dry-run%[1]s to preview
+			the pipelines that would be deleted.
+		`, "`"),
 		Args: func(cmd *cobra.Command, args []string) error {
 			olderThanDuration, _ := cmd.Flags().GetDuration(FlagOlderThan)
 			status, _ := cmd.Flags().GetString(FlagStatus)

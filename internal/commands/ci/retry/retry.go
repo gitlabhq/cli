@@ -25,7 +25,7 @@ func NewCmdRetry(f cmdutils.Factory) *cobra.Command {
 
 			# Retry job with the name 'lint'
 			glab ci retry lint`),
-		Long: ``,
+		Long: heredoc.Doc(`Without a job argument, you can select one interactively.`),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

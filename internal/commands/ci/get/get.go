@@ -32,7 +32,10 @@ func NewCmdGet(f cmdutils.Factory) *cobra.Command {
 		Example: heredoc.Doc(`
 			glab ci get
 			glab ci -R some/project -p 12345`),
-		Long: ``,
+		Long: heredoc.Docf(`
+			Defaults to the current branch. Use %[1]s--pipeline-id%[1]s to specify a pipeline
+			instead of fetching the latest for a branch.
+		`, "`"),
 		Args: cobra.ExactArgs(0),
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
