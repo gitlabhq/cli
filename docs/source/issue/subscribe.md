@@ -14,7 +14,8 @@ Subscribe to an issue.
 
 ## Synopsis
 
-You receive notifications for updates when subscribed.
+You receive notifications when the issue is updated, commented on,
+or has its state changed.
 
 ```plaintext
 glab issue subscribe <id> [flags]

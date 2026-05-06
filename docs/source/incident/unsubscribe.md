@@ -14,7 +14,7 @@ Unsubscribe from an incident.
 
 ## Synopsis
 
-You no longer receive notifications after unsubscribing.
+You no longer receive notifications about updates to the incident.
 
 ```plaintext
 glab incident unsubscribe <id> [flags]

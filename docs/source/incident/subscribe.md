@@ -14,7 +14,8 @@ Subscribe to an incident.
 
 ## Synopsis
 
-You receive notifications for updates when subscribed.
+You receive notifications when the incident is updated, commented on,
+or has its state changed.
 
 ```plaintext
 glab incident subscribe <id> [flags]

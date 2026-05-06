@@ -34,9 +34,10 @@ func NewCmdSubscribe(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Co
 	issueSubscribeCmd := &cobra.Command{
 		Use:   "subscribe <id>",
 		Short: fmt.Sprintf(`Subscribe to an %s.`, issueType),
-		Long: heredoc.Doc(`
-			You receive notifications for updates when subscribed.
-		`),
+		Long: heredoc.Docf(`
+			You receive notifications when the %s is updated, commented on,
+			or has its state changed.
+		`, issueType),
 		Aliases: []string{"sub"},
 		Example: heredoc.Doc(fmt.Sprintf(`
 			glab %[1]s subscribe 123
