@@ -2,12 +2,15 @@ package git
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"gitlab.com/gitlab-org/cli/internal/run"
 )
 
 func TestStandardGitCommand_Git_SetsLocale(t *testing.T) {
@@ -106,4 +109,21 @@ func TestStandardGitCommand_GitWithIO_WrapsExitError(t *testing.T) {
 	// is caught here too).
 	assert.Contains(t, stderr.String(), "not a git repository")
 	assert.Empty(t, stdout.String(), "no stdout expected on this failure")
+}
+
+func TestStandardGitRunner_LatestCommitPreservesSubjectSpaces(t *testing.T) {
+	InitGitRepo(t)
+	configureGitConfig(t)
+	require.NoError(t, os.WriteFile("randomfile", []byte("test"), 0o600))
+	_, err := run.PrepareCmd(GitCommand("add", "randomfile")).Output()
+	require.NoError(t, err)
+
+	_, err = run.PrepareCmd(GitCommand("commit", "-m", "fix multiple words")).Output()
+	require.NoError(t, err)
+
+	commit, err := NewStandardGitRunner("").LatestCommit("HEAD")
+
+	require.NoError(t, err)
+	assert.Equal(t, "fix multiple words", commit.Title)
+	assert.NotEmpty(t, commit.Sha)
 }
