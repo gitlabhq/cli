@@ -574,6 +574,14 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 	}
 	credentialFlow := &authutils.GitCredentialFlow{Executable: glabExecutable}
 
+	// Persist --git-protocol / --api-protocol before the interactive block so
+	// the flags aren't silently dropped when stdin isn't a TTY (--web /
+	// --device in CI or a devcontainer setup script). The interactive block
+	// below also writes, but idempotently with the same value.
+	if err := persistProtocolFlags(cfg, hostname, opts.GitProtocol, opts.ApiProtocol); err != nil {
+		return err
+	}
+
 	if opts.Interactive {
 		if opts.GitProtocol != "" {
 			gitProtocol = strings.ToLower(opts.GitProtocol)
@@ -761,6 +769,26 @@ func initialContainerRegistryDomains(cfg config.Config, hostname string) string 
 		return saved
 	}
 	return defaultContainerRegistryDomainsString(hostname)
+}
+
+// persistProtocolFlags writes --git-protocol / --api-protocol to config when
+// their flags are non-empty, regardless of interactivity. Mirrors the
+// --token / --job-token branches earlier in loginRun so the --web / --device
+// flows persist the same flags even when stdin isn't a TTY (CI, devcontainer
+// setup scripts). Values are lowercased to match how the interactive prompt
+// path normalizes them.
+func persistProtocolFlags(cfg config.Config, hostname, gitProtocol, apiProtocol string) error {
+	if gitProtocol != "" {
+		if err := cfg.Set(hostname, "git_protocol", strings.ToLower(gitProtocol)); err != nil {
+			return err
+		}
+	}
+	if apiProtocol != "" {
+		if err := cfg.Set(hostname, "api_protocol", strings.ToLower(apiProtocol)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func defaultContainerRegistryDomainsString(hostname string) string {
