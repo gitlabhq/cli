@@ -528,3 +528,57 @@ func Test_initialContainerRegistryDomains(t *testing.T) {
 		assert.Equal(t, "gitlab.com,gitlab.com:443,registry.gitlab.com", got)
 	})
 }
+
+func Test_persistProtocolFlags(t *testing.T) {
+	t.Run("both flags set writes both keys lowercased", func(t *testing.T) {
+		cfg := config.NewBlankConfigInDir(t.TempDir())
+
+		err := persistProtocolFlags(cfg, "gl.io", "SSH", "HTTPS")
+		require.NoError(t, err)
+
+		gitProto, _ := cfg.Get("gl.io", "git_protocol")
+		assert.Equal(t, "ssh", gitProto)
+		apiProto, _ := cfg.Get("gl.io", "api_protocol")
+		assert.Equal(t, "https", apiProto)
+	})
+
+	t.Run("only git flag set leaves api untouched", func(t *testing.T) {
+		cfg := config.NewBlankConfigInDir(t.TempDir())
+		require.NoError(t, cfg.Set("gl.io", "api_protocol", "http"))
+
+		err := persistProtocolFlags(cfg, "gl.io", "ssh", "")
+		require.NoError(t, err)
+
+		gitProto, _ := cfg.Get("gl.io", "git_protocol")
+		assert.Equal(t, "ssh", gitProto)
+		apiProto, _ := cfg.Get("gl.io", "api_protocol")
+		assert.Equal(t, "http", apiProto)
+	})
+
+	t.Run("only api flag set leaves git untouched", func(t *testing.T) {
+		cfg := config.NewBlankConfigInDir(t.TempDir())
+		require.NoError(t, cfg.Set("gl.io", "git_protocol", "ssh"))
+
+		err := persistProtocolFlags(cfg, "gl.io", "", "http")
+		require.NoError(t, err)
+
+		gitProto, _ := cfg.Get("gl.io", "git_protocol")
+		assert.Equal(t, "ssh", gitProto)
+		apiProto, _ := cfg.Get("gl.io", "api_protocol")
+		assert.Equal(t, "http", apiProto)
+	})
+
+	t.Run("neither flag set leaves config untouched", func(t *testing.T) {
+		cfg := config.NewBlankConfigInDir(t.TempDir())
+		require.NoError(t, cfg.Set("gl.io", "git_protocol", "ssh"))
+		require.NoError(t, cfg.Set("gl.io", "api_protocol", "https"))
+
+		err := persistProtocolFlags(cfg, "gl.io", "", "")
+		require.NoError(t, err)
+
+		gitProto, _ := cfg.Get("gl.io", "git_protocol")
+		assert.Equal(t, "ssh", gitProto)
+		apiProto, _ := cfg.Get("gl.io", "api_protocol")
+		assert.Equal(t, "https", apiProto)
+	})
+}
