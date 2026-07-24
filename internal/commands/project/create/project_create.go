@@ -266,7 +266,10 @@ func runCreateProject(cmd *cobra.Command, args []string, f cmdutils.Factory) err
 	f.IO().LogInfof("%s Created project on GitLab: %s - %s\n", greenCheck, project.NameWithNamespace, project.WebURL)
 
 	cfg := f.Config()
-	webURL, _ := url.Parse(project.WebURL)
+	webURL, err := url.Parse(project.WebURL)
+	if err != nil {
+		return fmt.Errorf("project created but GitLab returned an invalid web URL %q: %w", project.WebURL, err)
+	}
 	protocol, _ := cfg.Get(webURL.Host, "git_protocol")
 	remote := glrepo.RemoteURL(project, protocol)
 
