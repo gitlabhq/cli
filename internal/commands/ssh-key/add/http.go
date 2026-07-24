@@ -14,7 +14,11 @@ func UploadSSHKey(client *gitlab.Client, title, key, usage_type, expiresAt strin
 	}
 
 	if expiresAt != "" {
-		expiresAt, err := time.Parse(time.RFC3339[:len(expiresAt)], expiresAt)
+		layout := time.RFC3339
+		if len(expiresAt) < len(layout) {
+			layout = layout[:len(expiresAt)]
+		}
+		expiresAt, err := time.Parse(layout, expiresAt)
 		if err != nil {
 			return err
 		}
