@@ -102,7 +102,10 @@ func (o *options) validate() error {
 		)
 	}
 
-	remotes, _ := o.remotes()
+	remotes, err := o.remotes()
+	if err != nil {
+		return fmt.Errorf("failed to list remotes: %w", err)
+	}
 	if existing, _ := remotes.FindByName(o.remoteName); existing != nil {
 		return fmt.Errorf("remote %q already exists", o.remoteName)
 	}
