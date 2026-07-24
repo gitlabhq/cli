@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"runtime"
@@ -36,6 +37,9 @@ func FromLauncher(launcher, url string) (*exec.Cmd, error) {
 	args, err := shlex.Split(launcher)
 	if err != nil {
 		return nil, err
+	}
+	if len(args) == 0 {
+		return nil, errors.New("browser launcher cannot be blank")
 	}
 
 	args = append(args, url)
