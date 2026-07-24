@@ -31,7 +31,7 @@ glab variable update FROM_ENV_WITH_ARG "${ENV_VAR}"
 glab variable update FROM_ENV_WITH_FLAG -v"${ENV_VAR}"
 glab variable update FROM_FILE < secret.txt
 cat file.txt | glab variable update SERVER_TOKEN
-cat token.txt | glab variable update GROUP_TOKEN -g mygroup --scope=prod
+cat token.txt | glab variable update GROUP_TOKEN -g mygroup
 ```
 
 ## Options
