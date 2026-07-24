@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -295,6 +296,7 @@ func TestMRDiff_tty(t *testing.T) {
 	t.Parallel()
 
 	testClient := gitlabtesting.NewTestClient(t)
+	longLine := "+" + strings.Repeat("x", 70*1024)
 
 	// Mock ListProjectMergeRequests - find MR by branch
 	testClient.MockMergeRequests.EXPECT().
@@ -351,7 +353,7 @@ func TestMRDiff_tty(t *testing.T) {
 				NewPath:     "LICENSE",
 				AMode:       "0",
 				BMode:       "100644",
-				Diff:        "@@ -0,0 +1,21 @@\n+The MIT License (MIT)\n+\n+Copyright (c) 2018 Administrator\n+\n+Permission is hereby granted, free of charge, to any person obtaining a copy\n+of this software and associated documentation files (the \"Software\"), to deal\n+in the Software without restriction, including without limitation the rights\n+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n+copies of the Software, and to permit persons to whom the Software is\n+furnished to do so, subject to the following conditions:\n+\n+The above copyright notice and this permission notice shall be included in all\n+copies or substantial portions of the Software.\n+\n+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n+SOFTWARE.\n",
+				Diff:        "@@ -0,0 +1,2 @@\n+The MIT License (MIT)\n" + longLine + "\n",
 				NewFile:     true,
 				RenamedFile: true,
 				DeletedFile: false,
@@ -367,7 +369,8 @@ func TestMRDiff_tty(t *testing.T) {
 	output, err := exec("")
 	require.NoError(t, err)
 	// TTY output should have color codes
-	assert.Contains(t, output.String(), "\x1b[m\n\x1b[32m+FITNESS")
+	assert.Contains(t, output.String(), "\x1b[32m+The MIT License")
+	assert.Contains(t, output.String(), longLine)
 }
 
 func TestMRDiff_no_diffs_found(t *testing.T) {
