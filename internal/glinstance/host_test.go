@@ -126,6 +126,10 @@ func TestAPIEndpoint(t *testing.T) {
 			want:     "https://ghe.io/api/v4/",
 		},
 		{
+			host: "ghe.io",
+			want: "https://ghe.io/api/v4/",
+		},
+		{
 			host:     "salsa.debian.com",
 			protocol: "http",
 			want:     "http://salsa.debian.com/api/v4/",

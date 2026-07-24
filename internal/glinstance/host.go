@@ -91,6 +91,10 @@ func resolveHostAndSubfolder(hostname, apiHost, subfolder string) (string, strin
 //
 // Precedence: subfolder parameter > path in apiHost > none
 func APIEndpoint(hostname, protocol, apiHost, subfolder string) string {
+	if protocol == "" {
+		protocol = DefaultProtocol
+	}
+
 	baseHost, effectiveSubfolder := resolveHostAndSubfolder(hostname, apiHost, subfolder)
 	urlPath := buildURLPath(baseHost, effectiveSubfolder)
 
