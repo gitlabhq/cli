@@ -56,7 +56,7 @@ func NewCmdUpdate(f cmdutils.Factory, runE func(opts *options) error) *cobra.Com
 			glab variable update FROM_ENV_WITH_FLAG -v"${ENV_VAR}"
 			glab variable update FROM_FILE < secret.txt
 			cat file.txt | glab variable update SERVER_TOKEN
-			cat token.txt | glab variable update GROUP_TOKEN -g mygroup --scope=prod`),
+			cat token.txt | glab variable update GROUP_TOKEN -g mygroup`),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
