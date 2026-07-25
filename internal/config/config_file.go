@@ -306,6 +306,8 @@ func parseConfig(filename, localPath string) (Config, error) {
 				restContent := root.Content[0].Content
 				root.Content[0].Content = append(newContent, restContent...)
 			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
 		}
 	}
 

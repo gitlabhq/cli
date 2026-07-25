@@ -75,3 +75,35 @@ func Test_ParseConfig_DoesNotReadSeparateLocalFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, local.All(), "ParseConfig must not merge a separate local file")
 }
+
+// A local config that exists but cannot be parsed must not be swallowed. If it
+// is, glab silently runs on the global config only and the user believes their
+// per-repository overrides are in effect. The aliases file directly below this
+// merge already reports parse errors this way.
+func Test_parseConfig_ReportsBrokenLocalConfig(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	seedFile(t, dir, "config.yml", "git_protocol: ssh\neditor: vim\n")
+	seedFile(t, dir, "local.yml", "editor: [unclosed\n")
+
+	_, err := parseConfig(filepath.Join(dir, "config.yml"), filepath.Join(dir, "local.yml"))
+
+	require.Error(t, err)
+}
+
+// A missing local config is normal: most repositories have no per-repository
+// overrides, so it must stay silent.
+func Test_parseConfig_AllowsMissingLocalConfig(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	seedFile(t, dir, "config.yml", "editor: vim\n")
+
+	cfg, err := parseConfig(filepath.Join(dir, "config.yml"), filepath.Join(dir, "does-not-exist.yml"))
+
+	require.NoError(t, err)
+	editor, _, err := cfg.GetWithSource("", "editor", false)
+	require.NoError(t, err)
+	assert.Equal(t, "vim", editor)
+}
