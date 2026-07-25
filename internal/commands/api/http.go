@@ -209,6 +209,9 @@ func copyFileField(w *multipart.Writer, key, path string, stdin io.ReadCloser) e
 func parseStringArrayField(strValue string) []string {
 	strValue = strings.TrimPrefix(strValue, "[")
 	strValue = strings.TrimSuffix(strValue, "]")
+	if strings.TrimSpace(strValue) == "" {
+		return []string{}
+	}
 	strArrayElements := strings.Split(strValue, ",")
 
 	var strSlice []string

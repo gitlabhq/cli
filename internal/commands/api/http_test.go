@@ -97,6 +97,13 @@ func (s roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return s(r)
 }
 
+func Test_parseStringArrayField_emptyArray(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, parseStringArrayField("[]"))
+	assert.Empty(t, parseStringArrayField("[  ]"))
+}
+
 func Test_httpRequest(t *testing.T) {
 	test.ClearEnvironmentVariables(t)
 
