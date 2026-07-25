@@ -3,6 +3,7 @@
 package add
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -68,6 +69,7 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 		name              string
 		args              string
 		remotes           glrepo.Remotes
+		remotesErr        error
 		mockSetup         func(tc *gitlabtesting.TestClient)
 		expectedShellouts []string
 		wantOut           string
@@ -158,6 +160,13 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 			wantErr:   `remote "origin" already exists`,
 		},
 		{
+			name:       "fails when remotes cannot be listed",
+			args:       "alice/my-project",
+			remotesErr: errors.New("git remote failed"),
+			mockSetup:  func(tc *gitlabtesting.TestClient) {},
+			wantErr:    "failed to list remotes: git remote failed",
+		},
+		{
 			name:    "fails when project not found",
 			args:    "alice/missing-project",
 			remotes: glrepo.Remotes{},
@@ -200,7 +209,7 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 				),
 				func(f *cmdtest.Factory) {
 					f.RemotesStub = func() (glrepo.Remotes, error) {
-						return tt.remotes, nil
+						return tt.remotes, tt.remotesErr
 					}
 				},
 			)
