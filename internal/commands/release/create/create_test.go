@@ -101,6 +101,30 @@ func TestReleaseCreate(t *testing.T) {
 	}
 }
 
+func TestReleaseCreate_LongReleasedAtReturnsError(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+	notFoundResponse := &gitlab.Response{Response: &http.Response{StatusCode: http.StatusNotFound}}
+	testClient.MockTags.EXPECT().
+		GetTag("OWNER/REPO", "0.0.1", gomock.Any()).
+		Return(&gitlab.Tag{Name: "0.0.1"}, nil, nil)
+	testClient.MockReleases.EXPECT().
+		GetRelease("OWNER/REPO", "0.0.1", gomock.Any()).
+		Return(nil, notFoundResponse, errors.New("not found"))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmdCreate,
+		false,
+		cmdtest.WithGitLabClient(testClient.Client),
+		cmdtest.WithBaseRepo("OWNER", "REPO", glinstance.DefaultHostname),
+	)
+
+	_, err := exec(`0.0.1 --notes "test release" --released-at "not-a-valid-timestamp-that-is-long"`)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot parse")
+}
+
 func TestReleaseCreateWithFiles(t *testing.T) {
 	// NOTE: This test cannot use t.Parallel() because it uses t.Setenv().
 	t.Setenv("CI_DEFAULT_BRANCH", "main")

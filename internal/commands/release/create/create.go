@@ -484,7 +484,11 @@ func createRun(opts *options) error {
 	if opts.releasedAt != "" {
 		// Parse the releasedAt to the expected format of the API
 		// From the API docs "Expected in ISO 8601 format (2019-03-15T08:00:00Z)".
-		releasedAt, err = time.Parse(time.RFC3339[:len(opts.releasedAt)], opts.releasedAt)
+		layout := time.RFC3339
+		if len(opts.releasedAt) < len(layout) {
+			layout = layout[:len(opts.releasedAt)]
+		}
+		releasedAt, err = time.Parse(layout, opts.releasedAt)
 		if err != nil {
 			return releaseFailedErr(err, start)
 		}
