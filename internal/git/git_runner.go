@@ -218,15 +218,15 @@ func (g *StandardGitRunner) LatestCommit(ref string) (*Commit, error) {
 		return &Commit{}, fmt.Errorf("could not get latest commit: %w - %s", err, stderr)
 	}
 
-	split := strings.Fields(string(stdout))
-
-	if len(split) != 2 {
+	output := strings.TrimSpace(string(stdout))
+	sha, title, ok := strings.Cut(output, " ")
+	if !ok || sha == "" || title == "" {
 		return &Commit{}, fmt.Errorf("could not parse commit for %s: unexpected format %q", ref, string(stdout))
 	}
 
 	return &Commit{
-		Sha:   split[0],
-		Title: split[1],
+		Sha:   sha,
+		Title: title,
 	}, nil
 }
 
