@@ -448,6 +448,7 @@ func processResponse(resp *http.Response, opts *options, headersOutputStream io.
 // If the response is a single JSON object, it's written as-is with a newline.
 func streamNDJSON(body io.Reader, out io.Writer) error {
 	dec := json.NewDecoder(body)
+	dec.UseNumber()
 
 	// Peek at the first token to determine if it's an array or object
 	token, err := dec.Token()

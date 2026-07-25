@@ -969,6 +969,16 @@ func Test_apiRun_ndjson_singleObject(t *testing.T) {
 	assert.Empty(t, stderr.String(), "stderr")
 }
 
+func Test_streamNDJSON_preservesLargeNumber(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	err := streamNDJSON(strings.NewReader("18446744073709551615"), &out)
+
+	require.NoError(t, err)
+	assert.Equal(t, "18446744073709551615\n", out.String())
+}
+
 func Test_apiRun_ndjson_pagination(t *testing.T) {
 	t.Parallel()
 
