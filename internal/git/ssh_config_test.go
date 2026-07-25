@@ -9,9 +9,11 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/MakeNowJust/heredoc/v2"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_sshParser_read(t *testing.T) {
@@ -84,6 +86,20 @@ func Test_sshParser_read(t *testing.T) {
 	if got := p.aliasMap["s1"]; got != "site1.net" {
 		t.Errorf("expected alias %q to expand to %q, got %q", "s1", "site1.net", got)
 	}
+}
+
+func Test_sshParser_readContinuesAfterLongLine(t *testing.T) {
+	config := "#" + strings.Repeat("x", 70*1024) + "\nHost gl\nHostname gitlab.com\n"
+	p := &sshParser{
+		open: func(string) (io.Reader, error) {
+			return strings.NewReader(config), nil
+		},
+	}
+
+	err := p.read("config")
+
+	require.NoError(t, err)
+	require.Equal(t, "gitlab.com", p.aliasMap["gl"])
 }
 
 func Test_sshParser_absolutePath(t *testing.T) {

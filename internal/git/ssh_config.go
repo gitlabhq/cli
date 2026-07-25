@@ -69,6 +69,7 @@ func (p *sshParser) read(fileName string) error {
 	}
 
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(nil, 1024*1024)
 	for scanner.Scan() {
 		m := sshConfigLineRE.FindStringSubmatch(scanner.Text())
 		if len(m) < 3 {
