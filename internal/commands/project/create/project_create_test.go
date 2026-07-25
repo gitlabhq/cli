@@ -194,6 +194,22 @@ func Test_projectCreateCmd(t *testing.T) {
 			wantErr: true, // API failures should error
 		},
 		{
+			Name: "GitLab returns invalid project web URL",
+			Args: []string{"invalid-url-repo"},
+			SetupMocks: func() {
+				createProject = func(client *gitlab.Client, opts *gitlab.CreateProjectOptions) (*gitlab.Project, error) {
+					return &gitlab.Project{
+						NameWithNamespace: "username/invalid-url-repo",
+						WebURL:            "http://[::1",
+					}, nil
+				}
+				currentUser = func(client *gitlab.Client) (*gitlab.User, error) {
+					return &gitlab.User{ID: 1, Username: "username"}, nil
+				}
+			},
+			wantErr: true,
+		},
+		{
 			Name: "Create project with name - NO_PROMPT does not create subdirectory by default",
 			Args: []string{"new-project"},
 			ExpectedStdout: []string{
