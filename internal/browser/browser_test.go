@@ -3,8 +3,11 @@
 package browser
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestForOS(t *testing.T) {
@@ -47,6 +50,17 @@ func TestForOS(t *testing.T) {
 			if cmd := ForOS(tt.args.goos, tt.args.url); !reflect.DeepEqual(cmd.Args, tt.want) {
 				t.Errorf("ForOS() = %v, want %v", cmd.Args, tt.want)
 			}
+		})
+	}
+}
+
+func TestFromLauncherRejectsBlankCommand(t *testing.T) {
+	for _, launcher := range []string{"", " ", "\t", "\n"} {
+		t.Run(fmt.Sprintf("%q", launcher), func(t *testing.T) {
+			cmd, err := FromLauncher(launcher, "https://example.com")
+
+			require.Nil(t, cmd)
+			require.EqualError(t, err, "browser launcher cannot be blank")
 		})
 	}
 }
