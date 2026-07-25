@@ -160,6 +160,7 @@ func (o *options) run(ctx context.Context) error {
 	}
 
 	diffLines := bufio.NewScanner(diffOut)
+	diffLines.Buffer(nil, max(bufio.MaxScanTokenSize, diffOut.Len()+1))
 	for diffLines.Scan() {
 		diffLine := diffLines.Text()
 		switch {
