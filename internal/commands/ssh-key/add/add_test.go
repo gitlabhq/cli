@@ -64,6 +64,13 @@ func Test_AddSSHKey(t *testing.T) {
 			wantStderr: "nonexistent.key",
 			setupMock:  func(tc *gitlabtesting.TestClient) {},
 		},
+		{
+			Name:       "Add SSH key with long invalid expiry",
+			cli:        "testdata/testkey.key --title somekey --expires-at not-a-valid-timestamp-that-is-long",
+			wantErr:    true,
+			wantStderr: "cannot parse",
+			setupMock:  func(tc *gitlabtesting.TestClient) {},
+		},
 
 		// // API errors
 		{
