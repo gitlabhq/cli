@@ -38,6 +38,12 @@ func TestIsValidURL(t *testing.T) {
 			want: true,
 		},
 		{
+			// URL schemes are case-insensitive (RFC 3986).
+			name: "uppercase HTTPS scheme",
+			url:  "HTTPS://example.com/owner/repo.git",
+			want: true,
+		},
+		{
 			name: "no protocol",
 			url:  "example.com/owner/repo",
 			want: false,
@@ -80,6 +86,18 @@ func TestParseURL(t *testing.T) {
 			url:  "http://example.com/owner/repo.git",
 			want: url{
 				Scheme: "http",
+				User:   "",
+				Host:   "example.com",
+				Path:   "/owner/repo.git",
+			},
+		},
+		{
+			// An uppercase scheme is valid (RFC 3986) and must not be mistaken
+			// for scp-style SSH, which would make the host "HTTPS".
+			name: "uppercase HTTPS scheme",
+			url:  "HTTPS://example.com/owner/repo.git",
+			want: url{
+				Scheme: "https",
 				User:   "",
 				Host:   "example.com",
 				Path:   "/owner/repo.git",
