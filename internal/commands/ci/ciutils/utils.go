@@ -355,7 +355,7 @@ func getJobIdInteractive(ctx context.Context, inputs *JobInputs, opts *JobOption
 		},
 	}
 	jobs, err := gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.Job, *gitlab.Response, error) {
-		return opts.Client.Jobs.ListPipelineJobs(opts.Repo.FullName(), pipelineId, listOptions)
+		return opts.Client.Jobs.ListPipelineJobs(opts.Repo.FullName(), pipelineId, listOptions, p, gitlab.WithContext(ctx))
 	})
 	if err != nil {
 		return 0, err

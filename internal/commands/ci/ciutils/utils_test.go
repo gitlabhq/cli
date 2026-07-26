@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"git.sr.ht/~timofurrer/ugh"
+	retryablehttp "github.com/hashicorp/go-retryablehttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -297,6 +298,65 @@ func TestGetJobId(t *testing.T) {
 			assert.Equal(t, tc.expectedOut, output)
 		})
 	}
+}
+
+func TestGetJobIdInteractivePaginates(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+	nextPageResponse := &gitlab.Response{
+		Response: &http.Response{StatusCode: http.StatusOK},
+		NextPage: 2,
+	}
+	lastPageResponse := &gitlab.Response{
+		Response: &http.Response{StatusCode: http.StatusOK},
+	}
+	var requestedPages []string
+	testClient.MockJobs.EXPECT().
+		ListPipelineJobs("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+		Times(2).
+		DoAndReturn(func(_ any, _ int64, _ *gitlab.ListJobsOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.Job, *gitlab.Response, error) {
+			req, err := retryablehttp.NewRequest(http.MethodGet, "https://gitlab.com", nil)
+			require.NoError(t, err)
+			for _, option := range options {
+				if option != nil {
+					require.NoError(t, option(req))
+				}
+			}
+
+			requestedPages = append(requestedPages, req.URL.Query().Get("page"))
+			if len(requestedPages) == 1 {
+				return []*gitlab.Job{{ID: 1122, Name: "lint", Status: "failed"}}, nextPageResponse, nil
+			}
+			return []*gitlab.Job{{ID: 1144, Name: "deploy", Status: "success"}}, lastPageResponse, nil
+		})
+
+	console := ugh.New(t)
+	console.Expect(ugh.Select("Select pipeline job to trace:")).
+		Do(ugh.SelectIndex(1))
+	ios, cleanup := cmdtest.TestIOStreamsWithConsole(t, console)
+	t.Cleanup(cleanup)
+	f := cmdtest.NewTestFactory(ios,
+		cmdtest.WithGitLabClient(testClient.Client),
+		cmdtest.WithBranch("main"),
+	)
+	client, err := f.GitLabClient()
+	require.NoError(t, err)
+	repo, err := f.BaseRepo()
+	require.NoError(t, err)
+
+	jobID, err := GetJobId(t.Context(), &JobInputs{
+		PipelineId: 123,
+		Branch:     "main",
+	}, &JobOptions{
+		IO:     f.IO(),
+		Repo:   repo,
+		Client: client,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1144), jobID)
+	assert.Equal(t, []string{"", "2"}, requestedPages)
 }
 
 func TestParseCSVToIntSlice(t *testing.T) {
