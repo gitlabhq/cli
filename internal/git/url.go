@@ -6,6 +6,10 @@ import (
 )
 
 func isSupportedProtocol(u string) bool {
+	// URL schemes are case-insensitive (RFC 3986), so compare in lower case.
+	// Otherwise an uppercase scheme like "HTTPS://" is not recognized and gets
+	// misparsed as scp-style SSH further down.
+	u = strings.ToLower(u)
 	return strings.HasPrefix(u, "ssh:") ||
 		strings.HasPrefix(u, "git+ssh:") ||
 		strings.HasPrefix(u, "git:") ||
@@ -14,10 +18,11 @@ func isSupportedProtocol(u string) bool {
 }
 
 func isPossibleProtocol(u string) bool {
-	return isSupportedProtocol(u) ||
-		strings.HasPrefix(u, "ftp:") ||
-		strings.HasPrefix(u, "ftps:") ||
-		strings.HasPrefix(u, "file:")
+	lower := strings.ToLower(u)
+	return isSupportedProtocol(lower) ||
+		strings.HasPrefix(lower, "ftp:") ||
+		strings.HasPrefix(lower, "ftps:") ||
+		strings.HasPrefix(lower, "file:")
 }
 
 // ParseURL normalizes git remote urls
