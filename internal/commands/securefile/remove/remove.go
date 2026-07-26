@@ -90,6 +90,15 @@ func NewCmdRemove(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) complete(cmd *cobra.Command, args []string) error {
+	// A positional ID and the --id/--name flags select the file in conflicting
+	// ways. Rejecting the combination avoids silently ignoring the argument and
+	// removing a different file than the one named on the command line.
+	if len(args) > 0 && (cmd.Flags().Changed("id") || cmd.Flags().Changed("name")) {
+		return &cmdutils.FlagError{
+			Err: fmt.Errorf("the secure file ID argument %q cannot be combined with --id or --name", args[0]),
+		}
+	}
+
 	name, err := cmd.Flags().GetString("name")
 	if err != nil {
 		return fmt.Errorf("unable to get name flag: %w", err)
