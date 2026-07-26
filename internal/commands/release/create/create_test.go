@@ -125,6 +125,27 @@ func TestReleaseCreate_LongReleasedAtReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot parse")
 }
 
+func TestReleaseCreate_ReturnsTagTransportError(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+	testClient.MockTags.EXPECT().
+		GetTag("OWNER/REPO", "0.0.1", gomock.Any()).
+		Return(nil, nil, errors.New("network unavailable"))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmdCreate,
+		false,
+		cmdtest.WithGitLabClient(testClient.Client),
+		cmdtest.WithBaseRepo("OWNER", "REPO", glinstance.DefaultHostname),
+	)
+
+	_, err := exec(`0.0.1 --notes "test release"`)
+
+	require.ErrorContains(t, err, "network unavailable")
+}
+
 func TestReleaseCreateWithFiles(t *testing.T) {
 	// NOTE: This test cannot use t.Parallel() because it uses t.Setenv().
 	t.Setenv("CI_DEFAULT_BRANCH", "main")
