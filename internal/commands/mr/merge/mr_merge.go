@@ -248,8 +248,7 @@ func (o *options) run(x cmdutils.Factory, cmd *cobra.Command, args []string) err
 		retry.Attempts(3),
 		retry.Delay(time.Second*6),
 	).Do(func() error {
-		var resp *gitlab.Response
-		mr, resp, err = apiClient.MergeRequests.AcceptMergeRequest(repo.FullName(), mrIID, mergeOpts)
+		mr, _, err = apiClient.MergeRequests.AcceptMergeRequest(repo.FullName(), mrIID, mergeOpts)
 		if err != nil {
 			// https://docs.gitlab.com/api/merge_requests/#merge-a-merge-request
 			// `406` is the documented status code we will receive if the
@@ -259,7 +258,7 @@ func (o *options) run(x cmdutils.Factory, cmd *cobra.Command, args []string) err
 			// is not mergeable right after a rebase), but we want to catch
 			// situations where the user rebased via external sources like
 			// the WebUI or running `glab rebase` before trying to merge
-			if resp.StatusCode == http.StatusNotAcceptable {
+			if gitlab.HasStatusCode(err, http.StatusNotAcceptable) {
 				return err
 			}
 
