@@ -177,6 +177,31 @@ func TestProjectFork(t *testing.T) {
 	}
 }
 
+func TestProjectForkReturnsTransportErrorWithoutResponse(t *testing.T) {
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjects.EXPECT().
+		ForkProject("OWNER/REPO", gomock.Any(), gomock.Any()).
+		Return(nil, nil, errors.New("network unavailable"))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmdFork,
+		false,
+		cmdtest.WithApiClient(
+			cmdtest.NewTestApiClient(
+				t,
+				nil,
+				"",
+				glinstance.DefaultHostname,
+				api.WithGitLabClient(tc.Client),
+			),
+		),
+	)
+
+	_, err := exec("OWNER/REPO --clone=false")
+	require.EqualError(t, err, "network unavailable")
+}
+
 func TestProjectForkExistingRepo(t *testing.T) {
 	shelloutStubs := []string{
 		"git remote rename executed",

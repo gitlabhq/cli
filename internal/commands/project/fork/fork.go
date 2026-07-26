@@ -148,10 +148,10 @@ func (o *options) run(ctx context.Context) error {
 		forkOpts.Path = new(o.path)
 	}
 
-	forkedProject, resp, err := labClient.Projects.ForkProject(o.repoToFork.FullName(), forkOpts)
+	forkedProject, _, err := labClient.Projects.ForkProject(o.repoToFork.FullName(), forkOpts)
 	usingExisting := false
 	if err != nil {
-		if resp.StatusCode == http.StatusConflict ||
+		if gitlab.HasStatusCode(err, http.StatusConflict) ||
 			strings.Contains(err.Error(), "Project namespace name has already been taken") ||
 			strings.Contains(err.Error(), "Name has already been taken") {
 
