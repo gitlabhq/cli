@@ -143,6 +143,30 @@ func TestWrapString(t *testing.T) {
 			},
 			want: "",
 		},
+		{
+			name: "unicode",
+			args: args{
+				text:      "café noir",
+				lineWidth: 9,
+			},
+			want: "café noir",
+		},
+		{
+			name: "unicode fits at exact display width",
+			args: args{
+				text:      "café x",
+				lineWidth: 6,
+			},
+			want: "café x",
+		},
+		{
+			name: "wide unicode",
+			args: args{
+				text:      "界 x",
+				lineWidth: 4,
+			},
+			want: "界 x",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
