@@ -3,6 +3,7 @@
 package download
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v2/testing"
@@ -42,10 +44,10 @@ func Test_SecurefileDownload(t *testing.T) {
 			cli:              "1",
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     fileName,
@@ -60,10 +62,10 @@ func Test_SecurefileDownload(t *testing.T) {
 			cli:              "--id 1",
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     fileName,
@@ -78,10 +80,10 @@ func Test_SecurefileDownload(t *testing.T) {
 			cli:              "1 --path=newdir/new.txt",
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     fileName,
@@ -104,7 +106,7 @@ func Test_SecurefileDownload(t *testing.T) {
 			cli:              "1 --no-verify",
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 			},
 		},
@@ -117,10 +119,10 @@ func Test_SecurefileDownload(t *testing.T) {
 			wantStderr:       "checksum verification failed for localfile.txt: expected invalid_checksum, got 185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     fileName,
@@ -139,10 +141,10 @@ func Test_SecurefileDownload(t *testing.T) {
 			cli:              "1 --force-download",
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     fileName,
@@ -171,10 +173,10 @@ func Test_SecurefileDownload(t *testing.T) {
 					}, nil, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(2)).
+					DownloadSecureFile(repoName, int64(2), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(2)).
+					ShowSecureFileDetails(repoName, int64(2), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       2,
 						Name:     "file2.txt",
@@ -203,10 +205,10 @@ func Test_SecurefileDownload(t *testing.T) {
 					}, nil, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(2)).
+					DownloadSecureFile(repoName, int64(2), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(2)).
+					ShowSecureFileDetails(repoName, int64(2), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       2,
 						Name:     "file1.txt",
@@ -234,7 +236,7 @@ func Test_SecurefileDownload(t *testing.T) {
 					}, nil, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 			},
 		},
@@ -260,10 +262,10 @@ func Test_SecurefileDownload(t *testing.T) {
 					}, nil, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     "file1.txt",
@@ -378,39 +380,67 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 			cli:           "--all",
 			expectedFiles: []string{"file1.txt", "file2.pdf"},
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
-				testClient.MockSecureFiles.EXPECT().
-					ListProjectSecureFiles(repoName, &gitlab.ListProjectSecureFilesOptions{
-						ListOptions: gitlab.ListOptions{
-							Page:    1,
-							PerPage: 100,
-						},
-					}).
+				firstPage := testClient.MockSecureFiles.EXPECT().
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.SecureFile{
 						{ID: 1, Name: "file1.txt", Checksum: fileContentsChecksum},
-						{ID: 2, Name: "file2.pdf", Checksum: fileContentsChecksum},
-					}, nil, nil)
+					}, &gitlab.Response{NextPage: 2}, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     "file1.txt",
 						Checksum: fileContentsChecksum,
 					}, nil, nil)
 
+				secondPage := testClient.MockSecureFiles.EXPECT().
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.SecureFile{
+						{ID: 2, Name: "file2.pdf", Checksum: fileContentsChecksum},
+					}, &gitlab.Response{}, nil)
+				gomock.InOrder(firstPage, secondPage)
+
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(2)).
+					DownloadSecureFile(repoName, int64(2), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(2)).
+					ShowSecureFileDetails(repoName, int64(2), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       2,
 						Name:     "file2.pdf",
 						Checksum: fileContentsChecksum,
 					}, nil, nil)
+			},
+		},
+		{
+			Name:       "Return an error from a subsequent page",
+			cli:        "--all",
+			wantErr:    true,
+			wantStderr: "error fetching secure files: next page unavailable",
+			setupMocks: func(testClient *gitlabtesting.TestClient) {
+				firstPage := testClient.MockSecureFiles.EXPECT().
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.SecureFile{
+						{ID: 1, Name: "file1.txt", Checksum: fileContentsChecksum},
+					}, &gitlab.Response{NextPage: 2}, nil)
+				testClient.MockSecureFiles.EXPECT().
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
+					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
+				testClient.MockSecureFiles.EXPECT().
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
+					Return(&gitlab.SecureFile{
+						ID:       1,
+						Name:     "file1.txt",
+						Checksum: fileContentsChecksum,
+					}, nil, nil)
+				secondPage := testClient.MockSecureFiles.EXPECT().
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(nil, nil, errors.New("next page unavailable"))
+				gomock.InOrder(firstPage, secondPage)
 			},
 		},
 		{
@@ -423,22 +453,17 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 			expectedFiles: []string{"secure_files/file1.txt", "secure_files/file2.pdf"},
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					ListProjectSecureFiles(repoName, &gitlab.ListProjectSecureFilesOptions{
-						ListOptions: gitlab.ListOptions{
-							Page:    1,
-							PerPage: 100,
-						},
-					}).
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.SecureFile{
 						{ID: 1, Name: "file1.txt", Checksum: fileContentsChecksum},
 						{ID: 2, Name: "file2.pdf", Checksum: fileContentsChecksum},
-					}, nil, nil)
+					}, &gitlab.Response{}, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     "file1.txt",
@@ -446,10 +471,10 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 					}, nil, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(2)).
+					DownloadSecureFile(repoName, int64(2), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(2)).
+					ShowSecureFileDetails(repoName, int64(2), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       2,
 						Name:     "file2.pdf",
@@ -466,18 +491,13 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 			expectedFiles: []string{"file1.txt"},
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					ListProjectSecureFiles(repoName, &gitlab.ListProjectSecureFilesOptions{
-						ListOptions: gitlab.ListOptions{
-							Page:    1,
-							PerPage: 100,
-						},
-					}).
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.SecureFile{
 						{ID: 1, Name: "file1.txt", Checksum: fileContentsChecksum},
-					}, nil, nil)
+					}, &gitlab.Response{}, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 			},
 		},
@@ -492,21 +512,16 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 			expectedFiles: []string{"file1.txt"},
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					ListProjectSecureFiles(repoName, &gitlab.ListProjectSecureFilesOptions{
-						ListOptions: gitlab.ListOptions{
-							Page:    1,
-							PerPage: 100,
-						},
-					}).
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.SecureFile{
 						{ID: 1, Name: "file1.txt", Checksum: "invalid_checksum"},
-					}, nil, nil)
+					}, &gitlab.Response{}, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     "file1.txt",
@@ -528,13 +543,8 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 			expectedFiles: []string{},
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					ListProjectSecureFiles(repoName, &gitlab.ListProjectSecureFilesOptions{
-						ListOptions: gitlab.ListOptions{
-							Page:    1,
-							PerPage: 100,
-						},
-					}).
-					Return([]*gitlab.SecureFile{}, nil, nil)
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.SecureFile{}, &gitlab.Response{}, nil)
 			},
 		},
 		{
@@ -547,15 +557,10 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 			wantStderr: "error downloading secure file '/etc/passwd' (ID: 1): error creating directory: mkdirat ../../secure_files/etc: path escapes from parent",
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					ListProjectSecureFiles(repoName, &gitlab.ListProjectSecureFilesOptions{
-						ListOptions: gitlab.ListOptions{
-							Page:    1,
-							PerPage: 100,
-						},
-					}).
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.SecureFile{
 						{ID: 1, Name: "/etc/passwd", Checksum: fileContentsChecksum},
-					}, nil, nil)
+					}, &gitlab.Response{}, nil)
 			},
 		},
 		{
@@ -565,22 +570,17 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 			wantStderr: "error downloading secure file 'file2.pdf' (ID: 2): checksum verification failed for file2.pdf: expected invalid_checksum, got 185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
-					ListProjectSecureFiles(repoName, &gitlab.ListProjectSecureFilesOptions{
-						ListOptions: gitlab.ListOptions{
-							Page:    1,
-							PerPage: 100,
-						},
-					}).
+					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.SecureFile{
 						{ID: 1, Name: "file1.txt", Checksum: fileContentsChecksum},
 						{ID: 2, Name: "file2.pdf", Checksum: "invalid_checksum"},
-					}, nil, nil)
+					}, &gitlab.Response{}, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(1)).
+					DownloadSecureFile(repoName, int64(1), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(1)).
+					ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       1,
 						Name:     "file1.txt",
@@ -588,10 +588,10 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 					}, nil, nil)
 
 				testClient.MockSecureFiles.EXPECT().
-					DownloadSecureFile(repoName, int64(2)).
+					DownloadSecureFile(repoName, int64(2), gomock.Any()).
 					Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
 				testClient.MockSecureFiles.EXPECT().
-					ShowSecureFileDetails(repoName, int64(2)).
+					ShowSecureFileDetails(repoName, int64(2), gomock.Any()).
 					Return(&gitlab.SecureFile{
 						ID:       2,
 						Name:     "file2.pdf",

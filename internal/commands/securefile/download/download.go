@@ -1,6 +1,7 @@
 package download
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -15,7 +16,6 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
-	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/securefile/helpers"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -30,7 +30,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Docf(`
 		To download a single file, identify it by its numeric ID (as a positional
 		argument or with %[1]s--id%[1]s) or by its name with %[1]s--name%[1]s. To download every
-		secure file in the project (up to a limit of 100), use %[1]s--all%[1]s.
+		secure file in the project, use %[1]s--all%[1]s.
 
 		Use %[1]s--path%[1]s to save a single download to a specific filename, or
 		%[1]s--output-dir%[1]s to choose the destination directory when downloading
@@ -61,7 +61,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 			# Download without verifying the checksum
 			glab securefile download 1 --no-verify
 
-			# Download all secure files in the project (up to 100)
+			# Download all secure files in the project
 			glab securefile download --all
 
 			# Download all secure files to a specific directory
@@ -113,7 +113,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 					return fmt.Errorf("unable to get output-dir flag: %w", err)
 				}
 
-				return downloadAllSecureFiles(f.IO(), client, root, repo.FullName(), outputDir, !noVerify, forceDownload)
+				return downloadAllSecureFiles(cmd.Context(), f.IO(), client, root, repo.FullName(), outputDir, !noVerify, forceDownload)
 			} else {
 				outputDirSet := cmd.Flags().Changed("output-dir")
 				if outputDirSet {
@@ -141,7 +141,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 						path = fmt.Sprintf("./%s", name)
 					}
 
-					return downloadSecureFileByName(f.IO(), client, root, name, repo.FullName(), path, !noVerify, forceDownload)
+					return downloadSecureFileByName(cmd.Context(), f.IO(), client, root, name, repo.FullName(), path, !noVerify, forceDownload)
 				}
 
 				var fileID int64
@@ -163,7 +163,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 					}
 				}
 
-				return downloadSecureFile(f.IO(), client, root, fileID, repo.FullName(), path, !noVerify, forceDownload)
+				return downloadSecureFile(cmd.Context(), f.IO(), client, root, fileID, repo.FullName(), path, !noVerify, forceDownload)
 			}
 		},
 	}
@@ -173,7 +173,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 	securefileDownloadCmd.Flags().String("name", "", "Name of the secure file to download. Saves the file with this name, or to the path specified by --path.")
 	securefileDownloadCmd.Flags().Bool("no-verify", false, "Do not verify the checksum of the downloaded file(s). Warning: when enabled, this setting allows the download of files that are corrupt or tampered with.")
 	securefileDownloadCmd.Flags().Bool("force-download", false, "Force download file(s) even if checksum verification fails. Warning: when enabled, this setting allows the download of files that are corrupt or tampered with.")
-	securefileDownloadCmd.Flags().Bool("all", false, "Download all (limit 100) of a project's secure files. Files are downloaded with their original name and file extension.")
+	securefileDownloadCmd.Flags().Bool("all", false, "Download all of a project's secure files. Files are downloaded with their original name and file extension.")
 
 	securefileDownloadCmd.MarkFlagsMutuallyExclusive("no-verify", "force-download")
 	securefileDownloadCmd.MarkFlagsMutuallyExclusive("path", "output-dir")
@@ -183,7 +183,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 	return securefileDownloadCmd
 }
 
-func downloadSecureFileByName(ios *iostreams.IOStreams, client *gitlab.Client, root *os.Root, fileName string, repoName, path string, verifyChecksum, forceDownload bool) error {
+func downloadSecureFileByName(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, root *os.Root, fileName string, repoName, path string, verifyChecksum, forceDownload bool) error {
 	path = filepath.Clean(path)
 	if err := ensureDirectoryExists(root, path); err != nil {
 		return err
@@ -194,7 +194,7 @@ func downloadSecureFileByName(ios *iostreams.IOStreams, client *gitlab.Client, r
 		return err
 	}
 
-	err = saveFile(ios, client, repoName, secureFile.ID, path, verifyChecksum, forceDownload)
+	err = saveFile(ctx, ios, client, repoName, secureFile.ID, path, verifyChecksum, forceDownload)
 	if err != nil {
 		return err
 	}
@@ -203,13 +203,13 @@ func downloadSecureFileByName(ios *iostreams.IOStreams, client *gitlab.Client, r
 	return nil
 }
 
-func downloadSecureFile(ios *iostreams.IOStreams, client *gitlab.Client, root *os.Root, fileID int64, repoName, path string, verifyChecksum, forceDownload bool) error {
+func downloadSecureFile(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, root *os.Root, fileID int64, repoName, path string, verifyChecksum, forceDownload bool) error {
 	path = filepath.Clean(path)
 	if err := ensureDirectoryExists(root, path); err != nil {
 		return err
 	}
 
-	err := saveFile(ios, client, repoName, fileID, path, verifyChecksum, forceDownload)
+	err := saveFile(ctx, ios, client, repoName, fileID, path, verifyChecksum, forceDownload)
 	if err != nil {
 		return err
 	}
@@ -218,23 +218,17 @@ func downloadSecureFile(ios *iostreams.IOStreams, client *gitlab.Client, root *o
 	return nil
 }
 
-func downloadAllSecureFiles(ios *iostreams.IOStreams, client *gitlab.Client, root *os.Root, repoName, outputDir string, verifyChecksum, forceDownload bool) error {
-	l := &gitlab.ListProjectSecureFilesOptions{
-		ListOptions: gitlab.ListOptions{
-			Page:    1,
-			PerPage: api.MaxPerPage,
-		},
-	}
+func downloadAllSecureFiles(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, root *os.Root, repoName, outputDir string, verifyChecksum, forceDownload bool) error {
+	for file, err := range gitlab.Scan2(func(p gitlab.PaginationOptionFunc) ([]*gitlab.SecureFile, *gitlab.Response, error) {
+		return client.SecureFiles.ListProjectSecureFiles(repoName, nil, p, gitlab.WithContext(ctx))
+	}) {
+		if err != nil {
+			return fmt.Errorf("error fetching secure files: %w", err)
+		}
 
-	files, _, err := client.SecureFiles.ListProjectSecureFiles(repoName, l)
-	if err != nil {
-		return fmt.Errorf("error fetching secure files: %w", err)
-	}
-
-	for _, file := range files {
 		filePath := filepath.Join(outputDir, file.Name)
 
-		if err := downloadSecureFile(ios, client, root, file.ID, repoName, filePath, verifyChecksum, forceDownload); err != nil {
+		if err := downloadSecureFile(ctx, ios, client, root, file.ID, repoName, filePath, verifyChecksum, forceDownload); err != nil {
 			return fmt.Errorf("error downloading secure file '%s' (ID: %d): %w", file.Name, file.ID, err)
 		}
 	}
@@ -242,8 +236,8 @@ func downloadAllSecureFiles(ios *iostreams.IOStreams, client *gitlab.Client, roo
 	return nil
 }
 
-func saveFile(ios *iostreams.IOStreams, apiClient *gitlab.Client, repoName string, fileID int64, path string, verifyChecksum, forceDownload bool) (err error) {
-	contents, _, err := apiClient.SecureFiles.DownloadSecureFile(repoName, fileID)
+func saveFile(ctx context.Context, ios *iostreams.IOStreams, apiClient *gitlab.Client, repoName string, fileID int64, path string, verifyChecksum, forceDownload bool) (err error) {
+	contents, _, err := apiClient.SecureFiles.DownloadSecureFile(repoName, fileID, gitlab.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("error downloading secure file: %w", err)
 	}
@@ -275,7 +269,7 @@ func saveFile(ios *iostreams.IOStreams, apiClient *gitlab.Client, repoName strin
 	}()
 
 	if verifyChecksum {
-		file, _, err := apiClient.SecureFiles.ShowSecureFileDetails(repoName, fileID)
+		file, _, err := apiClient.SecureFiles.ShowSecureFileDetails(repoName, fileID, gitlab.WithContext(ctx))
 		if err != nil {
 			return fmt.Errorf("error getting secure file details: %w", err)
 		}
