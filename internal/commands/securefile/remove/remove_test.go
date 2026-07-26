@@ -29,6 +29,22 @@ func Test_SecurefileRemove(t *testing.T) {
 
 	testCases := []testCase{
 		{
+			name:       "Conflicting id argument and --id flag is rejected",
+			cli:        "1 --id 2 -y",
+			wantErr:    true,
+			wantStderr: `the secure file ID argument "1" cannot be combined with --id or --name`,
+			// No API call: the request used to go out for --id (2), silently
+			// ignoring the positional argument (1).
+			setupMock: func(tc *gitlabtesting.TestClient) {},
+		},
+		{
+			name:       "Conflicting id argument and --name flag is rejected",
+			cli:        "1 --name file.txt -y",
+			wantErr:    true,
+			wantStderr: `the secure file ID argument "1" cannot be combined with --id or --name`,
+			setupMock:  func(tc *gitlabtesting.TestClient) {},
+		},
+		{
 			name:        "Remove a secure file via id arg",
 			cli:         "1 -y",
 			expectedMsg: []string{"• Deleting secure file repo=OWNER/REPO fileID=1", "✓ Secure file 1 deleted."},
