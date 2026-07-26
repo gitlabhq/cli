@@ -379,7 +379,7 @@ func Test_apiRun(t *testing.T) {
 			},
 			err:    cmdutils.SilentError,
 			stdout: `{"message": {"password": ["is too short (minimum is 8 characters)"] } }`,
-			stderr: "glab: map[message:map[password:[is too short (minimum is 8 characters)]]]+\n",
+			stderr: "glab: map[message:map[password:[is too short (minimum is 8 characters)]]]\n",
 		},
 		{
 			name: "GraphQL error",
@@ -977,6 +977,15 @@ func Test_streamNDJSON_preservesLargeNumber(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "18446744073709551615\n", out.String())
+}
+
+func Test_parseErrorResponse_doesNotAppendPlus(t *testing.T) {
+	t.Parallel()
+
+	_, message, err := parseErrorResponse(strings.NewReader(`["request failed"]`), http.StatusBadRequest)
+
+	require.NoError(t, err)
+	assert.Equal(t, "[request failed]", message)
 }
 
 func Test_apiRun_ndjson_pagination(t *testing.T) {
