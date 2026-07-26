@@ -725,7 +725,7 @@ func parseErrorResponse(r io.Reader, statusCode int) (io.Reader, string, error) 
 		if err != nil {
 			return r, "", err
 		}
-		return bodyCopy, fmt.Sprintf("%v+", t), nil
+		return bodyCopy, fmt.Sprintf("%+v", t), nil
 	}
 	if parsedBody.Message != "" {
 		return bodyCopy, fmt.Sprintf("%s (HTTP %d)", parsedBody.Message, statusCode), nil
