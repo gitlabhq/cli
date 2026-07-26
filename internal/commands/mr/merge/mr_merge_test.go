@@ -3,6 +3,7 @@
 package merge
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,6 +68,28 @@ func TestMrMerge(t *testing.T) {
 				tc.MockMergeRequests.EXPECT().
 					AcceptMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
 					Return(mergedMR, nil, nil)
+			},
+		},
+		{
+			name:       "returns transport error without a response",
+			cli:        "123",
+			wantErr:    true,
+			wantStderr: "network unavailable",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				getMR := &gitlab.MergeRequest{
+					BasicMergeRequest: gitlab.BasicMergeRequest{
+						IID:                 123,
+						State:               "opened",
+						DetailedMergeStatus: "mergeable",
+					},
+					User: gitlab.MergeRequestUser{CanMerge: true},
+				}
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(getMR, nil, nil)
+				tc.MockMergeRequests.EXPECT().
+					AcceptMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(nil, nil, errors.New("network unavailable"))
 			},
 		},
 	}
