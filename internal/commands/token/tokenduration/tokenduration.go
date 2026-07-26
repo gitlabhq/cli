@@ -21,15 +21,23 @@ func ParseDuration(s string) (TokenDuration, error) {
 	var d time.Duration
 
 	if matches := durationRegex.FindStringSubmatch(s); len(matches) == 3 {
-		num, _ := strconv.Atoi(matches[1])
+		num, err := strconv.Atoi(matches[1])
+		if err != nil {
+			return 0, fmt.Errorf("invalid duration value %q: %w", s, err)
+		}
+		var unit time.Duration
 		switch matches[2] {
 		case "d":
-			d = time.Duration(num) * 24 * time.Hour
+			unit = 24 * time.Hour
 		case "w":
-			d = time.Duration(num) * 7 * 24 * time.Hour
+			unit = 7 * 24 * time.Hour
 		case "h":
-			d = time.Duration(num) * time.Hour
+			unit = time.Hour
 		}
+		if num > int(365*24*time.Hour/unit) {
+			return 0, fmt.Errorf("duration must be between 1 and 365 days")
+		}
+		d = time.Duration(num) * unit
 	} else {
 		return 0, fmt.Errorf("invalid duration format: %s (expected formats: 24h, 30d, 2w)", s)
 	}
