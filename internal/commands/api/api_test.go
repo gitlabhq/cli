@@ -1382,6 +1382,47 @@ func Test_fillPlaceholders(t *testing.T) {
 	}
 }
 
+func TestFillPlaceholdersReturnsAPIClientError(t *testing.T) {
+	t.Parallel()
+
+	apiClientErr := errors.New("failed to create API client")
+	tests := []struct {
+		name     string
+		value    string
+		baseRepo func() (glrepo.Interface, error)
+	}{
+		{
+			name:  "project ID",
+			value: "projects/:id",
+			baseRepo: func() (glrepo.Interface, error) {
+				return glrepo.New("gitlab-com", "www-gitlab-com", glinstance.DefaultHostname), nil
+			},
+		},
+		{
+			name:  "current user",
+			value: "users/:user",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := &options{
+				baseRepo: tt.baseRepo,
+				apiClient: func(string) (*api.Client, error) {
+					return nil, apiClientErr
+				},
+			}
+
+			got, err := fillPlaceholders(tt.value, opts, true)
+
+			require.ErrorIs(t, err, apiClientErr)
+			assert.Equal(t, tt.value, got)
+		})
+	}
+}
+
 func Test_processResponse_bodyConsumption(t *testing.T) {
 	t.Parallel()
 

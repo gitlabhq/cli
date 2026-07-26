@@ -526,7 +526,11 @@ func fillPlaceholders(value string, opts *options, escapePath bool) (string, err
 				return ""
 			}
 
-			h, _ := opts.apiClient(baseRepo.RepoHost())
+			h, apiClientErr := opts.apiClient(baseRepo.RepoHost())
+			if apiClientErr != nil {
+				err = apiClientErr
+				return ""
+			}
 			project, e := baseRepo.Project(h.Lab())
 			if e == nil && project != nil {
 				return strconv.FormatInt(project.ID, 10)
@@ -557,7 +561,11 @@ func fillPlaceholders(value string, opts *options, escapePath bool) (string, err
 
 			return maybeEscape(baseRepo.RepoGroup())
 		case ":user", ":username":
-			h, _ := opts.apiClient("")
+			h, apiClientErr := opts.apiClient("")
+			if apiClientErr != nil {
+				err = apiClientErr
+				return m
+			}
 			u, _, e := h.Lab().Users.CurrentUser()
 			if e == nil && u != nil {
 				return maybeEscape(u.Username)
