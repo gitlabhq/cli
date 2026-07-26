@@ -468,11 +468,15 @@ func ParseAssignees(assignees []string) *UserAssignments {
 	}
 
 	for _, assignee := range assignees {
-		switch string([]rune(assignee)[0]) {
+		runes := []rune(assignee)
+		if len(runes) == 0 {
+			continue
+		}
+		switch string(runes[0]) {
 		case "+":
-			ua.ToAdd = append(ua.ToAdd, string([]rune(assignee)[1:]))
+			ua.ToAdd = append(ua.ToAdd, string(runes[1:]))
 		case "!", "-":
-			ua.ToRemove = append(ua.ToRemove, string([]rune(assignee)[1:]))
+			ua.ToRemove = append(ua.ToRemove, string(runes[1:]))
 		default:
 			ua.ToReplace = append(ua.ToReplace, assignee)
 		}
