@@ -16,7 +16,7 @@ Download one or more secure files from a project.
 
 To download a single file, identify it by its numeric ID (as a positional
 argument or with `--id`) or by its name with `--name`. To download every
-secure file in the project (up to a limit of 100), use `--all`.
+secure file in the project, use `--all`.
 
 Use `--path` to save a single download to a specific filename, or
 `--output-dir` to choose the destination directory when downloading
@@ -53,7 +53,7 @@ glab securefile download --name my-secure-file.pem --path securefiles/some-other
 # Download without verifying the checksum
 glab securefile download 1 --no-verify
 
-# Download all secure files in the project (up to 100)
+# Download all secure files in the project
 glab securefile download --all
 
 # Download all secure files to a specific directory
@@ -64,7 +64,7 @@ glab securefile download --all --output-dir secure_files/
 ## Options
 
 ```plaintext
-      --all                 Download all (limit 100) of a project's secure files. Files are downloaded with their original name and file extension.
+      --all                 Download all of a project's secure files. Files are downloaded with their original name and file extension.
       --force-download      Force download file(s) even if checksum verification fails. Warning: when enabled, this setting allows the download of files that are corrupt or tampered with.
       --id int              ID of the secure file to download.
       --name string         Name of the secure file to download. Saves the file with this name, or to the path specified by --path.
