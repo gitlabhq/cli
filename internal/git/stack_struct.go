@@ -254,15 +254,11 @@ func AddStackBaseBranch(title string, branch string) error {
 	}
 
 	filename := filepath.Join(root, BaseBranchFile)
-	_, err = os.Create(filename)
-	if err != nil {
-		return err
-	}
 
-	data := []byte(branch)
-
-	err = os.WriteFile(filename, data, 0o644)
-	if err != nil {
+	// os.WriteFile creates the file itself; the previous os.Create left an open
+	// file handle that was never closed, which on Windows blocked the file from
+	// being removed afterwards.
+	if err := os.WriteFile(filename, []byte(branch), 0o644); err != nil {
 		return fmt.Errorf("error adding branch metadata file %v: %w", filename, err)
 	}
 
