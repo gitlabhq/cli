@@ -669,3 +669,22 @@ func TestSetRemoteResolution(t *testing.T) {
 		})
 	}
 }
+
+func Test_cloneTargetDir(t *testing.T) {
+	tests := []struct {
+		name     string
+		cloneURL string
+		want     string
+	}{
+		{"https with .git", "https://gitlab.com/group/source.git", "source"},
+		{"https without .git", "https://gitlab.com/group/source", "source"},
+		{"trailing slash", "https://gitlab.com/group/source/", "source"},
+		{"dot git with trailing slash", "https://gitlab.com/group/source.git/", "source"},
+		{"scp style", "git@gitlab.com:group/source.git", "source"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, cloneTargetDir(tt.cloneURL))
+		})
+	}
+}
