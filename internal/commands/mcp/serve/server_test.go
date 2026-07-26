@@ -262,6 +262,18 @@ func TestTruncateAtWordBoundary(t *testing.T) {
 			maxChars: 15,
 			expected: "First line...",
 		},
+		{
+			name:     "hard truncate Unicode without invalid UTF-8",
+			text:     "界界界界界界界界界界",
+			maxChars: 7,
+			expected: "界界界界...",
+		},
+		{
+			name:     "truncate Unicode at word boundary",
+			text:     "界界界 界界界界界界",
+			maxChars: 7,
+			expected: "界界界...",
+		},
 	}
 
 	for _, tt := range tests {
