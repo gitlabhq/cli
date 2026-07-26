@@ -45,7 +45,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "download <tag>",
+		Use:   "download [<tag>]",
 		Short: "Download asset files from a GitLab release.",
 		Long: heredoc.Docf(`Download asset files from a GitLab release.
 

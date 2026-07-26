@@ -21,7 +21,7 @@ By default, the command prints the public key. Use `--output json` to return
 the full key object.
 
 ```plaintext
-glab ssh-key get <key-id> [flags]
+glab ssh-key get [<key-id>] [flags]
 ```
 
 ## Examples

@@ -39,7 +39,7 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "view <tag>",
+		Use:   "view [<tag>]",
 		Short: "View information about a GitLab release.",
 		Long: heredoc.Doc(`View information about a GitLab release.
 

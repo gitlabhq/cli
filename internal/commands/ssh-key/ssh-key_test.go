@@ -28,7 +28,7 @@ func TestNewCmdSSHKey(t *testing.T) {
 		subcommandNames[i] = subcmd.Use
 	}
 
-	expectedSubcommands := []string{"add [key-file]", "delete <key-id>", "get <key-id>", "list"}
+	expectedSubcommands := []string{"add [key-file]", "delete [<key-id>]", "get [<key-id>]", "list"}
 	for _, expected := range expectedSubcommands {
 		assert.Contains(t, subcommandNames, expected)
 	}

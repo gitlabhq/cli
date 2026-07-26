@@ -14,14 +14,17 @@ Get an archive of the repository.
 
 ## Synopsis
 
-Clone supports these shorthand references:
+Without a repository argument, archives the current repository.
+The repository accepts these shorthand references:
 
 - repo
 - namespace/repo
 - namespace/group/repo
 
+The second argument sets the directory to download the archive into.
+
 ```plaintext
-glab repo archive <command> [flags]
+glab repo archive [<repo>] [<dir>] [flags]
 ```
 
 ## Examples
