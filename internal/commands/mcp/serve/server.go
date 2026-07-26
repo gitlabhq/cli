@@ -164,19 +164,20 @@ func (s *mcpServer) buildEnhancedDescription(cmd *cobra.Command) string {
 
 // truncateAtWordBoundary truncates text to maxChars at the nearest word boundary
 func (s *mcpServer) truncateAtWordBoundary(text string, maxChars int) string {
-	if len(text) <= maxChars {
+	runes := []rune(text)
+	if len(runes) <= maxChars {
 		return text
 	}
 
 	// Find the last space within the limit, accounting for "..." suffix
 	for i := maxChars - 4; i >= 0; i-- {
-		if text[i] == ' ' || text[i] == '\n' {
-			return strings.TrimSpace(text[:i]) + "..."
+		if runes[i] == ' ' || runes[i] == '\n' {
+			return strings.TrimSpace(string(runes[:i])) + "..."
 		}
 	}
 
 	// If no space found, hard truncate accounting for "..." suffix
-	return text[:maxChars-3] + "..."
+	return string(runes[:maxChars-3]) + "..."
 }
 
 // addStandardGuidance is no longer needed since guidance is provided at server level
