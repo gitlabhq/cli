@@ -32,7 +32,7 @@ func Test_ScheduleCreate(t *testing.T) {
 			expectedMsg: []string{"Created schedule with ID 2"},
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockPipelineSchedules.EXPECT().
-					CreatePipelineSchedule("OWNER/REPO", gomock.Any()).
+					CreatePipelineSchedule("OWNER/REPO", gomock.Any(), gomock.Any()).
 					Return(&gitlab.PipelineSchedule{ID: 2}, nil, nil)
 			},
 		},
@@ -45,27 +45,32 @@ func Test_ScheduleCreate(t *testing.T) {
 			setupMock:   func(tc *gitlabtesting.TestClient) {},
 		},
 		{
-			name:       "Schedule created but with skipped variable",
+			name:       "Schedule not created because of invalid variable",
 			cli:        "--cron '*0 * * * *' --description 'example pipeline' --ref 'main' --variable 'foo'",
 			wantErr:    true,
 			wantStderr: "invalid format for --variable: foo",
-			setupMock: func(tc *gitlabtesting.TestClient) {
-				tc.MockPipelineSchedules.EXPECT().
-					CreatePipelineSchedule("OWNER/REPO", gomock.Any()).
-					Return(&gitlab.PipelineSchedule{ID: 0}, nil, nil)
-			},
+			setupMock:  func(tc *gitlabtesting.TestClient) {},
+		},
+		{
+			name:       "Schedule not created when a later variable is invalid",
+			cli:        "--cron '*0 * * * *' --description 'example pipeline' --ref 'main' --variable 'foo:bar' --variable 'invalid'",
+			wantErr:    true,
+			wantStderr: "invalid format for --variable: invalid",
+			setupMock:  func(tc *gitlabtesting.TestClient) {},
 		},
 		{
 			name:        "Schedule created with variable",
 			cli:         "--cron '*0 * * * *' --description 'example pipeline' --ref 'main' --variable 'foo:bar'",
 			expectedMsg: []string{"Created schedule"},
 			setupMock: func(tc *gitlabtesting.TestClient) {
-				tc.MockPipelineSchedules.EXPECT().
-					CreatePipelineSchedule("OWNER/REPO", gomock.Any()).
-					Return(&gitlab.PipelineSchedule{ID: 0}, nil, nil)
-				tc.MockPipelineSchedules.EXPECT().
-					CreatePipelineScheduleVariable("OWNER/REPO", int64(0), gomock.Any()).
-					Return(&gitlab.PipelineVariable{}, nil, nil)
+				gomock.InOrder(
+					tc.MockPipelineSchedules.EXPECT().
+						CreatePipelineSchedule("OWNER/REPO", gomock.Any(), gomock.Any()).
+						Return(&gitlab.PipelineSchedule{ID: 0}, nil, nil),
+					tc.MockPipelineSchedules.EXPECT().
+						CreatePipelineScheduleVariable("OWNER/REPO", int64(0), gomock.Any(), gomock.Any()).
+						Return(&gitlab.PipelineVariable{}, nil, nil),
+				)
 			},
 		},
 	}

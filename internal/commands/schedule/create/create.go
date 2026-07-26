@@ -56,14 +56,23 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 
 			l := &gitlab.CreatePipelineScheduleOptions{}
 
-			variable := &gitlab.CreatePipelineScheduleVariableOptions{}
-
 			description, _ := cmd.Flags().GetString("description")
 			ref, _ := cmd.Flags().GetString("ref")
 			cron, _ := cmd.Flags().GetString("cron")
 			cronTimeZone, _ := cmd.Flags().GetString("cronTimeZone")
 			active, _ := cmd.Flags().GetBool("active")
 			variableList, _ = cmd.Flags().GetStringSlice("variable")
+			variables := make([]*gitlab.CreatePipelineScheduleVariableOptions, 0, len(variableList))
+			for _, v := range variableList {
+				key, value, ok := strings.Cut(v, ":")
+				if !ok {
+					return fmt.Errorf("invalid format for --variable: %s", v)
+				}
+				variables = append(variables, &gitlab.CreatePipelineScheduleVariableOptions{
+					Key:   &key,
+					Value: &value,
+				})
+			}
 
 			l.Description = &description
 			l.Ref = &ref
@@ -71,19 +80,13 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			l.CronTimezone = &cronTimeZone
 			l.Active = &active
 
-			schedule, _, err := client.PipelineSchedules.CreatePipelineSchedule(repo.FullName(), l)
+			schedule, _, err := client.PipelineSchedules.CreatePipelineSchedule(repo.FullName(), l, gitlab.WithContext(cmd.Context()))
 			if err != nil {
 				return err
 			}
 
-			for _, v := range variableList {
-				split := strings.SplitN(v, ":", 2)
-				if len(split) != 2 {
-					return fmt.Errorf("invalid format for --variable: %s", v)
-				}
-				variable.Key = &split[0]
-				variable.Value = &split[1]
-				_, _, err := client.PipelineSchedules.CreatePipelineScheduleVariable(repo.FullName(), schedule.ID, variable)
+			for _, variable := range variables {
+				_, _, err := client.PipelineSchedules.CreatePipelineScheduleVariable(repo.FullName(), schedule.ID, variable, gitlab.WithContext(cmd.Context()))
 				if err != nil {
 					return err
 				}
