@@ -223,11 +223,11 @@ func (a *apiWrapper) CreateAgentToken(agentID int64) (*gitlab.AgentToken, error)
 }
 
 func (a *apiWrapper) SyncFile(f file, branch string) error {
-	_, resp, err := a.client.RepositoryFiles.GetFileMetaData(a.projectID, f.path, &gitlab.GetFileMetaDataOptions{
+	_, _, err := a.client.RepositoryFiles.GetFileMetaData(a.projectID, f.path, &gitlab.GetFileMetaDataOptions{
 		Ref: new(branch),
 	})
 	if err != nil {
-		if resp.StatusCode != http.StatusNotFound {
+		if !gitlab.HasStatusCode(err, http.StatusNotFound) {
 			return err
 		}
 
