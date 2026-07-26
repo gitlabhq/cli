@@ -22,7 +22,7 @@ import (
 
 func NewCmdArchive(f cmdutils.Factory) *cobra.Command {
 	repoArchiveCmd := &cobra.Command{
-		Use:   "archive <command> [flags]",
+		Use:   "archive [<repo>] [<dir>] [flags]",
 		Short: `Get an archive of the repository.`,
 		Example: heredoc.Doc(`
 			glab repo archive profclems/glab
@@ -36,12 +36,15 @@ func NewCmdArchive(f cmdutils.Factory) *cobra.Command {
 			# Finds repo for current user and download in ZIP format
 			glab repo archive profclems/glab --format=zip`),
 		Long: heredoc.Doc(`
-	Clone supports these shorthand references:
+			Without a repository argument, archives the current repository.
+			The repository accepts these shorthand references:
 
-	- repo
-	- namespace/repo
-	- namespace/group/repo
-	`),
+			- repo
+			- namespace/repo
+			- namespace/group/repo
+
+			The second argument sets the directory to download the archive into.
+		`),
 		Args: cobra.MaximumNArgs(2),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",

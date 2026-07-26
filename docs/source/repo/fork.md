@@ -18,7 +18,7 @@ Defaults to the current repository if no repository is specified.
 Use `--clone` and `--remote` to skip the interactive prompts.
 
 ```plaintext
-glab repo fork <repo> [flags]
+glab repo fork [<repo>] [flags]
 ```
 
 ## Examples

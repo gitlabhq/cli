@@ -19,7 +19,7 @@ View information about a GitLab release.
 Without an explicit tag name argument, shows the latest release in the project.
 
 ```plaintext
-glab release view <tag> [flags]
+glab release view [<tag>] [flags]
 ```
 
 ## Examples

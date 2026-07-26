@@ -33,7 +33,7 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 		apiClient: f.ApiClient,
 	}
 	cmd := &cobra.Command{
-		Use:   "delete <key-id>",
+		Use:   "delete [<key-id>]",
 		Short: "Deletes a single SSH key specified by the ID.",
 		Long: heredoc.Docf(`Pass the key ID as an argument, or run the command without arguments
 		to select a key interactively. Find key IDs by running %[1]sglab ssh-key list --show-id%[1]s.

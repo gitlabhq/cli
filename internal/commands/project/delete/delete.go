@@ -34,10 +34,12 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 	}
 
 	projectCreateCmd := &cobra.Command{
-		Use:   "delete [<NAMESPACE>/]<NAME>",
+		Use:   "delete [[<NAMESPACE>/]<NAME>]",
 		Short: `Delete an existing project on GitLab.`,
 		Long: heredoc.Doc(`
 			Delete an existing project on GitLab.
+
+			Without an argument, targets the project for the current repository.
 
 			This permanently deletes the entire project, including:
 			

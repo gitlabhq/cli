@@ -21,7 +21,7 @@ To specify a file name to download from the release assets, use `--asset-name`.
 `--asset-name` flag accepts glob patterns.
 
 ```plaintext
-glab release download <tag> [flags]
+glab release download [<tag>] [flags]
 ```
 
 ## Examples

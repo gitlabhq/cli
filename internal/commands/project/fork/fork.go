@@ -59,7 +59,7 @@ func NewCmdFork(f cmdutils.Factory) *cobra.Command {
 		currentDirIsParent: true,
 	}
 	forkCmd := &cobra.Command{
-		Use:   "fork <repo>",
+		Use:   "fork [<repo>]",
 		Short: "Fork a GitLab repository.",
 		Long: heredoc.Docf(`
 			Defaults to the current repository if no repository is specified.

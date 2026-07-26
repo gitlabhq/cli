@@ -20,7 +20,7 @@ to select a key interactively. Find key IDs by running `glab ssh-key list --show
 This action is permanent and cannot be undone.
 
 ```plaintext
-glab ssh-key delete <key-id> [flags]
+glab ssh-key delete [<key-id>] [flags]
 ```
 
 ## Examples
