@@ -63,14 +63,15 @@ func WrapString(text string, lineWidth int) string {
 		return text
 	}
 	wrapped := words[0]
-	spaceLeft := lineWidth - len(wrapped)
+	spaceLeft := lineWidth - StringWidth(wrapped)
 	for _, word := range words[1:] {
-		if len(word)+1 > spaceLeft {
+		wordWidth := StringWidth(word)
+		if wordWidth+1 > spaceLeft {
 			wrapped += "\n" + word
-			spaceLeft = lineWidth - len(word)
+			spaceLeft = lineWidth - wordWidth
 		} else {
 			wrapped += " " + word
-			spaceLeft -= 1 + len(word)
+			spaceLeft -= 1 + wordWidth
 		}
 	}
 	return wrapped
