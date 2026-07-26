@@ -1,6 +1,9 @@
 package text
 
-import "bytes"
+import (
+	"bytes"
+	"strings"
+)
 
 // Truncate resizes the string with the given length. It ellipses with '...' when the string's length exceeds
 // the desired length or pads spaces to the right of the string when length is smaller than desired
@@ -9,6 +12,9 @@ func Truncate(s string, length int) string {
 	n := length
 	if slen == n {
 		return s
+	}
+	if slen > n && n < 3 {
+		return strings.Repeat(".", max(n, 0))
 	}
 	// Pads only when length of the string smaller than len needed
 	s = PadRight(s, n, ' ')

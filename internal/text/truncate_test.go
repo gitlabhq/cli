@@ -31,6 +31,30 @@ func TestTruncate(t *testing.T) {
 			},
 			want: "this is...",
 		},
+		{
+			name: "width shorter than ellipsis",
+			args: args{
+				s:      "long",
+				length: 2,
+			},
+			want: "..",
+		},
+		{
+			name: "width of one",
+			args: args{
+				s:      "long",
+				length: 1,
+			},
+			want: ".",
+		},
+		{
+			name: "zero width",
+			args: args{
+				s:      "long",
+				length: 0,
+			},
+			want: "",
+		},
 
 		{
 			name: "hyperlink prefix",
