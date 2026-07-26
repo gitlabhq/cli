@@ -36,6 +36,13 @@ func Test_DeployKeyRemove(t *testing.T) {
 			},
 		},
 		{
+			name:       "Remove a deploy key without a key ID",
+			cli:        "",
+			wantErr:    true,
+			wantStderr: "accepts 1 arg(s), received 0",
+			setupMock:  func(tc *gitlabtesting.TestClient) {},
+		},
+		{
 			name:       "Remove a deploy key with invalid key ID",
 			cli:        "abc",
 			wantErr:    true,

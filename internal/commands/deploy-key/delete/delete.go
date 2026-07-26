@@ -41,7 +41,7 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 		Example: heredoc.Doc(`
 			# Delete deploy key with ID as argument
 			glab deploy-key delete 1234`),
-		Args: cobra.MaximumNArgs(1),
+		Args: cobra.ExactArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
@@ -58,13 +58,14 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) complete(args []string) error {
-	if len(args) == 1 {
-		strInt, err := strconv.Atoi(args[0])
-		if err != nil {
-			return fmt.Errorf("deploy key ID must be an integer: %s", args[0])
-		}
-		o.keyID = int64(strInt)
+	// cobra.ExactArgs(1) guarantees exactly one argument, so no length guard is
+	// needed here. A guard would leave an unreachable branch that silently left
+	// keyID at zero, which is the bug this command had.
+	strInt, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("deploy key ID must be an integer: %s", args[0])
 	}
+	o.keyID = int64(strInt)
 
 	return nil
 }
