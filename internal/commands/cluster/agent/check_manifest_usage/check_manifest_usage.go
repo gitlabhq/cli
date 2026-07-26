@@ -1,6 +1,7 @@
 package check_manifest_usage
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -180,8 +181,11 @@ func agentUsesManifestProjects(apiClient *gitlab.Client, opts *options, agent *g
 	// GetRawFile
 	file, _, err := apiClient.RepositoryFiles.GetRawFile(agent.ConfigProject.ID, ".gitlab/agents/"+agent.Name+"/config.yaml", &gitlab.GetRawFileOptions{})
 	if err != nil {
-		opts.io.LogInfo(color.WarnIcon(), fmt.Sprintf("Agent %s uses the default configuration.", agent.Name))
-		return false, nil
+		if errors.Is(err, gitlab.ErrNotFound) {
+			opts.io.LogInfo(color.WarnIcon(), fmt.Sprintf("Agent %s uses the default configuration.", agent.Name))
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to read configuration for agent %q: %w", agent.Name, err)
 	}
 
 	// Check that gitops.manifest_projects json path does not exist in configFile
