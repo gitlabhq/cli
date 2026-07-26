@@ -19,6 +19,7 @@ import (
 	"github.com/google/shlex"
 	"github.com/muesli/termenv"
 
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/theme"
 	"gitlab.com/gitlab-org/cli/internal/utils"
 )
@@ -134,6 +135,28 @@ func stripControlCharacters(input string) string {
 	return controlCharRegEx.ReplaceAllString(input, "^[[$2$5")
 }
 
+func writePagerOutput(dst io.Writer, src io.Reader) error {
+	reader := bufio.NewReader(src)
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		if len(line) > 0 {
+			line = strings.TrimSuffix(line, "\n")
+			line = strings.TrimSuffix(line, "\r")
+			if _, err := fmt.Fprintln(dst, stripControlCharacters(line)); err != nil {
+				return err
+			}
+		}
+
+		if errors.Is(readErr, io.EOF) {
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
+
 func (s *IOStreams) PromptEnabled() bool {
 	if s.promptDisabled {
 		return false
@@ -210,16 +233,8 @@ func (s *IOStreams) StartPager() error {
 
 	go func() {
 		defer pagedOut.Close()
-
-		scanner := bufio.NewScanner(pipeReader)
-
-		for scanner.Scan() {
-			newData := stripControlCharacters(scanner.Text())
-
-			_, err = fmt.Fprintln(pagedOut, newData)
-			if err != nil {
-				return
-			}
+		if err := writePagerOutput(pagedOut, pipeReader); err != nil {
+			dbg.Debugf("pager output error: %v", err)
 		}
 	}()
 

@@ -3,8 +3,10 @@
 package iostreams
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -250,4 +252,14 @@ func TestStartPager_BlankCommand(t *testing.T) {
 			assert.Equal(t, originalStdOut, ios.StdOut, "no pager should have been started")
 		})
 	}
+}
+
+func TestWritePagerOutput_LongLine(t *testing.T) {
+	longLine := strings.Repeat("x", 70*1024)
+	var output bytes.Buffer
+
+	err := writePagerOutput(&output, strings.NewReader(longLine))
+
+	require.NoError(t, err)
+	assert.Equal(t, longLine+"\n", output.String())
 }
