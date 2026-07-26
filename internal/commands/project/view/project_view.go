@@ -197,8 +197,14 @@ func getReadmeFile(opts *options, project *gitlab.Project) (*gitlab.File, error)
 		return nil, nil
 	}
 
-	readmePath := strings.Replace(project.ReadmeURL, project.WebURL+"/-/blob/", "", 1)
-	readmePathComponents := strings.Split(readmePath, "/")
+	readmePath, found := strings.CutPrefix(project.ReadmeURL, project.WebURL+"/-/blob/")
+	if !found {
+		return nil, fmt.Errorf("invalid README URL: %q", project.ReadmeURL)
+	}
+	readmePathComponents := strings.SplitN(readmePath, "/", 2)
+	if len(readmePathComponents) != 2 {
+		return nil, fmt.Errorf("invalid README URL: %q", project.ReadmeURL)
+	}
 	readmeRef := readmePathComponents[0]
 	readmeFileName := readmePathComponents[1]
 

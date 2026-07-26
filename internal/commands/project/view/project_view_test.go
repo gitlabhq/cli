@@ -9,6 +9,7 @@ import (
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -20,6 +21,19 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 	"gitlab.com/gitlab-org/cli/test"
 )
+
+func TestGetReadmeFileRejectsMalformedURL(t *testing.T) {
+	t.Parallel()
+
+	project := &gitlab.Project{
+		WebURL:    "https://gitlab.com/OWNER/REPO",
+		ReadmeURL: "https://gitlab.com/OWNER/REPO/README.md",
+	}
+
+	_, err := getReadmeFile(&options{}, project)
+
+	require.EqualError(t, err, `invalid README URL: "https://gitlab.com/OWNER/REPO/README.md"`)
+}
 
 func TestProjectView(t *testing.T) {
 	tests := []struct {
@@ -64,6 +78,32 @@ func TestProjectView(t *testing.T) {
 			},
 			expectedOutput: heredoc.Doc(`name:	Test User / REPO
 description:	this is a test description
+---
+test readme
+
+`),
+		},
+		{
+			name: "view a project with a README in a subdirectory",
+			cli:  "",
+			setupMocks: func(t *testing.T, testClient *gitlabtesting.TestClient) {
+				t.Helper()
+				testClient.MockProjects.EXPECT().
+					GetProject("OWNER/REPO", gomock.Any()).
+					Return(&gitlab.Project{
+						NameWithNamespace: "Test User / REPO",
+						Description:       "nested readme",
+						PathWithNamespace: "OWNER/REPO",
+						DefaultBranch:     "main",
+						WebURL:            "https://gitlab.com/OWNER/REPO",
+						ReadmeURL:         "https://gitlab.com/OWNER/REPO/-/blob/main/docs/README.md",
+					}, nil, nil)
+				testClient.MockRepositoryFiles.EXPECT().
+					GetFile("OWNER/REPO", "docs/README.md", gomock.Any()).
+					Return(&gitlab.File{Content: "dGVzdCByZWFkbWUK"}, nil, nil)
+			},
+			expectedOutput: heredoc.Doc(`name:	Test User / REPO
+description:	nested readme
 ---
 test readme
 
