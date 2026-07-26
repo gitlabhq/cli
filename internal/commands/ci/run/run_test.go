@@ -21,6 +21,26 @@ import (
 	"gitlab.com/gitlab-org/cli/test"
 )
 
+func TestParseVarArg_EmptyKey(t *testing.T) {
+	t.Parallel()
+
+	for _, input := range []string{":value", "   :value"} {
+		_, err := parseVarArg(input)
+
+		require.EqualError(t, err, "variable key cannot be empty")
+	}
+}
+
+func TestParseVarArg_TrimsKey(t *testing.T) {
+	t.Parallel()
+
+	got, err := parseVarArg(" FOO :value")
+
+	require.NoError(t, err)
+	require.NotNil(t, got.Key)
+	assert.Equal(t, "FOO", *got.Key)
+}
+
 func TestCIRun(t *testing.T) {
 	tests := []struct {
 		name        string
