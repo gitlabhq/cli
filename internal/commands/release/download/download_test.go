@@ -127,6 +127,19 @@ func TestDownloadCommand_ReleaseNotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestDownloadAsset_InvalidURL(t *testing.T) {
+	t.Parallel()
+
+	client, err := gitlab.NewClient("test-token")
+	require.NoError(t, err)
+
+	destinationPath := filepath.Join(t.TempDir(), "asset")
+	err = downloadAsset(t.Context(), client, "%", destinationPath)
+
+	require.EqualError(t, err, `parsing release asset URL: parse "%": invalid URL escape "%"`)
+	assert.NoFileExists(t, destinationPath)
+}
+
 // Test_downloadAssets tests the internal downloadAssets function for path sanitization
 // and file download behavior. Uses httptest.NewServer for HTTP mocking since
 // this tests raw HTTP download functionality, not GitLab API calls.

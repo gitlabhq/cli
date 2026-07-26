@@ -220,6 +220,11 @@ func sanitizeAssetName(asset string) string {
 }
 
 func downloadAsset(ctx context.Context, client *gitlab.Client, assetURL, destinationPath string) error {
+	baseURL, err := url.Parse(assetURL)
+	if err != nil {
+		return fmt.Errorf("parsing release asset URL: %w", err)
+	}
+
 	f, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
@@ -227,7 +232,6 @@ func downloadAsset(ctx context.Context, client *gitlab.Client, assetURL, destina
 	defer f.Close()
 
 	// check if authenticated GitLab client should be used or not.
-	baseURL, _ := url.Parse(assetURL)
 	gitlabBaseURL := client.BaseURL()
 	if gitlabBaseURL.Scheme == baseURL.Scheme && gitlabBaseURL.Host == baseURL.Host {
 		r, err := client.NewRequestToURL(http.MethodGet, baseURL, http.NoBody, []gitlab.RequestOptionFunc{
