@@ -128,6 +128,13 @@ func Test_ParseAssignees(t *testing.T) {
 			wantRemove:  []string{"foo", "baz"},
 			wantReplace: []string{"bar"},
 		},
+		{
+			name:        "ignore empty assignee",
+			input:       []string{"", "foo"},
+			wantAdd:     []string{},
+			wantRemove:  []string{},
+			wantReplace: []string{"foo"},
+		},
 	}
 	for _, tC := range testCases {
 		t.Run(tC.name, func(t *testing.T) {
