@@ -129,6 +129,12 @@ func TestParseDuration(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "invalid: value exceeds 365-day limit",
+			input:   "281474976710657d",
+			want:    0,
+			wantErr: true,
+		},
+		{
 			name:    "invalid: 366 days",
 			input:   "366d",
 			want:    0,
