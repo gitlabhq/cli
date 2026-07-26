@@ -351,15 +351,17 @@ func createRun(opts *options) error {
 	}
 	color := opts.io.Color()
 	var tag *gitlab.Tag
-	var resp *gitlab.Response
 
 	if opts.ref == "" {
 		opts.io.LogInfo(color.ProgressIcon(), "Validating tag", opts.tagName)
+		var resp *gitlab.Response
 		tag, resp, err = client.Tags.GetTag(repo.FullName(), opts.tagName)
-		if err != nil && resp != nil && resp.StatusCode != http.StatusNotFound {
+		notFound := gitlab.HasStatusCode(err, http.StatusNotFound) ||
+			(resp != nil && resp.StatusCode == http.StatusNotFound)
+		if err != nil && !notFound {
 			return cmdutils.WrapError(err, "could not fetch tag")
 		}
-		if tag == nil && resp != nil && resp.StatusCode == http.StatusNotFound {
+		if tag == nil && notFound {
 			opts.io.LogInfo(color.DotWarnIcon(), "Tag does not exist.")
 			opts.io.LogInfo(color.DotWarnIcon(), "No ref provided. Creating the tag from the latest state of the default branch.")
 			project, err := repo.Project(client)
