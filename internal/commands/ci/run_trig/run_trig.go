@@ -29,7 +29,11 @@ func parseVarArg(s string) (string, string, error) {
 	if len(v) == 1 {
 		return "", "", fmt.Errorf("invalid argument structure")
 	}
-	return v[0], v[1], nil
+	key := strings.TrimSpace(v[0])
+	if key == "" {
+		return "", "", fmt.Errorf("variable key cannot be empty")
+	}
+	return key, v[1], nil
 }
 
 func NewCmdRunTrig(f cmdutils.Factory) *cobra.Command {

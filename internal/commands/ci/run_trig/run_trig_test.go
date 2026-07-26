@@ -15,6 +15,26 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
+func TestParseVarArg_EmptyKey(t *testing.T) {
+	t.Parallel()
+
+	for _, input := range []string{":value", "   :value"} {
+		_, _, err := parseVarArg(input)
+
+		require.EqualError(t, err, "variable key cannot be empty")
+	}
+}
+
+func TestParseVarArg_TrimsKey(t *testing.T) {
+	t.Parallel()
+
+	key, value, err := parseVarArg(" FOO :value")
+
+	require.NoError(t, err)
+	assert.Equal(t, "FOO", key)
+	assert.Equal(t, "value", value)
+}
+
 func TestCIRunTrig(t *testing.T) {
 	// Cannot use t.Parallel() because subtests use t.Setenv()
 

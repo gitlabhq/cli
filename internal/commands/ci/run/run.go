@@ -31,8 +31,12 @@ func parseVarArg(s string) (*gitlab.PipelineVariableOptions, error) {
 	if len(v) == 1 {
 		return nil, fmt.Errorf("invalid argument structure")
 	}
+	key := strings.TrimSpace(v[0])
+	if key == "" {
+		return nil, fmt.Errorf("variable key cannot be empty")
+	}
 	return &gitlab.PipelineVariableOptions{
-		Key:   &v[0],
+		Key:   &key,
 		Value: &v[1],
 	}, nil
 }
