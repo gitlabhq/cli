@@ -309,7 +309,7 @@ func RunClone(cloneURL string, target string, args []string) (string, error) {
 	if target != "" {
 		cloneArgs = append(cloneArgs, target)
 	} else {
-		target = path.Base(strings.TrimSuffix(cloneURL, ".git"))
+		target = cloneTargetDir(cloneURL)
 	}
 
 	cloneArgs = append([]string{"clone"}, cloneArgs...)
@@ -321,6 +321,15 @@ func RunClone(cloneURL string, target string, args []string) (string, error) {
 
 	err := run.PrepareCmd(cloneCmd).Run()
 	return target, err
+}
+
+// cloneTargetDir returns the directory git clones cloneURL into when no
+// explicit target is given. Trailing slashes are trimmed before the ".git"
+// suffix is stripped: a URL ending in ".git/" does not match the ".git" suffix,
+// so it would otherwise resolve to "repo.git" while git clones into "repo".
+func cloneTargetDir(cloneURL string) string {
+	trimmed := strings.TrimRight(cloneURL, "/")
+	return path.Base(strings.TrimSuffix(trimmed, ".git"))
 }
 
 func AddUpstreamRemote(upstreamURL, cloneDir string) error {
