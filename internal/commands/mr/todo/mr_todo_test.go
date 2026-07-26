@@ -3,6 +3,7 @@
 package todo
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -96,6 +97,20 @@ func TestMrTodo(t *testing.T) {
 				tc.MockMergeRequests.EXPECT().
 					CreateTodo("OWNER/REPO", int64(123)).
 					Return(nil, &gitlab.Response{Response: &http.Response{StatusCode: http.StatusNotModified}}, nil)
+			},
+		},
+		{
+			name:          "when the request fails without a response",
+			cli:           "123",
+			wantErr:       true,
+			expectedError: errors.New("network unavailable"),
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(testMR, nil, nil)
+				tc.MockMergeRequests.EXPECT().
+					CreateTodo("OWNER/REPO", int64(123)).
+					Return(nil, nil, errors.New("network unavailable"))
 			},
 		},
 	}

@@ -44,12 +44,11 @@ func NewCmdTodo(f cmdutils.Factory) *cobra.Command {
 			}
 
 			_, resp, err := client.MergeRequests.CreateTodo(repo.FullName(), mr.IID)
-
-			if resp.StatusCode == http.StatusNotModified {
-				return errTodoExists
-			}
 			if err != nil {
 				return err
+			}
+			if resp != nil && resp.StatusCode == http.StatusNotModified {
+				return errTodoExists
 			}
 
 			f.IO().LogInfo(c.GreenCheck(), "Done!!")
