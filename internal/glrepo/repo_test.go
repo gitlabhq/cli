@@ -106,6 +106,13 @@ hosts:
 			err:    nil,
 		},
 		{
+			name:   "gitlab.com dot-git URL with trailing slash",
+			input:  "https://gitlab.com/monalisa/octo-cat.git/",
+			result: "monalisa/octo-cat",
+			host:   "gitlab.com",
+			err:    nil,
+		},
+		{
 			name:   "www.gitlab.com URL",
 			input:  "http://www.GITLAB.com/monalisa/octo-cat.git",
 			result: "monalisa/octo-cat",

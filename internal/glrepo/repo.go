@@ -190,7 +190,7 @@ func FromURL(u *url.URL, defaultHostname string, cfg config.Config) (Interface, 
 	}
 
 	// Standard path parsing
-	urlPath = strings.Trim(strings.TrimSuffix(urlPath, ".git"), "/")
+	urlPath = strings.TrimLeft(git.StripDotGit(urlPath), "/")
 	if urlPath == "" || !strings.Contains(urlPath, "/") {
 		return nil, fmt.Errorf("invalid path: %s", u.Path)
 	}
