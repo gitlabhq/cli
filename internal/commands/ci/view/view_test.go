@@ -1286,6 +1286,15 @@ func Test_bracketEscaper(t *testing.T) {
 	}
 }
 
+func TestNormalizeCtrlM(t *testing.T) {
+	t.Parallel()
+
+	event := normalizeCtrlM(tcell.NewEventKey(tcell.KeyCtrlM, 0, tcell.ModNone))
+
+	assert.Equal(t, tcell.KeyEnter, event.Key())
+	assert.Equal(t, tcell.ModNone, event.Modifiers())
+}
+
 // Test_bridgeWithoutDownstreamPipeline tests that we correctly handle bridge jobs
 // without downstream pipelines (fixes crash in work item #7372)
 func Test_bridgeWithoutDownstreamPipeline(t *testing.T) {
