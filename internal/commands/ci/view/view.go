@@ -389,6 +389,7 @@ func inputCapture(
 				inputCh <- struct{}{}
 			}
 		}
+		event = normalizeCtrlM(event)
 		switch event.Key() {
 		case tcell.KeyCtrlQ:
 			app.Stop()
@@ -520,6 +521,13 @@ func inputCapture(
 		}
 		return event
 	}
+}
+
+func normalizeCtrlM(event *tcell.EventKey) *tcell.EventKey {
+	if event.Key() == tcell.KeyCtrlM {
+		return tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone)
+	}
+	return event
 }
 
 var (
