@@ -328,8 +328,13 @@ func RunClone(cloneURL string, target string, args []string) (string, error) {
 // suffix is stripped: a URL ending in ".git/" does not match the ".git" suffix,
 // so it would otherwise resolve to "repo.git" while git clones into "repo".
 func cloneTargetDir(cloneURL string) string {
-	trimmed := strings.TrimRight(cloneURL, "/")
-	return path.Base(strings.TrimSuffix(trimmed, ".git"))
+	return path.Base(StripDotGit(cloneURL))
+}
+
+// StripDotGit normalizes a Git URL path by removing trailing slashes and a
+// ".git" suffix.
+func StripDotGit(value string) string {
+	return strings.TrimSuffix(strings.TrimRight(value, "/"), ".git")
 }
 
 func AddUpstreamRemote(upstreamURL, cloneDir string) error {
