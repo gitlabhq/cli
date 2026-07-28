@@ -560,6 +560,40 @@ func TestMRCreate_nontty_insufficient_flags(t *testing.T) {
 	assert.Equal(t, "--title or --fill required for non-interactive mode", err.Error())
 }
 
+func TestMRCreate_nontty_titleDoesNotRequireDescription(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+	testClient.MockProjects.EXPECT().
+		GetProject("OWNER/REPO", gomock.Any()).
+		Return(nil, nil, errors.New("stop after validation"))
+	pu, _ := url.Parse("https://gitlab.com/OWNER/REPO.git")
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, false,
+		cmdtest.WithGitLabClient(testClient.Client),
+		func(f *cmdtest.Factory) {
+			f.RemotesStub = func() (glrepo.Remotes, error) {
+				return glrepo.Remotes{
+					{
+						Remote: &git.Remote{Name: "upstream", Resolved: "head", PushURL: pu},
+						Repo:   glrepo.New("OWNER", "REPO", glinstance.DefaultHostname),
+					},
+					{
+						Remote: &git.Remote{Name: "origin", Resolved: "base", PushURL: pu},
+						Repo:   glrepo.New("monalisa", "REPO", glinstance.DefaultHostname),
+					},
+				}, nil
+			}
+			f.BranchStub = func() (string, error) {
+				return "test-br", nil
+			}
+		},
+	)
+
+	_, err := exec("--title test-title")
+	require.EqualError(t, err, "stop after validation")
+}
+
 func TestMrBodyAndTitle(t *testing.T) {
 	opts := &options{
 		SourceBranch:         "mr-autofill-test-br",

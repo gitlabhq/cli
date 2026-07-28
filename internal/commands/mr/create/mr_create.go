@@ -195,8 +195,9 @@ func (o *options) complete(cmd *cobra.Command) {
 	hasDescription := cmd.Flags().Changed("description")
 	hasTemplate := cmd.Flags().Changed("template")
 
-	// disable interactive mode if title and description (or template) are explicitly defined
-	o.needsPrompt = !(hasTitle && (hasDescription || hasTemplate))
+	// Interactive mode prompts when either the title or description/template is missing.
+	// Non-interactive mode only requires a title.
+	o.needsPrompt = !hasTitle || (o.io.IsInteractive() && !hasDescription && !hasTemplate)
 
 	// Handle boolean flags: only set if explicitly provided by user
 	// This allows users to override project defaults or use them when omitted
