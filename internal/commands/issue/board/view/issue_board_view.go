@@ -35,6 +35,7 @@ type issueBoardViewOptions struct {
 	labels    []string
 	milestone string
 	state     string
+	paginate  bool
 }
 
 type boardMeta struct {
@@ -193,6 +194,8 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 		StringSliceVarP(&opts.labels, "labels", "l", []string{}, "Filter board issues by labels. Multiple labels can be comma-separated or specified by repeating the flag.")
 	viewCmd.Flags().
 		StringVarP(&opts.milestone, "milestone", "m", "", "Filter board issues by milestone.")
+	viewCmd.Flags().
+		BoolVar(&opts.paginate, "paginate", false, "Make additional HTTP requests to retrieve all board issues.")
 	return viewCmd
 }
 
@@ -415,7 +418,15 @@ func getGroupBoardIssues(apiClient *gitlab.Client, groupID int64, opts *issueBoa
 	if reqOpts.PerPage == 0 {
 		reqOpts.PerPage = api.DefaultListLimit
 	}
-	issues, _, err := apiClient.Issues.ListGroupIssues(groupID, reqOpts)
+	var issues []*gitlab.Issue
+	var err error
+	if opts.paginate {
+		issues, err = gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.Issue, *gitlab.Response, error) {
+			return apiClient.Issues.ListGroupIssues(groupID, reqOpts, p)
+		})
+	} else {
+		issues, _, err = apiClient.Issues.ListGroupIssues(groupID, reqOpts)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("retrieving list issues: %w", err)
 	}
@@ -427,7 +438,15 @@ func getProjectBoardIssues(apiClient *gitlab.Client, repo glrepo.Interface, opts
 	if reqOpts.PerPage == 0 {
 		reqOpts.PerPage = api.DefaultListLimit
 	}
-	issues, _, err := apiClient.Issues.ListProjectIssues(repo.FullName(), reqOpts)
+	var issues []*gitlab.Issue
+	var err error
+	if opts.paginate {
+		issues, err = gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.Issue, *gitlab.Response, error) {
+			return apiClient.Issues.ListProjectIssues(repo.FullName(), reqOpts, p)
+		})
+	} else {
+		issues, _, err = apiClient.Issues.ListProjectIssues(repo.FullName(), reqOpts)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("retrieving list issues: %w", err)
 	}

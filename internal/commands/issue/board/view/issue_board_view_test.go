@@ -6,9 +6,86 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v2/testing"
+
+	"gitlab.com/gitlab-org/cli/internal/glinstance"
+	"gitlab.com/gitlab-org/cli/internal/glrepo"
 )
+
+func TestGetProjectBoardIssuesPaginates(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+	call := 0
+	testClient.MockIssues.EXPECT().
+		ListProjectIssues("OWNER/REPO", gomock.Any(), gomock.Any()).
+		Times(2).
+		DoAndReturn(func(_ any, _ *gitlab.ListProjectIssuesOptions, _ ...gitlab.RequestOptionFunc) ([]*gitlab.Issue, *gitlab.Response, error) {
+			call++
+			if call == 1 {
+				return []*gitlab.Issue{{IID: 1}}, &gitlab.Response{NextPage: 2}, nil
+			}
+			return []*gitlab.Issue{{IID: 2}}, &gitlab.Response{}, nil
+		})
+
+	issues, err := getProjectBoardIssues(
+		testClient.Client,
+		glrepo.New("OWNER", "REPO", glinstance.DefaultHostname),
+		&issueBoardViewOptions{paginate: true},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, issues, 2)
+	assert.Equal(t, int64(1), issues[0].IID)
+	assert.Equal(t, int64(2), issues[1].IID)
+}
+
+func TestGetGroupBoardIssuesPaginates(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+	call := 0
+	testClient.MockIssues.EXPECT().
+		ListGroupIssues(int64(42), gomock.Any(), gomock.Any()).
+		Times(2).
+		DoAndReturn(func(_ any, _ *gitlab.ListGroupIssuesOptions, _ ...gitlab.RequestOptionFunc) ([]*gitlab.Issue, *gitlab.Response, error) {
+			call++
+			if call == 1 {
+				return []*gitlab.Issue{{IID: 1}}, &gitlab.Response{NextPage: 2}, nil
+			}
+			return []*gitlab.Issue{{IID: 2}}, &gitlab.Response{}, nil
+		})
+
+	issues, err := getGroupBoardIssues(testClient.Client, 42, &issueBoardViewOptions{paginate: true})
+
+	require.NoError(t, err)
+	require.Len(t, issues, 2)
+	assert.Equal(t, int64(1), issues[0].IID)
+	assert.Equal(t, int64(2), issues[1].IID)
+}
+
+func TestGetProjectBoardIssuesUsesSinglePageByDefault(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+	testClient.MockIssues.EXPECT().
+		ListProjectIssues("OWNER/REPO", gomock.Any()).
+		Return([]*gitlab.Issue{{IID: 1}}, &gitlab.Response{NextPage: 2}, nil)
+
+	issues, err := getProjectBoardIssues(
+		testClient.Client,
+		glrepo.New("OWNER", "REPO", glinstance.DefaultHostname),
+		&issueBoardViewOptions{},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, int64(1), issues[0].IID)
+}
 
 func Test_issueBoardViewOptions_getListProjectIssueOptions(t *testing.T) {
 	withLabelDetails := true
