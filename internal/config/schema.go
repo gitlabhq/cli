@@ -265,7 +265,7 @@ var KeySchema = []KeyDef{
 	{
 		Name: "use_keyring", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
-		Description:  "Store the host's credentials in the operating system's keyring (true/false).\nSet automatically by 'glab auth login'. Empty is treated as false.",
+		Description:  "Store the host's credentials in the operating system's keyring (true/false).\nSet automatically by 'glab auth login', which defaults to 'true' when a keyring\nbackend is available. Empty is treated as false (plaintext file storage).",
 	},
 	{
 		Name: "proxy", Scope: ScopePerHost, Type: TypeString,

@@ -18,6 +18,7 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/oauth2"
 	"gitlab.com/gitlab-org/cli/internal/utils"
@@ -306,8 +307,19 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 
 	isOAuth2Cfg, _ := cfg.Get(repoHost, "is_oauth2")
 
-	token, _ := cfg.Get(repoHost, "token")
-	jobToken, _ := cfg.Get(repoHost, "job_token")
+	// token and job_token may be backed by the OS keyring. Surface read errors
+	// (locked keyring, denied access, unavailable backend) instead of silently
+	// treating them as an empty credential, which produces confusing downstream
+	// auth errors. A credential that is simply not stored returns "" with no
+	// error.
+	token, err := cfg.Get(repoHost, "token")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the access token for %q: %w", repoHost, err)
+	}
+	jobToken, err := cfg.Get(repoHost, "job_token")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the job token for %q: %w", repoHost, err)
+	}
 	tlsVerify, _ := cfg.Get(repoHost, "skip_tls_verify")
 	skipTlsVerify := tlsVerify == "true" || tlsVerify == "1"
 	caCert, _ := cfg.Get(repoHost, "ca_cert")
@@ -351,9 +363,21 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 	var newAuthSource newAuthSource
 	switch {
 	case isOAuth2Cfg == "true":
-		if v, _ := cfg.Get(repoHost, "oauth2_refresh_token"); v == "" {
+		// If the refresh token can't be read but a usable access token is still
+		// present, fall through to access-token-only auth rather than failing
+		// the whole client build. Log the read failure (surfaced with DEBUG) so
+		// it is not lost; a hard error still occurs at refresh time when renewal
+		// is actually attempted.
+		refreshToken, refreshErr := cfg.Get(repoHost, "oauth2_refresh_token")
+		if refreshErr != nil {
 			if token == "" {
-				return nil, errors.New("with OAuth2 is enabled and when no Refresh Token is available an OAuth2 Access Token is required")
+				return nil, fmt.Errorf("failed to read the OAuth2 refresh token for %q: %w", repoHost, refreshErr)
+			}
+			dbg.Debugf("failed to read oauth2_refresh_token for %q: %v", repoHost, refreshErr)
+		}
+		if refreshToken == "" {
+			if token == "" {
+				return nil, fmt.Errorf("OAuth2 authentication is configured for %q but no access or refresh token was found (the stored credentials may be missing or incomplete); run `glab auth login --hostname %s` to re-authenticate", repoHost, repoHost)
 			}
 
 			newAuthSource = func(client *http.Client) (gitlab.AuthSource, error) {

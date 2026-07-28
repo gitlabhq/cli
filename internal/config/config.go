@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/zalando/go-keyring"
@@ -97,6 +98,14 @@ func (cm *ConfigMap) SetStringValue(key, value string) error {
 	}
 
 	valueNode.Value = value
+
+	// A blank entry (a key written with no value, e.g. `token:`) parses as a
+	// null-tagged scalar. Assigning a value without clearing that tag produces
+	// `token: !!null <value>`, which leaves the value in the file yet makes it
+	// decode as null. Reset the tag so string values round-trip correctly.
+	if valueNode.Tag == "!!null" {
+		valueNode.Tag = "!!str"
+	}
 
 	return nil
 }
@@ -236,7 +245,14 @@ func (c *fileConfig) GetWithSource(hostname, key string, searchENVVars bool) (st
 					if err == nil {
 						return token, "keyring", nil
 					}
-					return "", "", fmt.Errorf("%s not found in keyring", key)
+					// A missing entry is not a failure: treat it like an unset
+					// value and fall through to normal resolution. Any other
+					// error (locked keyring, denied access, unavailable backend)
+					// is surfaced so callers do not silently proceed with an
+					// empty credential.
+					if !errors.Is(err, keyring.ErrNotFound) {
+						return "", "keyring", fmt.Errorf("failed to read %q from the operating system keyring for host %q: %w", key, hostname, err)
+					}
 				}
 			}
 
@@ -294,11 +310,50 @@ func isKeyringEligibleKey(key string) bool {
 	return eligible
 }
 
+// keyringProbeService is the sentinel service name used to check whether a
+// working OS keyring backend is present.
+const keyringProbeService = "glab:__keyring_probe__"
+
+// KeyringAvailable reports whether a usable OS keyring backend is present by
+// performing a lightweight write/delete of a sentinel entry. It returns false
+// on platforms without a keyring (for example, headless Linux without a Secret
+// Service, or CI runners), which lets callers fall back to file storage.
+func KeyringAvailable() bool {
+	if err := keyring.Set(keyringProbeService, "", "1"); err != nil {
+		return false
+	}
+	// Best effort cleanup; a lingering sentinel is harmless.
+	_ = keyring.Delete(keyringProbeService, "")
+	return true
+}
+
 // buildKeyringKey constructs the keyring key for a given hostname and config key
 func buildKeyringKey(hostname, key string) string {
 	// Always suffix with the key name to avoid collisions
 	// e.g., "glab:gitlab.com:token", "glab:gitlab.com:oauth2_refresh_token"
 	return "glab:" + hostname + ":" + key
+}
+
+// deleteFromKeyring best-effort removes a credential from the keyring, trying
+// both the current and legacy key formats. Missing entries are ignored.
+func deleteFromKeyring(hostname, key string) {
+	_ = keyring.Delete(buildKeyringKey(hostname, key), "")
+	if legacyKey := buildLegacyKeyringKey(hostname, key); legacyKey != "" {
+		_ = keyring.Delete(legacyKey, "")
+	}
+}
+
+// InCI reports whether glab is running in a CI environment, based on the
+// conventional GITLAB_CI and CI variables. A value that parses as boolean true
+// (for example "true" or "1") counts; empty, "false", "0", and unparseable
+// values do not. GitLab and GitHub both set these to "true".
+func InCI() bool {
+	return ciEnvEnabled("GITLAB_CI") || ciEnvEnabled("CI")
+}
+
+func ciEnvEnabled(name string) bool {
+	enabled, err := strconv.ParseBool(os.Getenv(name))
+	return err == nil && enabled
 }
 
 // getFromKeyring attempts to retrieve a value from the keyring, trying both
@@ -342,30 +397,30 @@ func buildLegacyKeyringKey(hostname, key string) string {
 func (c *fileConfig) Set(hostname, key, value string) error {
 	key = ConfigKeyEquivalence(key)
 
-	// Check if this is a keyring-eligible key and keyring is enabled
+	// Keep the keyring-backed and file-backed copies of a credential from
+	// diverging. When storing to the keyring, the plaintext copy is dropped from
+	// the file (below). When storing to the file or clearing the value, any
+	// stale keyring copy is removed so that switching keyring->file, or logging
+	// out, never orphans a secret regardless of the order in which use_keyring
+	// and the credential are written. The keyring cleanup is skipped in CI,
+	// where the keyring is intentionally left untouched.
 	if isKeyringEligibleKey(key) && hostname != "" {
 		useKeyring, _ := c.Get(hostname, "use_keyring")
-		if useKeyring == "true" {
-			if value != "" {
-				// Store in keyring instead of config file
-				keyringKey := buildKeyringKey(hostname, key)
-				if err := keyring.Set(keyringKey, "", value); err != nil {
-					return err
-				}
-				// Remove any existing plaintext token from config
-				// Set value to empty to trigger removal below
-				value = ""
-			} else {
-				// Delete from keyring when value is empty
-				// Try both new and legacy formats for thorough cleanup
-				keyringKey := buildKeyringKey(hostname, key)
-				_ = keyring.Delete(keyringKey, "")
-
-				legacyKey := buildLegacyKeyringKey(hostname, key)
-				_ = keyring.Delete(legacyKey, "")
-
-				// Also remove from config file below
+		switch {
+		case useKeyring == "true" && value != "":
+			// Keyring mode: store in the keyring. Setting value to "" removes the
+			// plaintext copy from the config file below.
+			keyringKey := buildKeyringKey(hostname, key)
+			if err := keyring.Set(keyringKey, "", value); err != nil {
+				return err
 			}
+			value = ""
+		case useKeyring == "true" || !InCI():
+			// Keyring mode clearing the value, or file mode storing/clearing:
+			// remove any keyring copy so switching keyring->file, or logging out,
+			// does not orphan a secret. Skipped in CI, where the keyring is left
+			// untouched (and file mode is the default there anyway).
+			deleteFromKeyring(hostname, key)
 		}
 	}
 

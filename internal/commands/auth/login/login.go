@@ -47,9 +47,10 @@ type LoginOptions struct {
 	SSHHostname              string
 	ContainerRegistryDomains string
 
-	WebLogin    bool
-	DeviceLogin bool
-	UseKeyring  bool
+	WebLogin        bool
+	DeviceLogin     bool
+	UseKeyring      bool // Deprecated: keyring storage is now the default.
+	InsecureStorage bool
 }
 
 var opts *LoginOptions
@@ -71,10 +72,22 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Docf(`
 			Authenticates with a GitLab instance.
 
-			Stores your credentials in the global configuration file
-			(default %[1]s~/.config/glab-cli/config.yml%[1]s).
-			To store your token in your operating system's keyring instead, use %[1]s--use-keyring%[1]s.
-			After authentication, all glab commands use the stored credentials.
+			By default, glab stores your credentials in your operating system's
+			keyring (macOS Keychain, Windows Credential Manager, or the Secret
+			Service on Linux) when one is available. If no keyring is available,
+			or if you pass %[1]s--insecure-storage%[1]s, glab stores them in the global
+			configuration file (default %[1]s~/.config/glab-cli/config.yml%[1]s) as
+			plaintext instead. After authentication, all glab commands use the
+			stored credentials.
+
+			If you previously signed in and your credentials are stored as
+			plaintext in the configuration file, run %[1]sglab auth login%[1]s again to
+			move them into the keyring.
+
+			In CI (when %[1]sGITLAB_CI%[1]s or %[1]sCI%[1]s is set), glab stores credentials in the
+			configuration file rather than the keyring. Credentials in CI are
+			usually supplied through environment variables, and an OS keyring is
+			often unavailable there.
 
 			If %[1]sGITLAB_TOKEN%[1]s, %[1]sGITLAB_ACCESS_TOKEN%[1]s, or %[1]sOAUTH_TOKEN%[1]s are set,
 			they take precedence over the stored credentials. When CI auto-login is
@@ -103,7 +116,7 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 			glab auth login --hostname gitlab.example.org --api-host gitlab.example.org:3443 --api-protocol https --git-protocol ssh --stdin < myaccesstoken.txt
 
 			# Semi-interactive OAuth login, skipping all prompts except browser auth
-			glab auth login --hostname gitlab.com --web --git-protocol ssh --container-registry-domains "gitlab.com,gitlab.com:443,registry.gitlab.com" --use-keyring
+			glab auth login --hostname gitlab.com --web --git-protocol ssh --container-registry-domains "gitlab.com,gitlab.com:443,registry.gitlab.com"
 
 			# OAuth device authorization flow for headless environments without a local browser.
 			# glab displays a one-time code and verification URL; you authorize on any
@@ -175,6 +188,8 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.JobToken, "job-token", "j", "", "CI job token.")
 	cmd.Flags().BoolVar(&tokenStdin, "stdin", false, "Read the token from standard input.")
 	cmd.Flags().BoolVar(&opts.UseKeyring, "use-keyring", false, "Store the token in your operating system's keyring.")
+	cmd.Flags().BoolVar(&opts.InsecureStorage, "insecure-storage", false, "Store the token as plaintext in the configuration file instead of the operating system's keyring.")
+	cobra.CheckErr(cmd.Flags().MarkDeprecated("use-keyring", "keyring storage is now the default. Use --insecure-storage to store the token in the configuration file."))
 	cmd.Flags().BoolVar(&opts.WebLogin, "web", false, "Skip the login type prompt and use web/OAuth login.")
 	cmd.Flags().BoolVar(&opts.DeviceLogin, "device", false, "Use the OAuth 2.0 device authorization flow. Useful for headless environments where a local browser is not available. Requires GitLab 17.9 or later.")
 	cmd.Flags().StringVarP(&opts.ApiHost, "api-host", "a", "", "Hostname for the API endpoint, if different from --hostname. Accepts a hostname or hostname:port. Use only when the API is served from a different host than the Git remote.")
@@ -184,6 +199,7 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.ContainerRegistryDomains, "container-registry-domains", "", "Container registry and image dependency proxy domains, comma-separated.")
 
 	cmd.MarkFlagsMutuallyExclusive("token", "stdin", "job-token", "web", "device")
+	cmd.MarkFlagsMutuallyExclusive("use-keyring", "insecure-storage")
 
 	return cmd
 }
@@ -192,12 +208,27 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 	c := opts.IO.Color()
 	cfg := opts.Config()
 
-	// Enable keyring mode if requested - do this once at the beginning
-	// so all authentication methods benefit from it
-	if opts.UseKeyring {
-		if err := cfg.Set(opts.Hostname, "use_keyring", "true"); err != nil {
-			return err
-		}
+	// Decide once whether credentials should be stored in the OS keyring.
+	// Keyring is the default when a backend is available. --insecure-storage
+	// forces plaintext file storage. The deprecated --use-keyring only still
+	// matters in CI, where it opts back in to the keyring. The resolved value
+	// is persisted per-host in each authentication path below.
+	keyringPref := "false"
+	switch {
+	case opts.InsecureStorage:
+		// Explicit opt-out: store in the configuration file without warning.
+	case !opts.UseKeyring && config.InCI():
+		// In CI, credentials are ephemeral and usually supplied via environment
+		// variables, and an OS keyring is typically unavailable or not persisted
+		// across job steps (a locked keyring would also make later reads fail).
+		// Default to file storage there unless the keyring is explicitly
+		// requested with the (deprecated) --use-keyring.
+	case config.KeyringAvailable():
+		keyringPref = "true"
+	default:
+		// No keyring backend available: fall back to file storage, but warn that
+		// credentials are stored as plaintext.
+		opts.IO.LogErrorf("%s The operating system keyring is unavailable. Storing credentials as plaintext in the configuration file.\n", c.Yellow("WARNING:"))
 	}
 
 	if opts.Token != "" {
@@ -209,6 +240,10 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 		hostname, subfolder := splitHostnameAndSubfolder(opts.Hostname)
 
 		if err := authutils.ClearAuthFields(cfg, hostname); err != nil {
+			return err
+		}
+
+		if err := cfg.Set(hostname, "use_keyring", keyringPref); err != nil {
 			return err
 		}
 
@@ -249,7 +284,11 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 			}
 		}
 
-		return cfg.Write()
+		if err := cfg.Write(); err != nil {
+			return err
+		}
+		logCredentialStorage(opts.IO, keyringPref)
+		return nil
 	}
 
 	if opts.JobToken != "" {
@@ -261,6 +300,10 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 		hostname, subfolder := splitHostnameAndSubfolder(opts.Hostname)
 
 		if err := authutils.ClearAuthFields(cfg, hostname); err != nil {
+			return err
+		}
+
+		if err := cfg.Set(hostname, "use_keyring", keyringPref); err != nil {
 			return err
 		}
 
@@ -297,7 +340,11 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 			}
 		}
 
-		return cfg.Write()
+		if err := cfg.Write(); err != nil {
+			return err
+		}
+		logCredentialStorage(opts.IO, keyringPref)
+		return nil
 	}
 
 	// Split hostname into base hostname and subfolder if present
@@ -495,6 +542,15 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 	// Re-split hostname in case it was changed by prompts
 	hostname, subfolder = splitHostnameAndSubfolder(hostname)
 
+	// Persist the keyring preference before acquiring the token so that the
+	// token (including tokens written by the OAuth flow's marshal step) is
+	// routed to the correct storage backend.
+	if hostname != "" {
+		if err := cfg.Set(hostname, "use_keyring", keyringPref); err != nil {
+			return err
+		}
+	}
+
 	var token string
 	var err error
 	if strings.EqualFold(loginType, promptLoginTypeToken) {
@@ -666,6 +722,7 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 	}
 
 	opts.IO.LogErrorf("%s Logged in as %s\n", c.GreenCheck(), c.Bold(username))
+	logCredentialStorage(opts.IO, keyringPref)
 	opts.IO.LogErrorf("%s Configuration saved to %s\n", c.GreenCheck(), config.ConfigFile())
 	opts.IO.LogErrorf("  - Host: %s\n", hostname)
 	if subfolder != "" {
@@ -676,6 +733,17 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 	}
 
 	return nil
+}
+
+// logCredentialStorage tells the user where their credentials were stored, so
+// the default keyring behavior (and any fallback to the file) is visible.
+func logCredentialStorage(io *iostreams.IOStreams, keyringPref string) {
+	c := io.Color()
+	if keyringPref == "true" {
+		io.LogErrorf("%s Stored your credentials in the operating system keyring.\n", c.GreenCheck())
+	} else {
+		io.LogErrorf("%s Stored your credentials in the configuration file.\n", c.GreenCheck())
+	}
 }
 
 func hostnameValidator(v any) error {

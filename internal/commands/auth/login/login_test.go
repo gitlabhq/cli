@@ -4,7 +4,10 @@ package login
 
 import (
 	"bytes"
+	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/shlex"
@@ -449,6 +452,185 @@ func Test_keyringLogin(t *testing.T) {
 	token, err = keyring.Get("glab:gitlab.com:token", "")
 	require.NoError(t, err)
 	assert.Equal(t, "glpat-1234", token)
+}
+
+func Test_defaultKeyringLogin(t *testing.T) {
+	keyring.MockInit()
+	// Exercise the non-CI default-keyring path even when the test suite runs
+	// inside CI (where GITLAB_CI/CI would otherwise route storage to the file).
+	t.Setenv("GITLAB_CI", "")
+	t.Setenv("CI", "")
+
+	d := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", d)
+
+	io, _, _, _ := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(io)
+	cfg := config.NewBlankConfigInDir(d)
+	f.ConfigStub = func() config.Config { return cfg }
+	cmd := NewCmdLogin(f)
+	cmd.Flags().BoolP("help", "x", false, "")
+
+	cmd.SetArgs([]string{"--token", "glpat-default"})
+
+	_, err := cmd.ExecuteC()
+	require.NoError(t, err)
+
+	// With a keyring available, the token is stored there by default even
+	// without passing --use-keyring.
+	got, err := keyring.Get("glab:gitlab.com:token", "")
+	require.NoError(t, err)
+	assert.Equal(t, "glpat-default", got)
+
+	// The config file records the preference and holds no plaintext token.
+	useKeyring, _ := cfg.Get("gitlab.com", "use_keyring")
+	assert.Equal(t, "true", useKeyring)
+	data, err := os.ReadFile(filepath.Join(d, "config.yml"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "glpat-default")
+}
+
+func Test_insecureStorageLogin(t *testing.T) {
+	keyring.MockInit()
+
+	d := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", d)
+
+	io, _, _, _ := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(io)
+	cfg := config.NewBlankConfigInDir(d)
+	f.ConfigStub = func() config.Config { return cfg }
+	cmd := NewCmdLogin(f)
+	cmd.Flags().BoolP("help", "x", false, "")
+
+	cmd.SetArgs([]string{"--insecure-storage", "--token", "glpat-plain"})
+
+	_, err := cmd.ExecuteC()
+	require.NoError(t, err)
+
+	// --insecure-storage keeps the token out of the keyring entirely.
+	_, err = keyring.Get("glab:gitlab.com:token", "")
+	require.Error(t, err)
+
+	// The token is stored as plaintext in the config file.
+	data, err := os.ReadFile(filepath.Join(d, "config.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "glpat-plain")
+}
+
+func Test_keyringUnavailableFallsBackToFile(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+	// Exercise the non-CI warning path. In CI the fallback is silent, so clear
+	// GITLAB_CI/CI in case the suite itself runs inside CI.
+	t.Setenv("GITLAB_CI", "")
+	t.Setenv("CI", "")
+
+	d := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", d)
+
+	io, _, _, stderr := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(io)
+	cfg := config.NewBlankConfigInDir(d)
+	f.ConfigStub = func() config.Config { return cfg }
+	cmd := NewCmdLogin(f)
+	cmd.Flags().BoolP("help", "x", false, "")
+
+	cmd.SetArgs([]string{"--token", "glpat-fallback"})
+
+	_, err := cmd.ExecuteC()
+	require.NoError(t, err)
+
+	// With no keyring backend, the default warns and falls back to plaintext
+	// file storage.
+	assert.Contains(t, stderr.String(), "The operating system keyring is unavailable. Storing credentials as plaintext in the configuration file.")
+	data, err := os.ReadFile(filepath.Join(d, "config.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "glpat-fallback")
+}
+
+func Test_ciLoginDefaultsToFile(t *testing.T) {
+	// A working keyring is available, but in CI we default to file storage
+	// unless --use-keyring is passed explicitly.
+	keyring.MockInit()
+	t.Setenv("GITLAB_CI", "true")
+
+	d := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", d)
+
+	io, _, _, _ := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(io)
+	cfg := config.NewBlankConfigInDir(d)
+	f.ConfigStub = func() config.Config { return cfg }
+	cmd := NewCmdLogin(f)
+	cmd.Flags().BoolP("help", "x", false, "")
+
+	cmd.SetArgs([]string{"--token", "glpat-ci"})
+
+	_, err := cmd.ExecuteC()
+	require.NoError(t, err)
+
+	// Token is stored in the config file, not the keyring.
+	_, err = keyring.Get("glab:gitlab.com:token", "")
+	require.Error(t, err)
+	data, err := os.ReadFile(filepath.Join(d, "config.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "glpat-ci")
+}
+
+func Test_ciLoginHonorsExplicitUseKeyring(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv("GITLAB_CI", "true")
+
+	d := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", d)
+
+	io, _, _, _ := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(io)
+	cfg := config.NewBlankConfigInDir(d)
+	f.ConfigStub = func() config.Config { return cfg }
+	cmd := NewCmdLogin(f)
+	cmd.Flags().BoolP("help", "x", false, "")
+
+	cmd.SetArgs([]string{"--use-keyring", "--token", "glpat-ci-explicit"})
+
+	_, err := cmd.ExecuteC()
+	require.NoError(t, err)
+
+	// Explicit --use-keyring overrides the CI default and stores in the keyring.
+	got, err := keyring.Get("glab:gitlab.com:token", "")
+	require.NoError(t, err)
+	assert.Equal(t, "glpat-ci-explicit", got)
+}
+
+func Test_useKeyringDeprecatedFallsBackToFileWhenUnavailable(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+	t.Setenv("GITLAB_CI", "")
+	t.Setenv("CI", "")
+
+	d := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", d)
+
+	io, _, _, stderr := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(io)
+	cfg := config.NewBlankConfigInDir(d)
+	f.ConfigStub = func() config.Config { return cfg }
+	cmd := NewCmdLogin(f)
+	cmd.Flags().BoolP("help", "x", false, "")
+
+	cmd.SetArgs([]string{"--use-keyring", "--token", "glpat-deprecated"})
+
+	_, err := cmd.ExecuteC()
+
+	// The deprecated --use-keyring no longer errors when the keyring is
+	// unavailable; it warns and falls back to plaintext file storage like the
+	// default does.
+	require.NoError(t, err)
+	assert.Contains(t, stderr.String(), "The operating system keyring is unavailable")
+	data, err := os.ReadFile(filepath.Join(d, "config.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "glpat-deprecated")
 }
 
 func Test_initialAPIHostname(t *testing.T) {

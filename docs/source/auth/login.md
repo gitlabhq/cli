@@ -16,10 +16,22 @@ Authenticate with a GitLab instance.
 
 Authenticates with a GitLab instance.
 
-Stores your credentials in the global configuration file
-(default `~/.config/glab-cli/config.yml`).
-To store your token in your operating system's keyring instead, use `--use-keyring`.
-After authentication, all glab commands use the stored credentials.
+By default, glab stores your credentials in your operating system's
+keyring (macOS Keychain, Windows Credential Manager, or the Secret
+Service on Linux) when one is available. If no keyring is available,
+or if you pass `--insecure-storage`, glab stores them in the global
+configuration file (default `~/.config/glab-cli/config.yml`) as
+plaintext instead. After authentication, all glab commands use the
+stored credentials.
+
+If you previously signed in and your credentials are stored as
+plaintext in the configuration file, run `glab auth login` again to
+move them into the keyring.
+
+In CI (when `GITLAB_CI` or `CI` is set), glab stores credentials in the
+configuration file rather than the keyring. Credentials in CI are
+usually supplied through environment variables, and an OS keyring is
+often unavailable there.
 
 If `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN`, or `OAUTH_TOKEN` are set,
 they take precedence over the stored credentials. When CI auto-login is
@@ -54,7 +66,7 @@ glab auth login --hostname gitlab.example.org --token glpat-xxx --api-host gitla
 glab auth login --hostname gitlab.example.org --api-host gitlab.example.org:3443 --api-protocol https --git-protocol ssh --stdin < myaccesstoken.txt
 
 # Semi-interactive OAuth login, skipping all prompts except browser auth
-glab auth login --hostname gitlab.com --web --git-protocol ssh --container-registry-domains "gitlab.com,gitlab.com:443,registry.gitlab.com" --use-keyring
+glab auth login --hostname gitlab.com --web --git-protocol ssh --container-registry-domains "gitlab.com,gitlab.com:443,registry.gitlab.com"
 
 # OAuth device authorization flow for headless environments without a local browser.
 # glab displays a one-time code and verification URL; you authorize on any
@@ -78,11 +90,11 @@ glab auth login --hostname $CI_SERVER_FQDN --job-token $CI_JOB_TOKEN --api-proto
       --device                              Use the OAuth 2.0 device authorization flow. Useful for headless environments where a local browser is not available. Requires GitLab 17.9 or later.
   -g, --git-protocol string                 Git protocol. Options: ssh, https, http.
       --hostname string                     The hostname of the GitLab instance to authenticate with.
+      --insecure-storage                    Store the token as plaintext in the configuration file instead of the operating system's keyring.
   -j, --job-token string                    CI job token.
       --ssh-hostname string                 SSH hostname for instances with a different SSH endpoint. A port is not required; Git uses the port from the remote URL.
       --stdin                               Read the token from standard input.
   -t, --token string                        Your GitLab access token.
-      --use-keyring                         Store the token in your operating system's keyring.
       --web                                 Skip the login type prompt and use web/OAuth login.
 ```
 

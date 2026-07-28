@@ -3,6 +3,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -159,6 +160,134 @@ func Test_getFromKeyring(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "glpat-1234", token)
+}
+
+func Test_KeyringAvailable(t *testing.T) {
+	t.Run("returns true when a keyring backend works", func(t *testing.T) {
+		keyring.MockInit()
+		assert.True(t, KeyringAvailable())
+	})
+
+	t.Run("returns false when the keyring backend errors", func(t *testing.T) {
+		keyring.MockInitWithError(errors.New("no keyring"))
+		t.Cleanup(keyring.MockInit)
+		assert.False(t, KeyringAvailable())
+	})
+}
+
+func Test_Set_SwitchingKeyringToFileRemovesStaleEntry(t *testing.T) {
+	// Clear CI vars so the file-mode keyring cleanup is exercised (it is skipped
+	// in CI, and the suite itself may run there).
+	t.Setenv("GITLAB_CI", "")
+	t.Setenv("CI", "")
+	keyring.MockInit()
+
+	c := NewBlankConfig()
+
+	// Start in keyring mode with a token stored in the keyring.
+	require.NoError(t, c.Set("gitlab.com", "use_keyring", "true"))
+	require.NoError(t, c.Set("gitlab.com", "token", "glpat-keyring"))
+	got, err := keyring.Get("glab:gitlab.com:token", "")
+	require.NoError(t, err)
+	require.Equal(t, "glpat-keyring", got)
+
+	// Switch to file storage and write a new token.
+	require.NoError(t, c.Set("gitlab.com", "use_keyring", "false"))
+	require.NoError(t, c.Set("gitlab.com", "token", "glpat-file"))
+
+	// The stale keyring entry must be gone (no orphaned secret).
+	_, err = keyring.Get("glab:gitlab.com:token", "")
+	require.Error(t, err)
+
+	// The token now resolves from the file.
+	v, _ := c.Get("gitlab.com", "token")
+	assert.Equal(t, "glpat-file", v)
+}
+
+func Test_Set_ClearRemovesKeyringEntry(t *testing.T) {
+	t.Setenv("GITLAB_CI", "")
+	t.Setenv("CI", "")
+	keyring.MockInit()
+
+	c := NewBlankConfig()
+	require.NoError(t, c.Set("gitlab.com", "use_keyring", "true"))
+	require.NoError(t, c.Set("gitlab.com", "token", "glpat-x"))
+
+	// Clearing the value deletes the keyring entry.
+	require.NoError(t, c.Set("gitlab.com", "token", ""))
+	_, err := keyring.Get("glab:gitlab.com:token", "")
+	require.Error(t, err)
+}
+
+func Test_InCI(t *testing.T) {
+	t.Run("false or unparseable values", func(t *testing.T) {
+		// strconv.ParseBool rejects "yes"/"on"/"2", which we treat as not-CI.
+		for _, v := range []string{"", "false", "0", "FALSE", "f", "yes", "on", "2"} {
+			t.Setenv("GITLAB_CI", "")
+			t.Setenv("CI", v)
+			assert.Falsef(t, InCI(), "CI=%q should not count as CI", v)
+		}
+	})
+
+	t.Run("truthy values", func(t *testing.T) {
+		for _, v := range []string{"true", "True", "TRUE", "1", "t", "T"} {
+			t.Setenv("GITLAB_CI", "")
+			t.Setenv("CI", v)
+			assert.Truef(t, InCI(), "CI=%q should count as CI", v)
+		}
+	})
+
+	t.Run("GITLAB_CI is honored independently", func(t *testing.T) {
+		t.Setenv("CI", "")
+		t.Setenv("GITLAB_CI", "true")
+		assert.True(t, InCI())
+	})
+}
+
+func Test_SetStringValue_ResetsNullTagOnBlankEntry(t *testing.T) {
+	// A key written with no value parses as a null-tagged scalar.
+	var root yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("token:\n"), &root))
+	cm := ConfigMap{Root: root.Content[0]}
+
+	require.NoError(t, cm.SetStringValue("token", "secret-value"))
+
+	out, err := yaml.Marshal(root.Content[0])
+	require.NoError(t, err)
+	// The value must not be written as a null-tagged scalar (which would leave
+	// it in the file yet decode as empty).
+	assert.NotContains(t, string(out), "!!null")
+	assert.Contains(t, string(out), "secret-value")
+
+	// It decodes as a proper string after a round-trip through disk.
+	var reloaded yaml.Node
+	require.NoError(t, yaml.Unmarshal(out, &reloaded))
+	var s string
+	require.NoError(t, reloaded.Content[0].Content[1].Decode(&s))
+	assert.Equal(t, "secret-value", s)
+}
+
+func Test_GetWithSource_SurfacesKeyringReadError(t *testing.T) {
+	keyring.MockInitWithError(errors.New("access denied"))
+	t.Cleanup(keyring.MockInit)
+
+	c := NewBlankConfig()
+	require.NoError(t, c.Set("gitlab.com", "use_keyring", "true"))
+
+	_, _, err := c.GetWithSource("gitlab.com", "token", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "keyring")
+}
+
+func Test_GetWithSource_KeyringNotFoundIsNotAnError(t *testing.T) {
+	keyring.MockInit()
+
+	c := NewBlankConfig()
+	require.NoError(t, c.Set("gitlab.com", "use_keyring", "true"))
+
+	val, _, err := c.GetWithSource("gitlab.com", "token", false)
+	require.NoError(t, err)
+	assert.Empty(t, val)
 }
 
 func Test_config_Get_NotFoundError(t *testing.T) {
@@ -333,7 +462,7 @@ func Test_GetWithSource_RetrievesFromKeyringWhenUseKeyringSet(t *testing.T) {
 	assert.Equal(t, "keyring", source)
 }
 
-func Test_GetWithSource_ErrorsWhenKeyringEnabledButTokenMissing(t *testing.T) {
+func Test_GetWithSource_KeyringEnabledButTokenMissingReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	seedFile(t, dir, "config.yml", `---
 hosts:
@@ -347,12 +476,14 @@ hosts:
 	cfg, err := ParseConfig(filepath.Join(dir, "config.yml"))
 	require.NoError(t, err)
 
-	// Should error when trying to retrieve from keyring but token doesn't exist
-	token, source, err := cfg.GetWithSource("gitlab.com", "token", false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "token not found in keyring")
+	// A genuinely missing keyring entry is not an error: it is treated like an
+	// unset value so callers can fall back to re-authentication rather than
+	// failing with a confusing keyring error. (Real keyring failures, such as a
+	// denied or locked keyring, are surfaced instead — see
+	// Test_GetWithSource_SurfacesKeyringReadError.)
+	token, _, err := cfg.GetWithSource("gitlab.com", "token", false)
+	require.NoError(t, err)
 	assert.Empty(t, token)
-	assert.Empty(t, source)
 }
 
 func Test_SetKeyring_JobToken(t *testing.T) {
