@@ -1,11 +1,13 @@
 package api
 
 import (
+	"errors"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
@@ -271,4 +273,21 @@ func TestNewClientFromConfig_OAuth2NoTokenReturnsError(t *testing.T) {
 		"dummy user agent",
 	)
 	require.Error(t, err)
+	// The message should be actionable rather than the old low-level jargon.
+	assert.Contains(t, err.Error(), "re-authenticate")
+}
+
+func TestNewClientFromConfig_SurfacesKeyringReadError(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	keyring.MockInitWithError(errors.New("keyring locked"))
+	t.Cleanup(keyring.MockInit)
+
+	cfg := config.NewBlankConfig()
+	require.NoError(t, cfg.Set("example.gitlab.com", "use_keyring", "true"))
+
+	// A failed keyring read must surface as a clear error rather than being
+	// silently treated as an absent (empty) credential.
+	_, err := NewClientFromConfig("example.gitlab.com", cfg, false, "dummy user agent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "keyring")
 }

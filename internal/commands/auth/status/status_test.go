@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -93,6 +94,11 @@ func Test_NewCmdStatus(t *testing.T) {
 }
 
 func Test_statusRun(t *testing.T) {
+	// Force the keyring to be unavailable so the plaintext-migration hint is
+	// not emitted; these fixtures assert the base output.
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
 hosts:
@@ -137,7 +143,8 @@ hosts:
   ✓ API calls for gitlab.example.com are made over https protocol.
   ✓ REST API Endpoint: https://gitlab.example.com/api/v4/
   ✓ GraphQL Endpoint: https://gitlab.example.com/api/graphql/
-  ✓ Token found: **************************
+  ✓ Token found in configuration file (plaintext): **************************
+  ! To store this token more securely, run glab auth login --hostname gitlab.example.com to move it into the operating system keyring.
 `, cfgFile),
 		},
 		{
@@ -152,7 +159,8 @@ hosts:
   ✓ API calls for gitlab2.example.com are made over https protocol.
   ✓ REST API Endpoint: https://gitlab2.example.com/api/v4/
   ✓ GraphQL Endpoint: https://gitlab2.example.com/api/graphql/
-  ✓ Token found: **************************
+  ✓ Token found in configuration file (plaintext): **************************
+  ! To store this token more securely, run glab auth login --hostname gitlab2.example.com to move it into the operating system keyring.
 `, cfgFile),
 		},
 		{
@@ -176,7 +184,7 @@ hosts:
   ✓ API calls for gitlab3.example.com are made over https protocol.
   ✓ REST API Endpoint: https://gitlab3.example.com/api/v4/
   ✓ GraphQL Endpoint: https://gitlab3.example.com/api/graphql/
-  ✓ Token found: **************************
+  ✓ Token found in environment variable GITLAB_TOKEN: **************************
 
 ! Token is from environment variable GITLAB_TOKEN. This takes precedence over tokens stored in config or keyring.
   If a wrapper (e.g., 'op plugin run -- glab') is setting this, run type glab in your shell to check.
@@ -231,6 +239,9 @@ hosts:
 }
 
 func Test_statusRun_authFailureWithEnvToken(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
 hosts:
@@ -275,6 +286,9 @@ hosts:
 }
 
 func Test_statusRun_noHostnameSpecified(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
 hosts:
@@ -307,14 +321,16 @@ hosts:
   ✓ API calls for gitlab.example.com are made over https protocol.
   ✓ REST API Endpoint: https://gitlab.example.com/api/v4/
   ✓ GraphQL Endpoint: https://gitlab.example.com/api/graphql/
-  ✓ Token found: **************************
+  ✓ Token found in configuration file (plaintext): **************************
+  ! To store this token more securely, run glab auth login --hostname gitlab.example.com to move it into the operating system keyring.
 another.example
   x another.example: API call failed: GET https://another.example/api/v4/user: 401 {message: invalid token}
   ✓ Git operations for another.example configured to use ssh protocol.
   ✓ API calls for another.example are made over https protocol.
   ✓ REST API Endpoint: https://another.example/api/v4/
   ✓ GraphQL Endpoint: https://another.example/api/graphql/
-  ✓ Token found: **************************
+  ✓ Token found in configuration file (plaintext): **************************
+  ! To store this token more securely, run glab auth login --hostname another.example to move it into the operating system keyring.
 test.example
   x test.example: API call failed: GET https://test.example/api/v4/user: 401 {message: no token provided}
   ✓ Git operations for test.example configured to use ssh protocol.
@@ -344,6 +360,87 @@ test.example
 	assert.Equal(t, "\nx could not authenticate to one or more of the configured GitLab instances", err.Error())
 	assert.Empty(t, stdout.String())
 	assert.Equal(t, expectedOutput, stderr.String())
+}
+
+func Test_statusRun_keyringMigrationHint(t *testing.T) {
+	// The token is stored as plaintext in the config file, so status should
+	// report the storage location and nudge the user to migrate it.
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    token: xxxxxxxxxxxxxxxxxxxx
+    git_protocol: ssh
+    api_protocol: https
+`), 0o600))
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(&gitlab.User{Username: "john_smith"}, nil, nil)
+	client := func(token, hostname string) (*api.Client, error) { //nolint:unparam
+		return cmdtest.NewTestApiClient(t, nil, token, hostname, api.WithGitLabClient(tc.Client)), nil
+	}
+
+	t.Setenv("GITLAB_TOKEN", "")
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, _, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		hostname: "gitlab.example.com",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return client("", repoHost)
+		},
+		httpClientOverride: client,
+		io:                 io,
+	}
+
+	require.NoError(t, opts.run(t.Context()))
+	assert.Contains(t, stderr.String(), "Token found in configuration file (plaintext):")
+	assert.Contains(t, stderr.String(), "To store this token more securely, run glab auth login --hostname gitlab.example.com to move it into the operating system keyring.")
+}
+
+func Test_statusRun_surfacesKeyringReadError(t *testing.T) {
+	// use_keyring is enabled but the keyring read fails (locked/denied). Status
+	// should report that error rather than silently showing "No token found".
+	keyring.MockInitWithError(errors.New("keyring locked"))
+	t.Cleanup(keyring.MockInit)
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    use_keyring: "true"
+    git_protocol: ssh
+    api_protocol: https
+`), 0o600))
+
+	t.Setenv("GITLAB_TOKEN", "")
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, stdout, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		hostname: "gitlab.example.com",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return nil, nil
+		},
+		io: io,
+	}
+
+	err = opts.run(t.Context())
+	require.Error(t, err)
+	assert.Empty(t, stdout.String())
+	assert.Contains(t, stderr.String(), "could not read the token")
+	assert.Contains(t, stderr.String(), "keyring locked")
 }
 
 func Test_statusRun_noInstance(t *testing.T) {

@@ -121,12 +121,19 @@ func (o *options) run(ctx context.Context) error {
 			statusInfo[instance] = append(statusInfo[instance], fmt.Sprintf(x, ys...))
 		}
 
-		token, tokenSource, _ := cfg.GetWithSource(instance, "token", true)
+		token, tokenSource, tokenErr := cfg.GetWithSource(instance, "token", true)
 		apiClient, err := o.apiClient(instance)
 		if o.httpClientOverride != nil {
 			apiClient, _ = o.httpClientOverride(token, instance)
 		}
-		if err == nil {
+		switch {
+		case tokenErr != nil:
+			// A read failure here is a real keyring error (locked, denied, or
+			// unavailable); surface it instead of proceeding with an empty token
+			// and a confusing 401.
+			failedAuth = true
+			addMsg("%s %s: could not read the token: %s", c.FailedIcon(), instance, tokenErr)
+		case err == nil:
 			authCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			user, resp, err := apiClient.Lab().Users.CurrentUser(gitlab.WithContext(authCtx))
 			cancel()
@@ -141,7 +148,7 @@ func (o *options) run(ctx context.Context) error {
 			} else {
 				addMsg("%s Logged in to %s as %s (%s)", c.GreenCheck(), instance, c.Bold(user.Username), tokenSource)
 			}
-		} else {
+		default:
 			failedAuth = true
 			addMsg("%s %s: failed to initialize api client: %s", c.FailedIcon(), instance, err)
 		}
@@ -170,14 +177,26 @@ func (o *options) run(ctx context.Context) error {
 		if sshHost != "" {
 			addMsg("%s SSH Host: %s", c.GreenCheck(), c.Bold(sshHost))
 		}
-		if api.IsTokenConfigured(token) {
-			tokenDisplay := "**************************"
-			if o.showToken {
-				tokenDisplay = token
+		// Skip the token-presence report when the read itself failed: the error
+		// is already shown above, and "No token found" would be misleading since
+		// the token was not simply absent.
+		if tokenErr == nil {
+			if api.IsTokenConfigured(token) {
+				tokenDisplay := "**************************"
+				if o.showToken {
+					tokenDisplay = token
+				}
+				addMsg("%s Token found in %s: %s", c.GreenCheck(), tokenStorageDescription(tokenSource), tokenDisplay)
+
+				// Nudge users whose credentials are still stored as plaintext in the
+				// config file toward the keyring, which is now the default on login.
+				if isPlaintextTokenSource(tokenSource) {
+					addMsg("%s To store this token more securely, run %s to move it into the operating system keyring.",
+						c.WarnIcon(), c.Bold("glab auth login --hostname "+instance))
+				}
+			} else {
+				addMsg("%s No token found (checked config file, keyring, and environment variables).", c.WarnIcon())
 			}
-			addMsg("%s Token found: %s", c.GreenCheck(), tokenDisplay)
-		} else {
-			addMsg("%s No token found (checked config file, keyring, and environment variables).", c.WarnIcon())
 		}
 	}
 
@@ -207,4 +226,31 @@ func (o *options) run(ctx context.Context) error {
 	} else {
 		return nil
 	}
+}
+
+// keyringTokenSource is the source label returned by the config layer when a
+// token is read from the operating system keyring.
+const keyringTokenSource = "keyring"
+
+// tokenStorageDescription returns a human-readable description of where a
+// token was read from, for display in status output.
+func tokenStorageDescription(tokenSource string) string {
+	switch {
+	case tokenSource == keyringTokenSource:
+		return "operating system keyring"
+	case slices.Contains(config.EnvKeyEquivalence("token"), tokenSource):
+		return "environment variable " + tokenSource
+	default:
+		return "configuration file (plaintext)"
+	}
+}
+
+// isPlaintextTokenSource reports whether the token was read from the plaintext
+// configuration file (rather than the keyring or an environment variable), in
+// which case status suggests migrating it to the keyring.
+func isPlaintextTokenSource(tokenSource string) bool {
+	if tokenSource == keyringTokenSource {
+		return false
+	}
+	return !slices.Contains(config.EnvKeyEquivalence("token"), tokenSource)
 }
