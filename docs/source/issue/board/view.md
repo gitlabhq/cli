@@ -33,6 +33,7 @@ glab issue board view
   -a, --assignee string    Filter board issues by assignee username.
   -l, --labels strings     Filter board issues by labels. Multiple labels can be comma-separated or specified by repeating the flag.
   -m, --milestone string   Filter board issues by milestone.
+      --paginate           Make additional HTTP requests to retrieve all board issues.
 ```
 
 ## Options inherited from parent commands
