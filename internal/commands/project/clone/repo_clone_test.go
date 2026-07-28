@@ -3,13 +3,17 @@
 package clone
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/shlex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
+	"gitlab.com/gitlab-org/cli/test"
 )
 
 func TestMain(m *testing.M) {
@@ -47,6 +51,17 @@ func TestNewCmdClone(t *testing.T) {
 			wantOpts: options{
 				gitFlags: []string{},
 				dir:      "mydir",
+			},
+			wantCtxOpts: ContextOpts{
+				Repo: "NAMESPACE/REPO",
+			},
+		},
+		{
+			name: "wiki repository",
+			args: "--wiki NAMESPACE/REPO",
+			wantOpts: options{
+				gitFlags: []string{},
+				wiki:     true,
 			},
 			wantCtxOpts: ContextOpts{
 				Repo: "NAMESPACE/REPO",
@@ -209,6 +224,75 @@ func TestNewCmdClone(t *testing.T) {
 			assert.Equal(t, tt.wantOpts.activeSet, opts.activeSet)
 			assert.Equal(t, tt.wantOpts.dir, opts.dir)
 			assert.Equal(t, tt.wantOpts.preserveNamespace, opts.preserveNamespace)
+			assert.Equal(t, tt.wantOpts.wiki, opts.wiki)
 		})
 	}
+}
+
+func TestCloneWikiRepository(t *testing.T) {
+	opts := &options{
+		currentUser: &gitlab.User{Username: "OWNER"},
+		protocol:    "ssh",
+		wiki:        true,
+	}
+	ctxOpts := &ContextOpts{
+		Project: &gitlab.Project{
+			PathWithNamespace: "OWNER/REPO",
+			SSHURLToRepo:      "git@gitlab.com:OWNER/REPO.git",
+			WikiAccessLevel:   gitlab.EnabledAccessControl,
+		},
+		Repo: "OWNER/REPO",
+	}
+
+	cs, restore := test.InitCmdStubber()
+	defer restore()
+	cs.Stub("")
+
+	require.NoError(t, cloneRun(opts, ctxOpts))
+	require.Len(t, cs.Calls, 1)
+	assert.Equal(t, "git clone git@gitlab.com:OWNER/REPO.wiki.git", strings.Join(cs.Calls[0].Args, " "))
+}
+
+func TestCloneWikiRepositoryRejectsDisabledWiki(t *testing.T) {
+	t.Parallel()
+
+	opts := &options{
+		currentUser: &gitlab.User{Username: "OWNER"},
+		protocol:    "ssh",
+		wiki:        true,
+	}
+	ctxOpts := &ContextOpts{
+		Project: &gitlab.Project{
+			PathWithNamespace: "OWNER/REPO",
+			SSHURLToRepo:      "git@gitlab.com:OWNER/REPO.git",
+			WikiAccessLevel:   gitlab.DisabledAccessControl,
+		},
+		Repo: "OWNER/REPO",
+	}
+
+	err := cloneRun(opts, ctxOpts)
+
+	require.EqualError(t, err, "wiki is not enabled for OWNER/REPO")
+}
+
+func TestCloneProjectNamedWiki(t *testing.T) {
+	opts := &options{
+		currentUser: &gitlab.User{Username: "OWNER"},
+		protocol:    "ssh",
+	}
+	ctxOpts := &ContextOpts{
+		Project: &gitlab.Project{
+			PathWithNamespace: "OWNER/docs.wiki",
+			SSHURLToRepo:      "git@gitlab.com:OWNER/docs.wiki.git",
+		},
+		Repo: "OWNER/docs.wiki",
+	}
+
+	cs, restore := test.InitCmdStubber()
+	defer restore()
+	cs.Stub("")
+
+	require.NoError(t, cloneRun(opts, ctxOpts))
+	require.Len(t, cs.Calls, 1)
+	assert.Equal(t, "git clone git@gitlab.com:OWNER/docs.wiki.git", strings.Join(cs.Calls[0].Args, " "))
 }
