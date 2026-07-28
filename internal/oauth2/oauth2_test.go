@@ -3,6 +3,7 @@
 package oauth2
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,4 +58,60 @@ func TestClientID(t *testing.T) {
 		require.Error(t, err)
 		assert.Empty(t, clientID)
 	})
+}
+
+func TestOAuthBaseURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		subfolder   string
+		expectedURL string
+	}{
+		{
+			name:        "nested subfolder",
+			subfolder:   "apps/gitlab",
+			expectedURL: "https://gitlab.example.com/apps/gitlab",
+		},
+		{
+			name:        "nested subfolder with surrounding slashes",
+			subfolder:   "/apps/gitlab/",
+			expectedURL: "https://gitlab.example.com/apps/gitlab",
+		},
+		{
+			name:        "no subfolder",
+			expectedURL: "https://gitlab.example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := stubConfig{
+				hosts: map[string]map[string]string{
+					"gitlab.example.com": {
+						"subfolder": tt.subfolder,
+					},
+				},
+			}
+
+			baseURL, err := oauthBaseURL(cfg, "gitlab.example.com")
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedURL, baseURL)
+		})
+	}
+}
+
+func TestOAuthBaseURLReturnsConfigError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("read config")
+	cfg := stubConfig{getErr: expectedErr}
+
+	baseURL, err := oauthBaseURL(cfg, "gitlab.example.com")
+
+	require.ErrorIs(t, err, expectedErr)
+	assert.Empty(t, baseURL)
 }

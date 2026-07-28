@@ -22,7 +22,10 @@ func StartFlow(ctx context.Context, cfg config.Config, out io.Writer, httpClient
 	}
 
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
-	baseURL := fmt.Sprintf("%s://%s", glinstance.DefaultProtocol, hostname)
+	baseURL, err := oauthBaseURL(cfg, hostname)
+	if err != nil {
+		return "", err
+	}
 
 	token, err := gitlaboauth2.AuthorizationFlow(ctx, baseURL, clientID, redirectURL, scopes, callbackServerListenAddr, func(url string) error {
 		browser, _ := cfg.Get(hostname, "browser")
@@ -44,4 +47,13 @@ func StartFlow(ctx context.Context, cfg config.Config, out io.Writer, httpClient
 	}
 
 	return token.AccessToken, nil
+}
+
+func oauthBaseURL(cfg config.Config, hostname string) (string, error) {
+	subfolder, err := cfg.Get(hostname, "subfolder")
+	if err != nil {
+		return "", err
+	}
+
+	return glinstance.AuthEndpoint(hostname, glinstance.DefaultProtocol, subfolder), nil
 }

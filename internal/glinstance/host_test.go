@@ -316,3 +316,11 @@ func Test_GraphQLEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthEndpoint(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "https://gitlab.example.com", AuthEndpoint("gitlab.example.com", "", ""))
+	assert.Equal(t, "http://gitlab.example.com/gitlab", AuthEndpoint("gitlab.example.com", "http", "/gitlab/"))
+	assert.Equal(t, "https://gitlab.example.com/apps/gitlab", AuthEndpoint("gitlab.example.com", "https", "apps/gitlab"))
+}

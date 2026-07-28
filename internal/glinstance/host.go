@@ -120,6 +120,15 @@ func GraphQLEndpoint(hostname, protocol, apiHost, subfolder string) string {
 	return "https://gitlab.com/api/graphql/"
 }
 
+// AuthEndpoint returns the base URL used by GitLab authentication endpoints.
+func AuthEndpoint(hostname, protocol, subfolder string) string {
+	if protocol == "" {
+		protocol = DefaultProtocol
+	}
+
+	return fmt.Sprintf("%s://%s", protocol, buildURLPath(hostname, strings.Trim(subfolder, "/")))
+}
+
 func HostnameValidator(v any) error {
 	hostname, valid := v.(string)
 	if !valid {
