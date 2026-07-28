@@ -39,6 +39,7 @@ type options struct {
 	dir               string
 	host              string
 	protocol          string
+	wiki              bool
 
 	page     int
 	perPage  int
@@ -73,6 +74,9 @@ func NewCmdClone(f cmdutils.Factory, runE func(*options, *ContextOpts) error) *c
 
 			# Clones repository into 'mydirectory'
 			glab repo clone gitlab-org/cli mydirectory
+
+			# Clones a project's wiki repository
+			glab repo clone --wiki gitlab-org/cli
 
 			# Clones repository 'glab' for current user
 			glab repo clone glab
@@ -111,6 +115,8 @@ func NewCmdClone(f cmdutils.Factory, runE func(*options, *ContextOpts) error) *c
 
 		When you clone a fork you own, the command adds an %[1]supstream%[1]s
 		remote that points to the parent project.
+
+		Use %[1]s--wiki%[1]s to clone the wiki repository associated with a project.
 		`, "`"),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
@@ -183,6 +189,8 @@ func NewCmdClone(f cmdutils.Factory, runE func(*options, *ContextOpts) error) *c
 	repoCloneCmd.Flags().BoolVarP(&opts.paginate, "paginate", "", false, "Make additional HTTP requests to fetch all pages of projects before cloning. Respects --per-page.")
 	repoCloneCmd.Flags().IntVarP(&opts.page, "page", "", 1, "Page number.")
 	repoCloneCmd.Flags().IntVarP(&opts.perPage, "per-page", "", 30, "Number of items to list per page.")
+	repoCloneCmd.Flags().BoolVarP(&opts.wiki, "wiki", "", false, "Clone the project's wiki repository.")
+	repoCloneCmd.MarkFlagsMutuallyExclusive("group", "wiki")
 
 	repoCloneCmd.Flags().SortFlags = false
 	repoCloneCmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
@@ -300,6 +308,22 @@ func cloneRun(opts *options, ctxOpts *ContextOpts) error {
 		}
 	} else if !strings.HasSuffix(ctxOpts.Repo, ".git") {
 		ctxOpts.Repo += ".git"
+	}
+	if opts.wiki {
+		if ctxOpts.Project == nil {
+			projectPath, err := glrepo.FullNameFromURL(ctxOpts.Repo)
+			if err != nil {
+				return err
+			}
+			ctxOpts.Project, err = api.GetProject(opts.apiClient.Lab(), projectPath)
+			if err != nil {
+				return err
+			}
+		}
+		if ctxOpts.Project.WikiAccessLevel == gitlab.DisabledAccessControl {
+			return fmt.Errorf("wiki is not enabled for %s", ctxOpts.Project.PathWithNamespace)
+		}
+		ctxOpts.Repo = glrepo.WikiRemoteURL(ctxOpts.Project, opts.protocol)
 	}
 	_, err := git.RunClone(ctxOpts.Repo, localDir, opts.gitFlags)
 	if err != nil {

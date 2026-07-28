@@ -25,6 +25,11 @@ func RemoteURL(project *gitlab.Project, protocol string) string {
 	return project.HTTPURLToRepo
 }
 
+// WikiRemoteURL returns the clone URL for a project's wiki repository.
+func WikiRemoteURL(project *gitlab.Project, protocol string) string {
+	return strings.TrimSuffix(RemoteURL(project, protocol), ".git") + ".wiki.git"
+}
+
 // FullName returns the repo with its namespace (like profclems/glab). Respects group and subgroups names
 func FullNameFromURL(remoteURL string) (string, error) {
 	parts := strings.Split(remoteURL, "//")

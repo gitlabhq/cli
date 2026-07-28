@@ -25,6 +25,8 @@ To pass Git clone flags, add them after `--`. For example:
 When you clone a fork you own, the command adds an `upstream`
 remote that points to the parent project.
 
+Use `--wiki` to clone the wiki repository associated with a project.
+
 ```plaintext
 glab repo clone [<repo> | -g <group>] [<dir>] [flags] [-- <gitflags>...]
 ```
@@ -38,6 +40,9 @@ glab repo clone https://gitlab.com/gitlab-org/cli
 
 # Clones repository into 'mydirectory'
 glab repo clone gitlab-org/cli mydirectory
+
+# Clones a project's wiki repository
+glab repo clone --wiki gitlab-org/cli
 
 # Clones repository 'glab' for current user
 glab repo clone glab
@@ -83,6 +88,7 @@ GITLAB_HOST=salsa.debian.org glab repo clone myrepo
       --paginate              Make additional HTTP requests to fetch all pages of projects before cloning. Respects --per-page.
       --page int              Page number. (default 1)
       --per-page int          Number of items to list per page. (default 30)
+      --wiki                  Clone the project's wiki repository.
 ```
 
 ## Options inherited from parent commands

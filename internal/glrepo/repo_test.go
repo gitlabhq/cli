@@ -70,6 +70,18 @@ func Test_RemoteURL(t *testing.T) {
 	}
 }
 
+func TestWikiRemoteURL(t *testing.T) {
+	t.Parallel()
+
+	project := &gitlab.Project{
+		SSHURLToRepo:  "git@gitlab.com:profclems/docs.wiki.git",
+		HTTPURLToRepo: "https://gitlab.com/profclems/docs.wiki.git",
+	}
+
+	assert.Equal(t, "git@gitlab.com:profclems/docs.wiki.wiki.git", WikiRemoteURL(project, "ssh"))
+	assert.Equal(t, "https://gitlab.com/profclems/docs.wiki.wiki.git", WikiRemoteURL(project, "https"))
+}
+
 func Test_repoFromURL(t *testing.T) {
 	cfg := config.NewFromString(`---
 hosts:
