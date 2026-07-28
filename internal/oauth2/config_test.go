@@ -15,10 +15,14 @@ import (
 )
 
 type stubConfig struct {
-	hosts map[string]map[string]string
+	hosts  map[string]map[string]string
+	getErr error
 }
 
 func (s stubConfig) Get(host string, key string) (string, error) {
+	if s.getErr != nil {
+		return "", s.getErr
+	}
 	return s.hosts[host][key], nil
 }
 

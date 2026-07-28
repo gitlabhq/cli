@@ -11,7 +11,6 @@ import (
 	"gitlab.com/gitlab-org/api/client-go/v2/gitlaboauth2"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
-	"gitlab.com/gitlab-org/cli/internal/glinstance"
 )
 
 // StartDeviceFlow performs the OAuth 2.0 Device Authorization Grant (RFC 8628).
@@ -25,7 +24,10 @@ func StartDeviceFlow(ctx context.Context, cfg config.Config, out io.Writer, http
 	}
 
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
-	baseURL := fmt.Sprintf("%s://%s", glinstance.DefaultProtocol, hostname)
+	baseURL, err := oauthBaseURL(cfg, hostname)
+	if err != nil {
+		return "", err
+	}
 
 	// RFC 8628 has no redirect; pass "" for redirectURL.
 	oauthCfg := gitlaboauth2.NewOAuth2Config(baseURL, clientID, "", scopes)
