@@ -72,9 +72,11 @@ func marshal(hostname string, cfg config.Config, token *oauth2.Token) error {
 		return err
 	}
 
-	err = cfg.Set(hostname, "oauth2_refresh_token", token.RefreshToken)
-	if err != nil {
-		return err
+	if token.RefreshToken != "" {
+		err = cfg.Set(hostname, "oauth2_refresh_token", token.RefreshToken)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = cfg.Set(hostname, "oauth2_expiry_date", token.Expiry.Format(time.RFC3339))
