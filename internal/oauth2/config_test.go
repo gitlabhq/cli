@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 	"golang.org/x/oauth2"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
@@ -111,4 +112,29 @@ func TestConfig_marshal(t *testing.T) {
 			"oauth2_expiry_date":   token.Expiry.Format(time.RFC3339),
 		},
 	}, cfg.hosts)
+}
+
+func TestConfig_marshalPreservesKeyringRefreshTokenWhenReauthOmitsIt(t *testing.T) {
+	keyring.MockInit()
+	t.Cleanup(keyring.MockInit)
+
+	cfg := config.NewBlankConfig()
+	require.NoError(t, cfg.Set("gitlab.com", "use_keyring", "true"))
+	require.NoError(t, cfg.Set("gitlab.com", "oauth2_refresh_token", "existing-refresh-token"))
+
+	token := &oauth2.Token{
+		AccessToken: "new-access-token",
+		Expiry:      time.Now().Add(time.Hour),
+	}
+
+	require.NoError(t, marshal("gitlab.com", cfg, token))
+
+	storedRefreshToken, err := keyring.Get("glab:gitlab.com:oauth2_refresh_token", "")
+	require.NoError(t, err)
+	assert.Equal(t, "existing-refresh-token", storedRefreshToken)
+
+	persistedToken, err := unmarshal("gitlab.com", cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "existing-refresh-token", persistedToken.RefreshToken)
+	assert.Equal(t, "new-access-token", persistedToken.AccessToken)
 }
