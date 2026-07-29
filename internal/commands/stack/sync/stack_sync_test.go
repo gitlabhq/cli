@@ -3,8 +3,11 @@
 package sync
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,6 +30,7 @@ type SyncScenario struct {
 	title          string
 	baseBranch     string
 	pushNeeded     bool
+	pushErr        error
 	noVerify       bool
 	updateBase     bool
 	rebaseError    bool
@@ -143,12 +147,15 @@ func Test_stackSync(t *testing.T) {
 		stack SyncScenario
 	}
 
+	forcePushErr := errors.New("pre-push hook rejected force push")
+
 	tests := []struct {
 		name       string
 		args       args
 		setupMocks func(t *testing.T, testClient *gitlabtesting.TestClient)
 		wantErr    bool
 		wantErrMsg string
+		wantErrIs  error
 	}{
 		{
 			name: "two branches, 1st branch has MR, 2nd branch behind, stacks are named",
@@ -698,6 +705,59 @@ func Test_stackSync(t *testing.T) {
 		},
 
 		{
+			name: "failed force-push hook preserves wrapped error",
+			args: args{
+				stack: SyncScenario{
+					title:      "force push failure",
+					updateBase: true,
+					pushNeeded: true,
+					pushErr:    forcePushErr,
+					refs: map[string]TestRef{
+						"1": {
+							ref: git.StackRef{
+								SHA:    "1",
+								Branch: "Branch1",
+								MR:     "http://gitlab.com/stack_guy/stackproject/-/merge_requests/25",
+							},
+							state: NothingToCommit,
+						},
+					},
+				},
+			},
+			setupMocks: func(t *testing.T, testClient *gitlabtesting.TestClient) {
+				t.Helper()
+				testClient.MockUsers.EXPECT().
+					CurrentUser(gomock.Any()).
+					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
+				testClient.MockMergeRequests.EXPECT().
+					ListProjectMergeRequests("stack_guy/stackproject", gomock.Any()).
+					Return([]*gitlab.BasicMergeRequest{
+						{
+							ID:           25,
+							IID:          25,
+							ProjectID:    3,
+							SourceBranch: "Branch1",
+							State:        "opened",
+						},
+					}, nil, nil)
+				testClient.MockMergeRequests.EXPECT().
+					GetMergeRequest("stack_guy/stackproject", int64(25), gomock.Any()).
+					Return(&gitlab.MergeRequest{
+						BasicMergeRequest: gitlab.BasicMergeRequest{
+							ID:           25,
+							IID:          25,
+							ProjectID:    3,
+							SourceBranch: "Branch1",
+							State:        "opened",
+						},
+					}, nil, nil)
+			},
+			wantErr:    true,
+			wantErrMsg: "error pushing branches to remote",
+			wantErrIs:  forcePushErr,
+		},
+
+		{
 			name: "update-base rebase failure includes target branch name in error",
 			args: args{
 				stack: SyncScenario{
@@ -1036,7 +1096,9 @@ func Test_stackSync(t *testing.T) {
 							pushCmd = append(pushCmd, "--no-verify")
 						}
 						pushCmd = append(pushCmd, ref.Branch)
-						mockCmd.EXPECT().Git(pushCmd).Return("a", nil)
+						mockCmd.EXPECT().
+							GitWithIO(gomock.Any(), gomock.Any(), pushCmd).
+							Return(nil)
 
 					}
 				}
@@ -1048,7 +1110,9 @@ func Test_stackSync(t *testing.T) {
 					command = append(command, "--no-verify")
 				}
 				command = append(command, stack.Branches()...)
-				mockCmd.EXPECT().Git(command)
+				mockCmd.EXPECT().
+					GitWithIO(gomock.Any(), gomock.Any(), command).
+					Return(tc.args.stack.pushErr)
 			}
 
 			err = opts.run(t.Context(), f, mockCmd)
@@ -1058,11 +1122,151 @@ func Test_stackSync(t *testing.T) {
 				if tc.wantErrMsg != "" {
 					assert.Contains(t, err.Error(), tc.wantErrMsg)
 				}
+				if tc.wantErrIs != nil {
+					require.ErrorIs(t, err, tc.wantErrIs)
+				}
 			} else {
 				require.NoError(t, err)
 			}
 		})
 	}
+}
+
+func TestCreateMRStreamsFailedHookOutput(t *testing.T) {
+	t.Parallel()
+
+	ios, _, stdout, stderr := cmdtest.TestIOStreams()
+	opts := &options{
+		io:     ios,
+		target: glrepo.TestProject("stack_guy", "stackproject"),
+	}
+	ref := &git.StackRef{SHA: "1", Branch: "feature-branch"}
+	hookErr := errors.New("create hook rejected push")
+
+	ctrl := gomock.NewController(t)
+	mockGit := git_testing.NewMockGitRunner(ctrl)
+	mockGit.EXPECT().
+		GitWithIO(
+			ios.StdOut,
+			ios.StdErr,
+			"push",
+			"--set-upstream",
+			git.DefaultRemote,
+			ref.Branch,
+		).
+		DoAndReturn(func(out, errOut io.Writer, _ ...string) error {
+			_, err := io.WriteString(out, "hook stdout: create rejected\n")
+			require.NoError(t, err)
+			_, err = io.WriteString(errOut, "hook stderr: create rejected\n")
+			require.NoError(t, err)
+			return hookErr
+		})
+
+	_, err := createMR(nil, opts, ref, mockGit)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, hookErr)
+	assert.Contains(t, err.Error(), "error pushing branch")
+	assert.Contains(t, stdout.String(), "hook stdout: create rejected")
+	assert.Contains(t, stderr.String(), "hook stderr: create rejected")
+}
+
+func TestForcePushAllWithLeaseStreamsFailedHookOutput(t *testing.T) {
+	t.Parallel()
+
+	ios, _, stdout, stderr := cmdtest.TestIOStreams()
+	opts := &options{io: ios}
+	stack := &git.Stack{
+		Title: "test-stack",
+		Refs: map[string]git.StackRef{
+			"1": {SHA: "1", Branch: "feature-branch"},
+		},
+	}
+	hookErr := errors.New("force hook rejected push")
+
+	ctrl := gomock.NewController(t)
+	mockGit := git_testing.NewMockGitRunner(ctrl)
+	mockGit.EXPECT().
+		GitWithIO(
+			ios.StdOut,
+			ios.StdErr,
+			"push",
+			git.DefaultRemote,
+			"--force-with-lease",
+			"feature-branch",
+		).
+		DoAndReturn(func(out, errOut io.Writer, _ ...string) error {
+			_, err := io.WriteString(out, "hook stdout: force rejected\n")
+			require.NoError(t, err)
+			_, err = io.WriteString(errOut, "hook stderr: force rejected\n")
+			require.NoError(t, err)
+			return hookErr
+		})
+
+	err := forcePushAllWithLease(opts, stack, mockGit)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, hookErr)
+	assert.Contains(t, stdout.String(), "hook stdout: force rejected")
+	assert.Contains(t, stderr.String(), "hook stderr: force rejected")
+}
+
+func TestForcePushAllWithLeaseStreamsSuccessfulOutputInOrder(t *testing.T) {
+	t.Parallel()
+
+	ios, _, stdout, stderr := cmdtest.TestIOStreams()
+	opts := &options{io: ios}
+	stack := &git.Stack{
+		Title: "test-stack",
+		Refs: map[string]git.StackRef{
+			"1": {SHA: "1", Branch: "feature-branch"},
+		},
+	}
+
+	ctrl := gomock.NewController(t)
+	mockGit := git_testing.NewMockGitRunner(ctrl)
+	mockGit.EXPECT().
+		GitWithIO(
+			ios.StdOut,
+			ios.StdErr,
+			"push",
+			git.DefaultRemote,
+			"--force-with-lease",
+			"feature-branch",
+		).
+		DoAndReturn(func(out, errOut io.Writer, _ ...string) error {
+			_, err := io.WriteString(out, "hook stdout: force accepted\n")
+			require.NoError(t, err)
+			_, err = io.WriteString(errOut, "hook stderr: force accepted\n")
+			require.NoError(t, err)
+			return nil
+		})
+
+	err := forcePushAllWithLease(opts, stack, mockGit)
+
+	require.NoError(t, err)
+
+	stdoutText := stdout.String()
+	assert.Contains(t, stdoutText, "  feature-branch\nhook stdout: force accepted\n")
+
+	updatingIndex := strings.Index(stdoutText, "Updating branches")
+	hookIndex := strings.Index(stdoutText, "hook stdout: force accepted")
+	successIndex := strings.Index(stdoutText, "Push succeeded")
+	require.GreaterOrEqual(t, updatingIndex, 0)
+	require.GreaterOrEqual(t, hookIndex, 0)
+	require.GreaterOrEqual(t, successIndex, 0)
+	assert.Greater(t, hookIndex, updatingIndex)
+	assert.Greater(t, successIndex, hookIndex)
+
+	assert.Equal(t, 1, strings.Count(stdoutText, "Updating branches"))
+	assert.Equal(t, 1, strings.Count(stdoutText, "hook stdout: force accepted"))
+	assert.Equal(t, 1, strings.Count(stdoutText, "Push succeeded"))
+	assert.NotContains(t, stdoutText, "Push succeeded:")
+	assert.NotContains(t, stdoutText, "Push succeeded\n\n")
+
+	stderrText := stderr.String()
+	assert.Equal(t, 1, strings.Count(stderrText, "hook stderr: force accepted"))
+	assert.NotContains(t, stderrText, "Push succeeded")
 }
 
 func createStack(t *testing.T, title string, scenario map[string]TestRef) {

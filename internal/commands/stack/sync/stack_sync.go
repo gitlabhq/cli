@@ -381,7 +381,7 @@ func rebaseWithUpdateRefs(io *iostreams.IOStreams, target string, stack *git.Sta
 }
 
 func forcePushAllWithLease(opts *options, stack *git.Stack, gr git.GitRunner) error {
-	fmt.Print(progressString(
+	opts.io.LogInfo(progressString(
 		opts.io,
 		"Updating branches:",
 		strings.Join(stack.Branches(), ", "),
@@ -393,12 +393,11 @@ func forcePushAllWithLease(opts *options, stack *git.Stack, gr git.GitRunner) er
 	}
 	pushArgs = append(pushArgs, stack.Branches()...)
 
-	output, err := gr.Git(pushArgs...)
-	if err != nil {
+	if err := gr.GitWithIO(opts.io.StdOut, opts.io.StdErr, pushArgs...); err != nil {
 		return err
 	}
 
-	fmt.Print(progressString(opts.io, "Push succeeded: "+output))
+	opts.io.LogInfo(strings.TrimSuffix(progressString(opts.io, "Push succeeded"), "\n"))
 	return nil
 }
 
@@ -414,8 +413,7 @@ func createMR(client *gitlab.Client, opts *options, ref *git.StackRef, gr git.Gi
 	}
 	pushArgs = append(pushArgs, ref.Branch)
 
-	_, err = gr.Git(pushArgs...)
-	if err != nil {
+	if err = gr.GitWithIO(opts.io.StdOut, opts.io.StdErr, pushArgs...); err != nil {
 		return &gitlab.MergeRequest{}, fmt.Errorf("error pushing branch: %w", err)
 	}
 
