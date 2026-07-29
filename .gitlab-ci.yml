@@ -74,6 +74,10 @@ default:
     # NOTE: largest linux-based hosted runner available in Free tier.
     # see https://docs.gitlab.com/ci/runners/hosted_runners/linux/#machine-types-available-for-linux---x86-64
     - "saas-linux-medium-amd64"
+  retry:
+    max: 2
+    when:
+      - runner_external_dependency_failure
 
 stages:
   - documentation
