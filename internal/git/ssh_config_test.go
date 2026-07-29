@@ -144,24 +144,40 @@ func Test_sshParser_absolutePath(t *testing.T) {
 }
 
 func Test_Translator(t *testing.T) {
-	m := SSHAliasMap{
-		"gl":         "gitlab.com",
-		"gitlab.com": "ssh.gitlab.com",
-	}
-	tr := m.Translator()
+	t.Run("alias resolved", func(t *testing.T) {
+		tr := SSHAliasMap{"gl": "gitlab.com"}.Translator()
+		u, err := url.Parse("ssh://gl/o/r")
+		require.NoError(t, err)
+		require.Equal(t, "ssh://gitlab.com/o/r", tr(u).String())
+	})
 
-	cases := [][]string{
-		{"ssh://gl/o/r", "ssh://gitlab.com/o/r"},
-		{"ssh://gitlab.com/o/r", "ssh://gitlab.com/o/r"},
-		{"https://gl/o/r", "https://gl/o/r"},
-	}
-	for _, c := range cases {
-		u, _ := url.Parse(c[0])
-		got := tr(u)
-		if got.String() != c[1] {
-			t.Errorf("%q: expected %q, got %q", c[0], c[1], got)
-		}
-	}
+	t.Run("non-ssh scheme untouched", func(t *testing.T) {
+		tr := SSHAliasMap{"gl": "gitlab.com"}.Translator()
+		u, err := url.Parse("https://gl/o/r")
+		require.NoError(t, err)
+		require.Equal(t, "https://gl/o/r", tr(u).String())
+	})
+
+	t.Run("ssh.gitlab.com alias preserved", func(t *testing.T) {
+		tr := SSHAliasMap{"gitlab.com": "ssh.gitlab.com"}.Translator()
+		u, err := url.Parse("ssh://gitlab.com/o/r")
+		require.NoError(t, err)
+		require.Equal(t, "ssh://gitlab.com/o/r", tr(u).String())
+	})
+
+	t.Run("altssh.gitlab.com alias preserved", func(t *testing.T) {
+		tr := SSHAliasMap{"gitlab.com": "altssh.gitlab.com"}.Translator()
+		u, err := url.Parse("ssh://gitlab.com/o/r")
+		require.NoError(t, err)
+		require.Equal(t, "ssh://gitlab.com/o/r", tr(u).String())
+	})
+
+	t.Run("altssh.gitlab.com alias preserved with mixed case", func(t *testing.T) {
+		tr := SSHAliasMap{"GitLab.com": "AltSSH.GitLab.com"}.Translator()
+		u, err := url.Parse("ssh://GitLab.com/o/r")
+		require.NoError(t, err)
+		require.Equal(t, "ssh://GitLab.com/o/r", tr(u).String())
+	})
 }
 
 func eq(t *testing.T, got any, expected any) {
