@@ -386,7 +386,7 @@ func projectPathFromArgs(args []string, defaultHostname string, cfg config.Confi
 		pp, _ := glrepo.FromFullName(project, defaultHostname, cfg)
 		host = pp.RepoHost()
 		project = pp.RepoName()
-		namespace = pp.RepoNamespace()
+		namespace = pp.RepoOwner()
 	}
 	return host, namespace, project
 }

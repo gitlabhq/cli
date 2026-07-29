@@ -23,6 +23,61 @@ func TestMain(m *testing.M) {
 	cmdtest.InitTest(m, "project_create_test")
 }
 
+func TestProjectPathFromArgs(t *testing.T) {
+	t.Parallel()
+
+	const defaultHostname = "git.example.com"
+
+	tests := []struct {
+		name          string
+		input         string
+		wantHost      string
+		wantNamespace string
+		wantProject   string
+	}{
+		{
+			name:          "shallow owner",
+			input:         "owner/project",
+			wantHost:      defaultHostname,
+			wantNamespace: "owner",
+			wantProject:   "project",
+		},
+		{
+			name:          "nested owner",
+			input:         "top-level/subgroup/project",
+			wantHost:      defaultHostname,
+			wantNamespace: "top-level/subgroup",
+			wantProject:   "project",
+		},
+		{
+			name:          "tertiary namespace",
+			input:         "top-level/subgroup/third-level/project",
+			wantHost:      defaultHostname,
+			wantNamespace: "top-level/subgroup/third-level",
+			wantProject:   "project",
+		},
+		{
+			name:          "tertiary namespace with explicit default host",
+			input:         "git.example.com/top-level/subgroup/third-level/project",
+			wantHost:      defaultHostname,
+			wantNamespace: "top-level/subgroup/third-level",
+			wantProject:   "project",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			host, namespace, project := projectPathFromArgs([]string{tt.input}, defaultHostname, config.NewBlankConfig())
+
+			assert.Equal(t, tt.wantHost, host)
+			assert.Equal(t, tt.wantNamespace, namespace)
+			assert.Equal(t, tt.wantProject, project)
+		})
+	}
+}
+
 func Test_projectCreateCmd(t *testing.T) {
 	// Note: Cannot use t.Parallel() because tests modify package-level mock functions
 	// Save original functions to restore after tests
