@@ -3,7 +3,7 @@ package stackutils
 import (
 	"encoding/hex"
 	"fmt"
-	"os"
+	"os/user"
 	"strings"
 	"time"
 
@@ -36,15 +36,28 @@ func CreateShaBranch(f cmdutils.Factory, sha string, title string) (string, erro
 	}
 
 	if prefix == "" {
-		prefix = os.Getenv("USER")
-		if prefix == "" {
-			prefix = "glab-stack"
-		}
+		prefix = branchPrefixFromCurrentUser(user.Current)
 	}
 
 	branchTitle := []string{prefix, title, sha}
 	branch := strings.Join(branchTitle, "-")
 	return branch, nil
+}
+
+func branchPrefixFromCurrentUser(currentUser func() (*user.User, error)) string {
+	u, err := currentUser()
+	if err != nil || u == nil {
+		return "glab-stack"
+	}
+
+	username := u.Username
+	if _, unqualified, found := strings.Cut(username, `\`); found {
+		username = unqualified
+	}
+	if username == "" {
+		return "glab-stack"
+	}
+	return username
 }
 
 func CommitSubject(gr git.GitRunner, hash string) (string, error) {

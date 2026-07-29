@@ -18,7 +18,7 @@ Manage key/value strings.
 
 Current respected settings:
 
-- `branch_prefix`: Prefix used by `glab stack` when naming generated branches. Defaults to `$USER`, falling back to `glab-stack`.
+- `branch_prefix`: Prefix used by `glab stack` when naming generated branches. Defaults to the current user's username (from `os/user.Current`), falling back to `glab-stack` if unavailable.
 - `browser`: If unset, uses the default browser. Override with environment variable `$BROWSER`.
 - `check_update`: If true, notifies of new versions of glab. Defaults to `true`. Override with environment variable `$GLAB_CHECK_UPDATE`.
 - `display_hyperlinks`: If `false`, disables hyperlinks in terminal output. Defaults to `true`. Override with environment variable `$FORCE_HYPERLINKS`.

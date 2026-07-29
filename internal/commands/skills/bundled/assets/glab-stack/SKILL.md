@@ -13,7 +13,7 @@ description: Manage stacked diffs and merge requests with the GitLab CLI. Use wh
 
 `glab stack` uses a **save-centric model**: `glab stack save` bundles staging, committing, and branch creation into a single step. There are no separate Git operations for creating stack branches — the CLI manages branch creation automatically. Stack metadata lives in `.git/stacked/` in the repo.
 
-Each diff gets its own branch named `{branch_prefix}-{stack-title}-{8-char-hex}`. The branch prefix defaults to `$USER` (your local username), or can be set with `glab config set branch_prefix <value>`. The hash is generated at save time from the message, title, author, and timestamp — branch names are not sequential or predictable in advance. Use `glab stack list` to see the current branch names for each diff.
+Each diff gets its own branch named `{branch_prefix}-{stack-title}-{8-char-hex}`. The branch prefix defaults to the current user's username (from `os/user.Current`), falling back to `glab-stack` if unavailable; it can also be set with `glab config set branch_prefix <value>`. The hash is generated at save time from the message, title, author, and timestamp — branch names are not sequential or predictable in advance. Use `glab stack list` to see the current branch names for each diff.
 
 ```text
 main (default branch)

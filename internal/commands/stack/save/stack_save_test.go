@@ -486,25 +486,17 @@ func Test_createShaBranch(t *testing.T) {
 		title string
 	}
 	tests := []struct {
-		name     string
-		args     args
-		prefix   string
-		want     string
-		wantErr  bool
-		noConfig bool
+		name    string
+		args    args
+		prefix  string
+		want    string
+		wantErr bool
 	}{
 		{
 			name:   "standard test case",
 			args:   args{sha: "237ec83c", title: "cool-change"},
 			prefix: "asdf",
 			want:   "asdf-cool-change-237ec83c",
-		},
-		{
-			name:     "with no config file",
-			args:     args{sha: "237ec83c", title: "cool-change"},
-			prefix:   "",
-			want:     "jawn-cool-change-237ec83c",
-			noConfig: true,
 		},
 	}
 
@@ -513,10 +505,6 @@ func Test_createShaBranch(t *testing.T) {
 			git.InitGitRepo(t)
 
 			factory := createFactoryWithConfig("branch_prefix", tt.prefix)
-
-			if tt.noConfig {
-				t.Setenv("USER", "jawn")
-			}
 
 			got, err := stackutils.CreateShaBranch(factory, tt.args.sha, tt.args.title)
 			require.NoError(t, err)
