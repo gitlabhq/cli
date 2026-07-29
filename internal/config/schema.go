@@ -58,7 +58,7 @@ var KeySchema = []KeyDef{
 	{
 		Name: "branch_prefix", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
-		Description:  "Prefix used by 'glab stack' when naming generated branches. Defaults to the\n$USER environment variable, falling back to 'glab-stack' when unset.",
+		Description:  "Prefix used by 'glab stack' when naming generated branches. Defaults to the\ncurrent user's username (from 'os/user.Current'), falling back to 'glab-stack' if unavailable.",
 	},
 	{
 		Name: "remote_alias", Scope: ScopeGlobal, Type: TypeString,

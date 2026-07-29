@@ -20,7 +20,7 @@ func NewCmdConfig(f cmdutils.Factory) *cobra.Command {
 
 		Current respected settings:
 
-		- %[1]sbranch_prefix%[1]s: Prefix used by %[1]sglab stack%[1]s when naming generated branches. Defaults to %[1]s$USER%[1]s, falling back to %[1]sglab-stack%[1]s.
+		- %[1]sbranch_prefix%[1]s: Prefix used by %[1]sglab stack%[1]s when naming generated branches. Defaults to the current user's username (from %[1]sos/user.Current%[1]s), falling back to %[1]sglab-stack%[1]s if unavailable.
 		- %[1]sbrowser%[1]s: If unset, uses the default browser. Override with environment variable %[1]s$BROWSER%[1]s.
 		- %[1]scheck_update%[1]s: If true, notifies of new versions of glab. Defaults to %[1]strue%[1]s. Override with environment variable %[1]s$GLAB_CHECK_UPDATE%[1]s.
 		- %[1]sdisplay_hyperlinks%[1]s: If %[1]sfalse%[1]s, disables hyperlinks in terminal output. Defaults to %[1]strue%[1]s. Override with environment variable %[1]s$FORCE_HYPERLINKS%[1]s.

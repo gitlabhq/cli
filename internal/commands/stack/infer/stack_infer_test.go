@@ -55,6 +55,7 @@ func TestGenerateStackSha(t *testing.T) {
 
 func TestCreateShaBranch(t *testing.T) {
 	t.Setenv("NO_COLOR", "true")
+	t.Setenv("BRANCH_PREFIX", "")
 
 	t.Run("uses configured branch prefix", func(t *testing.T) {
 		git.InitGitRepo(t)
@@ -64,28 +65,6 @@ func TestCreateShaBranch(t *testing.T) {
 		branch, err := stackutils.CreateShaBranch(factory, "abcd1234", "my-stack")
 		require.NoError(t, err)
 		assert.Equal(t, "myprefix-my-stack-abcd1234", branch)
-	})
-
-	t.Run("falls back to USER env var", func(t *testing.T) {
-		git.InitGitRepo(t)
-
-		t.Setenv("USER", "testuser")
-		factory := createFactoryWithConfig("")
-
-		branch, err := stackutils.CreateShaBranch(factory, "abcd1234", "my-stack")
-		require.NoError(t, err)
-		assert.Equal(t, "testuser-my-stack-abcd1234", branch)
-	})
-
-	t.Run("falls back to glab-stack when no USER", func(t *testing.T) {
-		git.InitGitRepo(t)
-
-		t.Setenv("USER", "")
-		factory := createFactoryWithConfig("")
-
-		branch, err := stackutils.CreateShaBranch(factory, "abcd1234", "my-stack")
-		require.NoError(t, err)
-		assert.Equal(t, "glab-stack-my-stack-abcd1234", branch)
 	})
 }
 
