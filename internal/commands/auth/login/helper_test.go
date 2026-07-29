@@ -192,6 +192,32 @@ func Test_helperRun(t *testing.T) {
 			wantStderr: "",
 		},
 		{
+			// https://gitlab.com/gitlab-org/cli/-/issues/8044
+			name: "token only, no user on record falls back to a placeholder username",
+			opts: options{
+				operation: "get",
+				config: func() config.Config {
+					return config.NewFromString(heredoc.Doc(`
+						_source: "/Users/monalisa/.config/glab/config.yml"
+						hosts:
+						  example.com:
+						    token: "some-password"
+					`))
+				},
+			},
+			input: heredoc.Doc(`
+				protocol=https
+				host=example.com
+			`),
+			wantErr:         false,
+			wantValidateErr: false,
+			wantStdout: []string{
+				"username=glab",
+				"password=some-password",
+			},
+			wantStderr: "",
+		},
+		{
 			name: "support OAuth2",
 			opts: options{
 				operation: "get",
