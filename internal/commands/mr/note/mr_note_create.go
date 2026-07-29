@@ -61,7 +61,13 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 
 			Use %[1]s--reply%[1]s to add a note to an existing discussion thread instead of
 			starting a new one. The value can be a full discussion ID or a unique
-			prefix of at least 8 characters.
+			prefix of at least 8 characters. Find discussion IDs with
+			%[1]sglab mr note list%[1]s. Human-readable output uses
+			eight characters before the ellipsis, for example
+			%[1]s[discussion: abc12345…]%[1]s; pass
+			only those characters, for example %[1]s--reply abc12345%[1]s. To get a
+			full ID, use the %[1]sid%[1]s field of each discussion object:
+			%[1]sglab mr note list -F json | jq -r '.[].id'%[1]s.
 
 			Use %[1]s--file%[1]s to place a diff comment on a specific file in the latest
 			merge request diff version. Combine with %[1]s--line%[1]s (new side) or
@@ -136,7 +142,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVarP(&opts.message, "message", "m", "", "Comment or note message.")
 	fl.BoolVar(&opts.unique, "unique", false, "Don't create a note if a note with the same body already exists. Reads all merge request comments first.")
-	fl.StringVar(&opts.reply, "reply", "", "Reply to an existing discussion. Accepts a full discussion ID or a prefix of 8 or more characters.")
+	fl.StringVar(&opts.reply, "reply", "", "Reply to an existing discussion. Accepts a full discussion ID or a unique prefix of at least 8 characters.")
 	fl.StringVar(&opts.filePath, "file", "", "File path for a diff comment, like <path/to/file>. Targets the latest merge request diff version.")
 	fl.StringVar(&opts.line, "line", "", "Line in the new version. A single line number, like 42, or a range, like 10:15.")
 	fl.IntVar(&opts.oldLine, "old-line", 0, "Line in the old version, for commenting on a removed line.")

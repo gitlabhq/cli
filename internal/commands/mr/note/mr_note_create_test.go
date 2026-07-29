@@ -3,6 +3,7 @@
 package note
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"testing"
@@ -23,6 +24,26 @@ import (
 
 func Test_NewCmdCreate(t *testing.T) {
 	t.Parallel()
+
+	t.Run("help explains how to find discussion IDs", func(t *testing.T) {
+		t.Parallel()
+
+		var output bytes.Buffer
+		cmd := NewCmdCreate(cmdtest.NewTestFactory(nil))
+		cmd.SetArgs([]string{"--help"})
+		cmd.SetOut(&output)
+		require.NoError(t, cmd.Execute())
+
+		out := output.String()
+		assert.Contains(t, out, "glab mr note list")
+		assert.Contains(t, out, "glab mr note list -F json | jq -r '.[].id'")
+		assert.Contains(t, out, "the `id` field of each discussion object")
+		assert.Contains(t, out, "eight characters before the ellipsis")
+		assert.Contains(t, out, "[discussion: abc12345…]")
+		assert.Contains(t, out, "--reply abc12345")
+		assert.NotContains(t, out, "--reply abc12345…")
+		assert.NotContains(t, out, "top-level `.id`")
+	})
 
 	t.Run("--message flag specified", func(t *testing.T) {
 		t.Parallel()

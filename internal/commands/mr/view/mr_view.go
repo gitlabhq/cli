@@ -280,7 +280,10 @@ func printTTYMRPreview(opts *options, mr *gitlab.MergeRequest, mrApprovals *gitl
 			--------------------------------------------
 			`))
 		if len(discussions) > 0 {
-			mrutils.PrintDiscussions(out, opts.io, discussions, opts.showSystemLogs)
+			mrutils.PrintDiscussions(out, opts.io, discussions, mrutils.PrintDiscussionsOptions{
+				ShowSystemLogs:                 opts.showSystemLogs,
+				ShowSingleNoteDiscussionPrefix: false,
+			})
 		} else {
 			// Provide specific message based on filter flags
 			if opts.showResolved && !opts.showUnresolved {
@@ -325,7 +328,10 @@ func rawMRPreview(opts *options, mr *gitlab.MergeRequest, discussions []*gitlab.
 
 	if opts.showComments {
 		if len(discussions) > 0 {
-			mrutils.PrintDiscussions(&out, opts.io, discussions, opts.showSystemLogs)
+			mrutils.PrintDiscussions(&out, opts.io, discussions, mrutils.PrintDiscussionsOptions{
+				ShowSystemLogs:                 opts.showSystemLogs,
+				ShowSingleNoteDiscussionPrefix: false,
+			})
 		} else {
 			fmt.Fprintln(&out, "This merge request has no comments.") //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 		}

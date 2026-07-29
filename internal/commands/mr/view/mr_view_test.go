@@ -178,6 +178,7 @@ func TestMRView(t *testing.T) {
 		require.Empty(t, outErr)
 		assert.Contains(t, out, "https://gitlab.com/cli-automated-testing/test/-/merge_requests/13")
 		assert.Contains(t, out, "johnwick Marked MR as ready")
+		assert.NotContains(t, out, "[discussion:")
 	})
 
 	t.Run("no_tty", func(t *testing.T) {
@@ -302,6 +303,7 @@ func Test_rawMRPreview(t *testing.T) {
 		mr          *gitlab.MergeRequest
 		discussions []*gitlab.Discussion
 		want        []string
+		notWant     []string
 	}{
 		{
 			"mr_default",
@@ -324,6 +326,7 @@ func Test_rawMRPreview(t *testing.T) {
 				"--",
 				"MR description",
 			},
+			nil,
 		},
 		{
 			"mr_show_comments_no_comments",
@@ -349,6 +352,7 @@ func Test_rawMRPreview(t *testing.T) {
 				"MR description",
 				"This merge request has no comments.",
 			},
+			nil,
 		},
 		{
 			"mr_with_comments_and_notes",
@@ -380,6 +384,7 @@ func Test_rawMRPreview(t *testing.T) {
 				"[note #200]",
 				"Another comment",
 			},
+			[]string{"[discussion:"},
 		},
 	}
 
@@ -388,6 +393,9 @@ func Test_rawMRPreview(t *testing.T) {
 			got := rawMRPreview(tt.opts, tt.mr, tt.discussions)
 			for _, want := range tt.want {
 				assert.Contains(t, got, want)
+			}
+			for _, notWant := range tt.notWant {
+				assert.NotContains(t, got, notWant)
 			}
 		})
 	}
