@@ -164,11 +164,11 @@ func DisplayMultiplePipelines(s *iostreams.IOStreams, p []*gitlab.PipelineInfo, 
 
 		pipeState := fmt.Sprintf("(%s) • #%s", pipeline.Status, makeHyperlink(s, pipeline))
 		switch pipeline.Status {
-		case "running":
+		case string(gitlab.Running):
 			pipeState = c.Blue(pipeState)
-		case "success":
+		case string(gitlab.Success):
 			pipeState = c.Green(pipeState)
-		case "failed":
+		case string(gitlab.Failed):
 			pipeState = c.Red(pipeState)
 		default:
 			pipeState = c.Gray(pipeState)
@@ -209,13 +209,13 @@ func runTrace(ctx context.Context, apiClient *gitlab.Client, w io.Writer, pid an
 			return fmt.Errorf("failed to find job: %w", err)
 		}
 		switch job.Status {
-		case "pending":
+		case string(gitlab.Pending):
 			fmt.Fprintf(w, "%s is pending... waiting for job to start.\n", job.Name) //nolint:forbidigo // w is a generic io.Writer, not always StdOut/StdErr
 			continue
-		case "manual":
+		case string(gitlab.Manual):
 			fmt.Fprintf(w, "Manual job %s not started, waiting for job to start.\n", job.Name) //nolint:forbidigo // w is a generic io.Writer, not always StdOut/StdErr
 			continue
-		case "skipped":
+		case string(gitlab.Skipped):
 			fmt.Fprintf(w, "%s has been skipped.\n", job.Name) //nolint:forbidigo // w is a generic io.Writer, not always StdOut/StdErr
 		}
 		once.Do(func() {
@@ -235,9 +235,9 @@ func runTrace(ctx context.Context, apiClient *gitlab.Client, w io.Writer, pid an
 		}
 		offset += lenT
 
-		if job.Status == "success" ||
-			job.Status == "failed" ||
-			job.Status == "canceled" {
+		if job.Status == string(gitlab.Success) ||
+			job.Status == string(gitlab.Failed) ||
+			job.Status == string(gitlab.Canceled) {
 			return nil
 		}
 	}
@@ -387,7 +387,7 @@ func getJobIdInteractive(ctx context.Context, inputs *JobInputs, opts *JobOption
 			var s string
 
 			switch status.Status {
-			case "success":
+			case string(gitlab.Success):
 				s = c.Green(status.Status)
 			case "error":
 				s = c.Red(status.Status)

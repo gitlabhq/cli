@@ -58,7 +58,7 @@ func NewCmdTrigger(f cmdutils.Factory) *cobra.Command {
 				PipelineId:      pipelineId,
 				SelectionPrompt: "Select pipeline job to trigger:",
 				SelectionPredicate: func(s *gitlab.Job) bool {
-					return s.Status == "manual"
+					return s.Status == string(gitlab.Manual)
 				},
 			}, &ciutils.JobOptions{
 				Client:     client,

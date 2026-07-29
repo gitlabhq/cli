@@ -319,11 +319,11 @@ func handleBridgeJobSelection(app *tview.Application, root *tview.Pages, forceUp
 	// (see line 377: if curJob.Kind != Job { break })
 	var message string
 	switch curJob.Status {
-	case "manual":
+	case string(gitlab.Manual):
 		message = fmt.Sprintf("Downstream pipeline '%s' is waiting to be triggered.\n\nStatus: %s\n\nThis trigger will create a child pipeline when it runs.\nTrigger it via the GitLab UI or wait for the pipeline to run it.", curJob.Name, curJob.Status)
-	case "pending", "created":
+	case string(gitlab.Pending), string(gitlab.Created):
 		message = fmt.Sprintf("Downstream pipeline '%s' has not started yet.\n\nStatus: %s\n\nThis trigger will create a child pipeline when it runs.", curJob.Name, curJob.Status)
-	case "skipped":
+	case string(gitlab.Skipped):
 		message = fmt.Sprintf("Downstream pipeline '%s' was skipped and won't create a child pipeline.\n\nStatus: %s", curJob.Name, curJob.Status)
 	default:
 		message = fmt.Sprintf("Downstream pipeline '%s' has not triggered a child pipeline yet.\n\nStatus: %s\n\nThe child pipeline will appear here once the trigger completes.", curJob.Name, curJob.Status)
@@ -395,7 +395,7 @@ func inputCapture(
 			app.Stop()
 			return nil
 		case tcell.KeyCtrlD:
-			if curJob.Kind == Job && (curJob.Status == "pending" || curJob.Status == "running") {
+			if curJob.Kind == Job && (curJob.Status == string(gitlab.Pending) || curJob.Status == string(gitlab.Running)) {
 				modalVisible = true
 				modal := tview.NewModal().
 					SetBackgroundColor(tcell.ColorDefault).
@@ -824,10 +824,10 @@ func jobsView(
 		// failed, success, canceled, skipped; showing all jobs if none provided
 		var statChar rune
 		switch j.Status {
-		case "success":
+		case string(gitlab.Success):
 			b.SetBorderColor(tcell.ColorGreen)
 			statChar = '✔'
-		case "failed":
+		case string(gitlab.Failed):
 			if j.AllowFailure {
 				b.SetBorderColor(tcell.ColorOrange)
 				statChar = '!'
@@ -835,18 +835,18 @@ func jobsView(
 				b.SetBorderColor(tcell.ColorRed)
 				statChar = '✘'
 			}
-		case "running":
+		case string(gitlab.Running):
 			b.SetBorderColor(tcell.ColorBlue)
 			statChar = '●'
-		case "pending":
+		case string(gitlab.Pending):
 			b.SetBorderColor(tcell.ColorYellow)
 			statChar = '●'
-		case "manual":
+		case string(gitlab.Manual):
 			b.SetBorderColor(tcell.ColorGrey)
 			statChar = '■'
-		case "canceled":
+		case string(gitlab.Canceled):
 			statChar = 'Ø'
-		case "skipped":
+		case string(gitlab.Skipped):
 			statChar = '»'
 		}
 		// retryChar := '⟳'
