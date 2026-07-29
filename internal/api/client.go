@@ -305,16 +305,23 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 		apiProtocol = glinstance.DefaultProtocol
 	}
 
-	isOAuth2Cfg, _ := cfg.Get(repoHost, "is_oauth2")
+	isOAuth2Cfg, isOAuth2Source, _ := cfg.GetWithSource(repoHost, "is_oauth2", true)
 
 	// token and job_token may be backed by the OS keyring. Surface read errors
 	// (locked keyring, denied access, unavailable backend) instead of silently
 	// treating them as an empty credential, which produces confusing downstream
 	// auth errors. A credential that is simply not stored returns "" with no
 	// error.
-	token, err := cfg.Get(repoHost, "token")
+	token, tokenSource, err := cfg.GetWithSource(repoHost, "token", true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the access token for %q: %w", repoHost, err)
+	}
+
+	isOAuth2 := isOAuth2Cfg == "true"
+	isEnvironmentPAT := tokenSource == "GITLAB_TOKEN" || tokenSource == "GITLAB_ACCESS_TOKEN"
+	isEnvironmentOAuth2 := isOAuth2Source == "GLAB_IS_OAUTH2"
+	if isEnvironmentPAT && !isEnvironmentOAuth2 {
+		isOAuth2 = false
 	}
 	jobToken, err := cfg.Get(repoHost, "job_token")
 	if err != nil {
@@ -362,7 +369,7 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 	// determine auth source
 	var newAuthSource newAuthSource
 	switch {
-	case isOAuth2Cfg == "true":
+	case isOAuth2:
 		// If the refresh token can't be read but a usable access token is still
 		// present, fall through to access-token-only auth rather than failing
 		// the whole client build. Log the read failure (surfaced with DEBUG) so

@@ -1,9 +1,18 @@
 package api
 
 import (
+	"crypto/sha256"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -199,6 +208,108 @@ func TestNewClientFromConfig(t *testing.T) {
 			assert.Equal(t, tt.expectedAuthKey, key)
 			assert.Equal(t, tt.expectedAuthVal, value)
 			assert.Equal(t, tt.expectedBaseURL, client.BaseURL())
+		})
+	}
+}
+
+func TestNewClientFromConfig_AuthContextPrecedence(t *testing.T) {
+	tests := []struct {
+		name                  string
+		envVars               map[string]string
+		expectedAuthKey       string
+		expectedAuthValue     string
+		expectedRefreshes     int64
+		expectConfigUnchanged bool
+	}{
+		{
+			name:                  "GITLAB_TOKEN PAT overrides stored OAuth",
+			envVars:               map[string]string{"GITLAB_TOKEN": "env-pat"},
+			expectedAuthKey:       gitlab.AccessTokenHeaderName,
+			expectedAuthValue:     "env-pat",
+			expectConfigUnchanged: true,
+		},
+		{
+			name:                  "GITLAB_ACCESS_TOKEN PAT overrides stored OAuth",
+			envVars:               map[string]string{"GITLAB_ACCESS_TOKEN": "env-pat"},
+			expectedAuthKey:       gitlab.AccessTokenHeaderName,
+			expectedAuthValue:     "env-pat",
+			expectConfigUnchanged: true,
+		},
+		{
+			name:              "OAUTH_TOKEN preserves stored OAuth context",
+			envVars:           map[string]string{"OAUTH_TOKEN": "environment-oauth-token"},
+			expectedAuthKey:   "Authorization",
+			expectedAuthValue: "Bearer refreshed-access-token",
+			expectedRefreshes: 1,
+		},
+		{
+			name:              "stored OAuth is preserved without an override",
+			expectedAuthKey:   "Authorization",
+			expectedAuthValue: "Bearer refreshed-access-token",
+			expectedRefreshes: 1,
+		},
+		{
+			name: "explicit environment OAuth is preserved",
+			envVars: map[string]string{
+				"GITLAB_TOKEN":   "environment-oauth-token",
+				"GLAB_IS_OAUTH2": "true",
+			},
+			expectedAuthKey:   "Authorization",
+			expectedAuthValue: "Bearer refreshed-access-token",
+			expectedRefreshes: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("GITLAB_TOKEN", "")
+			t.Setenv("GITLAB_ACCESS_TOKEN", "")
+			t.Setenv("OAUTH_TOKEN", "")
+			t.Setenv("GLAB_IS_OAUTH2", "")
+			for key, value := range tt.envVars {
+				t.Setenv(key, value)
+			}
+
+			var refreshRequests atomic.Int64
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				refreshRequests.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"access_token":"refreshed-access-token","token_type":"Bearer","refresh_token":"refreshed-refresh-token","expires_in":3600}`)
+			}))
+			t.Cleanup(server.Close)
+
+			hostname := strings.TrimPrefix(server.URL, "https://")
+			configDir := t.TempDir()
+			cfg := config.NewBlankConfigInDir(configDir)
+			require.NoError(t, cfg.Set(hostname, "api_host", hostname))
+			require.NoError(t, cfg.Set(hostname, "client_id", "test-client-id"))
+			require.NoError(t, cfg.Set(hostname, "skip_tls_verify", "true"))
+			require.NoError(t, cfg.Set(hostname, "is_oauth2", "true"))
+			require.NoError(t, cfg.Set(hostname, "token", "stored-oauth-token"))
+			require.NoError(t, cfg.Set(hostname, "oauth2_refresh_token", "stored-refresh-token"))
+			require.NoError(t, cfg.Set(hostname, "oauth2_expiry_date", time.Now().Add(-time.Hour).Format(time.RFC3339)))
+			require.NoError(t, cfg.Write())
+
+			configPath := filepath.Join(configDir, "config.yml")
+			configBefore, err := os.ReadFile(configPath)
+			require.NoError(t, err)
+
+			client, err := NewClientFromConfig(hostname, cfg, false, "test-agent")
+			require.NoError(t, err)
+
+			key, value, err := client.AuthSource().Header(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedAuthKey, key)
+			assert.Equal(t, tt.expectedAuthValue, value)
+			assert.Equal(t, tt.expectedRefreshes, refreshRequests.Load())
+
+			configAfter, err := os.ReadFile(configPath)
+			require.NoError(t, err)
+			if tt.expectConfigUnchanged {
+				assert.Equal(t, sha256.Sum256(configBefore), sha256.Sum256(configAfter))
+			} else {
+				assert.NotEqual(t, sha256.Sum256(configBefore), sha256.Sum256(configAfter))
+			}
 		})
 	}
 }
