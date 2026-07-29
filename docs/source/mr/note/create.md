@@ -24,7 +24,13 @@ updates that do not need a human to resolve them.
 
 Use `--reply` to add a note to an existing discussion thread instead of
 starting a new one. The value can be a full discussion ID or a unique
-prefix of at least 8 characters.
+prefix of at least 8 characters. Find discussion IDs with
+`glab mr note list`. Human-readable output uses
+eight characters before the ellipsis, for example
+`[discussion: abc12345…]`; pass
+only those characters, for example `--reply abc12345`. To get a
+full ID, use the `id` field of each discussion object:
+`glab mr note list -F json | jq -r '.[].id'`.
 
 Use `--file` to place a diff comment on a specific file in the latest
 merge request diff version. Combine with `--line` (new side) or
@@ -95,7 +101,7 @@ glab mr note create 123 --file main.go -m "General comment on this file"
       --line string      Line in the new version. A single line number, like 42, or a range, like 10:15.
   -m, --message string   Comment or note message.
       --old-line int     Line in the old version, for commenting on a removed line.
-      --reply string     Reply to an existing discussion. Accepts a full discussion ID or a prefix of 8 or more characters.
+      --reply string     Reply to an existing discussion. Accepts a full discussion ID or a unique prefix of at least 8 characters.
       --resolvable       Create the note as a resolvable discussion thread. Set to false to create a non-resolvable note. (default true)
       --unique           Don't create a note if a note with the same body already exists. Reads all merge request comments first.
 ```

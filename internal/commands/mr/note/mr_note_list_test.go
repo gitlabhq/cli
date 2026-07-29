@@ -3,10 +3,12 @@
 package note
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/acarl005/stripansi"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,15 +84,47 @@ func Test_NoteList(t *testing.T) {
 		output, err := exec(`list 1`)
 		require.NoError(t, err)
 
-		out := output.String()
+		out := stripansi.Strip(output.String())
 		// Uses shared PrintDiscussions renderer
 		assert.Contains(t, out, "@alice commented")
+		assert.Contains(t, out, "[note #100] [discussion: abcdef12…]")
 		assert.Contains(t, out, "General comment")
 		assert.Contains(t, out, "@bob commented")
+		assert.Contains(t, out, "[note #200] [discussion: 12345678…]")
 		assert.Contains(t, out, "Diff note")
-		// File context contains ANSI color codes around path
 		assert.Contains(t, out, "main.go")
 		assert.Contains(t, out, ":42")
+	})
+
+	t.Run("lists a single note non-individual discussion with a prefix", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		makeMRForList(t, tc)
+
+		tc.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{
+					ID:             "fedcba9876543210fedcba9876543210fedcba98",
+					IndividualNote: false,
+					Notes: []*gitlab.Note{
+						{
+							ID:        301,
+							Body:      "Single-note discussion",
+							Author:    gitlab.NoteAuthor{Username: "carol"},
+							CreatedAt: ts("2025-01-15 12:00:00"),
+						},
+					},
+				},
+			}, nil, nil)
+
+		exec := setupListCmd(t, tc)
+		output, err := exec(`list 1`)
+		require.NoError(t, err)
+
+		out := stripansi.Strip(output.String())
+		assert.Contains(t, out, "[note #301] [discussion: fedcba98…]")
 	})
 
 	t.Run("no discussions found", func(t *testing.T) {
@@ -373,11 +407,13 @@ func Test_NoteList(t *testing.T) {
 		output, err := exec(`list 1 -F json`)
 		require.NoError(t, err)
 
-		var parsed []map[string]any
+		var parsed []struct {
+			ID string `json:"id"`
+		}
 		err = json.Unmarshal([]byte(output.String()), &parsed)
 		require.NoError(t, err)
 		require.Len(t, parsed, 1)
-		assert.Equal(t, "jsontest234567890abcdef1234567890abcdef12", parsed[0]["id"])
+		assert.Equal(t, "jsontest234567890abcdef1234567890abcdef12", parsed[0].ID)
 	})
 
 	t.Run("threaded discussion with replies", func(t *testing.T) {
@@ -511,5 +547,24 @@ func Test_NoteList(t *testing.T) {
 		out := output.String()
 		assert.NotContains(t, out, "System note")  // non-resolvable, excluded by filter
 		assert.Contains(t, out, "Unresolved note") // resolvable + unresolved, included
+	})
+
+	t.Run("help explains discussion IDs for replies", func(t *testing.T) {
+		t.Parallel()
+
+		var output bytes.Buffer
+		cmd := NewCmdNote(cmdtest.NewTestFactory(nil))
+		cmd.SetArgs([]string{"list", "--help"})
+		cmd.SetOut(&output)
+		require.NoError(t, cmd.Execute())
+
+		out := output.String()
+		assert.Contains(t, out, "eight-character prefix")
+		assert.Contains(t, out, "characters before the ellipsis")
+		assert.Contains(t, out, "glab mr note create --reply")
+		assert.Contains(t, out, "glab mr note list -F json | jq -r '.[].id'")
+		assert.Contains(t, out, "the `id` field of each discussion object")
+		assert.NotContains(t, out, "top-level `.id`")
+		assert.NotContains(t, out, "Uses the same output format as `glab mr view --comments`.")
 	})
 }

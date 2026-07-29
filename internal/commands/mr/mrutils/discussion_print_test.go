@@ -7,12 +7,128 @@ import (
 	"testing"
 	"time"
 
+	"github.com/acarl005/stripansi"
 	"github.com/stretchr/testify/assert"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
+
+func Test_PrintDiscussions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		discussion  *gitlab.Discussion
+		options     PrintDiscussionsOptions
+		contains    string
+		notContains string
+	}{
+		{
+			name: "enabled individual one-note discussion",
+			discussion: &gitlab.Discussion{
+				ID:             "abc12345deadbeef1234567890abcdef12345678",
+				IndividualNote: true,
+				Notes: []*gitlab.Note{
+					{ID: 101, Body: "Individual note", Author: gitlab.NoteAuthor{Username: "alice"}},
+				},
+			},
+			options:  PrintDiscussionsOptions{ShowSingleNoteDiscussionPrefix: true},
+			contains: "[note #101] [discussion: abc12345…]",
+		},
+		{
+			name: "enabled non-individual one-note discussion",
+			discussion: &gitlab.Discussion{
+				ID:             "def67890deadbeef1234567890abcdef12345678",
+				IndividualNote: false,
+				Notes: []*gitlab.Note{
+					{ID: 102, Body: "Single-note thread", Author: gitlab.NoteAuthor{Username: "bob"}},
+				},
+			},
+			options:  PrintDiscussionsOptions{ShowSingleNoteDiscussionPrefix: true},
+			contains: "[note #102] [discussion: def67890…]",
+		},
+		{
+			name: "disabled one-note discussion",
+			discussion: &gitlab.Discussion{
+				ID:             "fedcba98deadbeef1234567890abcdef12345678",
+				IndividualNote: true,
+				Notes: []*gitlab.Note{
+					{ID: 103, Body: "Hidden prefix", Author: gitlab.NoteAuthor{Username: "carol"}},
+				},
+			},
+			contains:    "[note #103]",
+			notContains: "[discussion:",
+		},
+		{
+			name: "system note remains label-free",
+			discussion: &gitlab.Discussion{
+				ID:             "system12deadbeef1234567890abcdef12345678",
+				IndividualNote: true,
+				Notes: []*gitlab.Note{
+					{ID: 104, Body: "changed status", System: true, Author: gitlab.NoteAuthor{Username: "bot"}},
+				},
+			},
+			options:     PrintDiscussionsOptions{ShowSystemLogs: true, ShowSingleNoteDiscussionPrefix: true},
+			contains:    "@bot changed status",
+			notContains: "[discussion:",
+		},
+		{
+			name: "empty ID one-note discussion remains label-free",
+			discussion: &gitlab.Discussion{
+				IndividualNote: true,
+				Notes: []*gitlab.Note{
+					{ID: 105, Body: "No ID", Author: gitlab.NoteAuthor{Username: "dana"}},
+				},
+			},
+			options:     PrintDiscussionsOptions{ShowSingleNoteDiscussionPrefix: true},
+			contains:    "[note #105]",
+			notContains: "[discussion:",
+		},
+		{
+			name: "non-empty multi-note thread header is unchanged",
+			discussion: &gitlab.Discussion{
+				ID:             "abc12345deadbeef1234567890abcdef12345678",
+				IndividualNote: false,
+				Notes: []*gitlab.Note{
+					{ID: 106, Body: "First", Author: gitlab.NoteAuthor{Username: "erin"}},
+					{ID: 107, Body: "Reply", Author: gitlab.NoteAuthor{Username: "frank"}},
+				},
+			},
+			contains: "Thread [discussion: abc12345…]",
+		},
+		{
+			name: "empty ID multi-note thread has no discussion label",
+			discussion: &gitlab.Discussion{
+				IndividualNote: false,
+				Notes: []*gitlab.Note{
+					{ID: 108, Body: "First", Author: gitlab.NoteAuthor{Username: "gina"}},
+					{ID: 109, Body: "Reply", Author: gitlab.NoteAuthor{Username: "hank"}},
+				},
+			},
+			contains:    "Thread\n",
+			notContains: "[discussion:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ioStr, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+			var buf bytes.Buffer
+
+			PrintDiscussions(&buf, ioStr, []*gitlab.Discussion{tt.discussion}, tt.options)
+
+			out := stripansi.Strip(buf.String())
+			assert.Contains(t, out, tt.contains)
+			if tt.notContains != "" {
+				assert.NotContains(t, out, tt.notContains)
+			}
+		})
+	}
+}
 
 func Test_noteTimeAgo(t *testing.T) {
 	t.Parallel()

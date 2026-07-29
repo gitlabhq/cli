@@ -33,7 +33,11 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 		Short: "List merge request discussions. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`Fetches and displays merge request discussions.
 
-		Uses the same output format as %[1]sglab mr view --comments%[1]s.
+		Human-readable output shows an eight-character prefix for each non-system
+		discussion. Use the characters before the ellipsis with
+		%[1]sglab mr note create --reply%[1]s. JSON output preserves the full discussion ID in the %[1]sid%[1]s field of each discussion object. Extract it with:
+		%[1]sglab mr note list -F json | jq -r '.[].id'%[1]s.
+
 		Supports filtering by note type, resolution state, and file path.
 		Supports JSON output for scripting.
 		`, "`") + text.ExperimentalString,
@@ -119,7 +123,10 @@ func (o *listOptions) run(ctx context.Context) error {
 
 	showSystemLogs := o.noteType == "system"
 
-	mrutils.PrintDiscussions(out, o.factory.IO(), filtered, showSystemLogs)
+	mrutils.PrintDiscussions(out, o.factory.IO(), filtered, mrutils.PrintDiscussionsOptions{
+		ShowSystemLogs:                 showSystemLogs,
+		ShowSingleNoteDiscussionPrefix: true,
+	})
 
 	return nil
 }

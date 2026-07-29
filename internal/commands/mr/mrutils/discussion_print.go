@@ -10,6 +10,11 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/utils"
 )
 
+type PrintDiscussionsOptions struct {
+	ShowSystemLogs                 bool
+	ShowSingleNoteDiscussionPrefix bool
+}
+
 // noteUsername returns the note author's username, falling back to "unknown"
 // if the username is empty (e.g. redacted users or system-generated notes).
 func noteUsername(n *gitlab.Note) string {
@@ -46,7 +51,7 @@ func renderBody(ios *iostreams.IOStreams, body string) string {
 }
 
 // PrintDiscussions renders discussions to out.
-func PrintDiscussions(out io.Writer, ios *iostreams.IOStreams, discussions []*gitlab.Discussion, showSystemLogs bool) {
+func PrintDiscussions(out io.Writer, ios *iostreams.IOStreams, discussions []*gitlab.Discussion, opts PrintDiscussionsOptions) {
 	c := ios.Color()
 
 	for _, discussion := range discussions {
@@ -57,13 +62,16 @@ func PrintDiscussions(out io.Writer, ios *iostreams.IOStreams, discussions []*gi
 		firstNote := discussion.Notes[0]
 
 		// Skip system notes unless showSystemLogs is set
-		if firstNote.System && !showSystemLogs {
+		if firstNote.System && !opts.ShowSystemLogs {
 			continue
 		}
 
 		// Threaded discussions (not individual notes)
 		if !discussion.IndividualNote && len(discussion.Notes) > 1 {
-			fmt.Fprintf(out, "Thread [discussion: %s]", TruncateDiscussionID(discussion.ID)) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
+			fmt.Fprint(out, "Thread") //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
+			if discussion.ID != "" {
+				fmt.Fprintf(out, " [discussion: %s]", TruncateDiscussionID(discussion.ID)) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
+			}
 
 			// Show resolution status if resolvable
 			if firstNote.Resolvable {
@@ -90,7 +98,7 @@ func PrintDiscussions(out io.Writer, ios *iostreams.IOStreams, discussions []*gi
 
 			// Print replies (indented)
 			for i, note := range discussion.Notes[1:] {
-				if note.System && !showSystemLogs {
+				if note.System && !opts.ShowSystemLogs {
 					continue
 				}
 				replyTime := noteTimeAgo(note)
@@ -114,8 +122,12 @@ func PrintDiscussions(out io.Writer, ios *iostreams.IOStreams, discussions []*gi
 				fmt.Fprintln(out, c.Gray(createdAt)) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
 			} else {
 				body := renderBody(ios, note.Body)
-				fmt.Fprint(out, " commented ")                                                             //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
-				fmt.Fprintf(out, "%s %s\n", c.Gray(createdAt), c.Gray(fmt.Sprintf("[note #%d]", note.ID))) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
+				noteLabel := fmt.Sprintf("[note #%d]", note.ID)
+				if opts.ShowSingleNoteDiscussionPrefix && discussion.ID != "" {
+					noteLabel += fmt.Sprintf(" [discussion: %s]", TruncateDiscussionID(discussion.ID))
+				}
+				fmt.Fprint(out, " commented ")                                    //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
+				fmt.Fprintf(out, "%s %s\n", c.Gray(createdAt), c.Gray(noteLabel)) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
 
 				if note.Position != nil {
 					PrintCommentFileContext(out, c, note.Position)

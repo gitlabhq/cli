@@ -16,7 +16,11 @@ List merge request discussions. (EXPERIMENTAL)
 
 Fetches and displays merge request discussions.
 
-Uses the same output format as `glab mr view --comments`.
+Human-readable output shows an eight-character prefix for each non-system
+discussion. Use the characters before the ellipsis with
+`glab mr note create --reply`. JSON output preserves the full discussion ID in the `id` field of each discussion object. Extract it with:
+`glab mr note list -F json | jq -r '.[].id'`.
+
 Supports filtering by note type, resolution state, and file path.
 Supports JSON output for scripting.
 
