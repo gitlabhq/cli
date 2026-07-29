@@ -164,13 +164,13 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 					}
 					var status string
 					switch s := job.Status; s {
-					case "failed":
+					case string(gitlab.Failed):
 						if job.AllowFailure {
 							status = c.Yellow(s)
 						} else {
 							status = c.Red(s)
 						}
-					case "success":
+					case string(gitlab.Success):
 						status = c.Green(s)
 					default:
 						status = c.Gray(s)
@@ -193,7 +193,7 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 				// When the current pipeline is canceled (e.g. auto-canceled because a
 				// rebase triggered a new pipeline), check whether a newer pipeline now
 				// exists for the branch and continue monitoring it instead of exiting.
-				if !inProgress && runningPipeline.Status == "canceled" && live {
+				if !inProgress && runningPipeline.Status == string(gitlab.Canceled) && live {
 					if latest, lookupErr := ciutils.GetPipelineWithFallback(ctx, client, repoName, branch, opts.io); lookupErr == nil && latest != nil && latest.ID != runningPipeline.ID {
 						runningPipeline = latest
 						inProgress = isLivePollableStatus(latest.Status)
@@ -290,7 +290,7 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 			if ctx.Err() != nil {
 				fmt.Fprintln(writer.Newline(), "Exiting...") //nolint:forbidigo // writer is a uilive live-updating writer, not IOStreams
 			}
-			if runningPipeline.Status == "failed" {
+			if runningPipeline.Status == string(gitlab.Failed) {
 				return cmdutils.SilentError
 			}
 			return nil
@@ -312,7 +312,8 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 // (manual) are excluded — they don't progress on their own.
 func isLivePollableStatus(status string) bool {
 	switch status {
-	case "created", "waiting_for_resource", "preparing", "pending", "running", "scheduled":
+	case string(gitlab.Created), string(gitlab.WaitingForResource), string(gitlab.Preparing),
+		string(gitlab.Pending), string(gitlab.Running), string(gitlab.Scheduled):
 		return true
 	}
 	return false

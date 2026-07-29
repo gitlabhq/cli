@@ -30,8 +30,11 @@ const (
 )
 
 var (
-	pipelineStatuses = []string{"running", "pending", "success", "failed", "canceled", "skipped", "created", "manual"}
-	pipelineSources  = []string{
+	pipelineStatuses = []string{
+		string(gitlab.Running), string(gitlab.Pending), string(gitlab.Success), string(gitlab.Failed),
+		string(gitlab.Canceled), string(gitlab.Skipped), string(gitlab.Created), string(gitlab.Manual),
+	}
+	pipelineSources = []string{
 		"api", "chat", "external", "external_pull_request_event", "merge_request_event",
 		"ondemand_dast_scan", "ondemand_dast_validation", "parent_pipeline", "pipeline",
 		"push", "schedule", "security_orchestration_policy", "trigger", "web", "webide",
