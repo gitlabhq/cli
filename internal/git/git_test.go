@@ -386,6 +386,74 @@ func TestDescribeByTags(t *testing.T) {
 	}
 }
 
+func TestOutputLines(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		input  string
+		expect []string
+	}{
+		{
+			name:   "empty output",
+			input:  "",
+			expect: []string{""},
+		},
+		{
+			name:   "single line without final newline",
+			input:  "alpha",
+			expect: []string{"alpha"},
+		},
+		{
+			name:   "LF without final newline",
+			input:  "alpha\nbeta",
+			expect: []string{"alpha", "beta"},
+		},
+		{
+			name:   "LF with final newline",
+			input:  "alpha\nbeta\n",
+			expect: []string{"alpha", "beta"},
+		},
+		{
+			name:   "LF with empty interior line",
+			input:  "alpha\n\nbeta\n",
+			expect: []string{"alpha", "", "beta"},
+		},
+		{
+			name:   "CRLF without final newline",
+			input:  "alpha\r\nbeta",
+			expect: []string{"alpha", "beta"},
+		},
+		{
+			name:   "CRLF with final newline",
+			input:  "alpha\r\nbeta\r\n",
+			expect: []string{"alpha", "beta"},
+		},
+		{
+			name:   "CRLF with empty interior line",
+			input:  "alpha\r\n\r\nbeta\r\n",
+			expect: []string{"alpha", "", "beta"},
+		},
+		{
+			name:   "isolated carriage return",
+			input:  "alpha\rbeta",
+			expect: []string{"alpha\rbeta"},
+		},
+		{
+			name:   "terminal carriage return",
+			input:  "alpha\r",
+			expect: []string{"alpha\r"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expect, outputLines([]byte(tt.input)))
+		})
+	}
+}
+
 func Test_assertValidConfig(t *testing.T) {
 	t.Run("config key is valid with three levels", func(t *testing.T) {
 		err := assertValidConfigKey("remote.this.testsuite")
