@@ -69,6 +69,9 @@ type jobSort struct {
 func (s jobSort) Len() int      { return len(s.Jobs) }
 func (s jobSort) Swap(i, j int) { s.Jobs[i], s.Jobs[j] = s.Jobs[j], s.Jobs[i] }
 func (s jobSort) Less(i, j int) bool {
+	if (*s.Jobs[i].CreatedAt).Equal(*s.Jobs[j].CreatedAt) {
+		return s.Jobs[i].ID < s.Jobs[j].ID
+	}
 	return (*s.Jobs[i].CreatedAt).Before(*s.Jobs[j].CreatedAt)
 }
 
@@ -79,6 +82,9 @@ type bridgeSort struct {
 func (s bridgeSort) Len() int      { return len(s.Bridges) }
 func (s bridgeSort) Swap(i, j int) { s.Bridges[i], s.Bridges[j] = s.Bridges[j], s.Bridges[i] }
 func (s bridgeSort) Less(i, j int) bool {
+	if (*s.Bridges[i].CreatedAt).Equal(*s.Bridges[j].CreatedAt) {
+		return s.Bridges[i].ID < s.Bridges[j].ID
+	}
 	return (*s.Bridges[i].CreatedAt).Before(*s.Bridges[j].CreatedAt)
 }
 
