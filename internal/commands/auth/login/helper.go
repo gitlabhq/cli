@@ -21,6 +21,10 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
 
+// Any non-blank username is accepted when the password is a personal access
+// token: https://docs.gitlab.com/user/profile/personal_access_tokens/#use-git-over-https
+const personalAccessTokenUsername = "glab"
+
 type options struct {
 	io        *iostreams.IOStreams
 	config    func() config.Config
@@ -148,6 +152,11 @@ func (o *options) run() error {
 		// see https://docs.gitlab.com/ci/jobs/ci_job_token/#to-git-clone-a-private-projects-repository
 		output["password"] = jobToken
 	case token != "":
+		if username == "" {
+			// Legacy configs and failed username lookups leave no user on
+			// record: https://gitlab.com/gitlab-org/cli/-/issues/8044
+			username = personalAccessTokenUsername
+		}
 		output["username"] = username
 		output["password"] = token
 	default:

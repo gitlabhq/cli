@@ -14,11 +14,30 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
+	"go.uber.org/mock/gomock"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v2/testing"
+
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
+
+// currentUserFactoryOption stubs the username lookup that a token login makes
+// after storing the token.
+func currentUserFactoryOption(t *testing.T) cmdtest.FactoryOption {
+	t.Helper()
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockUsers.EXPECT().
+		CurrentUser(gomock.Any()).
+		Return(&gitlab.User{Username: "john_smith"}, nil, nil).
+		AnyTimes()
+
+	return cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "gitlab.com", api.WithGitLabClient(tc.Client)))
+}
 
 func TestMain(m *testing.M) {
 	cmdtest.InitTest(m, "auth_login_test")
@@ -302,7 +321,7 @@ func Test_NewCmdLogin(t *testing.T) {
 			t.Setenv("GLAB_CONFIG_DIR", d)
 
 			io, stdin, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(true), iostreams.WithStdin(nil, tt.stdinTTY))
-			f := cmdtest.NewTestFactory(io)
+			f := cmdtest.NewTestFactory(io, currentUserFactoryOption(t))
 
 			if tt.stdin != "" {
 				stdin.WriteString(tt.stdin)
@@ -440,7 +459,7 @@ func Test_keyringLogin(t *testing.T) {
 	assert.Empty(t, token)
 
 	io, _, _, _ := cmdtest.TestIOStreams()
-	f := cmdtest.NewTestFactory(io)
+	f := cmdtest.NewTestFactory(io, currentUserFactoryOption(t))
 	cmd := NewCmdLogin(f)
 	cmd.Flags().BoolP("help", "x", false, "")
 
@@ -465,7 +484,7 @@ func Test_defaultKeyringLogin(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", d)
 
 	io, _, _, _ := cmdtest.TestIOStreams()
-	f := cmdtest.NewTestFactory(io)
+	f := cmdtest.NewTestFactory(io, currentUserFactoryOption(t))
 	cfg := config.NewBlankConfigInDir(d)
 	f.ConfigStub = func() config.Config { return cfg }
 	cmd := NewCmdLogin(f)
@@ -497,7 +516,7 @@ func Test_insecureStorageLogin(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", d)
 
 	io, _, _, _ := cmdtest.TestIOStreams()
-	f := cmdtest.NewTestFactory(io)
+	f := cmdtest.NewTestFactory(io, currentUserFactoryOption(t))
 	cfg := config.NewBlankConfigInDir(d)
 	f.ConfigStub = func() config.Config { return cfg }
 	cmd := NewCmdLogin(f)
@@ -530,7 +549,7 @@ func Test_keyringUnavailableFallsBackToFile(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", d)
 
 	io, _, _, stderr := cmdtest.TestIOStreams()
-	f := cmdtest.NewTestFactory(io)
+	f := cmdtest.NewTestFactory(io, currentUserFactoryOption(t))
 	cfg := config.NewBlankConfigInDir(d)
 	f.ConfigStub = func() config.Config { return cfg }
 	cmd := NewCmdLogin(f)
@@ -559,7 +578,7 @@ func Test_ciLoginDefaultsToFile(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", d)
 
 	io, _, _, _ := cmdtest.TestIOStreams()
-	f := cmdtest.NewTestFactory(io)
+	f := cmdtest.NewTestFactory(io, currentUserFactoryOption(t))
 	cfg := config.NewBlankConfigInDir(d)
 	f.ConfigStub = func() config.Config { return cfg }
 	cmd := NewCmdLogin(f)
@@ -586,7 +605,7 @@ func Test_ciLoginHonorsExplicitUseKeyring(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", d)
 
 	io, _, _, _ := cmdtest.TestIOStreams()
-	f := cmdtest.NewTestFactory(io)
+	f := cmdtest.NewTestFactory(io, currentUserFactoryOption(t))
 	cfg := config.NewBlankConfigInDir(d)
 	f.ConfigStub = func() config.Config { return cfg }
 	cmd := NewCmdLogin(f)
@@ -613,7 +632,7 @@ func Test_useKeyringDeprecatedFallsBackToFileWhenUnavailable(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", d)
 
 	io, _, _, stderr := cmdtest.TestIOStreams()
-	f := cmdtest.NewTestFactory(io)
+	f := cmdtest.NewTestFactory(io, currentUserFactoryOption(t))
 	cfg := config.NewBlankConfigInDir(d)
 	f.ConfigStub = func() config.Config { return cfg }
 	cmd := NewCmdLogin(f)
@@ -631,6 +650,60 @@ func Test_useKeyringDeprecatedFallsBackToFileWhenUnavailable(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(d, "config.yml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "glpat-deprecated")
+}
+
+func Test_tokenLogin_persistsUsername(t *testing.T) {
+	keyring.MockInit()
+
+	login := func(t *testing.T, cfg config.Config, opts ...cmdtest.FactoryOption) (*bytes.Buffer, error) {
+		t.Helper()
+		t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+
+		io, _, _, stderr := cmdtest.TestIOStreams()
+		cmd := NewCmdLogin(cmdtest.NewTestFactory(io, append([]cmdtest.FactoryOption{cmdtest.WithConfig(cfg)}, opts...)...))
+		cmd.Flags().BoolP("help", "x", false, "")
+		cmd.SetArgs([]string{"--hostname", "gitlab.com", "--token", "glpat-1234"})
+
+		_, err := cmd.ExecuteC()
+		return stderr, err
+	}
+
+	t.Run("records the account the token belongs to", func(t *testing.T) {
+		cfg := config.NewBlankConfigInDir(t.TempDir())
+
+		stderr, err := login(t, cfg, currentUserFactoryOption(t))
+		require.NoError(t, err)
+
+		user, err := cfg.Get("gitlab.com", "user")
+		require.NoError(t, err)
+		assert.Equal(t, "john_smith", user)
+		assert.Contains(t, stderr.String(), "Logged in as john_smith")
+	})
+
+	// The lookup is best-effort so that `--token` keeps working for scripted
+	// and CI logins that cannot reach the API.
+	t.Run("still stores the token when the lookup fails", func(t *testing.T) {
+		cfg := config.NewBlankConfigInDir(t.TempDir())
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockUsers.EXPECT().
+			CurrentUser(gomock.Any()).
+			Return(nil, nil, errors.New("no such host")).
+			AnyTimes()
+		apiClient := cmdtest.NewTestApiClient(t, nil, "", "gitlab.com", api.WithGitLabClient(tc.Client))
+
+		stderr, err := login(t, cfg, cmdtest.WithApiClient(apiClient))
+		require.NoError(t, err)
+
+		token, err := cfg.Get("gitlab.com", "token")
+		require.NoError(t, err)
+		assert.Equal(t, "glpat-1234", token)
+
+		user, err := cfg.Get("gitlab.com", "user")
+		require.NoError(t, err)
+		assert.Empty(t, user, "the credential helper falls back to a placeholder for this case")
+		assert.Contains(t, stderr.String(), "Could not look up the username for this token")
+	})
 }
 
 func Test_initialAPIHostname(t *testing.T) {

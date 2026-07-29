@@ -204,6 +204,25 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 	return cmd
 }
 
+// lookupUsername resolves the account behind the token that was just stored on
+// hostname, so `glab auth status` and the Git credential helper can use the
+// real username.
+func lookupUsername(ctx context.Context, opts *LoginOptions, hostname string) (string, error) {
+	apiClient, err := opts.apiClient(hostname)
+	if err != nil {
+		return "", err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	user, _, err := apiClient.Lab().Users.CurrentUser(gitlab.WithContext(ctx))
+	if err != nil {
+		return "", err
+	}
+	return user.Username, nil
+}
+
 func loginRun(ctx context.Context, opts *LoginOptions) error {
 	c := opts.IO.Color()
 	cfg := opts.Config()
@@ -282,6 +301,17 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 			if err != nil {
 				return err
 			}
+		}
+
+		// Best-effort: a failed lookup must not make this flow require network
+		// access, because it is the flow scripts and CI jobs use.
+		if username, err := lookupUsername(ctx, opts, hostname); err != nil {
+			opts.IO.LogErrorf("%s Could not look up the username for this token: %v\n", c.Yellow("WARNING:"), err)
+		} else {
+			if err := cfg.Set(hostname, "user", username); err != nil {
+				return err
+			}
+			opts.IO.LogErrorf("%s Logged in as %s\n", c.GreenCheck(), c.Bold(username))
 		}
 
 		if err := cfg.Write(); err != nil {
@@ -692,18 +722,10 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 
 		opts.IO.LogErrorf("%s Configured API protocol.\n", c.GreenCheck())
 	}
-	apiClient, err := opts.apiClient(hostname)
-	if err != nil {
-		return err
-	}
-
-	authCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	user, _, err := apiClient.Lab().Users.CurrentUser(gitlab.WithContext(authCtx))
+	username, err := lookupUsername(ctx, opts, hostname)
 	if err != nil {
 		return fmt.Errorf("error using API: %w", err)
 	}
-	username := user.Username
 
 	if err := cfg.Set(hostname, "user", username); err != nil {
 		return err
