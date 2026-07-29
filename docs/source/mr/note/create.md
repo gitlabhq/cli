@@ -65,6 +65,9 @@ glab mr note create 123
 # Pipe from stdin
 echo "LGTM" | glab mr note create 123
 
+# Read the body from a file
+glab mr note create 123 < plan.md
+
 # Skip if already posted
 glab mr note create 123 -m "LGTM" --unique
 

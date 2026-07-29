@@ -84,6 +84,62 @@ func Test_NewCmdCreate_error(t *testing.T) {
 	})
 }
 
+func Test_cmdCreate_repoOverride(t *testing.T) {
+	t.Parallel()
+
+	t.Run("--message flag specified", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1InRepo(t, testClient, "gitlab-org/cli")
+
+		testClient.MockDiscussions.EXPECT().
+			CreateMergeRequestDiscussion("gitlab-org/cli", int64(1), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(pid any, mrIID int64, opts *gitlab.CreateMergeRequestDiscussionOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Discussion, *gitlab.Response, error) {
+				assert.Equal(t, "Here is my note", *opts.Body)
+				return &gitlab.Discussion{
+					ID: "disc-override-message",
+					Notes: []*gitlab.Note{
+						{ID: 801, NoteableID: 1, NoteableType: "MergeRequest", NoteableIID: 1},
+					},
+				}, nil, nil
+			})
+
+		exec := setupCreateExecWithRepoOverride(t, testClient, true)
+
+		output, err := exec(`1 -R gitlab-org/cli --message "Here is my note"`)
+		require.NoError(t, err)
+		assert.Empty(t, output.Stderr())
+		assert.Equal(t, "https://gitlab.com/gitlab-org/cli/merge_requests/1#note_801\n", output.String())
+	})
+
+	t.Run("reads body from stdin with repo override", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1InRepo(t, testClient, "gitlab-org/cli")
+
+		testClient.MockDiscussions.EXPECT().
+			CreateMergeRequestDiscussion("gitlab-org/cli", int64(1), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(pid any, mrIID int64, opts *gitlab.CreateMergeRequestDiscussionOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Discussion, *gitlab.Response, error) {
+				assert.Equal(t, "Message from stdin", *opts.Body)
+				return &gitlab.Discussion{
+					ID: "disc-override-stdin",
+					Notes: []*gitlab.Note{
+						{ID: 802, NoteableID: 1, NoteableType: "MergeRequest", NoteableIID: 1},
+					},
+				}, nil, nil
+			})
+
+		exec := setupCreateExecWithRepoOverride(t, testClient, false, cmdtest.WithStdin("Message from stdin\n"))
+
+		output, err := exec(`1 -R gitlab-org/cli`)
+		require.NoError(t, err)
+		assert.Empty(t, output.Stderr())
+		assert.Equal(t, "https://gitlab.com/gitlab-org/cli/merge_requests/1#note_802\n", output.String())
+	})
+}
+
 func Test_cmdCreate_prompt(t *testing.T) {
 	// NOTE: This test cannot run in parallel because the huh form library
 	// uses global state (charmbracelet/bubbles runeutil sanitizer).
@@ -789,4 +845,21 @@ func setupCreateExec(t *testing.T, testClient *gitlabtesting.TestClient) cmdtest
 		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		cmdtest.WithConfig(config.NewFromString("editor: vi")),
 	)
+}
+
+func setupCreateExecWithRepoOverride(t *testing.T, testClient *gitlabtesting.TestClient, isTTY bool, opts ...cmdtest.FactoryOption) cmdtest.CmdExecFunc {
+	t.Helper()
+
+	factoryOpts := []cmdtest.FactoryOption{
+		cmdtest.WithGitLabClient(testClient.Client),
+		cmdtest.WithBaseRepo("WRONG", "REPO", ""),
+		cmdtest.WithConfig(config.NewFromString("editor: vi")),
+	}
+	factoryOpts = append(factoryOpts, opts...)
+
+	return cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+		cmd := NewCmdCreate(f)
+		cmdutils.AddGlobalRepoOverride(cmd, f)
+		return cmd
+	}, isTTY, factoryOpts...)
 }
