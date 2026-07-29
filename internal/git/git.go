@@ -380,7 +380,8 @@ func GitCommonDir() (string, error) {
 }
 
 func outputLines(output []byte) []string {
-	lines := strings.TrimSuffix(string(output), "\n")
+	lines := strings.ReplaceAll(string(output), "\r\n", "\n")
+	lines = strings.TrimSuffix(lines, "\n")
 	return strings.Split(lines, "\n")
 }
 
