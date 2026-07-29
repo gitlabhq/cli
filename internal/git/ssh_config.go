@@ -15,6 +15,13 @@ var (
 	sshTokenRE      = regexp.MustCompile(`%[%h]`)
 )
 
+// gitlabComSSHAliases are the official SSH endpoints for GitLab.com that must
+// not be treated as distinct GitLab hosts when resolving remotes.
+var gitlabComSSHAliases = map[string]struct{}{
+	"ssh.gitlab.com":    {},
+	"altssh.gitlab.com": {},
+}
+
 // SSHAliasMap encapsulates the translation of SSH hostname aliases
 type SSHAliasMap map[string]string
 
@@ -28,8 +35,10 @@ func (m SSHAliasMap) Translator() func(*url.URL) *url.URL {
 		if !ok {
 			return u
 		}
-		if strings.EqualFold(u.Hostname(), "gitlab.com") && strings.EqualFold(resolvedHost, "ssh.gitlab.com") {
-			return u
+		if strings.EqualFold(u.Hostname(), "gitlab.com") {
+			if _, isOfficialAlias := gitlabComSSHAliases[strings.ToLower(resolvedHost)]; isOfficialAlias {
+				return u
+			}
 		}
 		newURL, _ := url.Parse(u.String())
 		newURL.Host = resolvedHost
