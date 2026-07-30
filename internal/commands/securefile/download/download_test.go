@@ -554,7 +554,7 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 			},
 			cli:        "--all --output-dir=../../secure_files",
 			wantErr:    true,
-			wantStderr: "error downloading secure file '/etc/passwd' (ID: 1): error creating directory: mkdirat ../../secure_files/etc: path escapes from parent",
+			wantStderr: "error downloading secure file '/etc/passwd' (ID: 1): name would write outside the output directory",
 			setupMocks: func(testClient *gitlabtesting.TestClient) {
 				testClient.MockSecureFiles.EXPECT().
 					ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
@@ -653,4 +653,145 @@ func TestEnsureDirectoryExists_InvalidDirectory(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "error creating directory")
+}
+
+// The absolute branch of ensureDestinationRoot creates directories with
+// os.MkdirAll rather than through the working-directory root, so its failure
+// is reported separately from the relative case above.
+func TestEnsureDestinationRoot_AbsoluteInvalidDirectory(t *testing.T) {
+	conflictFile := filepath.Join(t.TempDir(), "conflict")
+	require.NoError(t, os.WriteFile(conflictFile, []byte("conflict"), 0o600))
+
+	_, _, err := ensureDestinationRoot(filepath.Join(conflictFile, "subdir", "file.txt"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "error creating directory")
+}
+
+// The table-driven cases above can only carry static CLI strings, so the
+// absolute-path cases live here where a t.TempDir() can be interpolated.
+func Test_SecurefileDownload_AbsoluteDestination(t *testing.T) {
+	newFile := func(t *testing.T, checksum string) *gitlabtesting.TestClient {
+		t.Helper()
+		testClient := gitlabtesting.NewTestClient(t)
+		testClient.MockSecureFiles.EXPECT().
+			DownloadSecureFile(repoName, int64(1), gomock.Any()).
+			Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
+		testClient.MockSecureFiles.EXPECT().
+			ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
+			Return(&gitlab.SecureFile{ID: 1, Name: fileName, Checksum: checksum}, nil, nil)
+		return testClient
+	}
+
+	t.Run("absolute path creates missing parents and writes the file", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		dest := filepath.Join(t.TempDir(), "nested", "deeper", "secure.txt")
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmdDownload, false,
+			cmdtest.WithGitLabClient(newFile(t, fileContentsChecksum).Client))
+		out, err := exec("1 --path=" + dest)
+
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "Downloaded secure file 'secure.txt' (ID: 1)")
+
+		got, err := os.ReadFile(dest)
+		require.NoError(t, err)
+		assert.Equal(t, fileContents, string(got))
+	})
+
+	t.Run("absolute path with --name", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		dest := filepath.Join(t.TempDir(), "out", "renamed.pem")
+
+		testClient := gitlabtesting.NewTestClient(t)
+		testClient.MockSecureFiles.EXPECT().
+			ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any()).
+			Return([]*gitlab.SecureFile{{ID: 1, Name: fileName, Checksum: fileContentsChecksum}}, &gitlab.Response{}, nil)
+		testClient.MockSecureFiles.EXPECT().
+			DownloadSecureFile(repoName, int64(1), gomock.Any()).
+			Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
+		testClient.MockSecureFiles.EXPECT().
+			ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
+			Return(&gitlab.SecureFile{ID: 1, Name: fileName, Checksum: fileContentsChecksum}, nil, nil)
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmdDownload, false,
+			cmdtest.WithGitLabClient(testClient.Client))
+		out, err := exec("--name " + fileName + " --path=" + dest)
+
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "Downloaded secure file 'renamed.pem' (Name: "+fileName+")")
+
+		got, err := os.ReadFile(dest)
+		require.NoError(t, err)
+		assert.Equal(t, fileContents, string(got))
+	})
+
+	// Cleanup has to work through the absolute root too: this is the case that
+	// leaked a temporary file in the previous attempt at this fix (!2761).
+	t.Run("failed checksum leaves no temporary file behind", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		destDir := t.TempDir()
+		dest := filepath.Join(destDir, "secure.txt")
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmdDownload, false,
+			cmdtest.WithGitLabClient(newFile(t, "invalid_checksum").Client))
+		_, err := exec("1 --path=" + dest)
+
+		require.Error(t, err)
+		entries, readErr := os.ReadDir(destDir)
+		require.NoError(t, readErr)
+		assert.Empty(t, entries, "destination directory should hold no temporary leftovers")
+	})
+
+	t.Run("absolute --output-dir with --all", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		destDir := t.TempDir()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		testClient.MockSecureFiles.EXPECT().
+			ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.SecureFile{{ID: 1, Name: "file1.txt", Checksum: fileContentsChecksum}}, &gitlab.Response{}, nil)
+		testClient.MockSecureFiles.EXPECT().
+			DownloadSecureFile(repoName, int64(1), gomock.Any()).
+			Return(io.NopCloser(strings.NewReader(fileContents)), nil, nil)
+		testClient.MockSecureFiles.EXPECT().
+			ShowSecureFileDetails(repoName, int64(1), gomock.Any()).
+			Return(&gitlab.SecureFile{ID: 1, Name: "file1.txt", Checksum: fileContentsChecksum}, nil, nil)
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmdDownload, false,
+			cmdtest.WithGitLabClient(testClient.Client))
+		_, err := exec("--all --output-dir=" + destDir)
+
+		require.NoError(t, err)
+		got, err := os.ReadFile(filepath.Join(destDir, "file1.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, fileContents, string(got))
+	})
+
+	// An absolute --output-dir removes the working-directory root that would
+	// otherwise reject a traversing name, so the name is checked directly.
+	t.Run("absolute --output-dir rejects a traversing server name", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		destDir := t.TempDir()
+		// The name below climbs two levels, so this is where it would land if
+		// --output-dir did not confine it.
+		outputDir := filepath.Join(destDir, "a", "b")
+		escaped := filepath.Join(destDir, "outside.txt")
+
+		testClient := gitlabtesting.NewTestClient(t)
+		// The name is rejected before anything is fetched, so no download or
+		// details call should be made.
+		testClient.MockSecureFiles.EXPECT().
+			ListProjectSecureFiles(repoName, gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.SecureFile{{ID: 1, Name: "../../outside.txt", Checksum: fileContentsChecksum}}, &gitlab.Response{}, nil)
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmdDownload, false,
+			cmdtest.WithGitLabClient(testClient.Client))
+		_, err := exec("--all --output-dir=" + outputDir)
+
+		require.Error(t, err)
+		assert.Equal(t, "error downloading secure file '../../outside.txt' (ID: 1): name would write outside the output directory", err.Error())
+		assert.NoFileExists(t, escaped, "server-supplied name must not escape --output-dir")
+		assert.NoFileExists(t, filepath.Join(outputDir, "outside.txt"))
+	})
 }
