@@ -52,6 +52,9 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 			# Download a file by ID to a specific path
 			glab securefile download 1 --path "securefiles/file.txt"
 
+			# Download a file to an absolute path
+			glab securefile download 1 --path /tmp/secure/file.txt
+
 			# Download a file by name to the current directory
 			glab securefile download --name my-secure-file.pem
 
@@ -97,12 +100,6 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 				return fmt.Errorf("unable to get all flag: %w", err)
 			}
 
-			root, err := os.OpenRoot(".")
-			if err != nil {
-				return fmt.Errorf("unable to open root directory: %w", err)
-			}
-			defer root.Close()
-
 			if all {
 				if len(args) > 0 && args[0] != "" {
 					return errors.New("all flag is not compatible with arguments")
@@ -113,7 +110,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 					return fmt.Errorf("unable to get output-dir flag: %w", err)
 				}
 
-				return downloadAllSecureFiles(cmd.Context(), f.IO(), client, root, repo.FullName(), outputDir, !noVerify, forceDownload)
+				return downloadAllSecureFiles(cmd.Context(), f.IO(), client, repo.FullName(), outputDir, !noVerify, forceDownload)
 			} else {
 				outputDirSet := cmd.Flags().Changed("output-dir")
 				if outputDirSet {
@@ -141,7 +138,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 						path = fmt.Sprintf("./%s", name)
 					}
 
-					return downloadSecureFileByName(cmd.Context(), f.IO(), client, root, name, repo.FullName(), path, !noVerify, forceDownload)
+					return downloadSecureFileByName(cmd.Context(), f.IO(), client, name, repo.FullName(), path, !noVerify, forceDownload)
 				}
 
 				var fileID int64
@@ -163,7 +160,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 					}
 				}
 
-				return downloadSecureFile(cmd.Context(), f.IO(), client, root, fileID, repo.FullName(), path, !noVerify, forceDownload)
+				return downloadSecureFile(cmd.Context(), f.IO(), client, fileID, repo.FullName(), path, !noVerify, forceDownload)
 			}
 		},
 	}
@@ -183,42 +180,42 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 	return securefileDownloadCmd
 }
 
-func downloadSecureFileByName(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, root *os.Root, fileName string, repoName, path string, verifyChecksum, forceDownload bool) error {
-	path = filepath.Clean(path)
-	if err := ensureDirectoryExists(root, path); err != nil {
+func downloadSecureFileByName(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, fileName string, repoName, path string, verifyChecksum, forceDownload bool) (err error) {
+	root, name, err := ensureDestinationRoot(filepath.Clean(path))
+	if err != nil {
 		return err
 	}
+	defer func() { err = errors.Join(err, root.Close()) }()
 
 	secureFile, err := helpers.GetSecureFileByName(client, fileName, repoName)
 	if err != nil {
 		return err
 	}
 
-	err = saveFile(ctx, ios, client, repoName, secureFile.ID, path, verifyChecksum, forceDownload)
-	if err != nil {
+	if err := saveFile(ctx, ios, client, repoName, secureFile.ID, root, name, verifyChecksum, forceDownload); err != nil {
 		return err
 	}
 
-	ios.LogInfof("Downloaded secure file '%s' (Name: %s)\n", filepath.Base(path), fileName)
+	ios.LogInfof("Downloaded secure file '%s' (Name: %s)\n", name, fileName)
 	return nil
 }
 
-func downloadSecureFile(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, root *os.Root, fileID int64, repoName, path string, verifyChecksum, forceDownload bool) error {
-	path = filepath.Clean(path)
-	if err := ensureDirectoryExists(root, path); err != nil {
-		return err
-	}
-
-	err := saveFile(ctx, ios, client, repoName, fileID, path, verifyChecksum, forceDownload)
+func downloadSecureFile(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, fileID int64, repoName, path string, verifyChecksum, forceDownload bool) (err error) {
+	root, name, err := ensureDestinationRoot(filepath.Clean(path))
 	if err != nil {
 		return err
 	}
+	defer func() { err = errors.Join(err, root.Close()) }()
 
-	ios.LogInfof("Downloaded secure file '%s' (ID: %d)\n", filepath.Base(path), fileID)
+	if err := saveFile(ctx, ios, client, repoName, fileID, root, name, verifyChecksum, forceDownload); err != nil {
+		return err
+	}
+
+	ios.LogInfof("Downloaded secure file '%s' (ID: %d)\n", name, fileID)
 	return nil
 }
 
-func downloadAllSecureFiles(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, root *os.Root, repoName, outputDir string, verifyChecksum, forceDownload bool) error {
+func downloadAllSecureFiles(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, repoName, outputDir string, verifyChecksum, forceDownload bool) error {
 	for file, err := range gitlab.Scan2(func(p gitlab.PaginationOptionFunc) ([]*gitlab.SecureFile, *gitlab.Response, error) {
 		return client.SecureFiles.ListProjectSecureFiles(repoName, nil, p, gitlab.WithContext(ctx))
 	}) {
@@ -226,9 +223,16 @@ func downloadAllSecureFiles(ctx context.Context, ios *iostreams.IOStreams, clien
 			return fmt.Errorf("error fetching secure files: %w", err)
 		}
 
+		// The name comes from the API. An absolute outputDir has no
+		// working-directory root left to stop it escaping, so reject anything
+		// that is not a plain relative name. See https://go.dev/blog/osroot.
+		if !filepath.IsLocal(file.Name) {
+			return fmt.Errorf("error downloading secure file '%s' (ID: %d): name would write outside the output directory", file.Name, file.ID)
+		}
+
 		filePath := filepath.Join(outputDir, file.Name)
 
-		if err := downloadSecureFile(ctx, ios, client, root, file.ID, repoName, filePath, verifyChecksum, forceDownload); err != nil {
+		if err := downloadSecureFile(ctx, ios, client, file.ID, repoName, filePath, verifyChecksum, forceDownload); err != nil {
 			return fmt.Errorf("error downloading secure file '%s' (ID: %d): %w", file.Name, file.ID, err)
 		}
 	}
@@ -236,32 +240,28 @@ func downloadAllSecureFiles(ctx context.Context, ios *iostreams.IOStreams, clien
 	return nil
 }
 
-func saveFile(ctx context.Context, ios *iostreams.IOStreams, apiClient *gitlab.Client, repoName string, fileID int64, path string, verifyChecksum, forceDownload bool) (err error) {
+func saveFile(ctx context.Context, ios *iostreams.IOStreams, apiClient *gitlab.Client, repoName string, fileID int64, root *os.Root, name string, verifyChecksum, forceDownload bool) (err error) {
 	contents, _, err := apiClient.SecureFiles.DownloadSecureFile(repoName, fileID, gitlab.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("error downloading secure file: %w", err)
 	}
 
-	root, err := os.OpenRoot(".")
-	if err != nil {
-		return fmt.Errorf("unable to open root directory: %w", err)
-	}
-	defer root.Close()
-
-	dir := filepath.Dir(path)
-	tempBase := filepath.Join(dir, strconv.FormatInt(fileID, 10))
-	tempFile, err := utils.CreateTemp(root, tempBase)
+	tempFile, err := utils.CreateTemp(root, strconv.FormatInt(fileID, 10))
 	if err != nil {
 		return fmt.Errorf("unable to create temporary file for downloaded secure file: %w", err)
 	}
+	// root.OpenFile reports the name joined onto the root, which root's own
+	// methods reject as escaping when the root is absolute. The temporary file
+	// is always a direct child of root, so its base name addresses it.
+	tempName := filepath.Base(tempFile.Name())
 
 	defer func() {
 		if closeErr := tempFile.Close(); closeErr != nil {
 			closeErr = fmt.Errorf("error closing temporary file: %w", closeErr)
 			err = errors.Join(err, closeErr)
 		}
-		if _, statErr := root.Stat(tempFile.Name()); statErr == nil { // Cleanup the temp file if it hasn't been renamed
-			if removeErr := root.Remove(tempFile.Name()); removeErr != nil {
+		if _, statErr := root.Stat(tempName); statErr == nil { // Cleanup the temp file if it hasn't been renamed
+			if removeErr := root.Remove(tempName); removeErr != nil {
 				removeErr = fmt.Errorf("error removing temporary file: %w", removeErr)
 				err = errors.Join(err, removeErr)
 			}
@@ -295,11 +295,45 @@ func saveFile(ctx context.Context, ios *iostreams.IOStreams, apiClient *gitlab.C
 		}
 	}
 
-	if err := root.Rename(tempFile.Name(), path); err != nil {
+	if err := root.Rename(tempName, name); err != nil {
 		return fmt.Errorf("unable to persist downloaded file contents: %w", err)
 	}
 
 	return err
+}
+
+// ensureDestinationRoot creates the directory that path lives in and returns a
+// root anchored at it, together with the file name to use inside that root.
+//
+// A relative path is created through a root anchored at the working directory,
+// so it cannot escape the directory glab was run from. An absolute path names a
+// location the caller asked for explicitly, so it is created directly.
+func ensureDestinationRoot(path string) (*os.Root, string, error) {
+	dir := filepath.Dir(path)
+
+	if filepath.IsAbs(path) {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, "", fmt.Errorf("error creating directory: %w", err)
+		}
+	} else {
+		wd, err := os.OpenRoot(".")
+		if err != nil {
+			return nil, "", fmt.Errorf("unable to open root directory: %w", err)
+		}
+
+		// wd is finished with as soon as the directory exists, so it is closed
+		// here rather than deferred, and its error is surfaced alongside the
+		// primary one instead of being discarded.
+		if err := errors.Join(ensureDirectoryExists(wd, path), wd.Close()); err != nil {
+			return nil, "", err
+		}
+	}
+
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to open root directory: %w", err)
+	}
+	return root, filepath.Base(path), nil
 }
 
 func ensureDirectoryExists(root *os.Root, path string) error {

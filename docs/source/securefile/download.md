@@ -44,6 +44,9 @@ glab securefile download --id 1
 # Download a file by ID to a specific path
 glab securefile download 1 --path "securefiles/file.txt"
 
+# Download a file to an absolute path
+glab securefile download 1 --path /tmp/secure/file.txt
+
 # Download a file by name to the current directory
 glab securefile download --name my-secure-file.pem
 
