@@ -30,7 +30,7 @@ require (
 	github.com/itchyny/gojq v0.12.19
 	github.com/lunixbochs/vtclean v1.0.0
 	github.com/mattn/go-colorable v0.1.15
-	github.com/mattn/go-isatty v0.0.23
+	github.com/mattn/go-isatty v0.0.24
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d
 	github.com/modelcontextprotocol/go-sdk v1.6.1
