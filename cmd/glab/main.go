@@ -169,7 +169,7 @@ func main() {
 		fang.WithoutCompletions(),
 		fang.WithoutManpage(),
 		fang.WithColorSchemeFunc(gitLabColorScheme),
-		fang.WithErrorHandler(cmdutils.GitLabErrorHandler),
+		fang.WithErrorHandler(cmdutils.NewGitLabErrorHandler(cmdFactory.IO())),
 		fang.WithNotifySignal(os.Interrupt, syscall.SIGTERM),
 	); err != nil {
 		var exitError *cmdutils.ExitError
