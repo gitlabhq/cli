@@ -78,6 +78,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Download to an exact path, renaming the file
 			glab packages download -n my-package --version 1.0.0 --filename app.zip --path ./downloads/renamed.zip
 
+			# Download to an absolute path
+			glab packages download -n my-package --version 1.0.0 --filename app.zip --path /tmp/downloads/app.zip
+
 			# Download without verifying the checksum
 			glab packages download -n my-package --version 1.0.0 --filename app.zip --no-verify
 
@@ -189,21 +192,17 @@ func (o *options) run(ctx context.Context) (err error) {
 		return err
 	}
 
-	root, err := os.OpenRoot(".")
+	root, name, err := utils.EnsureDestinationRoot(o.path)
 	if err != nil {
-		return fmt.Errorf("unable to open root directory: %w", err)
+		return err
 	}
 	defer func() { err = errors.Join(err, root.Close()) }()
 
-	if err := ensureDirectoryExists(root, o.path); err != nil {
-		return err
-	}
-
-	if _, err := root.Stat(o.path); err == nil && !o.forceDownload {
+	if _, err := root.Stat(name); err == nil && !o.forceDownload {
 		return fmt.Errorf("file %s already exists; use --force to overwrite current file", o.path)
 	}
 
-	if err := o.saveFile(ctx, client, root, repo.FullName()); err != nil {
+	if err := o.saveFile(ctx, client, root, name, repo.FullName()); err != nil {
 		return err
 	}
 
@@ -211,7 +210,7 @@ func (o *options) run(ctx context.Context) (err error) {
 	return nil
 }
 
-func (o *options) saveFile(ctx context.Context, client *gitlab.Client, root *os.Root, repoName string) (err error) {
+func (o *options) saveFile(ctx context.Context, client *gitlab.Client, root *os.Root, name, repoName string) (err error) {
 	contents, _, err := client.GenericPackages.DownloadPackageFile(repoName, o.packageName, o.packageVersion, o.fileName, gitlab.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to download package file: %w", err)
@@ -225,17 +224,21 @@ func (o *options) saveFile(ctx context.Context, client *gitlab.Client, root *os.
 		}
 	}
 
-	tempFile, err := utils.CreateTemp(root, o.path)
+	tempFile, err := utils.CreateTemp(root, name)
 	if err != nil {
 		return fmt.Errorf("unable to create temporary file for downloaded package file: %w", err)
 	}
+	// root.OpenFile reports the name joined onto the root, which root's own
+	// methods reject as escaping when the root is absolute. The temporary file
+	// is always a direct child of root, so its base name addresses it.
+	tempName := filepath.Base(tempFile.Name())
 
 	defer func() {
 		if closeErr := tempFile.Close(); closeErr != nil {
 			err = errors.Join(err, fmt.Errorf("error closing temporary file: %w", closeErr))
 		}
-		if _, statErr := root.Stat(tempFile.Name()); statErr == nil { // Cleanup the temp file if it hasn't been renamed
-			if removeErr := root.Remove(tempFile.Name()); removeErr != nil {
+		if _, statErr := root.Stat(tempName); statErr == nil { // Cleanup the temp file if it hasn't been renamed
+			if removeErr := root.Remove(tempName); removeErr != nil {
 				err = errors.Join(err, fmt.Errorf("error removing temporary file: %w", removeErr))
 			}
 		}
@@ -256,7 +259,7 @@ func (o *options) saveFile(ctx context.Context, client *gitlab.Client, root *os.
 		return fmt.Errorf("checksum verification failed for %s: expected %s, got %s", o.fileName, expected, checksum)
 	}
 
-	if err := root.Rename(tempFile.Name(), o.path); err != nil {
+	if err := root.Rename(tempName, name); err != nil {
 		return fmt.Errorf("unable to persist downloaded file contents: %w", err)
 	}
 
@@ -308,15 +311,4 @@ func fetchChecksum(ctx context.Context, client *gitlab.Client, repoName, name, v
 	}
 
 	return "", fmt.Errorf("couldn't locate file %s in package %s version %s", fileName, name, version)
-}
-
-func ensureDirectoryExists(root *os.Root, path string) error {
-	dir := filepath.Dir(path)
-	if dir != "." {
-		if err := root.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("error creating directory: %w", err)
-		}
-	}
-
-	return nil
 }
