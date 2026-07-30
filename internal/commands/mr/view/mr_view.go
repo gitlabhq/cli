@@ -79,6 +79,12 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) run(ctx context.Context, f cmdutils.Factory, args []string) error {
+	// Opening in a browser only needs the web URL, so it skips the extra
+	// merge request and approval state requests the terminal output needs.
+	if o.openInBrowser {
+		return o.openMRInBrowser(ctx, f, args)
+	}
+
 	client, err := o.gitlabClient()
 	if err != nil {
 		return err
@@ -104,15 +110,6 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, args []string) er
 	mrApprovals, _, err := client.MergeRequestApprovals.GetApprovalState(baseRepo.FullName(), mr.IID) //nolint:ineffassign,staticcheck
 
 	cfg := o.config()
-
-	if o.openInBrowser { // open in browser if --web flag is specified
-		if o.io.IsOutputTTY() {
-			o.io.LogErrorf("Opening %s in your browser.\n", utils.DisplayURL(mr.WebURL))
-		}
-
-		browser, _ := cfg.Get(baseRepo.RepoHost(), "browser")
-		return utils.OpenInBrowser(mr.WebURL, browser)
-	}
 
 	discussions := []*gitlab.Discussion{}
 
@@ -166,6 +163,20 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, args []string) er
 		printRawMRPreview(o, mr, discussions)
 	}
 	return nil
+}
+
+func (o *options) openMRInBrowser(ctx context.Context, f cmdutils.Factory, args []string) error {
+	webURL, baseRepo, err := mrutils.MRWebURLFromArgs(ctx, f, args, "any")
+	if err != nil {
+		return err
+	}
+
+	if o.io.IsOutputTTY() {
+		o.io.LogErrorf("Opening %s in your browser.\n", utils.DisplayURL(webURL))
+	}
+
+	browser, _ := o.config().Get(baseRepo.RepoHost(), "browser")
+	return utils.OpenInBrowser(webURL, browser)
 }
 
 func labelsList(mr *gitlab.MergeRequest) string {

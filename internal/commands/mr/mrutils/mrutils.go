@@ -146,25 +146,30 @@ func MRFromArgs(ctx context.Context, f cmdutils.Factory, args []string, state st
 	return MRFromArgsWithOpts(ctx, f, args, &gitlab.GetMergeRequestsOptions{}, state)
 }
 
-// MRFromArgsWithOpts gets MR with custom request options passed down to it
-func MRFromArgsWithOpts(
-	ctx context.Context,
-	f cmdutils.Factory,
-	args []string,
-	opts *gitlab.GetMergeRequestsOptions,
-	state string,
-) (*gitlab.MergeRequest, glrepo.Interface, error) {
+// mrTarget is a merge request identified from command-line arguments, before
+// the merge request itself has been fetched from the API. Exactly one of mrID
+// and branch is set: mrID when the argument was an ID or a merge request URL,
+// branch otherwise.
+type mrTarget struct {
+	client   *gitlab.Client
+	baseRepo glrepo.Interface
+	mrID     int
+	branch   string
+}
+
+// resolveMRTarget interprets the command-line arguments without calling the API.
+// It falls back to the current branch when no argument is given.
+func resolveMRTarget(f cmdutils.Factory, args []string) (*mrTarget, error) {
 	var mrID int
-	var mr *gitlab.MergeRequest
 
 	client, err := f.GitLabClient()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	baseRepo, err := f.BaseRepo()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	var branch string
@@ -177,7 +182,7 @@ func MRFromArgsWithOpts(
 			if urlRepo.RepoHost() != baseRepo.RepoHost() {
 				apiClient, err := f.ApiClient(urlRepo.RepoHost())
 				if err != nil {
-					return nil, nil, fmt.Errorf("failed to connect to GitLab instance %s from URL (%s): %w", urlRepo.RepoHost(), args[0], err)
+					return nil, fmt.Errorf("failed to connect to GitLab instance %s from URL (%s): %w", urlRepo.RepoHost(), args[0], err)
 				}
 				client = apiClient.Lab()
 			}
@@ -188,7 +193,7 @@ func MRFromArgsWithOpts(
 			if err != nil {
 				branch = args[0]
 			} else if mrID == 0 { // to check for cases where the user explicitly specified mrID to be zero
-				return nil, nil, fmt.Errorf("invalid merge request ID provided")
+				return nil, fmt.Errorf("invalid merge request ID provided")
 			}
 		}
 	}
@@ -196,23 +201,68 @@ func MRFromArgsWithOpts(
 	if branch == "" && mrID == 0 {
 		branch, err = f.Branch()
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
+	return &mrTarget{client: client, baseRepo: baseRepo, mrID: mrID, branch: branch}, nil
+}
+
+// MRFromArgsWithOpts gets MR with custom request options passed down to it
+func MRFromArgsWithOpts(
+	ctx context.Context,
+	f cmdutils.Factory,
+	args []string,
+	opts *gitlab.GetMergeRequestsOptions,
+	state string,
+) (*gitlab.MergeRequest, glrepo.Interface, error) {
+	target, err := resolveMRTarget(f, args)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mrID := target.mrID
 	if mrID == 0 {
-		basicMR, err := GetMRForBranch(ctx, f.IO(), client, MrOptions{baseRepo, branch, state, f.IO().PromptEnabled()})
+		basicMR, err := target.mrForBranch(ctx, f.IO(), state)
 		if err != nil {
 			return nil, nil, err
 		}
 		mrID = int(basicMR.IID)
 	}
-	mr, err = api.GetMR(client, baseRepo.FullName(), int64(mrID), opts)
+	mr, err := api.GetMR(target.client, target.baseRepo.FullName(), int64(mrID), opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get merge request %d: %w", mrID, err)
 	}
 
-	return mr, baseRepo, nil
+	return mr, target.baseRepo, nil
+}
+
+// MRWebURLFromArgs resolves the web URL of a merge request using as few API
+// calls as possible. When the merge request is identified by branch, the URL is
+// taken from the list response instead of fetching the merge request again.
+func MRWebURLFromArgs(ctx context.Context, f cmdutils.Factory, args []string, state string) (string, glrepo.Interface, error) {
+	target, err := resolveMRTarget(f, args)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if target.mrID == 0 {
+		basicMR, err := target.mrForBranch(ctx, f.IO(), state)
+		if err != nil {
+			return "", nil, err
+		}
+		return basicMR.WebURL, target.baseRepo, nil
+	}
+
+	mr, err := api.GetMR(target.client, target.baseRepo.FullName(), int64(target.mrID), &gitlab.GetMergeRequestsOptions{})
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get merge request %d: %w", target.mrID, err)
+	}
+	return mr.WebURL, target.baseRepo, nil
+}
+
+func (t *mrTarget) mrForBranch(ctx context.Context, io *iostreams.IOStreams, state string) (*gitlab.BasicMergeRequest, error) {
+	return GetMRForBranch(ctx, io, t.client, MrOptions{t.baseRepo, t.branch, state, io.PromptEnabled()})
 }
 
 func MRsFromArgs(ctx context.Context, f cmdutils.Factory, args []string, state string) ([]*gitlab.MergeRequest, glrepo.Interface, error) {
