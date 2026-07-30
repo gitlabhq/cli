@@ -5,6 +5,7 @@ package download
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -203,4 +204,99 @@ func Test_PackagesDownload(t *testing.T) {
 			assert.Equal(t, fileContents, string(actualContent), "File content should match")
 		})
 	}
+}
+
+// The table above can only carry static CLI strings, so the absolute-path
+// cases live here where a t.TempDir() can be interpolated.
+func Test_PackagesDownload_AbsoluteDestination(t *testing.T) {
+	mockDownload := func(t *testing.T, checksum string) *gitlabtesting.TestClient {
+		t.Helper()
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockGenericPackages.EXPECT().
+			DownloadPackageFile(repoName, "my-package", "1.0.0", "app.zip", gomock.Any()).
+			Return([]byte(fileContents), nil, nil)
+		mockChecksumLookup(tc, checksum)
+		return tc
+	}
+
+	const cli = "--name my-package --version 1.0.0 --filename app.zip --path "
+
+	t.Run("absolute path creates missing parents and writes the file", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		dest := filepath.Join(t.TempDir(), "nested", "deeper", "out.zip")
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
+			cmdtest.WithGitLabClient(mockDownload(t, fileContentsChecksum).Client))
+		out, err := exec(cli + dest)
+
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "Downloaded package file to '"+dest+"'")
+
+		got, err := os.ReadFile(dest)
+		require.NoError(t, err)
+		assert.Equal(t, fileContents, string(got))
+	})
+
+	t.Run("absolute path naming an existing directory appends the filename", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		destDir := t.TempDir()
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
+			cmdtest.WithGitLabClient(mockDownload(t, fileContentsChecksum).Client))
+		_, err := exec(cli + destDir)
+
+		require.NoError(t, err)
+		got, err := os.ReadFile(filepath.Join(destDir, "app.zip"))
+		require.NoError(t, err)
+		assert.Equal(t, fileContents, string(got))
+	})
+
+	// The existing-file guard reads through the same root, so it has to keep
+	// working once that root is anchored at an absolute destination.
+	t.Run("absolute path refuses to overwrite without --force", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		dest := filepath.Join(t.TempDir(), "out.zip")
+		require.NoError(t, os.WriteFile(dest, []byte("existing"), 0o600))
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
+			cmdtest.WithGitLabClient(gitlabtesting.NewTestClient(t).Client))
+		_, err := exec(cli + dest)
+
+		require.Error(t, err)
+		assert.Equal(t, fmt.Sprintf("file %s already exists; use --force to overwrite current file", dest), err.Error())
+
+		got, err := os.ReadFile(dest)
+		require.NoError(t, err)
+		assert.Equal(t, "existing", string(got), "the existing file must be left untouched")
+	})
+
+	t.Run("absolute path overwrites with --force", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		dest := filepath.Join(t.TempDir(), "out.zip")
+		require.NoError(t, os.WriteFile(dest, []byte("existing"), 0o600))
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
+			cmdtest.WithGitLabClient(mockDownload(t, fileContentsChecksum).Client))
+		_, err := exec(cli + dest + " --force")
+
+		require.NoError(t, err)
+		got, err := os.ReadFile(dest)
+		require.NoError(t, err)
+		assert.Equal(t, fileContents, string(got))
+	})
+
+	t.Run("failed checksum leaves no temporary file behind", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		destDir := t.TempDir()
+		dest := filepath.Join(destDir, "out.zip")
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
+			cmdtest.WithGitLabClient(mockDownload(t, "invalid_checksum").Client))
+		_, err := exec(cli + dest)
+
+		require.Error(t, err)
+		entries, readErr := os.ReadDir(destDir)
+		require.NoError(t, readErr)
+		assert.Empty(t, entries, "destination directory should hold no temporary leftovers")
+	})
 }

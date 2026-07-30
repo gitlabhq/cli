@@ -56,6 +56,9 @@ glab packages download -n my-package --version 1.0.0 --filename app.zip --path .
 # Download to an exact path, renaming the file
 glab packages download -n my-package --version 1.0.0 --filename app.zip --path ./downloads/renamed.zip
 
+# Download to an absolute path
+glab packages download -n my-package --version 1.0.0 --filename app.zip --path /tmp/downloads/app.zip
+
 # Download without verifying the checksum
 glab packages download -n my-package --version 1.0.0 --filename app.zip --no-verify
 
