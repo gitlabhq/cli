@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"testing"
 	"time"
@@ -24,7 +25,10 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/mr/mrutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/run"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
+	"gitlab.com/gitlab-org/cli/internal/utils"
+	"gitlab.com/gitlab-org/cli/test"
 )
 
 var (
@@ -676,6 +680,82 @@ func Test_filterDiscussionsByResolution(t *testing.T) {
 				gotIDs = append(gotIDs, d.ID)
 			}
 			assert.Equal(t, tt.wantIDs, gotIDs)
+		})
+	}
+}
+
+func TestMRViewWeb(t *testing.T) {
+	tests := []struct {
+		name              string
+		cli               string
+		wantURL           string
+		wantGetMRCalls    int
+		wantBranchLookups int
+	}{
+		{
+			name: "by branch, resolved from the list response",
+			cli:  "-w -R cli-automated-testing/test",
+			// The web URL comes from the branch lookup, so the merge request
+			// itself is never fetched.
+			wantURL:           "https://gitlab.com/cli-automated-testing/test/-/merge_requests/42",
+			wantGetMRCalls:    0,
+			wantBranchLookups: 1,
+		},
+		{
+			name:              "by ID",
+			cli:               "13 -w -R cli-automated-testing/test",
+			wantURL:           "https://gitlab.com/cli-automated-testing/test/-/merge_requests/13",
+			wantGetMRCalls:    1,
+			wantBranchLookups: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var getMRCalls, branchLookups int
+
+			oldGetMR := api.GetMR
+			api.GetMR = func(client *gitlab.Client, projectID any, mrID int64, opts *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error) {
+				getMRCalls++
+				return oldGetMR(client, projectID, mrID, opts)
+			}
+			t.Cleanup(func() { api.GetMR = oldGetMR })
+
+			oldGetMRForBranch := mrutils.GetMRForBranch
+			mrutils.GetMRForBranch = func(_ context.Context, _ *iostreams.IOStreams, _ *gitlab.Client, mrOpts mrutils.MrOptions) (*gitlab.BasicMergeRequest, error) {
+				branchLookups++
+				return &gitlab.BasicMergeRequest{
+					IID:    42,
+					WebURL: fmt.Sprintf("https://gitlab.com/%s/-/merge_requests/42", mrOpts.BaseRepo.FullName()),
+				}, nil
+			}
+			t.Cleanup(func() { mrutils.GetMRForBranch = oldGetMRForBranch })
+
+			var browsedURL string
+			restoreCmd := run.SetPrepareCmd(func(cmd *exec.Cmd) run.Runnable {
+				browsedURL = cmd.Args[len(cmd.Args)-1]
+				return &test.OutputStub{}
+			})
+			defer restoreCmd()
+
+			client, _ := gitlab.NewClient("")
+			execCmd := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				cmd := NewCmdView(f)
+				cmdutils.EnableRepoOverride(cmd, f)
+				return cmd
+			}, true,
+				cmdtest.WithConfig(testConfig),
+				cmdtest.WithGitLabClient(client),
+				cmdtest.WithBranch("feature-branch"),
+			)
+
+			result, err := execCmd(tt.cli)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantURL, browsedURL)
+			assert.Contains(t, stripansi.Strip(result.Stderr()), "Opening "+utils.DisplayURL(tt.wantURL)+" in your browser.")
+			assert.Equal(t, tt.wantGetMRCalls, getMRCalls, "unexpected number of merge request fetches")
+			assert.Equal(t, tt.wantBranchLookups, branchLookups, "unexpected number of branch lookups")
 		})
 	}
 }
