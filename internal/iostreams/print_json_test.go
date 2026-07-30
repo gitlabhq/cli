@@ -3,6 +3,7 @@ package iostreams
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -183,4 +184,45 @@ func TestPrintJSON_JQFilterRuntimeErrorIsWrapped(t *testing.T) {
 	err := io.PrintJSON(map[string]string{"foo": "bar"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--jq error")
+}
+
+func TestPrintJSONError_WritesEnvelopeToStdout(t *testing.T) {
+	buf := &bytes.Buffer{}
+	io := newIOWithJQ(buf)
+
+	require.NoError(t, io.PrintJSONError(errors.New("404 Not Found")))
+
+	var got struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
+	assert.Equal(t, "404 Not Found", got.Error.Message)
+}
+
+func TestPrintJSONError_IgnoresJQFilter(t *testing.T) {
+	// The --jq expression targets the command's success output, so applying it
+	// to an error object would replace the failure with a filter error.
+	buf := &bytes.Buffer{}
+	io := newIOWithJQ(buf)
+	require.NoError(t, io.JQ.Set(".[].id"))
+
+	require.NoError(t, io.PrintJSONError(errors.New("404 Not Found")))
+
+	var got struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
+	assert.Equal(t, "404 Not Found", got.Error.Message)
+}
+
+func TestPrintJSONError_PassthroughWhenJQNil(t *testing.T) {
+	buf := &bytes.Buffer{}
+	io := &IOStreams{StdOut: buf} // no JQ
+
+	require.NoError(t, io.PrintJSONError(errors.New("boom")))
+	assert.JSONEq(t, `{"error":{"message":"boom"}}`, buf.String())
 }

@@ -29,3 +29,25 @@ func (s *IOStreams) PrintJSON(v any) error {
 	encoder := json.NewEncoder(s.StdOut) //nolint:forbidigo // this is the PrintJSON helper itself
 	return encoder.Encode(v)
 }
+
+// The message is nested under "error" so it cannot be mistaken for the
+// command's success payload, which shares the stream, and so fields can be
+// added later without changing the type of an existing one.
+type jsonErrorEnvelope struct {
+	Error jsonErrorBody `json:"error"`
+}
+
+type jsonErrorBody struct {
+	Message string `json:"message"`
+}
+
+// PrintJSONError writes a machine-readable description of err to stdout for a
+// command asked for JSON output that failed before printing anything.
+//
+// Unlike PrintJSON it does not apply --jq: that filter targets the command's
+// success output, so running it here would report a filter failure instead of
+// the failure the user needs to see.
+func (s *IOStreams) PrintJSONError(err error) error {
+	encoder := json.NewEncoder(s.StdOut) //nolint:forbidigo // this is the PrintJSON helper for errors
+	return encoder.Encode(jsonErrorEnvelope{Error: jsonErrorBody{Message: err.Error()}})
+}

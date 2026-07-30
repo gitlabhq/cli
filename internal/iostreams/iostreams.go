@@ -57,6 +57,11 @@ type IOStreams struct {
 	// non-nil so callers can pass &s.JQ to cobra's Flags().Var without nil
 	// checks; IsActive reports whether a --jq expression has been supplied.
 	JQ *JQFilter
+
+	// outputFormat is recorded by cmdutils.EnableJSONOutput during flag
+	// parsing, so that code holding no *cobra.Command can still honour the
+	// requested format. One command runs per process.
+	outputFormat string
 }
 
 var controlCharRegEx = regexp.MustCompile(`(\x1b\[)((?:(\d*)(;*))*)([A-Z,a-l,n-z])`)
@@ -179,6 +184,17 @@ func (s *IOStreams) SetPrompt(promptDisabled string) {
 	case "false", "0":
 		s.promptDisabled = false
 	}
+}
+
+// SetOutputFormat records the output format the running command was invoked
+// with, as parsed from its --output/-F flag.
+func (s *IOStreams) SetOutputFormat(format string) {
+	s.outputFormat = format
+}
+
+// IsJSONOutput reports whether the running command was asked to emit JSON.
+func (s *IOStreams) IsJSONOutput() bool {
+	return s.outputFormat == "json"
 }
 
 func (s *IOStreams) SetPager(cmd string) {

@@ -6,6 +6,23 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 )
 
+// outputFormatValue also records the format on IOStreams. cobra sets flags
+// before argument validation and RunE, so the format is known even when one of
+// them fails — which is what lets the error handler in cmd/glab/main.go report
+// that failure as JSON.
+type outputFormatValue struct {
+	*enumValue[string]
+	io *iostreams.IOStreams
+}
+
+func (v *outputFormatValue) Set(format string) error {
+	if err := v.enumValue.Set(format); err != nil {
+		return err
+	}
+	v.io.SetOutputFormat(format)
+	return nil
+}
+
 // EnableJSONOutput adds the --output/-F flag to a command for JSON output
 // support, and also registers --jq via AddJQFlag so callers do not have to
 // invoke both helpers.
@@ -19,7 +36,10 @@ func EnableJSONOutput(cmd *cobra.Command, io *iostreams.IOStreams, outputFormat 
 	}
 
 	cmd.Flags().VarP(
-		NewEnumValue([]string{"text", "json"}, "text", outputFormat),
+		&outputFormatValue{
+			enumValue: NewEnumValue([]string{"text", "json"}, "text", outputFormat),
+			io:        io,
+		},
 		"output",
 		"F",
 		description,

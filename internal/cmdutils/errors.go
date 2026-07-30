@@ -32,17 +32,30 @@ var (
 	errCommandInterrupted = errors.New("the command execution has been interrupted")
 )
 
-// GitLabErrorHandler is a custom error handler for fang that handles GitLab CLI specific errors
-func GitLabErrorHandler(w io.Writer, styles fang.Styles, err error) {
-	switch {
-	case errors.Is(err, context.Canceled):
-		fang.DefaultErrorHandler(w, styles, errCommandInterrupted)
-		return
-	case errors.Is(err, SilentError):
-		// Ignore SilentError - it should not produce any output
-		return
-	default:
-		// Delegate everything else to Fang's default handler
+// NewGitLabErrorHandler returns a custom error handler for fang that handles
+// GitLab CLI specific errors. Under --output=json the failure is also written
+// to stdout as an object, so a caller parsing glab's output is not left with an
+// empty stream; the human-readable error still goes to stderr in every mode.
+//
+// fang passes only the error, never the *cobra.Command, so the format is read
+// back from streams. streams must not be nil.
+func NewGitLabErrorHandler(streams *iostreams.IOStreams) fang.ErrorHandler {
+	return func(w io.Writer, styles fang.Styles, err error) {
+		switch {
+		case errors.Is(err, context.Canceled):
+			err = errCommandInterrupted
+		case errors.Is(err, SilentError):
+			// Ignore SilentError - it should not produce any output
+			return
+		}
+
+		if streams.IsJSONOutput() {
+			if printErr := streams.PrintJSONError(err); printErr != nil {
+				err = errors.Join(err, printErr)
+			}
+		}
+
+		// Delegate the human-readable rendering to Fang's default handler
 		fang.DefaultErrorHandler(w, styles, err)
 	}
 }
