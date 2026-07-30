@@ -43,7 +43,7 @@ func NewCmdRevoke(f cmdutils.Factory) *cobra.Command {
 		Aliases: []string{"revoke", "rm"},
 		Args:    cobra.RangeArgs(1, 1),
 		Long: heredoc.Doc(`
-			Revoke an user, group or project access token. If multiple tokens with the same name exist, you can specify
+			Revoke a user, group or project access token. If multiple tokens with the same name exist, you can specify
 			the ID of the token.
 
 			The output format can be either "JSON" or "text". The JSON output will show the meta information of the
