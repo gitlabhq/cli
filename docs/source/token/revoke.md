@@ -14,7 +14,7 @@ Revoke user, group, or project access tokens.
 
 ## Synopsis
 
-Revoke an user, group or project access token. If multiple tokens with the same name exist, you can specify
+Revoke a user, group or project access token. If multiple tokens with the same name exist, you can specify
 the ID of the token.
 
 The output format can be either "JSON" or "text". The JSON output will show the meta information of the
