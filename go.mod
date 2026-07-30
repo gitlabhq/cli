@@ -44,7 +44,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/tidwall/pretty v1.2.1
 	github.com/zalando/go-keyring v0.2.8
-	gitlab.com/gitlab-org/api/client-go/v2 v2.51.0
+	gitlab.com/gitlab-org/api/client-go/v2 v2.52.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.6.0
 	go.yaml.in/yaml/v3 v3.0.4
