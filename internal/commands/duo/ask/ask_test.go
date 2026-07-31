@@ -20,7 +20,7 @@ import (
 )
 
 func TestAskCmd(t *testing.T) {
-	t.Skip("flaky, hits 10m timeout; command deprecated and scheduled for removal on or after 2026-07-26. See https://gitlab.com/gitlab-org/gitlab/-/work_items/597732")
+	t.Skip("flaky, hits 10m timeout")
 
 	initialAiResponse := "The appropriate ```git log --pretty=format:'%h'``` Git command ```non-git cmd``` for listing ```git show``` commit SHAs."
 	outputWithoutExecution := "Commands:\n" + `
