@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
 	"go.uber.org/mock/gomock"
+	"golang.org/x/oauth2"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v2/testing"
@@ -488,4 +489,55 @@ func Test_statusRun_flagValidation(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "if any flags in the group [all hostname] are set none of the others can be")
+}
+
+func Test_sanitizeAuthError(t *testing.T) {
+	htmlBody := []byte("<!DOCTYPE html>\n<html><head><title>Action Controller: Exception caught</title></head><body>error</body></html>")
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "oauth2 retrieve error without structured error code drops the response body",
+			err: &oauth2.RetrieveError{
+				Response: &http.Response{Status: "500 Internal Server Error", StatusCode: http.StatusInternalServerError},
+				Body:     htmlBody,
+			},
+			want: "oauth2: cannot fetch token: 500 Internal Server Error",
+		},
+		{
+			name: "wrapped oauth2 retrieve error is sanitized while preserving outer context",
+			err: fmt.Errorf("token refresh: %w", &oauth2.RetrieveError{
+				Response: &http.Response{Status: "500 Internal Server Error", StatusCode: http.StatusInternalServerError},
+				Body:     htmlBody,
+			}),
+			want: "token refresh: oauth2: cannot fetch token: 500 Internal Server Error",
+		},
+		{
+			name: "oauth2 retrieve error with nil response falls back to a safe message",
+			err:  &oauth2.RetrieveError{Body: htmlBody},
+			want: "oauth2: cannot fetch token: unknown status",
+		},
+		{
+			name: "structured oauth2 error is preserved",
+			err: &oauth2.RetrieveError{
+				Response:  &http.Response{Status: "401 Unauthorized", StatusCode: http.StatusUnauthorized},
+				ErrorCode: "invalid_grant",
+			},
+			want: `oauth2: "invalid_grant"`,
+		},
+		{
+			name: "non-oauth2 error is returned unchanged",
+			err:  errors.New("GET https://gitlab.example.com/api/v4/user: 401 {message: 401 Unauthorized}"),
+			want: "GET https://gitlab.example.com/api/v4/user: 401 {message: 401 Unauthorized}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, sanitizeAuthError(tt.err))
+		})
+	}
 }

@@ -2,12 +2,15 @@ package status
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
+	"golang.org/x/oauth2"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
@@ -139,7 +142,7 @@ func (o *options) run(ctx context.Context) error {
 			cancel()
 			if err != nil {
 				failedAuth = true
-				addMsg("%s %s: API call failed: %s", c.FailedIcon(), instance, err)
+				addMsg("%s %s: API call failed: %s", c.FailedIcon(), instance, sanitizeAuthError(err))
 				if resp != nil && resp.StatusCode == 401 && slices.Contains(config.EnvKeyEquivalence("token"), tokenSource) {
 					addMsg("  %s Token is from environment variable %s. A wrapper may be injecting a different or expired token.", c.WarnIcon(), tokenSource)
 					addMsg("  %s To investigate, run in your shell: %s", c.WarnIcon(), c.Bold("type glab"))
@@ -226,6 +229,34 @@ func (o *options) run(ctx context.Context) error {
 	} else {
 		return nil
 	}
+}
+
+// sanitizeAuthError returns a concise message for authentication errors. When
+// the OAuth token endpoint returns a non-2XX response without a structured
+// error (for example, an HTML 500 error page), golang.org/x/oauth2 embeds the
+// entire response body in the error string, which floods the terminal with
+// unhelpful markup. In that case, replace the body-containing portion with a
+// message that reports only the HTTP status, while preserving any surrounding
+// context added by an outer wrapper. Structured OAuth errors and all other
+// errors are already concise, so they are returned unchanged.
+func sanitizeAuthError(err error) string {
+	var retrieveErr *oauth2.RetrieveError
+	if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "" {
+		status := "unknown status"
+		if retrieveErr.Response != nil {
+			status = retrieveErr.Response.Status
+		}
+		sanitized := fmt.Sprintf("oauth2: cannot fetch token: %s", status)
+		// A nil Response would make retrieveErr.Error() (and thus err.Error())
+		// panic, so return the sanitized message directly in that case.
+		// Otherwise swap only the noisy inner error string so that context from
+		// any outer wrapper (e.g. "token refresh: ...") is retained.
+		if retrieveErr.Response == nil {
+			return sanitized
+		}
+		return strings.Replace(err.Error(), retrieveErr.Error(), sanitized, 1)
+	}
+	return err.Error()
 }
 
 // keyringTokenSource is the source label returned by the config layer when a
