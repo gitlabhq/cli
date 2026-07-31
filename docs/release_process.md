@@ -2,13 +2,14 @@
 
 ## Automated weekly release
 
-A new minor version is released automatically every Sunday by a pipeline
+A new version is released automatically every Tuesday at 12:00 UTC by a pipeline
 schedule. You don't need to do anything for a normal weekly release.
 
 How it works:
 
-1. The **Weekly release** pipeline schedule runs every Sunday on `main` with the
-   CI/CD variable `RELEASE_SCHEDULE` set to `true`.
+1. The [**Weekly automated release schedule**](https://gitlab.com/gitlab-org/cli/-/pipeline_schedules)
+   (`0 12 * * 2`, `Etc/UTC`) runs on `main` with the `release_schedule` input set
+   to `true`, which sets the `RELEASE_SCHEDULE` CI/CD variable.
 1. The `tag-release` job (`.gitlab-ci.yml`) runs `scripts/release/create-release-tag.sh`, which:
    - Finds the latest `vX.Y.Z` tag.
    - Skips the release if there are no releasable commits since that tag (merge
@@ -25,8 +26,28 @@ The schedule only runs `tag-release`; the heavy build/test jobs are skipped on i
 re-runs and gates the actual release. Other schedules, such as the daily `main`
 build, are unaffected.
 
-To release off-cycle (for example, a security release) or to control the version
-number, follow the manual process below.
+### Forcing a release off-cycle
+
+To release before the next Tuesday, run the schedule on demand. It takes the same
+path as the weekly run, and the normal recurrence is unaffected. Needs the
+Maintainer role.
+
+Select the play button on the
+[**Pipeline schedules** page](https://gitlab.com/gitlab-org/cli/-/pipeline_schedules),
+or run:
+
+```shell
+# Verify the schedule ID on the Pipeline schedules page linked above.
+glab schedule run 4282239 --repo gitlab-org/cli
+```
+
+Caveats:
+
+- Nothing is released if there are no releasable commits since the last tag, or
+  if the computed tag already exists. Re-running is safe.
+- A breaking change (`!` in a commit subject) fails the job on purpose.
+- You can't pick the version number. For that, or for a major release, use the
+  manual process below.
 
 ## Manual release
 
