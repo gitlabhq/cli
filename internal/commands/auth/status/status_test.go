@@ -508,12 +508,12 @@ func Test_sanitizeAuthError(t *testing.T) {
 			want: "oauth2: cannot fetch token: 500 Internal Server Error",
 		},
 		{
-			name: "wrapped oauth2 retrieve error is still sanitized",
+			name: "wrapped oauth2 retrieve error is sanitized while preserving outer context",
 			err: fmt.Errorf("token refresh: %w", &oauth2.RetrieveError{
 				Response: &http.Response{Status: "500 Internal Server Error", StatusCode: http.StatusInternalServerError},
 				Body:     htmlBody,
 			}),
-			want: "oauth2: cannot fetch token: 500 Internal Server Error",
+			want: "token refresh: oauth2: cannot fetch token: 500 Internal Server Error",
 		},
 		{
 			name: "structured oauth2 error is preserved",

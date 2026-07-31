@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -234,13 +235,17 @@ func (o *options) run(ctx context.Context) error {
 // the OAuth token endpoint returns a non-2XX response without a structured
 // error (for example, an HTML 500 error page), golang.org/x/oauth2 embeds the
 // entire response body in the error string, which floods the terminal with
-// unhelpful markup. In that case, report only the HTTP status. Structured
-// OAuth errors and all other errors are already concise, so they are returned
-// unchanged.
+// unhelpful markup. In that case, replace the body-containing portion with a
+// message that reports only the HTTP status, while preserving any surrounding
+// context added by an outer wrapper. Structured OAuth errors and all other
+// errors are already concise, so they are returned unchanged.
 func sanitizeAuthError(err error) string {
 	var retrieveErr *oauth2.RetrieveError
 	if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "" && retrieveErr.Response != nil {
-		return fmt.Sprintf("oauth2: cannot fetch token: %s", retrieveErr.Response.Status)
+		sanitized := fmt.Sprintf("oauth2: cannot fetch token: %s", retrieveErr.Response.Status)
+		// Swap only the noisy inner error string so that context from any outer
+		// wrapper (e.g. "token refresh: ...") is retained.
+		return strings.Replace(err.Error(), retrieveErr.Error(), sanitized, 1)
 	}
 	return err.Error()
 }
