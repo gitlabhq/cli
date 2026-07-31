@@ -516,6 +516,11 @@ func Test_sanitizeAuthError(t *testing.T) {
 			want: "token refresh: oauth2: cannot fetch token: 500 Internal Server Error",
 		},
 		{
+			name: "oauth2 retrieve error with nil response falls back to a safe message",
+			err:  &oauth2.RetrieveError{Body: htmlBody},
+			want: "oauth2: cannot fetch token: unknown status",
+		},
+		{
 			name: "structured oauth2 error is preserved",
 			err: &oauth2.RetrieveError{
 				Response:  &http.Response{Status: "401 Unauthorized", StatusCode: http.StatusUnauthorized},

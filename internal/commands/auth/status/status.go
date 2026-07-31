@@ -241,10 +241,19 @@ func (o *options) run(ctx context.Context) error {
 // errors are already concise, so they are returned unchanged.
 func sanitizeAuthError(err error) string {
 	var retrieveErr *oauth2.RetrieveError
-	if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "" && retrieveErr.Response != nil {
-		sanitized := fmt.Sprintf("oauth2: cannot fetch token: %s", retrieveErr.Response.Status)
-		// Swap only the noisy inner error string so that context from any outer
-		// wrapper (e.g. "token refresh: ...") is retained.
+	if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "" {
+		status := "unknown status"
+		if retrieveErr.Response != nil {
+			status = retrieveErr.Response.Status
+		}
+		sanitized := fmt.Sprintf("oauth2: cannot fetch token: %s", status)
+		// A nil Response would make retrieveErr.Error() (and thus err.Error())
+		// panic, so return the sanitized message directly in that case.
+		// Otherwise swap only the noisy inner error string so that context from
+		// any outer wrapper (e.g. "token refresh: ...") is retained.
+		if retrieveErr.Response == nil {
+			return sanitized
+		}
 		return strings.Replace(err.Error(), retrieveErr.Error(), sanitized, 1)
 	}
 	return err.Error()
