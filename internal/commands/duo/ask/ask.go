@@ -70,10 +70,9 @@ func NewCmdAsk(f cmdutils.Factory) *cobra.Command {
 	}
 
 	duoAskCmd := &cobra.Command{
-		Use:        "ask <prompt>",
-		Short:      "Generate Git commands from natural language.",
-		Deprecated: "use 'glab duo cli' instead. This command will be removed on or after 2026-07-26. See https://gitlab.com/gitlab-org/gitlab/-/work_items/597732.",
-		Hidden:     true,
+		Use:    "ask <prompt>",
+		Short:  "Generate Git commands from natural language.",
+		Hidden: true,
 		Long: heredoc.Doc(`
 			Generate Git commands from natural language using AI assistance.
 
