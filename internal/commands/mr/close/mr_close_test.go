@@ -28,12 +28,13 @@ func TestMrClose(t *testing.T) {
 
 	testMROpened := &gitlab.MergeRequest{
 		BasicMergeRequest: gitlab.BasicMergeRequest{
-			ID:          123,
-			IID:         123,
-			ProjectID:   3,
-			Title:       "test mr title",
-			Description: "test mr description",
-			State:       "opened",
+			ID:                  123,
+			IID:                 123,
+			ProjectID:           3,
+			Title:               "test mr title",
+			Description:         "test mr description",
+			State:               "opened",
+			DetailedMergeStatus: "ci_must_pass",
 		},
 	}
 

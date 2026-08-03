@@ -65,7 +65,7 @@ func MRCheckErrors(mr *gitlab.MergeRequest, err MRCheckErrOptions) error {
 	dbg.Debug("MergeWhenPipelineSucceeds:", strconv.FormatBool(mr.MergeWhenPipelineSucceeds))
 	dbg.Debug("DetailedMergeStatus:", mr.DetailedMergeStatus)
 
-	if mr.DetailedMergeStatus == "ci_must_pass" {
+	if mr.DetailedMergeStatus == "ci_must_pass" && err.PipelineStatus {
 		return fmt.Errorf("this merge request requires a passing pipeline before merging")
 	}
 
