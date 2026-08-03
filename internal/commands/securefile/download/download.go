@@ -181,7 +181,7 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 }
 
 func downloadSecureFileByName(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, fileName string, repoName, path string, verifyChecksum, forceDownload bool) (err error) {
-	root, name, err := ensureDestinationRoot(filepath.Clean(path))
+	root, name, err := utils.EnsureDestinationRoot(filepath.Clean(path))
 	if err != nil {
 		return err
 	}
@@ -201,7 +201,7 @@ func downloadSecureFileByName(ctx context.Context, ios *iostreams.IOStreams, cli
 }
 
 func downloadSecureFile(ctx context.Context, ios *iostreams.IOStreams, client *gitlab.Client, fileID int64, repoName, path string, verifyChecksum, forceDownload bool) (err error) {
-	root, name, err := ensureDestinationRoot(filepath.Clean(path))
+	root, name, err := utils.EnsureDestinationRoot(filepath.Clean(path))
 	if err != nil {
 		return err
 	}
@@ -300,49 +300,4 @@ func saveFile(ctx context.Context, ios *iostreams.IOStreams, apiClient *gitlab.C
 	}
 
 	return err
-}
-
-// ensureDestinationRoot creates the directory that path lives in and returns a
-// root anchored at it, together with the file name to use inside that root.
-//
-// A relative path is created through a root anchored at the working directory,
-// so it cannot escape the directory glab was run from. An absolute path names a
-// location the caller asked for explicitly, so it is created directly.
-func ensureDestinationRoot(path string) (*os.Root, string, error) {
-	dir := filepath.Dir(path)
-
-	if filepath.IsAbs(path) {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, "", fmt.Errorf("error creating directory: %w", err)
-		}
-	} else {
-		wd, err := os.OpenRoot(".")
-		if err != nil {
-			return nil, "", fmt.Errorf("unable to open root directory: %w", err)
-		}
-
-		// wd is finished with as soon as the directory exists, so it is closed
-		// here rather than deferred, and its error is surfaced alongside the
-		// primary one instead of being discarded.
-		if err := errors.Join(ensureDirectoryExists(wd, path), wd.Close()); err != nil {
-			return nil, "", err
-		}
-	}
-
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return nil, "", fmt.Errorf("unable to open root directory: %w", err)
-	}
-	return root, filepath.Base(path), nil
-}
-
-func ensureDirectoryExists(root *os.Root, path string) error {
-	dir := filepath.Dir(path)
-	if dir != "." {
-		if err := root.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("error creating directory: %w", err)
-		}
-	}
-
-	return nil
 }

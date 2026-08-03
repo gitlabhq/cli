@@ -96,7 +96,7 @@ func Test_SecurefileDownload(t *testing.T) {
 			ExpectedMsg: []string{"Downloaded secure file 'new.txt' (ID: 1)\n"},
 			cli:         "1 --path=../../newdir/new.txt",
 			wantErr:     true,
-			wantStderr:  "error creating directory: mkdirat ../../newdir: path escapes from parent",
+			wantStderr:  `relative path "../../newdir/new.txt" escapes the working directory`,
 			setupMocks:  func(testClient *gitlabtesting.TestClient) {},
 		},
 		{
@@ -636,36 +636,6 @@ func Test_SecurefileDownloadAll(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestEnsureDirectoryExists_InvalidDirectory(t *testing.T) {
-	tempDir := t.TempDir()
-	conflictFile := filepath.Join(tempDir, "conflict")
-	err := os.WriteFile(conflictFile, []byte("conflict"), 0o755)
-	require.NoError(t, err)
-	outputPath := filepath.Join(conflictFile, "subdir", "file.txt")
-
-	root, err := os.OpenRoot(".")
-	require.NoError(t, err)
-	defer root.Close()
-
-	err = ensureDirectoryExists(root, outputPath)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "error creating directory")
-}
-
-// The absolute branch of ensureDestinationRoot creates directories with
-// os.MkdirAll rather than through the working-directory root, so its failure
-// is reported separately from the relative case above.
-func TestEnsureDestinationRoot_AbsoluteInvalidDirectory(t *testing.T) {
-	conflictFile := filepath.Join(t.TempDir(), "conflict")
-	require.NoError(t, os.WriteFile(conflictFile, []byte("conflict"), 0o600))
-
-	_, _, err := ensureDestinationRoot(filepath.Join(conflictFile, "subdir", "file.txt"))
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "error creating directory")
 }
 
 // The table-driven cases above can only carry static CLI strings, so the
