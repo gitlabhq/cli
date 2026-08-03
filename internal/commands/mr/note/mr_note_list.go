@@ -121,7 +121,7 @@ func (o *listOptions) run(ctx context.Context) error {
 		return nil
 	}
 
-	showSystemLogs := o.noteType == "system"
+	showSystemLogs := o.noteType == "system" || o.noteType == "all"
 
 	mrutils.PrintDiscussions(out, o.factory.IO(), filtered, mrutils.PrintDiscussionsOptions{
 		ShowSystemLogs:                 showSystemLogs,
