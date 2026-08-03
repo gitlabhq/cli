@@ -13,6 +13,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
@@ -28,6 +29,10 @@ import (
 const (
 	closed string = "closed"
 	opened string = "opened"
+
+	// maxConcurrentListFetches caps the number of board lists whose issues
+	// are fetched in parallel, to avoid overwhelming the API.
+	maxConcurrentListFetches = 4
 )
 
 type issueBoardViewOptions struct {
@@ -43,6 +48,13 @@ type boardMeta struct {
 	id      int64
 	group   *gitlab.Group
 	project *gitlab.Project
+}
+
+// listResult holds the issues fetched for a single board list, along with
+// the state used to fetch them (needed by filterIssues to render the list).
+type listResult struct {
+	issues []*gitlab.Issue
+	state  string
 }
 
 func NewCmdView(f cmdutils.Factory) *cobra.Command {
@@ -78,27 +90,18 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 				return fmt.Errorf("failed to get project: %w", err)
 			}
 
-			// list the groups that are ancestors to project:
+			// List the groups that are ancestors to project:
 			// https://docs.gitlab.com/api/projects/#list-groups
 			projectGroups, _, err := client.Projects.ListProjectsGroups(project.ID, &gitlab.ListProjectGroupOptions{})
 			if err != nil {
 				return err
 			}
 
-			// get issue boards related to project and parent groups
-			// https://docs.gitlab.com/api/group_boards/#list-group-issue-board-lists
-			projectIssueBoards, err := getProjectIssueBoards(client, repo)
+			menuOptions, boardMetaMap, err := fetchIssueBoards(cmd.Context(), client, repo, projectGroups)
 			if err != nil {
-				return fmt.Errorf("getting project issue boards: %w", err)
+				return err
 			}
 
-			projectGroupIssueBoards, err := getGroupIssueBoards(projectGroups, client)
-			if err != nil {
-				return fmt.Errorf("getting project issue boards: %w", err)
-			}
-
-			// prompt user to select issue board
-			menuOptions, boardMetaMap := mapBoardData(projectIssueBoards, projectGroupIssueBoards)
 			selection, err := selectBoard(cmd.Context(), f.IO(), menuOptions)
 			if err != nil {
 				return fmt.Errorf("selecting issue board: %w", err)
@@ -110,72 +113,13 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 				return fmt.Errorf("getting issue board lists: %w", err)
 			}
 
-			root := tview.NewFlex()
-			root.SetBackgroundColor(tcell.ColorDefault)
-			for _, l := range boardLists {
-				opts.state = ""
-				var boardIssues, listTitle, listColor string
-
-				if l.Label == nil {
-					continue
-				}
-
-				if l.Label != nil {
-					listTitle = l.Label.Name
-					listColor = l.Label.Color
-				}
-
-				// automatically request using state for default "open" and "closed" lists
-				// this is required as these lists aren't returned with the board lists api call
-				switch l.Label.Name {
-				case "Closed":
-					opts.state = closed
-				case "Open":
-					opts.state = opened
-				}
-
-				issues := []*gitlab.Issue{}
-				if selectedBoard.group != nil {
-					groupID := selectedBoard.group.ID
-					issues, err = getGroupBoardIssues(client, groupID, opts)
-					if err != nil {
-						return fmt.Errorf("getting issue board lists: %w", err)
-					}
-				}
-
-				if selectedBoard.group == nil {
-					issues, err = getProjectBoardIssues(client, repo, opts)
-					if err != nil {
-						return fmt.Errorf("getting issue board lists: %w", err)
-					}
-				}
-
-				boardIssues = filterIssues(boardLists, issues, l, opts)
-				bx := tview.NewTextView()
-				bx.
-					SetDynamicColors(true).
-					SetText(boardIssues).
-					SetWrap(true).
-					SetBackgroundColor(tcell.ColorDefault).
-					SetBorder(true).
-					SetTitle(listTitle).
-					SetTitleColor(tcell.GetColor(listColor))
-				root.AddItem(bx, 0, 1, false)
+			results, err := fetchAllListIssues(cmd.Context(), client, selectedBoard, repo, boardLists, opts)
+			if err != nil {
+				return err
 			}
 
-			// format table title
-			caser := cases.Title(language.English)
-			var boardType, boardContext string
-			if selectedBoard.group != nil {
-				boardType = caser.String("group")
-				boardContext = project.Namespace.Name
-			} else {
-				boardType = caser.String("project")
-				boardContext = project.NameWithNamespace
-			}
-			root.SetBorderPadding(1, 1, 2, 2).SetBorder(true).SetTitle(
-				fmt.Sprintf(" %s • %s ", caser.String(boardType+" issue board"), boardContext),
-			)
+			root := buildBoardFlex(boardLists, results)
+			root.SetBorderPadding(1, 1, 2, 2).SetBorder(true).SetTitle(boardTitle(selectedBoard, project))
 
 			screen, err := tcell.NewScreen()
 			if err != nil {
@@ -348,6 +292,127 @@ func mapBoardData(
 	return menuOptions, boardMetaMap
 }
 
+// fetchIssueBoards retrieves project and group issue boards in parallel and
+// maps them into menu options for user selection.
+// https://docs.gitlab.com/api/group_boards/#list-group-issue-board-lists
+func fetchIssueBoards(
+	ctx context.Context,
+	client *gitlab.Client,
+	repo glrepo.Interface,
+	projectGroups []*gitlab.ProjectGroup,
+) ([]string, map[string]boardMeta, error) {
+	var projectIssueBoards []*gitlab.IssueBoard
+	var projectGroupIssueBoards []*gitlab.GroupIssueBoard
+
+	g, _ := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		projectIssueBoards, err = getProjectIssueBoards(client, repo)
+		if err != nil {
+			return fmt.Errorf("getting project issue boards: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		var err error
+		projectGroupIssueBoards, err = getGroupIssueBoards(projectGroups, client)
+		if err != nil {
+			return fmt.Errorf("getting group issue boards: %w", err)
+		}
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	menuOptions, boardMetaMap := mapBoardData(projectIssueBoards, projectGroupIssueBoards)
+	return menuOptions, boardMetaMap, nil
+}
+
+// fetchAllListIssues fetches the issues for every board list in parallel,
+// keeping results in the original board list order.
+func fetchAllListIssues(
+	ctx context.Context,
+	client *gitlab.Client,
+	board boardMeta,
+	repo glrepo.Interface,
+	boardLists []*gitlab.BoardList,
+	opts *issueBoardViewOptions,
+) ([]listResult, error) {
+	results := make([]listResult, len(boardLists))
+
+	g, _ := errgroup.WithContext(ctx)
+	g.SetLimit(maxConcurrentListFetches)
+
+	for i, l := range boardLists {
+		if l.Label == nil {
+			continue
+		}
+		listOpts := *opts
+		switch l.Label.Name {
+		case "Closed":
+			listOpts.state = closed
+		case "Open":
+			listOpts.state = opened
+		}
+		g.Go(func() error {
+			var issues []*gitlab.Issue
+			var err error
+			if board.group != nil {
+				issues, err = getGroupBoardIssues(client, board.group.ID, &listOpts)
+			} else {
+				issues, err = getProjectBoardIssues(client, repo, &listOpts)
+			}
+			if err != nil {
+				return fmt.Errorf("getting issues for list %s: %w", l.Label.Name, err)
+			}
+			results[i] = listResult{issues: issues, state: listOpts.state}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// buildBoardFlex renders the pre-fetched issues for each board list into a
+// horizontal tview.Flex, one bordered text view per list.
+func buildBoardFlex(boardLists []*gitlab.BoardList, results []listResult) *tview.Flex {
+	root := tview.NewFlex()
+	root.SetBackgroundColor(tcell.ColorDefault)
+	for i, l := range boardLists {
+		if l.Label == nil {
+			continue
+		}
+		boardIssues := filterIssues(boardLists, results[i].issues, l, results[i].state)
+		bx := tview.NewTextView()
+		bx.
+			SetDynamicColors(true).
+			SetText(boardIssues).
+			SetWrap(true).
+			SetBackgroundColor(tcell.ColorDefault).
+			SetBorder(true).
+			SetTitle(l.Label.Name).
+			SetTitleColor(tcell.GetColor(l.Label.Color))
+		root.AddItem(bx, 0, 1, false)
+	}
+	return root
+}
+
+// boardTitle formats the window title for the selected board, distinguishing
+// group boards from project boards.
+func boardTitle(board boardMeta, project *gitlab.Project) string {
+	boardType := "group"
+	boardContext := project.Namespace.Name
+	if board.group == nil {
+		boardType = "project"
+		boardContext = project.NameWithNamespace
+	}
+	caser := cases.Title(language.English)
+	return fmt.Sprintf(" %s • %s ", caser.String(boardType+" issue board"), boardContext)
+}
+
 func getProjectIssueBoards(apiClient *gitlab.Client, repo glrepo.Interface) ([]*gitlab.IssueBoard, error) {
 	projectIssueBoards, _, err := apiClient.Boards.ListIssueBoards(repo.FullName(), &gitlab.ListIssueBoardsOptions{})
 	if err != nil {
@@ -360,37 +425,67 @@ func getGroupIssueBoards(
 	projectGroups []*gitlab.ProjectGroup,
 	gitlabClient *gitlab.Client,
 ) ([]*gitlab.GroupIssueBoard, error) {
-	projectGroupIssueBoards := []*gitlab.GroupIssueBoard{}
-	for _, projectGroup := range projectGroups {
-		groupIssueBoards, _, err := gitlabClient.GroupIssueBoards.ListGroupIssueBoards(projectGroup.ID, &gitlab.ListGroupIssueBoardsOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("retrieving issue board: %w", err)
-		}
-		projectGroupIssueBoards = append(groupIssueBoards, projectGroupIssueBoards...)
+	if len(projectGroups) == 0 {
+		return []*gitlab.GroupIssueBoard{}, nil
 	}
-	return projectGroupIssueBoards, nil
+
+	results := make([][]*gitlab.GroupIssueBoard, len(projectGroups))
+	g, _ := errgroup.WithContext(context.Background())
+
+	for i, pg := range projectGroups {
+		g.Go(func() error {
+			boards, _, err := gitlabClient.GroupIssueBoards.ListGroupIssueBoards(
+				pg.ID,
+				&gitlab.ListGroupIssueBoardsOptions{},
+			)
+			if err != nil {
+				return fmt.Errorf("retrieving issue board: %w", err)
+			}
+			results[i] = boards
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	var out []*gitlab.GroupIssueBoard
+	for _, boards := range results {
+		out = append(out, boards...)
+	}
+	return out, nil
 }
 
+// getBoardLists fetches a board's lists from the group or project API and
+// pads them with synthetic 'Open'/'Closed' lists used to render issues that
+// don't carry a board-list label.
 func getBoardLists(apiClient *gitlab.Client, board boardMeta, repo glrepo.Interface) ([]*gitlab.BoardList, error) {
-	boardLists := []*gitlab.BoardList{}
-	var err error
+	boardLists, err := fetchBoardLists(apiClient, board, repo)
+	if err != nil {
+		return nil, err
+	}
+	return withOpenClosedLists(boardLists), nil
+}
 
+func fetchBoardLists(apiClient *gitlab.Client, board boardMeta, repo glrepo.Interface) ([]*gitlab.BoardList, error) {
 	if board.group != nil {
-		boardLists, _, err = apiClient.GroupIssueBoards.ListGroupIssueBoardLists(board.group.ID, board.id, &gitlab.ListGroupIssueBoardListsOptions{})
+		boardLists, _, err := apiClient.GroupIssueBoards.ListGroupIssueBoardLists(board.group.ID, board.id, &gitlab.ListGroupIssueBoardListsOptions{})
 		if err != nil {
 			return nil, err
 		}
+		return boardLists, nil
 	}
 
-	if board.group == nil {
-		boardLists, _, err = apiClient.Boards.GetIssueBoardLists(repo.FullName(), board.id, &gitlab.GetIssueBoardListsOptions{})
-		if err != nil {
-			return nil, err
-		}
+	boardLists, _, err := apiClient.Boards.GetIssueBoardLists(repo.FullName(), board.id, &gitlab.GetIssueBoardListsOptions{})
+	if err != nil {
+		return nil, err
 	}
+	return boardLists, nil
+}
 
-	// add empty 'opened' and 'closed' lists before and after fetched lists
-	// these are used later when reading the issues into the table view
+// withOpenClosedLists prepends/appends the empty 'opened' and 'closed' lists
+// used later when reading issues into the table view.
+func withOpenClosedLists(boardLists []*gitlab.BoardList) []*gitlab.BoardList {
 	opened := &gitlab.BoardList{
 		Label: &gitlab.Label{
 			Name:      "Open",
@@ -409,8 +504,7 @@ func getBoardLists(apiClient *gitlab.Client, board boardMeta, repo glrepo.Interf
 		},
 		Position: int64(len(boardLists)),
 	}
-	boardLists = append(boardLists, closed)
-	return boardLists, nil
+	return append(boardLists, closed)
 }
 
 func getGroupBoardIssues(apiClient *gitlab.Client, groupID int64, opts *issueBoardViewOptions) ([]*gitlab.Issue, error) {
@@ -453,18 +547,26 @@ func getProjectBoardIssues(apiClient *gitlab.Client, repo glrepo.Interface, opts
 	return issues, nil
 }
 
+// issueBelongsToOtherList reports whether issue carries a label matching any
+// board list, meaning it belongs on that list rather than the open list.
+func issueBelongsToOtherList(issue *gitlab.Issue, boardLists []*gitlab.BoardList) bool {
+	return slices.ContainsFunc(boardLists, func(boardList *gitlab.BoardList) bool {
+		return slices.Contains(issue.Labels, boardList.Label.Name)
+	})
+}
+
 // filterIssues scans through the issues passed to it, filtering for the ones that belong in targetList
 // This function returns a string representation of the issues for targetList which will be displayed in the table view
 func filterIssues(
 	boardLists []*gitlab.BoardList,
 	issues []*gitlab.Issue,
 	targetList *gitlab.BoardList,
-	opts *issueBoardViewOptions,
+	state string,
 ) string {
 	var boardIssues strings.Builder
 next:
 	for _, issue := range issues {
-		switch opts.state {
+		switch state {
 		// skip all issues that are not in the "closed" state for the "closed" list
 		case closed:
 			if issue.State != closed {
@@ -472,12 +574,8 @@ next:
 			}
 		// skip issues labeled for other board lists when populating the "open" list
 		case opened:
-			for _, boardList := range boardLists {
-				for _, issueLabel := range issue.Labels {
-					if issueLabel == boardList.Label.Name {
-						continue next
-					}
-				}
+			if issueBelongsToOtherList(issue, boardLists) {
+				continue next
 			}
 		// filter labeled issues into board lists with corresponding labels
 		default:

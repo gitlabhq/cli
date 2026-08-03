@@ -314,7 +314,7 @@ func Test_filterIssues(t *testing.T) {
 		boardLists []*gitlab.BoardList
 		issues     []*gitlab.Issue
 		targetList *gitlab.BoardList
-		opts       *issueBoardViewOptions
+		state      string
 	}
 	tests := []struct {
 		name string
@@ -331,7 +331,6 @@ func Test_filterIssues(t *testing.T) {
 				boardLists: []*gitlab.BoardList{{Label: &gitlab.Label{Name: "A"}}},
 				issues:     []*gitlab.Issue{{Labels: []string{"A"}, State: "closed"}},
 				targetList: &gitlab.BoardList{Label: &gitlab.Label{Name: "A"}},
-				opts:       &issueBoardViewOptions{},
 			},
 			want: "",
 		},
@@ -344,7 +343,7 @@ func Test_filterIssues(t *testing.T) {
 				},
 				issues:     []*gitlab.Issue{{Labels: []string{"A"}, State: "opened"}},
 				targetList: &gitlab.BoardList{Label: &gitlab.Label{Name: "Closed"}},
-				opts:       &issueBoardViewOptions{state: closed},
+				state:      closed,
 			},
 			want: "",
 		},
@@ -357,7 +356,7 @@ func Test_filterIssues(t *testing.T) {
 				},
 				issues:     []*gitlab.Issue{{Labels: []string{"A"}, State: "opened"}},
 				targetList: &gitlab.BoardList{Label: &gitlab.Label{Name: "Open"}},
-				opts:       &issueBoardViewOptions{state: opened},
+				state:      opened,
 			},
 			want: "",
 		},
@@ -379,7 +378,6 @@ func Test_filterIssues(t *testing.T) {
 					},
 				},
 				targetList: &gitlab.BoardList{Label: &gitlab.Label{Name: "A"}},
-				opts:       &issueBoardViewOptions{},
 			},
 			want: "[white::b]Issue\n[white:green:-]A[white:-:-]\n[green:-:-]#1[darkgray] - user\n\n",
 		},
@@ -390,7 +388,7 @@ func Test_filterIssues(t *testing.T) {
 				tt.args.boardLists,
 				tt.args.issues,
 				tt.args.targetList,
-				tt.args.opts,
+				tt.args.state,
 			)
 			assert.Equal(t, tt.want, got)
 		})
