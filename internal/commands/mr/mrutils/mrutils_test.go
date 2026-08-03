@@ -351,13 +351,39 @@ func Test_MRCheckErrors(t *testing.T) {
 			},
 			output: "merge conflicts exist; resolve the conflicts and try again, or merge locally",
 		},
+		{
+			name: "ci_must_pass with PipelineStatus",
+			mr: &gitlab.MergeRequest{
+				BasicMergeRequest: gitlab.BasicMergeRequest{
+					IID:                 1,
+					DetailedMergeStatus: "ci_must_pass",
+				},
+			},
+			errOpts: MRCheckErrOptions{
+				PipelineStatus: true,
+			},
+			output: "this merge request requires a passing pipeline before merging",
+		},
 	}
+
 	for _, tC := range testCases {
 		t.Run(tC.name, func(t *testing.T) {
 			err := MRCheckErrors(tC.mr, tC.errOpts)
 			assert.EqualError(t, err, tC.output)
 		})
 	}
+
+	t.Run("ci_must_pass without PipelineStatus does not error", func(t *testing.T) {
+		err := MRCheckErrors(&gitlab.MergeRequest{
+			BasicMergeRequest: gitlab.BasicMergeRequest{
+				IID:                 1,
+				DetailedMergeStatus: "ci_must_pass",
+			},
+		}, MRCheckErrOptions{
+			PipelineStatus: false,
+		})
+		assert.NoError(t, err)
+	})
 
 	t.Run("nil", func(t *testing.T) {
 		err := MRCheckErrors(&gitlab.MergeRequest{}, MRCheckErrOptions{})
