@@ -79,4 +79,14 @@ func TestDestinationRoot(t *testing.T) {
 
 		assert.Equal(t, "file.zip", name)
 	})
+
+	t.Run("absolute path whose parent is a file is rejected", func(t *testing.T) {
+		conflictFile := filepath.Join(t.TempDir(), "conflict")
+		require.NoError(t, os.WriteFile(conflictFile, []byte("conflict"), 0o600))
+
+		_, _, err := EnsureDestinationRoot(filepath.Join(conflictFile, "subdir", "file.txt"))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "error creating directory")
+	})
 }
