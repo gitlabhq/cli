@@ -509,6 +509,74 @@ func Test_NoteList(t *testing.T) {
 		assert.NotContains(t, out, "Unresolved general") // general, excluded by type
 	})
 
+	t.Run("--type all includes system notes in text output", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		makeMRForList(t, tc)
+
+		tc.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{
+					ID:             "general1234567890abcdef1234567890abcdef12",
+					IndividualNote: true,
+					Notes: []*gitlab.Note{
+						{ID: 100, Body: "General comment", Author: gitlab.NoteAuthor{Username: "alice"}, CreatedAt: ts("2025-01-15 10:00:00")},
+					},
+				},
+				{
+					ID:             "systemnote34567890abcdef1234567890abcdef12",
+					IndividualNote: true,
+					Notes: []*gitlab.Note{
+						{ID: 200, Body: "assigned to alice", Author: gitlab.NoteAuthor{Username: "bot"}, System: true, CreatedAt: ts("2025-01-15 11:00:00")},
+					},
+				},
+			}, nil, nil)
+
+		exec := setupListCmd(t, tc)
+		output, err := exec(`list 1 --type all`)
+		require.NoError(t, err)
+
+		out := output.String()
+		assert.Contains(t, out, "General comment")
+		assert.Contains(t, out, "assigned to alice")
+	})
+
+	t.Run("default (no --type flag) includes system notes in text output", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		makeMRForList(t, tc)
+
+		tc.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{
+					ID:             "general1234567890abcdef1234567890abcdef12",
+					IndividualNote: true,
+					Notes: []*gitlab.Note{
+						{ID: 100, Body: "General comment", Author: gitlab.NoteAuthor{Username: "alice"}, CreatedAt: ts("2025-01-15 10:00:00")},
+					},
+				},
+				{
+					ID:             "systemnote34567890abcdef1234567890abcdef12",
+					IndividualNote: true,
+					Notes: []*gitlab.Note{
+						{ID: 200, Body: "assigned to alice", Author: gitlab.NoteAuthor{Username: "bot"}, System: true, CreatedAt: ts("2025-01-15 11:00:00")},
+					},
+				},
+			}, nil, nil)
+
+		exec := setupListCmd(t, tc)
+		output, err := exec(`list 1`)
+		require.NoError(t, err)
+
+		out := output.String()
+		assert.Contains(t, out, "General comment")
+		assert.Contains(t, out, "assigned to alice")
+	})
+
 	t.Run("non-resolvable excluded from state filter", func(t *testing.T) {
 		t.Parallel()
 
