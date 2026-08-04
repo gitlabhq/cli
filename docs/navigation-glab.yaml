@@ -140,6 +140,13 @@
           url: 'cli/container-registry/tag/list/'
         - title: glab container-registry tag view
           url: 'cli/container-registry/tag/view/'
+- title: glab dependency-firewall
+  url: 'cli/dependency-firewall/'
+  submenu:
+    - title: glab dependency-firewall ci-summary
+      url: 'cli/dependency-firewall/ci-summary/'
+    - title: glab dependency-firewall configure
+      url: 'cli/dependency-firewall/configure/'
 - title: glab deploy-key
   url: 'cli/deploy-key/'
   submenu:
