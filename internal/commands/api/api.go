@@ -97,13 +97,23 @@ func NewCmdApi(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 
 		- Literal values %[1]strue%[1]s, %[1]sfalse%[1]s, %[1]snull%[1]s, and integer numbers are converted to
 		  the matching JSON types.
+		- Values starting with %[1]s[%[1]s or %[1]s{%[1]s are parsed as JSON arrays or objects
+		  (e.g. %[1]s-F 'topics=["my-topic","GitLab"]'%[1]s). Invalid JSON returns an error.
+		  The value must start with the bracket or brace: a leading space, as in
+		  %[1]s-F 'topics= ["a"]'%[1]s, is part of the value, so it is sent as a string.
 		- Placeholder values %[1]s:namespace%[1]s, %[1]s:repo%[1]s, and %[1]s:branch%[1]s are populated with values
-		  from the repository of the current directory.
+		  from the repository of the current directory, including inside JSON
+		  arrays and objects (e.g. %[1]s-F 'input={"projectPath":":fullpath"}'%[1]s).
 		- If the value starts with %[1]s@%[1]s, the rest of the value is interpreted as a
 		  filename to read the value from. Pass %[1]s-%[1]s to read from standard input.
 
-		Neither %[1]s--field%[1]s nor %[1]s--raw-field%[1]s parses JSON arrays or objects;
-		those values are sent as strings. To pass a JSON body literally, use %[1]s--input%[1]s.
+		%[1]s--raw-field%[1]s does not parse JSON arrays or objects; those values are
+		sent as strings. To pass a JSON body literally, use %[1]s--input%[1]s.
+
+		A bracketed %[1]s--raw-field%[1]s value such as %[1]s-f 'scopes=[api,read_api]'%[1]s is sent as
+		the literal string %[1]s"[api,read_api]"%[1]s. Earlier versions converted that shape
+		into an array on request bodies, which %[1]s--raw-field%[1]s never documented. Use
+		%[1]s-F 'scopes=["api","read_api"]'%[1]s for an array.
 
 		For GraphQL requests, all fields other than %[1]squery%[1]s and %[1]soperationName%[1]s are
 		interpreted as GraphQL variables.
@@ -145,8 +155,7 @@ func NewCmdApi(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 			glab api --method POST projects/:fullpath/wikis/attachments --form "file=@./image.png" --form "branch=main"
 
 			# Debug the HTTP request and response, including headers and body.
-			# Use --input (here, piped from stdin) for JSON arrays or objects;
-			# --field only converts scalars (bool, int, null, placeholders, @file).
+			# Use --input to send a complete JSON request body from stdin.
 			echo '{"allowed_to_push":[{"user_id":1}]}' | GLAB_DEBUG_HTTP=1 glab api -X PATCH "projects/:fullpath/protected_branches/main" --input -
 
 			# Fetch all pages of issues
@@ -276,7 +285,7 @@ func (o *options) validate(cmd *cobra.Command) error {
 }
 
 func (o *options) run(ctx context.Context) error {
-	params, err := parseFields(o)
+	params, rawKeys, err := parseFields(o)
 	if err != nil {
 		return err
 	}
@@ -292,6 +301,8 @@ func (o *options) run(ctx context.Context) error {
 	if !o.requestMethodPassed && (len(params) > 0 || o.requestInputFile != "") {
 		method = http.MethodPost
 	}
+
+	o.warnOnLegacyRawArrays(method, params, rawKeys)
 
 	if o.paginate && !isGraphQL {
 		requestPath = addPerPage(requestPath, 100, params)
@@ -502,6 +513,15 @@ func streamNDJSON(body io.Reader, out io.Writer) error {
 
 var placeholderRE = regexp.MustCompile(`:(group/:namespace/:repo|namespace/:repo|fullpath|id|user|username|group|namespace|repo|branch)\b`)
 
+// jsonFieldHint is shared by both --field JSON failures so the guidance cannot
+// drift between them.
+const jsonFieldHint = `Use proper JSON syntax (e.g. -F 'key=["value1","value2"]') or -f to pass a literal string.`
+
+// legacyRawArrayRE matches the bracketed shorthand that --raw-field values were
+// once converted into arrays by, before array handling moved to --field only.
+// It exists to warn, not to parse: the value itself is sent literally.
+var legacyRawArrayRE = regexp.MustCompile(`^\[\s*([[:lower:]_]+(\s*,\s*[[:lower:]_]+)*)?\s*\]$`)
+
 // fillPlaceholders populates `:namespace` and `:repo` placeholders with values from the current repository.
 // When escapePath is true, substituted values are URL-encoded so they're safe as a single path segment;
 // callers expanding placeholders into request bodies or query values should pass false to preserve raw values.
@@ -628,27 +648,67 @@ func printHeaders(w io.Writer, headers http.Header, colorize bool) {
 	}
 }
 
-func parseFields(opts *options) (map[string]any, error) {
+// parseFields returns the request parameters, plus the keys that came from
+// --raw-field in the order they were given. The caller needs that provenance to
+// warn about legacy bracketed values without parsing the flags a second time,
+// and a map alone cannot supply it: --field overwrites a --raw-field of the same
+// name, and map iteration has no order.
+func parseFields(opts *options) (map[string]any, []string, error) {
 	params := make(map[string]any)
+	rawKeys := make([]string, 0, len(opts.rawFields))
 	for _, f := range opts.rawFields {
 		key, value, err := parseField(f)
 		if err != nil {
-			return params, err
+			return params, rawKeys, err
 		}
 		params[key] = value
+		rawKeys = append(rawKeys, key)
 	}
 	for _, f := range opts.magicFields {
 		key, strValue, err := parseField(f)
 		if err != nil {
-			return params, err
+			return params, rawKeys, err
 		}
 		value, err := magicFieldValue(strValue, opts)
 		if err != nil {
-			return params, fmt.Errorf("error parsing %q value: %w", key, err)
+			return params, rawKeys, fmt.Errorf("error parsing %q value: %w", key, err)
 		}
 		params[key] = value
 	}
-	return params, nil
+	return params, rawKeys, nil
+}
+
+// warnOnLegacyRawArrays prints a one-time hint per matching field when a
+// --raw-field value has the shape that used to be converted into a JSON array
+// on request bodies. The value is sent literally now, which the API usually
+// rejects outright, but an endpoint that accepts either a string or an array
+// would accept it silently as a single element. The hint makes that
+// discoverable. It goes to stderr, so scripted stdout consumers are unaffected.
+//
+// It reads the values parseFields already produced, walking rawKeys so the
+// warnings come out in flag order. Reading the parsed value is what makes this
+// honest: when a --field of the same name overrides a --raw-field, the literal
+// string is not what gets sent, so there is nothing to warn about.
+func (o *options) warnOnLegacyRawArrays(method string, params map[string]any, rawKeys []string) {
+	if strings.EqualFold(method, http.MethodGet) || strings.EqualFold(method, http.MethodDelete) {
+		// Query parameters were never array-converted, so nothing changed here.
+		return
+	}
+	warned := make(map[string]bool, len(rawKeys))
+	for _, key := range rawKeys {
+		if warned[key] {
+			continue
+		}
+		value, isString := params[key].(string)
+		if !isString || !legacyRawArrayRE.MatchString(value) {
+			continue
+		}
+		warned[key] = true
+		o.io.LogErrorf(
+			"Warning: --raw-field %q is sent as the literal string %s. Use -F (--field) with JSON for an array, e.g. -F '%s=[\"value1\",\"value2\"]'.\n",
+			key, value, key,
+		)
+	}
 }
 
 func parseField(f string) (string, string, error) {
@@ -668,6 +728,31 @@ func magicFieldValue(v string, opts *options) (any, error) {
 		return n, nil
 	}
 
+	if strings.HasPrefix(v, "[") || strings.HasPrefix(v, "{") {
+		// Decode with UseNumber so large integers keep full precision rather
+		// than degrading through float64.
+		dec := json.NewDecoder(strings.NewReader(v))
+		dec.UseNumber()
+		var parsed any
+		if err := dec.Decode(&parsed); err != nil {
+			// The decoder's own message names the offending character, and the
+			// caller already prefixes the field name, so an "invalid JSON" of
+			// our own would be the third restatement of the same fact.
+			return nil, fmt.Errorf("%w. %s", err, jsonFieldHint)
+		}
+		// Reject trailing data so a value like `[1,2]oops` still errors rather
+		// than silently parsing only the leading JSON value. The decoder error
+		// locates the offending character, so keep it rather than flattening
+		// this to a bare "trailing data".
+		if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+			if err == nil {
+				err = errors.New("more than one JSON value")
+			}
+			return nil, fmt.Errorf("unexpected trailing data: %w. %s", err, jsonFieldHint)
+		}
+		return expandPlaceholdersIn(parsed, opts)
+	}
+
 	switch v {
 	case "true":
 		return true, nil
@@ -677,6 +762,71 @@ func magicFieldValue(v string, opts *options) (any, error) {
 		return nil, nil
 	default:
 		return fillPlaceholders(v, opts, false)
+	}
+}
+
+// expandPlaceholdersIn expands placeholders in every string leaf and object key
+// of a JSON-decoded value, so `-F 'input={"projectPath":":fullpath"}'` behaves
+// the way the flag's documentation promises.
+//
+// Expansion runs after decoding, never before. Splicing an expanded value into
+// the raw JSON text would let a branch name containing a double quote, which
+// git accepts as a legal refname, inject JSON structure into an authenticated
+// request. Decoding first means the expanded text is an ordinary Go string that
+// json.Marshal re-escapes on the way out, and url.Values.Encode percent-encodes
+// on the query path.
+func expandPlaceholdersIn(v any, opts *options) (any, error) {
+	switch t := v.(type) {
+	case string:
+		return fillPlaceholders(t, opts, false)
+	case []any:
+		for i, item := range t {
+			expanded, err := expandPlaceholdersIn(item, opts)
+			if err != nil {
+				return nil, err
+			}
+			t[i] = expanded
+		}
+		return t, nil
+	case map[string]any:
+		// Build a new map rather than mutating during iteration: an expanded key
+		// may collide with or replace an existing one. Such a collision is
+		// rejected rather than resolved, because Go randomizes map iteration
+		// order, so silently keeping one of the two would drop a field from the
+		// request body non-deterministically between runs of the same command.
+		out := make(map[string]any, len(t))
+		// Records which source key produced each expanded key, so the error can
+		// name both culprits. Reporting only the key we happened to reach second
+		// would make the message itself depend on iteration order, and for a
+		// literal key colliding with a placeholder it would read "test expands to
+		// test" whenever the literal came second.
+		source := make(map[string]string, len(t))
+		for key, item := range t {
+			expandedKey, err := fillPlaceholders(key, opts, false)
+			if err != nil {
+				return nil, err
+			}
+			if prior, taken := source[expandedKey]; taken {
+				first, second := prior, key
+				if first > second {
+					first, second = second, first
+				}
+				return nil, fmt.Errorf(
+					"keys %q and %q both expand to %q. Rename one of them so the request body is unambiguous",
+					first, second, expandedKey,
+				)
+			}
+			source[expandedKey] = key
+			expanded, err := expandPlaceholdersIn(item, opts)
+			if err != nil {
+				return nil, err
+			}
+			out[expandedKey] = expanded
+		}
+		return out, nil
+	default:
+		// Numbers, booleans and null carry no placeholders.
+		return v, nil
 	}
 }
 

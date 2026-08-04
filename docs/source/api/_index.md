@@ -50,13 +50,23 @@ based on their format:
 
 - Literal values `true`, `false`, `null`, and integer numbers are converted to
   the matching JSON types.
+- Values starting with `[` or `{` are parsed as JSON arrays or objects
+  (e.g. `-F 'topics=["my-topic","GitLab"]'`). Invalid JSON returns an error.
+  The value must start with the bracket or brace: a leading space, as in
+  `-F 'topics= ["a"]'`, is part of the value, so it is sent as a string.
 - Placeholder values `:namespace`, `:repo`, and `:branch` are populated with values
-  from the repository of the current directory.
+  from the repository of the current directory, including inside JSON
+  arrays and objects (e.g. `-F 'input={"projectPath":":fullpath"}'`).
 - If the value starts with `@`, the rest of the value is interpreted as a
   filename to read the value from. Pass `-` to read from standard input.
 
-Neither `--field` nor `--raw-field` parses JSON arrays or objects;
-those values are sent as strings. To pass a JSON body literally, use `--input`.
+`--raw-field` does not parse JSON arrays or objects; those values are
+sent as strings. To pass a JSON body literally, use `--input`.
+
+A bracketed `--raw-field` value such as `-f 'scopes=[api,read_api]'` is sent as
+the literal string `"[api,read_api]"`. Earlier versions converted that shape
+into an array on request bodies, which `--raw-field` never documented. Use
+`-F 'scopes=["api","read_api"]'` for an array.
 
 For GraphQL requests, all fields other than `query` and `operationName` are
 interpreted as GraphQL variables.
@@ -104,8 +114,7 @@ glab api projects/gitlab-com%2Fwww-gitlab-com/issues
 glab api --method POST projects/:fullpath/wikis/attachments --form "file=@./image.png" --form "branch=main"
 
 # Debug the HTTP request and response, including headers and body.
-# Use --input (here, piped from stdin) for JSON arrays or objects;
-# --field only converts scalars (bool, int, null, placeholders, @file).
+# Use --input to send a complete JSON request body from stdin.
 echo '{"allowed_to_push":[{"user_id":1}]}' | GLAB_DEBUG_HTTP=1 glab api -X PATCH "projects/:fullpath/protected_branches/main" --input -
 
 # Fetch all pages of issues
