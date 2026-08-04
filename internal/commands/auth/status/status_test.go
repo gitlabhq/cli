@@ -188,7 +188,8 @@ hosts:
   ✓ Token found in environment variable GITLAB_TOKEN: **************************
 
 ! Token is from environment variable GITLAB_TOKEN. This takes precedence over tokens stored in config or keyring.
-  If a wrapper (e.g., 'op plugin run -- glab') is setting this, run type glab in your shell to check.
+  Run type glab to find the source: an alias such as 'op plugin run -- glab' means a wrapper (for example, a 1Password shell plugin) is injecting it, which is expected and needs no action.
+  A plain path means it is set in your environment (for example, a shell profile such as ~/.bashrc or ~/.zshrc, or a CI/CD variable); remove it there so glab uses your stored credentials.
 `,
 		},
 	}
@@ -280,10 +281,11 @@ hosts:
 	require.Error(t, err)
 	assert.Empty(t, stdout.String())
 	assert.Contains(t, stderr.String(), "Token is from environment variable GITLAB_TOKEN. A wrapper may be injecting a different or expired token.")
-	assert.Contains(t, stderr.String(), "To investigate, run in your shell: type glab")
+	assert.Contains(t, stderr.String(), "To investigate, run type glab: an alias such as 'op plugin run -- glab' means a wrapper (for example, a 1Password shell plugin) is injecting the token; a plain path rules that out.")
 	assert.Contains(t, stderr.String(), "To see the token value in use, run: env | grep -E 'GITLAB_TOKEN|GITLAB_ACCESS_TOKEN|OAUTH_TOKEN'")
 	assert.Contains(t, stderr.String(), "Token is from environment variable GITLAB_TOKEN. This takes precedence over tokens stored in config or keyring.")
-	assert.Contains(t, stderr.String(), "If a wrapper (e.g., 'op plugin run -- glab') is setting this, run type glab in your shell to check.")
+	assert.Contains(t, stderr.String(), "Run type glab to find the source: an alias such as 'op plugin run -- glab' means a wrapper (for example, a 1Password shell plugin) is injecting it, which is expected and needs no action.")
+	assert.Contains(t, stderr.String(), "A plain path means it is set in your environment (for example, a shell profile such as ~/.bashrc or ~/.zshrc, or a CI/CD variable); remove it there so glab uses your stored credentials.")
 }
 
 func Test_statusRun_noHostnameSpecified(t *testing.T) {

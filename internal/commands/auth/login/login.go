@@ -271,10 +271,6 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 			return err
 		}
 
-		if token := config.GetFromEnv("token"); token != "" {
-			opts.IO.LogErrorf("%s One of %s environment variables is set. If you don't want to use it for glab, unset it.\n", c.Yellow("WARNING:"), strings.Join(config.EnvKeyEquivalence("token"), ", "))
-		}
-
 		if opts.ApiHost != "" {
 			err := cfg.Set(hostname, "api_host", opts.ApiHost)
 			if err != nil {
@@ -318,6 +314,7 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 			return err
 		}
 		logCredentialStorage(opts.IO, keyringPref)
+		warnEnvTokenPrecedence(opts.IO)
 		return nil
 	}
 
@@ -495,9 +492,11 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 
 	opts.IO.LogErrorf("- Signing into %s\n", hostname)
 
-	if token := config.GetFromEnv("token"); token != "" {
-		opts.IO.LogErrorf("%s One of %s environment variables is set. If you don't want to use it for glab, unset it.\n", c.Yellow("WARNING:"), strings.Join(config.EnvKeyEquivalence("token"), ", "))
-	}
+	// Surface the env-token precedence before the prompts below (the
+	// "already logged in" confirmation and the sign-in method selection),
+	// since it should inform the user's choice.
+	warnEnvTokenPrecedence(opts.IO)
+
 	existingToken, _, _ := cfg.GetWithSource(hostname, "token", false)
 
 	if existingToken != "" && opts.Interactive {
@@ -766,6 +765,26 @@ func logCredentialStorage(io *iostreams.IOStreams, keyringPref string) {
 	} else {
 		io.LogErrorf("%s Stored your credentials in the configuration file.\n", c.GreenCheck())
 	}
+}
+
+// warnEnvTokenPrecedence alerts the user when a token is provided through an
+// environment variable. Such a variable takes precedence over the token stored
+// in the keyring or configuration file, so glab keeps using it. It is emitted
+// before the interactive prompts so it can inform the user's choice, hence the
+// timing-neutral wording. The cause is diagnosed rather than assumed: the
+// variable might be injected temporarily by a wrapper such as the 1Password
+// shell integration (which is expected and needs no action) or persisted in
+// the shell environment (which the user should remove). `type glab`
+// distinguishes the two.
+func warnEnvTokenPrecedence(io *iostreams.IOStreams) {
+	envToken, envTokenSource := config.GetFromEnvWithSource("token")
+	if envToken == "" {
+		return
+	}
+	c := io.Color()
+	io.LogErrorf("\n%s The environment variable %s is set and takes precedence over credentials stored in the keyring or configuration file.\n", c.WarnIcon(), c.Bold(envTokenSource))
+	io.LogErrorf("  Run %s to find the source: an alias such as 'op plugin run -- glab' means a wrapper (for example, a 1Password shell plugin) is injecting it, which is expected and needs no action.\n", c.Bold("type glab"))
+	io.LogErrorf("  A plain path means it is set in your environment (for example, a shell profile such as ~/.bashrc or ~/.zshrc, or a CI/CD variable); remove it there so glab uses your stored credentials.\n")
 }
 
 func hostnameValidator(v any) error {

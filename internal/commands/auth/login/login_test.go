@@ -706,6 +706,48 @@ func Test_tokenLogin_persistsUsername(t *testing.T) {
 	})
 }
 
+func Test_tokenLogin_warnsWhenEnvTokenTakesPrecedence(t *testing.T) {
+	keyring.MockInit()
+
+	login := func(t *testing.T) *bytes.Buffer {
+		t.Helper()
+		t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+		cfg := config.NewBlankConfigInDir(t.TempDir())
+
+		io, _, _, stderr := cmdtest.TestIOStreams()
+		cmd := NewCmdLogin(cmdtest.NewTestFactory(io, cmdtest.WithConfig(cfg), currentUserFactoryOption(t)))
+		cmd.Flags().BoolP("help", "x", false, "")
+		cmd.SetArgs([]string{"--hostname", "gitlab.com", "--token", "glpat-1234"})
+
+		_, err := cmd.ExecuteC()
+		require.NoError(t, err)
+		return stderr
+	}
+
+	t.Run("warns and points at removing the variable", func(t *testing.T) {
+		t.Setenv("GITLAB_TOKEN", "glpat-from-env")
+
+		stderr := login(t)
+
+		assert.Contains(t, stderr.String(), "The environment variable GITLAB_TOKEN is set and takes precedence")
+		assert.Contains(t, stderr.String(), "Run type glab to find the source: an alias such as 'op plugin run -- glab' means a wrapper (for example, a 1Password shell plugin) is injecting it, which is expected and needs no action.")
+		assert.Contains(t, stderr.String(), "remove it there so glab uses your stored credentials")
+	})
+
+	t.Run("stays quiet when no token environment variable is set", func(t *testing.T) {
+		// Clear every env var that maps to the "token" key. Setting them to the
+		// empty string is equivalent to unsetting them here: GetFromEnvWithSource
+		// only treats a non-empty value as a source.
+		for _, e := range config.EnvKeyEquivalence("token") {
+			t.Setenv(e, "")
+		}
+
+		stderr := login(t)
+
+		assert.NotContains(t, stderr.String(), "takes precedence")
+	})
+}
+
 func Test_initialAPIHostname(t *testing.T) {
 	t.Run("flag wins over saved value", func(t *testing.T) {
 		cfg := config.NewBlankConfigInDir(t.TempDir())
