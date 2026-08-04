@@ -17,5 +17,5 @@ func (as oauth2AccessTokenOnlyAuthSource) Init(context.Context, *gitlab.Client) 
 }
 
 func (as oauth2AccessTokenOnlyAuthSource) Header(_ context.Context) (string, string, error) {
-	return "Authorization", "Bearer " + as.token, nil
+	return gitlab.OAuthTokenHeaderName, "Bearer " + as.token, nil
 }

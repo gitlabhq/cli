@@ -17,6 +17,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -144,6 +145,18 @@ func (o *options) run(ctx context.Context) error {
 				failedAuth = true
 				addMsg("%s %s: API call failed: %s", c.FailedIcon(), instance, sanitizeAuthError(err))
 				if resp != nil && resp.StatusCode == 401 && slices.Contains(config.EnvKeyEquivalence("token"), tokenSource) {
+					// An environment token is sent as a PAT even when the host is
+					// configured for OAuth, unless GLAB_IS_OAUTH2 says otherwise.
+					// Say so before the advice below, which assumes the token
+					// itself is wrong rather than the scheme it is sent with.
+					isOAuth2Cfg, isOAuth2Source, isOAuth2Err := cfg.GetWithSource(instance, "is_oauth2", true)
+					if isOAuth2Err != nil {
+						dbg.Debugf("could not read is_oauth2 for %s, skipping the scheme hint: %v", instance, isOAuth2Err)
+					}
+					if isOAuth2Cfg == "true" && !slices.Contains(config.EnvKeyEquivalence("is_oauth2"), isOAuth2Source) {
+						addMsg("  %s %s is configured for OAuth, but the token from %s is sent as a personal access token. If it is an OAuth token, set %s.",
+							c.WarnIcon(), instance, tokenSource, c.Bold("GLAB_IS_OAUTH2=true"))
+					}
 					addMsg("  %s Token is from environment variable %s. A wrapper may be injecting a different or expired token.", c.WarnIcon(), tokenSource)
 					addMsg("  %s To investigate, run %s: an alias such as 'op plugin run -- glab' means a wrapper (for example, a 1Password shell plugin) is injecting the token; a plain path rules that out.", c.WarnIcon(), c.Bold("type glab"))
 					addMsg("  %s To see the token value in use, run: %s", c.WarnIcon(), c.Bold("env | grep -E 'GITLAB_TOKEN|GITLAB_ACCESS_TOKEN|OAUTH_TOKEN'"))
