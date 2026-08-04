@@ -145,7 +145,7 @@ func (o *options) run(ctx context.Context) error {
 				addMsg("%s %s: API call failed: %s", c.FailedIcon(), instance, sanitizeAuthError(err))
 				if resp != nil && resp.StatusCode == 401 && slices.Contains(config.EnvKeyEquivalence("token"), tokenSource) {
 					addMsg("  %s Token is from environment variable %s. A wrapper may be injecting a different or expired token.", c.WarnIcon(), tokenSource)
-					addMsg("  %s To investigate, run in your shell: %s", c.WarnIcon(), c.Bold("type glab"))
+					addMsg("  %s To investigate, run %s: an alias such as 'op plugin run -- glab' means a wrapper (for example, a 1Password shell plugin) is injecting the token; a plain path rules that out.", c.WarnIcon(), c.Bold("type glab"))
 					addMsg("  %s To see the token value in use, run: %s", c.WarnIcon(), c.Bold("env | grep -E 'GITLAB_TOKEN|GITLAB_ACCESS_TOKEN|OAUTH_TOKEN'"))
 				}
 			} else {
@@ -221,7 +221,8 @@ func (o *options) run(ctx context.Context) error {
 	envToken, envTokenSource := config.GetFromEnvWithSource("token")
 	if envToken != "" {
 		o.io.LogErrorf("\n%s Token is from environment variable %s. This takes precedence over tokens stored in config or keyring.\n", c.WarnIcon(), envTokenSource)
-		o.io.LogErrorf("  If a wrapper (e.g., 'op plugin run -- glab') is setting this, run %s in your shell to check.\n", c.Bold("type glab"))
+		o.io.LogErrorf("  Run %s to find the source: an alias such as 'op plugin run -- glab' means a wrapper (for example, a 1Password shell plugin) is injecting it, which is expected and needs no action.\n", c.Bold("type glab"))
+		o.io.LogErrorf("  A plain path means it is set in your environment (for example, a shell profile such as ~/.bashrc or ~/.zshrc, or a CI/CD variable); remove it there so glab uses your stored credentials.\n")
 	}
 
 	if failedAuth {
