@@ -189,6 +189,30 @@ glab api projects/:id/issues/:iid/notes \
   -H "Content-Type: application/json"
 ```
 
+### Arrays and nested objects
+
+`-F` / `--field` parses a value that starts with `[` or `{` as JSON, so arrays
+and nested objects go inline without a file. Placeholders are expanded inside
+the JSON. Invalid JSON returns an error rather than being sent as a string.
+
+```shell
+# Array of strings
+glab api -X PUT projects/:id -F 'topics=["my-topic","GitLab"]'
+
+# Nested object, with a placeholder expanded inside it
+glab api projects/:id/merge_requests/:iid/discussions -X POST \
+  -F body="looks good" \
+  -F 'position={"position_type":"text","new_path":"main.go","new_line":42}'
+
+# Empty array clears a field
+glab api -X PUT projects/:id -F 'topics=[]'
+```
+
+`-f` / `--raw-field` never parses JSON: a bracketed value like
+`-f 'scopes=[api,read_api]'` is sent as the literal string. Use `-F` with real
+JSON for arrays. On GET and DELETE requests, and whenever `--input` is used,
+`-F` arrays are serialized as repeated `key[]=` query parameters.
+
 ## Common mistakes
 
 - **`-m` is required on `note` commands** — without it, `glab issue note` and

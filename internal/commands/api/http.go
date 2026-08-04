@@ -11,18 +11,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
+	"strconv"
 	"strings"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 )
-
-const (
-	// stringArrayRegexPattern represents a pattern to find strings like: [item, item_two]
-	stringArrayRegexPattern = `^\[\s*([[:lower:]_]+(\s*,\s*[[:lower:]_]+)*)?\s*\]$`
-)
-
-var strArrayRegex = regexp.MustCompile(stringArrayRegexPattern)
 
 func httpRequest(ctx context.Context, client *api.Client, method, p string, params any, headers []string) (*http.Response, error) {
 	var err error
@@ -52,10 +45,6 @@ func httpRequest(ctx context.Context, client *api.Client, method, p string, para
 			for key, value := range pp {
 				if vv, ok := value.([]byte); ok {
 					pp[key] = string(vv)
-				}
-
-				if strValue, ok := value.(string); ok && strArrayRegex.MatchString(strValue) {
-					pp[key] = parseStringArrayField(strValue)
 				}
 			}
 			if isGraphQL {
@@ -124,9 +113,29 @@ func parseQuery(path string, params map[string]any) (string, error) {
 			q.Add(key, fmt.Sprintf("%d", v))
 		case bool:
 			q.Add(key, fmt.Sprintf("%v", v))
+		case []any:
+			// Encode JSON arrays as repeated key[]= parameters, the form the
+			// GitLab REST API expects for array query parameters.
+			for _, item := range v {
+				s, err := queryScalarValue(item)
+				if err != nil {
+					return "", fmt.Errorf("query parameter %q: %w", key, err)
+				}
+				q.Add(key+"[]", s)
+			}
+		case map[string]any:
+			return "", fmt.Errorf("query parameter %q: objects are not supported as query parameters; use --input or a POST, PUT, or PATCH request body", key)
 		default:
 			return "", fmt.Errorf("unknown type %v", v)
 		}
+	}
+
+	// An empty array contributes no parameters, so q can still be empty here
+	// even though params was not. Appending a separator in that case would
+	// produce a trailing "?" and, alongside other parameters, silently drop the
+	// empty one.
+	if len(q) == 0 {
+		return path, nil
 	}
 
 	sep := "?"
@@ -134,6 +143,26 @@ func parseQuery(path string, params map[string]any) (string, error) {
 		sep = "&"
 	}
 	return path + sep + q.Encode(), nil
+}
+
+// queryScalarValue renders a single JSON-decoded array element as a query
+// string value. Numbers decode as json.Number (see magicFieldValue), so they
+// render exactly as written.
+func queryScalarValue(v any) (string, error) {
+	switch t := v.(type) {
+	case string:
+		return t, nil
+	case bool:
+		return strconv.FormatBool(t), nil
+	case json.Number:
+		return t.String(), nil
+	case nil:
+		// A query string cannot express null. Encoding it as an empty value
+		// would silently turn null into "", so reject it instead.
+		return "", fmt.Errorf("null is not supported as an array element in a query parameter; omit the element or use --input with a POST, PUT, or PATCH request body")
+	default:
+		return "", fmt.Errorf("nested arrays and objects are not supported as query parameters; use --input or a POST, PUT, or PATCH request body")
+	}
 }
 
 // buildMultipartBody constructs a multipart/form-data request body from a slice
@@ -204,22 +233,4 @@ func copyFileField(w *multipart.Writer, key, path string, stdin io.ReadCloser) e
 	}
 	_, err = io.Copy(fw, r)
 	return err
-}
-
-func parseStringArrayField(strValue string) []string {
-	strValue = strings.TrimPrefix(strValue, "[")
-	strValue = strings.TrimSuffix(strValue, "]")
-	if strings.TrimSpace(strValue) == "" {
-		return []string{}
-	}
-	strArrayElements := strings.Split(strValue, ",")
-
-	var strSlice []string
-	for _, element := range strArrayElements {
-		element = strings.TrimSpace(element)
-		element = strings.Trim(element, `"`)
-		strSlice = append(strSlice, element)
-	}
-
-	return strSlice
 }

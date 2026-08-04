@@ -1145,7 +1145,7 @@ func Test_parseFields(t *testing.T) {
 		},
 	}
 
-	params, err := parseFields(&opts)
+	params, _, err := parseFields(&opts)
 	if err != nil {
 		t.Fatalf("parseFields error: %v", err)
 	}
@@ -1160,6 +1160,122 @@ func Test_parseFields(t *testing.T) {
 		"victories": 123,
 	}
 	assert.Equal(t, expect, params)
+}
+
+// Test_parseFields_bracketedValuesByFlag pins the boundary between the two
+// flags: --field parses JSON, --raw-field sends its value literally.
+//
+// Before this change the array regex ran over the merged parameter map in
+// httpRequest, so bracketed --raw-field values were converted into arrays too.
+// That was never the documented behaviour of --raw-field, and array handling now
+// belongs to --field alone.
+func Test_parseFields_bracketedValuesByFlag(t *testing.T) {
+	ios, _, _, _ := cmdtest.TestIOStreams()
+
+	opts := options{
+		io: ios,
+		rawFields: []string{
+			"rawArray=[api,read_api]",
+			"rawEmpty=[]",
+		},
+		magicFields: []string{
+			`parsedArray=["api","read_api"]`,
+			"parsedEmpty=[]",
+		},
+	}
+
+	params, _, err := parseFields(&opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]any{
+		"rawArray":    "[api,read_api]",
+		"rawEmpty":    "[]",
+		"parsedArray": []any{"api", "read_api"},
+		"parsedEmpty": []any{},
+	}, params)
+}
+
+func Test_warnOnLegacyRawArrays(t *testing.T) {
+	tests := []struct {
+		name        string
+		method      string
+		rawFields   []string
+		magicFields []string
+		wantHint    bool
+		// wantOrder, when set, pins the keys warned about and their order.
+		// Warnings follow flag order: reading them off the parameter map would
+		// leave the order to Go's map iteration, which is the same defect this
+		// change rejects in expandPlaceholdersIn.
+		wantOrder []string
+	}{
+		{
+			name:      "warns on a write method for the old shorthand shape",
+			method:    http.MethodPost,
+			rawFields: []string{"scopes=[api,read_api]"},
+			wantHint:  true,
+		},
+		{
+			name:      "silent on GET, where values were never converted",
+			method:    http.MethodGet,
+			rawFields: []string{"scopes=[api,read_api]"},
+			wantHint:  false,
+		},
+		{
+			name:      "silent for a value the old regex never matched",
+			method:    http.MethodPost,
+			rawFields: []string{"topics=[My-Topic]"},
+			wantHint:  false,
+		},
+		{
+			name:      "silent for an ordinary string",
+			method:    http.MethodPost,
+			rawFields: []string{"robot=Hubot"},
+			wantHint:  false,
+		},
+		{
+			name:      "warns in flag order, not map order",
+			method:    http.MethodPost,
+			rawFields: []string{"ccc=[three]", "aaa=[one]", "bbb=[two]"},
+			wantHint:  true,
+			wantOrder: []string{"ccc", "aaa", "bbb"},
+		},
+		{
+			// A --field of the same name wins in parseFields, so the array is
+			// what gets sent and the literal string never leaves the process.
+			// Warning here would describe a request body that does not exist.
+			name:        "silent when a --field of the same name overrides the raw value",
+			method:      http.MethodPost,
+			rawFields:   []string{"scopes=[api,read_api]"},
+			magicFields: []string{`scopes=["api","read_api"]`},
+			wantHint:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ios, _, _, stderr := cmdtest.TestIOStreams()
+			opts := options{io: ios, rawFields: tt.rawFields, magicFields: tt.magicFields}
+
+			params, rawKeys, err := parseFields(&opts)
+			require.NoError(t, err)
+
+			opts.warnOnLegacyRawArrays(tt.method, params, rawKeys)
+
+			if tt.wantOrder != nil {
+				var warned []string
+				for line := range strings.SplitSeq(strings.TrimSpace(stderr.String()), "\n") {
+					warned = append(warned, strings.SplitN(line, `"`, 3)[1])
+				}
+				assert.Equal(t, tt.wantOrder, warned)
+			}
+
+			if tt.wantHint {
+				assert.Contains(t, stderr.String(), "sent as the literal string")
+			} else {
+				assert.Empty(t, stderr.String())
+			}
+		})
+	}
 }
 
 func Test_magicFieldValue(t *testing.T) {
@@ -1180,6 +1296,10 @@ func Test_magicFieldValue(t *testing.T) {
 		args    args
 		want    any
 		wantErr bool
+		// wantErrContains pins the user-visible wording where it carries
+		// diagnostic value, so a future refactor cannot quietly flatten a
+		// decoder message back into a generic one.
+		wantErrContains string
 	}{
 		{
 			name:    "string",
@@ -1254,6 +1374,189 @@ func Test_magicFieldValue(t *testing.T) {
 			want:    nil,
 			wantErr: true,
 		},
+		{
+			name:    "JSON array",
+			args:    args{v: `["my-topic","GitLab"]`},
+			want:    []any{"my-topic", "GitLab"},
+			wantErr: false,
+		},
+		{
+			name:    "JSON object preserves number as json.Number",
+			args:    args{v: `{"key":"value","count":42}`},
+			want:    map[string]any{"key": "value", "count": json.Number("42")},
+			wantErr: false,
+		},
+		{
+			name:    "nested JSON array",
+			args:    args{v: `["a",["b","c"]]`},
+			want:    []any{"a", []any{"b", "c"}},
+			wantErr: false,
+		},
+		{
+			name:            "unparseable value with bracket prefix",
+			args:            args{v: `[api,read_api]`},
+			want:            nil,
+			wantErr:         true,
+			wantErrContains: "invalid character 'a' looking for beginning of value",
+		},
+		{
+			name:            "unparseable value with brace prefix",
+			args:            args{v: `{bad}`},
+			want:            nil,
+			wantErr:         true,
+			wantErrContains: "invalid character 'b' looking for beginning of object key string",
+		},
+		{
+			name:    "large integer keeps full precision",
+			args:    args{v: `[9007199254740993]`},
+			want:    []any{json.Number("9007199254740993")},
+			wantErr: false,
+		},
+		{
+			name:            "trailing data after JSON is rejected",
+			args:            args{v: `[1,2]oops`},
+			want:            nil,
+			wantErr:         true,
+			wantErrContains: "unexpected trailing data: invalid character 'o' looking for beginning of value",
+		},
+		{
+			// dec.Token() returns a legal token and a nil error here, so the
+			// trailing-data branch has to supply its own reason rather than
+			// wrapping nil.
+			name:            "a second JSON value is rejected",
+			args:            args{v: `[1,2][3]`},
+			want:            nil,
+			wantErr:         true,
+			wantErrContains: "unexpected trailing data: more than one JSON value",
+		},
+		// Empty-array handling carried over from !3596, which fixed it in
+		// parseStringArrayField before this change replaced that function with
+		// json.Unmarshal. Both inputs must still yield an empty slice, not a
+		// slice holding one empty string.
+		{
+			name:    "empty array",
+			args:    args{v: `[]`},
+			want:    []any{},
+			wantErr: false,
+		},
+		{
+			name:    "empty array with interior whitespace",
+			args:    args{v: `[  ]`},
+			want:    []any{},
+			wantErr: false,
+		},
+		// Boundary cases from !3536 by @ihopenre-eng, which pinned the same
+		// string-versus-array question from the regex side. Unquoted integers are
+		// not a JSON array of strings, so they parse as numbers; quoting is how a
+		// caller asks for string elements.
+		{
+			name:    "digit elements parse as numbers, not strings",
+			args:    args{v: `[1, 2]`},
+			want:    []any{json.Number("1"), json.Number("2")},
+			wantErr: false,
+		},
+		{
+			name:    "quoted digit elements stay strings",
+			args:    args{v: `["1", "2"]`},
+			want:    []any{"1", "2"},
+			wantErr: false,
+		},
+		{
+			name:    "quoted element containing a comma is one element",
+			args:    args{v: `["one, two", "three"]`},
+			want:    []any{"one, two", "three"},
+			wantErr: false,
+		},
+		{
+			name:    "mixed quoted and unquoted is not valid JSON",
+			args:    args{v: `["one, two", three]`},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "placeholder inside a JSON object is expanded",
+			args: args{
+				v: `{"projectPath":":fullpath"}`,
+				opts: &options{
+					io: ios,
+					baseRepo: func() (glrepo.Interface, error) {
+						return glrepo.New("glab-cli", "test", glinstance.DefaultHostname), nil
+					},
+				},
+			},
+			want:    map[string]any{"projectPath": "glab-cli/test"},
+			wantErr: false,
+		},
+		{
+			// Go randomizes map iteration order, so resolving this by last
+			// writer wins would drop one of the two fields non-deterministically
+			// between runs of the same command. Reject it instead.
+			name: "two keys expanding to the same name are rejected",
+			args: args{
+				v: `{":repo":"from-placeholder","test":"from-literal"}`,
+				opts: &options{
+					io: ios,
+					baseRepo: func() (glrepo.Interface, error) {
+						return glrepo.New("glab-cli", "test", glinstance.DefaultHostname), nil
+					},
+				},
+			},
+			want:            nil,
+			wantErr:         true,
+			wantErrContains: `keys ":repo" and "test" both expand to "test"`,
+		},
+		{
+			name: "a key expanding onto an unrelated name is left alone",
+			args: args{
+				v: `{":repo":"a","other":"b"}`,
+				opts: &options{
+					io: ios,
+					baseRepo: func() (glrepo.Interface, error) {
+						return glrepo.New("glab-cli", "test", glinstance.DefaultHostname), nil
+					},
+				},
+			},
+			want:    map[string]any{"test": "a", "other": "b"},
+			wantErr: false,
+		},
+		{
+			name: "placeholder inside a JSON array is expanded",
+			args: args{
+				v: `[":branch"]`,
+				opts: &options{
+					io: ios,
+					baseRepo: func() (glrepo.Interface, error) {
+						return glrepo.New("glab-cli", "test", glinstance.DefaultHostname), nil
+					},
+					branch: func() (string, error) {
+						return "feature/foo", nil
+					},
+				},
+			},
+			want:    []any{"feature/foo"},
+			wantErr: false,
+		},
+		{
+			// git accepts a double quote in a refname, so expanding into the raw
+			// JSON text before decoding would let a branch name close the string
+			// and inject structure. Expansion happens after decoding, so the
+			// quote stays data: one key, one string value, no injected field.
+			name: "quote in an expanded branch name cannot inject JSON structure",
+			args: args{
+				v: `{"ref":":branch"}`,
+				opts: &options{
+					io: ios,
+					baseRepo: func() (glrepo.Interface, error) {
+						return glrepo.New("glab-cli", "test", glinstance.DefaultHostname), nil
+					},
+					branch: func() (string, error) {
+						return `x","admin":"true`, nil
+					},
+				},
+			},
+			want:    map[string]any{"ref": `x","admin":"true`},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1263,6 +1566,11 @@ func Test_magicFieldValue(t *testing.T) {
 				return
 			}
 			if tt.wantErr {
+				if tt.wantErrContains != "" {
+					require.ErrorContains(t, err, tt.wantErrContains)
+					assert.NotContains(t, err.Error(), "invalid JSON",
+						"the decoder message and the field-name prefix already say the value did not parse")
+				}
 				return
 			}
 			assert.Equal(t, tt.want, got)

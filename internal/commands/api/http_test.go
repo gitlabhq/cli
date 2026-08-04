@@ -4,6 +4,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -82,6 +83,32 @@ func Test_groupGraphQLVariables(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "query + JSON array variable",
+			args: map[string]any{
+				"query":  "QUERY",
+				"topics": []any{"my-topic", "GitLab"},
+			},
+			want: map[string]any{
+				"query": "QUERY",
+				"variables": map[string]any{
+					"topics": []any{"my-topic", "GitLab"},
+				},
+			},
+		},
+		{
+			name: "query + JSON object variable",
+			args: map[string]any{
+				"query":  "QUERY",
+				"config": map[string]any{"enabled": true},
+			},
+			want: map[string]any{
+				"query": "QUERY",
+				"variables": map[string]any{
+					"config": map[string]any{"enabled": true},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -95,13 +122,6 @@ type roundTripFunc func(r *http.Request) (*http.Response, error)
 
 func (s roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return s(r)
-}
-
-func Test_parseStringArrayField_emptyArray(t *testing.T) {
-	t.Parallel()
-
-	assert.Empty(t, parseStringArrayField("[]"))
-	assert.Empty(t, parseStringArrayField("[  ]"))
 }
 
 func Test_httpRequest(t *testing.T) {
@@ -208,6 +228,28 @@ func Test_httpRequest(t *testing.T) {
 			},
 		},
 		{
+			// json.Number must survive json.Marshal on the GraphQL body path, or
+			// an ID beyond float64's exact range would be silently rounded.
+			name: "POST GraphQL with a large integer variable keeps full precision",
+			args: args{
+				host:   "gitlab.com",
+				method: http.MethodPost,
+				p:      "graphql",
+				params: map[string]any{
+					"query": "mutation($iid: ID!) { foo(iid: $iid) { id } }",
+					"iid":   json.Number("9007199254740993"),
+				},
+				headers: []string{},
+			},
+			wantErr: false,
+			want: expects{
+				method:  http.MethodPost,
+				u:       "https://gitlab.com/api/graphql",
+				body:    `{"query":"mutation($iid: ID!) { foo(iid: $iid) { id } }","variables":{"iid":9007199254740993}}`,
+				headers: "Content-Type: application/json; charset=utf-8\r\nPrivate-Token: OTOKEN\r\nUser-Agent: glab test client\r\n",
+			},
+		},
+		{
 			name: "POST with body and type",
 			args: args{
 				host:   "gitlab.com",
@@ -228,12 +270,12 @@ func Test_httpRequest(t *testing.T) {
 			},
 		},
 		{
-			name: "POST with string array field and type",
+			name: "POST with JSON array field",
 			args: args{
 				host:   "gitlab.com",
 				method: http.MethodPost,
 				p:      "projects",
-				params: map[string]any{"scopes": "[api, read_api]"},
+				params: map[string]any{"scopes": []any{"api", "read_api"}},
 				headers: []string{
 					"content-type: application/json",
 					"accept: application/json",
@@ -245,6 +287,40 @@ func Test_httpRequest(t *testing.T) {
 				u:       "https://gitlab.com/api/v4/projects",
 				body:    `{"scopes":["api","read_api"]}`,
 				headers: "Accept: application/json\r\nContent-Type: application/json\r\nPrivate-Token: OTOKEN\r\nUser-Agent: glab test client\r\n",
+			},
+		},
+		{
+			name: "POST with JSON object field",
+			args: args{
+				host:    "gitlab.com",
+				method:  http.MethodPost,
+				p:       "projects",
+				params:  map[string]any{"config": map[string]any{"enabled": true, "mode": "strict"}},
+				headers: []string{},
+			},
+			wantErr: false,
+			want: expects{
+				method:  http.MethodPost,
+				u:       "https://gitlab.com/api/v4/projects",
+				body:    `{"config":{"enabled":true,"mode":"strict"}}`,
+				headers: "Content-Type: application/json; charset=utf-8\r\nPrivate-Token: OTOKEN\r\nUser-Agent: glab test client\r\n",
+			},
+		},
+		{
+			name: "POST with non-array string value unchanged",
+			args: args{
+				host:    "gitlab.com",
+				method:  http.MethodPost,
+				p:       "projects",
+				params:  map[string]any{"name": "my-project"},
+				headers: []string{},
+			},
+			wantErr: false,
+			want: expects{
+				method:  http.MethodPost,
+				u:       "https://gitlab.com/api/v4/projects",
+				body:    `{"name":"my-project"}`,
+				headers: "Content-Type: application/json; charset=utf-8\r\nPrivate-Token: OTOKEN\r\nUser-Agent: glab test client\r\n",
 			},
 		},
 	}
@@ -372,6 +448,48 @@ func Test_addQuery(t *testing.T) {
 			},
 			want: "?a=true&b=false",
 		},
+		{
+			name: "JSON array as repeated key[]",
+			args: args{
+				path:   "",
+				params: map[string]any{"topics": []any{"ruby", "rails"}},
+			},
+			want: "?topics%5B%5D=ruby&topics%5B%5D=rails",
+		},
+		{
+			name: "JSON numeric array renders integers cleanly",
+			args: args{
+				path:   "",
+				params: map[string]any{"iids": []any{json.Number("1"), json.Number("2")}},
+			},
+			want: "?iids%5B%5D=1&iids%5B%5D=2",
+		},
+		{
+			// An empty array contributes no parameters, so the path must come back
+			// untouched rather than carrying a bare separator.
+			name: "empty JSON array adds no parameter and no separator",
+			args: args{
+				path:   "projects",
+				params: map[string]any{"topics": []any{}},
+			},
+			want: "projects",
+		},
+		{
+			name: "empty JSON array does not displace other parameters",
+			args: args{
+				path:   "projects",
+				params: map[string]any{"topics": []any{}, "search": "glab"},
+			},
+			want: "projects?search=glab",
+		},
+		{
+			name: "booleans inside an array render as true and false",
+			args: args{
+				path:   "",
+				params: map[string]any{"flags": []any{true, false}},
+			},
+			want: "?flags%5B%5D=true&flags%5B%5D=false",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -382,6 +500,20 @@ func Test_addQuery(t *testing.T) {
 				t.Errorf("parseQuery() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_parseQuery_nonScalar(t *testing.T) {
+	if _, err := parseQuery("", map[string]any{"config": map[string]any{"enabled": true}}); err == nil {
+		t.Error("expected error for object query parameter, got nil")
+	}
+	if _, err := parseQuery("", map[string]any{"nested": []any{[]any{"a"}}}); err == nil {
+		t.Error("expected error for nested array in query parameter, got nil")
+	}
+	// A query string has no representation for null. Encoding it as an empty
+	// value would silently turn null into "", so it is rejected instead.
+	if _, err := parseQuery("", map[string]any{"flags": []any{true, nil, false}}); err == nil {
+		t.Error("expected error for null array element in query parameter, got nil")
 	}
 }
 
