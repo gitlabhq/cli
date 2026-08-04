@@ -286,6 +286,81 @@ hosts:
 	assert.Contains(t, stderr.String(), "Token is from environment variable GITLAB_TOKEN. This takes precedence over tokens stored in config or keyring.")
 	assert.Contains(t, stderr.String(), "Run type glab to find the source: an alias such as 'op plugin run -- glab' means a wrapper (for example, a 1Password shell plugin) is injecting it, which is expected and needs no action.")
 	assert.Contains(t, stderr.String(), "A plain path means it is set in your environment (for example, a shell profile such as ~/.bashrc or ~/.zshrc, or a CI/CD variable); remove it there so glab uses your stored credentials.")
+	// The host is not configured for OAuth, so the scheme hint stays quiet.
+	assert.NotContains(t, stderr.String(), "GLAB_IS_OAUTH2=true")
+}
+
+// A host configured for OAuth whose token arrives from the environment is
+// authenticated as a PAT. When that 401s, the generic advice about a wrapper
+// injecting a bad token is misleading, so name the scheme mismatch too.
+func Test_statusRun_authFailureWithEnvTokenOnOAuthHost(t *testing.T) {
+	// Runs `status` against an OAuth-configured host whose token comes from
+	// GITLAB_TOKEN and whose CurrentUser call 401s.
+	statusOnOAuthHost := func(t *testing.T) *bytes.Buffer {
+		t.Helper()
+
+		keyring.MockInitWithError(errors.New("keyring unavailable"))
+		t.Cleanup(keyring.MockInit)
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    is_oauth2: "true"
+    git_protocol: ssh
+    api_protocol: https
+`), 0o600))
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(nil, &gitlab.Response{Response: &http.Response{StatusCode: http.StatusUnauthorized}}, errors.New("GET https://gitlab.example.com/api/v4/user: 401 {error: invalid_token}"))
+
+		client := func(token, hostname string) (*api.Client, error) { //nolint:unparam
+			return cmdtest.NewTestApiClient(t, nil, token, hostname, api.WithGitLabClient(tc.Client)), nil
+		}
+
+		t.Setenv("GITLAB_TOKEN", "an-oauth-access-token")
+		configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+		require.NoError(t, err)
+		io, _, stdout, stderr := cmdtest.TestIOStreams()
+
+		opts := &options{
+			hostname: "gitlab.example.com",
+			config: func() config.Config {
+				return configs
+			},
+			apiClient: func(repoHost string) (*api.Client, error) {
+				return client("", repoHost)
+			},
+			httpClientOverride: client,
+			io:                 io,
+		}
+
+		err = opts.run(t.Context())
+		require.Error(t, err)
+		assert.Empty(t, stdout.String())
+		return stderr
+	}
+
+	t.Run("names the mismatch when the OAuth flag comes from the configuration file", func(t *testing.T) {
+		t.Setenv("GLAB_IS_OAUTH2", "")
+
+		stderr := statusOnOAuthHost(t)
+
+		assert.Contains(t, stderr.String(), "gitlab.example.com is configured for OAuth, but the token from GITLAB_TOKEN is sent as a personal access token.")
+		assert.Contains(t, stderr.String(), "GLAB_IS_OAUTH2=true")
+	})
+
+	t.Run("stays quiet when the OAuth flag itself comes from the environment", func(t *testing.T) {
+		// GLAB_IS_OAUTH2 makes the environment token authenticate as an OAuth
+		// token, so there is no scheme mismatch to report and no point telling
+		// the user to set a variable they already set.
+		t.Setenv("GLAB_IS_OAUTH2", "true")
+
+		stderr := statusOnOAuthHost(t)
+
+		assert.NotContains(t, stderr.String(), "is sent as a personal access token")
+		assert.NotContains(t, stderr.String(), "GLAB_IS_OAUTH2=true")
+	})
 }
 
 func Test_statusRun_noHostnameSpecified(t *testing.T) {
