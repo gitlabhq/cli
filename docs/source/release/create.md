@@ -86,7 +86,7 @@ GLAB_ENABLE_CI_AUTOLOGIN=true glab release create v1.0.1 --notes "See CHANGELOG.
 # Create a release from a CI/CD job using a project or group access token with the 'api' scope
 GITLAB_TOKEN="$ACCESS_TOKEN" glab release create v1.0.1 --notes "See CHANGELOG.md" --ref "$CI_COMMIT_SHA"
 
-# Create a release with assets specified as JSON object
+# Create a release with assets, such as packages, specified as a JSON object
 glab release create v1.0.1 --assets-links='
 [
   {
@@ -120,7 +120,7 @@ glab release create v1.0.1 --publish-to-catalog
 ## Options
 
 ```plaintext
-  -a, --assets-links string    JSON string representation of assets links. See documentation for example.
+  -a, --assets-links string    JSON string representation of assets links. See Examples for usage.
   -m, --milestone strings      The title of each milestone the release is associated with. Multiple milestones can be comma-separated or specified by repeating the flag.
   -n, --name string            The release name or title.
       --no-close-milestone     Prevent closing milestones after creating the release.
