@@ -295,6 +295,9 @@ func (o *options) run(ctx context.Context) error {
 	return nil
 }
 
+// Styles for making the focused button visible
+var buttonActivatedStyle = tcell.StyleDefault.Underline(true).Bold(true).Reverse(true)
+
 // handleBridgeJobSelection handles the user pressing Enter on a bridge job (downstream pipeline trigger).
 // It navigates to the downstream pipeline if it exists, or shows an informational modal if it doesn't.
 func handleBridgeJobSelection(app *tview.Application, root *tview.Pages, forceUpdateCh chan<- bool, navi *navigator) {
@@ -333,6 +336,7 @@ func handleBridgeJobSelection(app *tview.Application, root *tview.Pages, forceUp
 		SetBackgroundColor(tcell.ColorDefault).
 		SetText(message).
 		AddButtons([]string{"OK"}).
+		SetButtonActivatedStyle(buttonActivatedStyle).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			modalVisible = false
 			root.RemovePage("downstream-info")
@@ -401,6 +405,7 @@ func inputCapture(
 					SetBackgroundColor(tcell.ColorDefault).
 					SetText(fmt.Sprintf("Are you sure you want to cancel %s?", curJob.Name)).
 					AddButtons([]string{"✘ No", "✔ Yes"}).
+					SetButtonActivatedStyle(buttonActivatedStyle).
 					SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 						modalVisible = false
 						root.RemovePage("yesno")
@@ -434,6 +439,7 @@ func inputCapture(
 				SetBackgroundColor(tcell.ColorDefault).
 				SetText(fmt.Sprintf("Are you sure you want to run %s?", curJob.Name)).
 				AddButtons([]string{"✘ No", "✔ Yes"}).
+				SetButtonActivatedStyle(buttonActivatedStyle).
 				SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 					modalVisible = false
 					root.RemovePage("yesno")
