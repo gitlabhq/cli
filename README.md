@@ -28,10 +28,6 @@ GLab is an open source GitLab CLI tool. It brings GitLab to your terminal, next 
   - [Building from source](#building-from-source)
     - [Prerequisites for building from source](#prerequisites-for-building-from-source)
 - [Authentication](#authentication)
-  - [OAuth (GitLab.com)](#oauth-gitlabcom)
-  - [OAuth (GitLab Self-Managed, GitLab Dedicated)](#oauth-gitlab-self-managed-gitlab-dedicated)
-  - [Personal access token](#personal-access-token)
-  - [CI Job Token](#ci-job-token)
 - [Configuration](#configuration)
   - [Configure `glab` to use your GitLab Self-Managed or GitLab Dedicated instance](#configure-glab-to-use-your-gitlab-self-managed-or-gitlab-dedicated-instance)
   - [Configure `glab` to use mTLS certificates](#configure-glab-to-use-mtls-certificates)
@@ -176,112 +172,8 @@ To build from source:
 
 ## Authentication
 
-When running `glab auth login` interactively inside a Git repository, `glab` automatically
-detects GitLab instances from your Git remotes and presents them as options. This saves you
-from having to manually type the hostname.
-
-### OAuth (GitLab.com)
-
-To authenticate your installation of `glab` with an OAuth application connected to GitLab.com:
-
-1. Start interactive setup with `glab auth login`.
-1. For the GitLab instance you want to sign in to, select **GitLab.com**.
-1. For the login method, select **Web** to authenticate through your local browser, or
-   **Device** for headless environments (such as SSH sessions or containers) where no
-   local browser is available. The device flow displays a one-time code and a
-   verification URL that you open on any other device with a browser.
-1. Authorize the application when prompted.
-1. Complete the authentication process in your terminal, selecting the appropriate options for your needs.
-
-### OAuth (GitLab Self-Managed, GitLab Dedicated)
-
-Prerequisites:
-
-- You've created an OAuth application at the user, group, or instance level, and you
-  have its application ID. For instructions, see how to configure GitLab
-  [as an OAuth 2.0 authentication identity provider](https://docs.gitlab.com/integration/oauth_provider/)
-  in the GitLab documentation.
-- Your OAuth application is configured with these parameters:
-  - **Redirect URI** is `http://localhost:7171/auth/redirect`. Not required if you only intend to use `--device`.
-  - **Confidential** is not selected. If it's selected, `glab auth login` fails with an
-    `invalid_client` error. For more information, see the
-    [troubleshooting section](https://docs.gitlab.com/cli/#error-invalid_client-during-oauth-login).
-  - **Scopes** are `openid`, `profile`, `read_user`, `write_repository`, and `api`.
-- To use the OAuth 2.0 device authorization flow (`glab auth login --device`), the application must
-  also have `device_code` in its allowed grant types, and the GitLab instance must be running
-  GitLab 17.9 or later. For more information, see the
-  [device authorization grant flow](https://docs.gitlab.com/api/oauth2/#device-authorization-grant-flow)
-  documentation.
-
-To authenticate your installation of `glab` with an OAuth application connected
-to your GitLab Self-Managed or GitLab Dedicated instance:
-
-1. Store the application ID with `glab config set client_id <CLIENT_ID> --host <HOSTNAME>`.
-   For `<CLIENT_ID>`, provide your application ID.
-1. Start interactive setup with `glab auth login --hostname <HOSTNAME>`.
-1. For the login method, select **Web** to authenticate through your local browser, or
-   **Device** for headless environments where no local browser is available.
-1. Follow the prompts to authorize the application:
-   - For **Web**, complete authorization in the browser window that opens.
-   - For **Device**, copy the displayed one-time code, open the verification URL on any
-     device with a browser, and approve the request.
-1. Complete the authentication process in your terminal, selecting the appropriate options for your needs.
-
-### Personal access token
-
-To authenticate your installation of `glab` with a personal access token:
-
-1. Get a GitLab personal access token with at least the `api`
-   and `write_repository` scopes. Use the method appropriate for your instance:
-   - For GitLab.com, create one at the [personal access tokens](https://gitlab.com/-/user_settings/personal_access_tokens?scopes=api%2Cwrite_repository) page.
-   - For GitLab Self-Managed and GitLab Dedicated, visit `https://gitlab.example.com/-/user_settings/personal_access_tokens?scopes=api,write_repository`,
-     modifying `gitlab.example.com` to match the domain name of your instance.
-1. Start interactive setup: `glab auth login`
-1. Authenticate with the method appropriate for your GitLab instance:
-   - For GitLab SaaS, authenticate against `gitlab.com` by reading the token
-     from a file: `glab auth login --stdin < myaccesstoken.txt`
-   - For GitLab Self-Managed and GitLab Dedicated, authenticate by reading from a file:
-     `glab auth login --hostname gitlab.example.com --stdin < myaccesstoken.txt`. This will allow you to perform
-     authenticated `glab` commands against your instance when you are in a Git repository with a remote
-     matching your instance's host. Alternatively, set `GITLAB_HOST` to direct your command to your instance.
-   - Authenticate with token and hostname: `glab auth login --hostname gitlab.example.org --token xxxxx`
-     Not recommended for shared environments.
-   - Credentials are stored in the global [configuration file](#configuration).
-
-### CI Job Token
-
-To authenticate your installation of `glab` with a CI job token, the `glab` command must be run in a GitLab CI job.
-The token is automatically provided by the GitLab Runner via the `CI_JOB_TOKEN` environment variable.
-
-Endpoints allowing the use of the CI job token are listed in the
-[GitLab documentation](https://docs.gitlab.com/ci/jobs/ci_job_token/#job-token-access).
-
-#### Auto-login
-
-To enable CI auto-login, set `GLAB_ENABLE_CI_AUTOLOGIN=true`. When enabled, `glab` automatically
-detects if it's running in a GitLab CI job and uses the predefined CI/CD variables to sign in.
-
-```shell
-GLAB_ENABLE_CI_AUTOLOGIN=true glab release list -R $CI_PROJECT_PATH
-```
-
-The following predefined CI/CD variables are used automatically:
-
-| Predefined CI/CD variable  | Equivalent `glab auth login` flag |
-|----------------------------|-----------------------------------|
-| `CI_SERVER_FQDN`           | `--hostname`                      |
-| `CI_JOB_TOKEN`             | `--job-token`                     |
-| `CI_SERVER_PROTOCOL`       | `--api-protocol`                  |
-| `CI_SERVER_SHELL_SSH_HOST` | `--ssh-hostname`                  |
-
-#### Manual login
-
-Use manual login when the command does not support CI job tokens, or you need a personal access token:
-
-```shell
-glab auth login --job-token $CI_JOB_TOKEN --hostname $CI_SERVER_FQDN --api-protocol $CI_SERVER_PROTOCOL
-GITLAB_HOST=$CI_SERVER_FQDN glab release list -R $CI_PROJECT_PATH
-```
+To authenticate `glab` with OAuth, a personal access token, or a CI job token, see
+[Authenticate with GitLab](https://docs.gitlab.com/cli/authentication/).
 
 ## Configuration
 
@@ -451,8 +343,8 @@ When the `GLAB_DEBUG` environment variable is set to `true`, `glab` outputs more
 
 ## Troubleshooting
 
-For help with common issues, see the
-[Troubleshooting section](https://docs.gitlab.com/cli/#troubleshooting) of the GitLab CLI documentation.
+For help with common authentication issues, see
+[Troubleshooting](https://docs.gitlab.com/cli/authentication/#troubleshooting) in the GitLab CLI documentation.
 
 ## Issues
 
