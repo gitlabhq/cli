@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker-credential-helpers/credentials"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/oauth2"
 )
@@ -38,14 +39,32 @@ func (h *Helper) Get(registryURL string) (string, string, error) {
 		return "", "", fmt.Errorf("refreshing oauth2 token: %w", err)
 	}
 
-	user, err := h.cfg.Get(hostname, "user")
+	// ts.Token() persists a refreshed token but does not mutate our in-memory
+	// config, so re-read it to pick up a rotated token. For a file-backed host the
+	// in-memory copy would otherwise still hold the pre-refresh (now expired)
+	// token; a keyring-backed host reads live, but reloading is correct for both.
+	// We deliberately do not use the token ts.Token() returns: it is derived with
+	// env-var lookup enabled, and GITLAB_TOKEN must not override the per-host
+	// credential here.
+	//
+	// A config that cannot be re-read is not fatal (for example, the config lives
+	// in an XDG_CONFIG_DIRS entry and no user-level file exists yet, so no refresh
+	// ever created one); fall back to the in-memory copy, matching freshest().
+	cfg := h.cfg
+	if fresh, err := h.cfg.Reload(); err == nil {
+		cfg = fresh
+	} else {
+		dbg.Debugf("docker helper: could not re-read config for %q, using in-memory copy: %v", hostname, err)
+	}
+
+	user, err := cfg.Get(hostname, "user")
 	if err != nil {
 		return "", "", err
 	}
 
 	// Skip env var lookup: GITLAB_TOKEN should not override per-host credentials
 	// stored in config when acting as a Docker credential helper.
-	token, _, err := h.cfg.GetWithSource(hostname, "token", false)
+	token, _, err := cfg.GetWithSource(hostname, "token", false)
 	if err != nil {
 		return "", "", err
 	}

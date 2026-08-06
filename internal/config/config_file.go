@@ -325,7 +325,7 @@ func parseConfig(filename, localPath string) (Config, error) {
 		return nil, err
 	}
 
-	return newConfig(root, dir), confError
+	return newConfig(root, dir, localPath), confError
 }
 
 func pathError(err error) error {

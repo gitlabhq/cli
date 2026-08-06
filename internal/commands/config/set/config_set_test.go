@@ -24,6 +24,10 @@ func (c configStub) WriteAll() error {
 	return nil
 }
 
+func (c configStub) Reload() (config.Config, error) {
+	return c, nil
+}
+
 func genKey(host, key string) string {
 	if host != "" {
 		return host + ":" + key
