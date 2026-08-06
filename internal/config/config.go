@@ -39,6 +39,11 @@ type Config interface {
 	Write() error
 	// WriteAll saves all the available configuration file types
 	WriteAll() error
+	// Reload re-reads the configuration from its backing files and returns the
+	// refreshed Config, reflecting changes written by other processes since this
+	// Config was parsed. It does not mutate the receiver. Configs with no backing
+	// files (in-memory configs) return themselves unchanged.
+	Reload() (Config, error)
 }
 
 // NotFoundError is returned when a config entry is not found.
@@ -150,16 +155,19 @@ func (cm *ConfigMap) RemoveEntry(key string) {
 }
 
 func NewConfig(root *yaml.Node) Config {
-	return newConfig(root, "")
+	return newConfig(root, "", "")
 }
 
 // newConfig builds a fileConfig that persists to dir. An empty dir means the
-// config is in-memory only and Write()/WriteAll() are no-ops.
-func newConfig(root *yaml.Node, dir string) Config {
+// config is in-memory only and Write()/WriteAll() are no-ops. localPath is the
+// per-repository config file merged in at parse time, if any; it is retained so
+// Reload() re-merges the same local overrides.
+func newConfig(root *yaml.Node, dir, localPath string) Config {
 	return &fileConfig{
 		ConfigMap:    ConfigMap{Root: root.Content[0]},
 		documentRoot: root,
 		dir:          dir,
+		localPath:    localPath,
 	}
 }
 
@@ -180,18 +188,18 @@ func newConfigFromString(str, dir string) Config {
 	if err != nil {
 		panic(err)
 	}
-	return newConfig(root, dir)
+	return newConfig(root, dir, "")
 }
 
 // NewBlankConfig initializes an in-memory config pre-populated with comments and
 // default values. It has no directory behind it, so Write()/WriteAll() are no-ops.
 func NewBlankConfig() Config {
-	return newConfig(NewBlankRoot(), "")
+	return newConfig(NewBlankRoot(), "", "")
 }
 
 // NewBlankConfigInDir initializes a blank config that persists to dir.
 func NewBlankConfigInDir(dir string) Config {
-	return newConfig(NewBlankRoot(), dir)
+	return newConfig(NewBlankRoot(), dir, "")
 }
 
 func NewBlankRoot() *yaml.Node {
@@ -204,10 +212,26 @@ type fileConfig struct {
 	ConfigMap
 	documentRoot *yaml.Node
 	dir          string
+	// localPath is the per-repository config file merged in at parse time, if
+	// any. Retained so Reload() re-merges the same local overrides.
+	localPath string
 }
 
 func (c *fileConfig) Root() *yaml.Node {
 	return c.ConfigMap.Root
+}
+
+// Reload re-parses the config from the files it was read from, so a caller that
+// must not act on a stale in-memory copy (for example, the OAuth token source in
+// a long-lived process) can pick up changes written by another process. It does
+// not mutate the receiver: an in-memory config (no backing directory) returns
+// itself unchanged. The keyring is always read live, so a reloaded config also
+// reflects the freshest keyring secrets.
+func (c *fileConfig) Reload() (Config, error) {
+	if c.dir == "" {
+		return c, nil
+	}
+	return parseConfig(filepath.Join(c.dir, "config.yml"), c.localPath)
 }
 
 func (c *fileConfig) Get(hostname, key string) (string, error) {

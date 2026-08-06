@@ -42,6 +42,7 @@ func (s stubConfig) Aliases() (*config.AliasConfig, error) { return nil, nil }
 func (s stubConfig) Local() (*config.LocalConfig, error)   { return nil, nil }
 func (s stubConfig) Write() error                          { return nil }
 func (s stubConfig) WriteAll() error                       { return nil }
+func (s stubConfig) Reload() (config.Config, error)        { return s, nil }
 
 func TestConfig_unmarshal(t *testing.T) {
 	tests := []struct {
