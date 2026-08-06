@@ -571,8 +571,8 @@ func GenRootMarkdownCustom(cmd *cobra.Command, w io.Writer) error {
 	buf.WriteString("## Authenticate with GitLab\n\n")
 	buf.WriteString("GLab supports multiple authentication methods including OAuth and personal access tokens.\n")
 	buf.WriteString("To get started, run `glab auth login` and follow the interactive setup.\n\n")
-	buf.WriteString("For detailed authentication instructions, see the [Authentication section](https://gitlab.com/gitlab-org/cli#authentication)\n")
-	buf.WriteString("in the main README.\n\n")
+	buf.WriteString("For detailed authentication instructions, see\n")
+	buf.WriteString("[Authenticate with GitLab](authentication.md).\n\n")
 
 	// Pagination section
 	buf.WriteString("## Pagination\n\n")
@@ -631,22 +631,6 @@ func GenRootMarkdownCustom(cmd *cobra.Command, w io.Writer) error {
 
 	// Generate subcommands (replaces manual "Core commands")
 	printRootSubcommands(cmd, buf)
-
-	// Add troubleshooting section before the report issues call to action
-	buf.WriteString("\n## Troubleshooting\n\n")
-	buf.WriteString("When working with `glab`, you might encounter the following issues.\n\n")
-	buf.WriteString("### Error: `invalid_client` during OAuth login\n\n")
-	buf.WriteString("When authenticating with an OAuth application, `glab auth login` might fail with an error:\n\n")
-	buf.WriteString("```plaintext\n")
-	buf.WriteString("Oauth2: \"invalid_client\" \"Client authentication failed due to unknown client, no client authentication included, or unsupported authentication method.\".\n")
-	buf.WriteString("```\n\n")
-	buf.WriteString("This happens when the OAuth application has the **Confidential** option enabled. `glab` is a\n")
-	buf.WriteString("public client and cannot keep a client secret, so it authenticates without one. Confidential\n")
-	buf.WriteString("applications require a client secret, which causes GitLab to reject the request.\n\n")
-	buf.WriteString("To resolve this issue, edit your OAuth application and clear the **Confidential** checkbox.\n\n")
-	buf.WriteString("After saving the change, run `glab auth login` again. For the full list of required application\n")
-	buf.WriteString("settings, see the [OAuth (GitLab Self-Managed, GitLab Dedicated)](https://gitlab.com/gitlab-org/cli#oauth-gitlab-self-managed-gitlab-dedicated)\n")
-	buf.WriteString("section in the main README.\n")
 
 	// Add report issues section at the end
 	buf.WriteString("\n## Report issues\n\n")
