@@ -102,7 +102,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			glab issue create -m release-1.0.1 -t "security fix" --label security --web --recover
 			glab issue create -t "Bug Report" --template bug
 			glab issue create -t "Feature Request" --template feature_proposal.md --yes`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

@@ -19,6 +19,7 @@ func NewCmdStackList(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 		Long:    "Lists all entries in the stack. To select a different revision, use a command like 'stack move'.\n" + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			glab stack list`),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

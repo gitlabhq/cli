@@ -98,6 +98,7 @@ func NewCmdAsk(f cmdutils.Factory) *cobra.Command {
 
 			# Explain how to display files changed in the last commit
 			glab duo ask show me files changed in the last commit`),
+		Args: cobra.ArbitraryArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

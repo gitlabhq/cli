@@ -7,7 +7,6 @@ import (
 	"io"
 
 	"charm.land/fang/v2"
-	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 )
@@ -91,17 +90,4 @@ func (e *ExitError) Error() string {
 
 func (e ExitError) Unwrap() error {
 	return e.Err
-}
-
-func MinimumArgs(n int, msg string) cobra.PositionalArgs {
-	if msg == "" {
-		return cobra.MinimumNArgs(1)
-	}
-
-	return func(cmd *cobra.Command, args []string) error {
-		if len(args) < n {
-			return &FlagError{Err: errors.New(msg)}
-		}
-		return nil
-	}
 }

@@ -26,6 +26,7 @@ func NewCmdApprove(f cmdutils.Factory) *cobra.Command {
 
 			# Finds open merge request from current branch and approves it
 			glab mr approve`),
+		Args: cobra.ArbitraryArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

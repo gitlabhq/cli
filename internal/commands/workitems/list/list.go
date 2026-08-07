@@ -88,7 +88,7 @@ for group-level work items or -R to specify a different project.
 
 				# List issues in a specific project
 				glab work-items list --type issue -R gitlab-org/cli`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

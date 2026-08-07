@@ -49,6 +49,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# List tokens from filesystem cache only
 			glab cluster agent token-cache list --keyring=false`),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},

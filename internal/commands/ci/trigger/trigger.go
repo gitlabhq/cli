@@ -31,6 +31,7 @@ func NewCmdTrigger(f cmdutils.Factory) *cobra.Command {
 
 			# Trigger a manual job by name
 			glab ci trigger lint`),
+		Args: cobra.MaximumNArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

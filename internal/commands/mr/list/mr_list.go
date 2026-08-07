@@ -107,7 +107,7 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *options) error) *cobra.Comma
 			glab mr list -M --per-page 10
 			glab mr list --draft
 			glab mr list --not-draft`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.complete(cmd); err != nil {
 				return err

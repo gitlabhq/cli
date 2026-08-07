@@ -44,7 +44,7 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 
 			Deleting a release does not delete the associated tag, unless you specify %[1]s--with-tag%[1]s.
 		`, "`"),
-		Args: cmdutils.MinimumArgs(1, "no tag name provided"),
+		Args: cobra.ExactArgs(1),
 		Example: heredoc.Doc(`
 			# Delete a release (with a confirmation prompt)
 			glab release delete v1.1.0

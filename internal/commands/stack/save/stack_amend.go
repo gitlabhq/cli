@@ -40,6 +40,7 @@ func NewCmdAmendStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.Get
 
 			# Reword the commit message without adding any files
 			glab stack amend --reword -m "updated commit message"`),
+		Args: cobra.ArbitraryArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

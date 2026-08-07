@@ -60,6 +60,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Clear tokens for a specific agent
 			glab cluster agent token-cache clear --agent 123`),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

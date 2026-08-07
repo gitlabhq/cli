@@ -30,6 +30,7 @@ func NewCmdReopen(f cmdutils.Factory) *cobra.Command {
 		# Reopen merge requests from branches branch-1 and branch-2
 		glab mr reopen branch-1 branch-2`),
 		Aliases: []string{"open"},
+		Args:    cobra.ArbitraryArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

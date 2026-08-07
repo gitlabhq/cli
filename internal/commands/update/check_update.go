@@ -56,6 +56,7 @@ func NewCheckUpdateCmd(f cmdutils.Factory) *cobra.Command {
 		glab update
 		`),
 		Aliases: commandAliases,
+		Args:    cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

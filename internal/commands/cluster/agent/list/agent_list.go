@@ -43,7 +43,7 @@ func NewCmdAgentList(f cmdutils.Factory) *cobra.Command {
 
 			# List agents in JSON format
 			glab cluster agent list --output json`),
-		Args: cobra.MaximumNArgs(3),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

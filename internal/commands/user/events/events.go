@@ -27,7 +27,7 @@ func NewCmdEvents(f cmdutils.Factory) *cobra.Command {
 			glab user events
 			glab user events --all
 			glab user events -F json`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

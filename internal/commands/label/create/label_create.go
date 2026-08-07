@@ -30,7 +30,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			# Create a label in another project
 			glab label create --name bug -R owner/repo
 		`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

@@ -27,6 +27,7 @@ func NewCmdTrace(f cmdutils.Factory) *cobra.Command {
 
 			# Trace job with the name 'lint'
 			glab ci trace lint`),
+		Args: cobra.MaximumNArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

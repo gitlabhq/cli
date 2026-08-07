@@ -47,7 +47,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 
 			# Include the key ID in the output
 			glab deploy-key list --show-id`),
-		Args: cobra.MaximumNArgs(1),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

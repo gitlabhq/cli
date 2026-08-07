@@ -61,7 +61,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			glab todo list --type=MergeRequest
 			glab todo list --output=json
 		`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

@@ -55,7 +55,7 @@ func NewCmdReleaseList(f cmdutils.Factory) *cobra.Command {
 			machine-readable output.
 		`, "`"),
 		Aliases: []string{"ls"},
-		Args:    cobra.ExactArgs(0),
+		Args:    cobra.NoArgs,
 		Example: heredoc.Doc(`
 			glab release list
 			glab release list --per-page 50

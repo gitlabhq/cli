@@ -130,7 +130,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 		For more information, see
 		https://docs.gitlab.com/policy/development_stages_support/.
 		`, "`"),
-		Args: cmdutils.MinimumArgs(1, "no tag name provided."),
+		Args: cobra.MinimumNArgs(1),
 		Example: heredoc.Docf(`
 			# Create a release interactively
 			glab release create v1.0.1
