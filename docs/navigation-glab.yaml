@@ -12,6 +12,11 @@
       url: 'cli/alias/set/'
 - title: glab api
   url: 'cli/api/'
+- title: glab artifact-registry
+  url: 'cli/artifact-registry/'
+  submenu:
+    - title: glab artifact-registry status
+      url: 'cli/artifact-registry/status/'
 - title: glab attestation
   url: 'cli/attestation/'
   submenu:

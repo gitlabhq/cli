@@ -10,6 +10,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	aliasCmd "gitlab.com/gitlab-org/cli/internal/commands/alias"
 	apiCmd "gitlab.com/gitlab-org/cli/internal/commands/api"
+	artifactRegistryCmd "gitlab.com/gitlab-org/cli/internal/commands/artifactregistry"
 	attestationCmd "gitlab.com/gitlab-org/cli/internal/commands/attestation"
 	authCmd "gitlab.com/gitlab-org/cli/internal/commands/auth"
 	changelogCmd "gitlab.com/gitlab-org/cli/internal/commands/changelog"
@@ -169,6 +170,7 @@ func NewCmdRoot(f cmdutils.Factory) *cobra.Command {
 	rootCmd.AddCommand(authCmd.NewCmdAuth(f))
 
 	rootCmd.AddCommand(apiCmd.NewCmdApi(f, nil))
+	rootCmd.AddCommand(artifactRegistryCmd.NewCmd(f))
 	rootCmd.AddCommand(changelogCmd.NewCmdChangelog(f))
 	rootCmd.AddCommand(clusterCmd.NewCmdCluster(f))
 	rootCmd.AddCommand(containerRegistryCmd.NewCmd(f))

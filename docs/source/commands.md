@@ -22,6 +22,7 @@ subcommands, options, and examples.
 
 - [`glab alias`](alias/_index.md)
 - [`glab api`](api/_index.md)
+- [`glab artifact-registry`](artifact-registry/_index.md)
 - [`glab attestation`](attestation/_index.md)
 - [`glab auth`](auth/_index.md)
 - [`glab changelog`](changelog/_index.md)
