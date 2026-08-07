@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/fsx"
+	"gitlab.com/gitlab-org/cli/internal/fsx"
 )
 
 // Each per-manager block below stores registry URLs the firewall should

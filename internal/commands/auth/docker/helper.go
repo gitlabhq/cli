@@ -12,6 +12,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
+	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/oauth2"
 )
 
@@ -22,6 +23,7 @@ var _ credentials.Helper = (*Helper)(nil)
 type Helper struct {
 	client *http.Client
 	cfg    config.Config
+	io     *iostreams.IOStreams
 }
 
 // Get fetches the glab auth token for the given registryURL.
@@ -88,11 +90,35 @@ func (h *Helper) findAssociatedHostname(registryURL string) (string, error) {
 		return "", err
 	}
 
+	// A key that is simply not set reads back as "" with no error, so an error
+	// from GetWithSource is a real read failure: structurally broken YAML for
+	// that host, or a locked or denied keyring. Such an error must not be
+	// allowed to look like "this host doesn't list the domain", which would
+	// report configuration that exists but couldn't be read as missing.
+	//
+	// The errors are collected rather than returned on the spot: a broken entry
+	// for one host must not stop a different host from legitimately resolving
+	// the domain. A read failure can only have changed the answer when no host
+	// matched, so that is where it is reported.
+	var readErr error
+
 	for _, hostname := range hostnames {
-		containerRegistryDomains, _, _ := h.cfg.GetWithSource(hostname, "container_registry_domains", false)
-		if slices.Contains(parseDomains(containerRegistryDomains), registryURL) {
+		domains, err := readDomains(h.cfg, hostname)
+		if err != nil {
+			readErr = errors.Join(readErr, err)
+			continue
+		}
+		if slices.Contains(domains, registryURL) {
+			if readErr != nil {
+				h.io.LogErrorf("%s another host's configuration could not be read; if it also handles %s, glab may be using the wrong GitLab instance's credentials: %v\n",
+					h.io.Color().WarnIcon(), registryURL, readErr)
+			}
 			return hostname, nil
 		}
+	}
+
+	if readErr != nil {
+		return "", readErr
 	}
 
 	return "", fmt.Errorf("no hostname associated with registryURL: %s", registryURL)
@@ -122,13 +148,31 @@ func (h *Helper) List() (map[string]string, error) {
 	return nil, errors.New("glab auth docker-helper does not support listing registries")
 }
 
+// readDomains reads container_registry_domains for hostname and parses it
+// into a domain slice.
+//
+// A key that is simply not set reads back as "" with no error, so an error
+// here is a real read failure: structurally broken YAML for the host, or a
+// locked or denied keyring. Callers must not let that look like "this host
+// doesn't list the domain," which would report configuration that exists
+// but couldn't be read as missing.
+func readDomains(cfg config.Config, hostname string) ([]string, error) {
+	domains, _, err := cfg.GetWithSource(hostname, "container_registry_domains", false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read container_registry_domains for %q: %w", hostname, err)
+	}
+	return parseDomains(domains), nil
+}
+
 func parseDomains(domains string) []string {
 	if domains == "" {
 		return nil
 	}
-	result := strings.Split(domains, ",")
-	for i, domain := range result {
-		result[i] = strings.TrimSpace(domain)
+	var result []string
+	for domain := range strings.SplitSeq(domains, ",") {
+		if domain = strings.TrimSpace(domain); domain != "" {
+			result = append(result, domain)
+		}
 	}
 	return result
 }

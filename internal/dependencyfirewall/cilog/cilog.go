@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/fsx"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
+	"gitlab.com/gitlab-org/cli/internal/fsx"
 )
 
 type Session struct {

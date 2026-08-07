@@ -28,6 +28,20 @@ func WriteOwnerOnly(path string, data []byte) error {
 	return os.Chmod(path, 0o600)
 }
 
+// WriteExecutable writes data to path and forces mode 0o700.
+//
+// Atomic replace is not available on Windows (see WriteOwnerOnly), so this
+// degrades to os.WriteFile + os.Chmod. Windows does not enforce POSIX
+// execute bits, so the Chmod call is best-effort and the file is briefly
+// visible at its final path in a non-executable state; callers targeting
+// Windows must not rely on this function's atomicity guarantee.
+func WriteExecutable(path string, data []byte) error {
+	if err := os.WriteFile(path, data, 0o700); err != nil { // #nosec G302 -- 0o700 is intentional: owner rwx, no group/other access, for an executable shim
+		return err
+	}
+	return os.Chmod(path, 0o700)
+}
+
 // WriteJSONFile creates path's parent directory (0o755), marshals v with
 // two-space indent for user-editability, appends a trailing newline
 // (POSIX text-file convention; keeps `git diff` clean when the file is

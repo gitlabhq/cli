@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/config"
-	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/fsx"
+	"gitlab.com/gitlab-org/cli/internal/fsx"
 )
 
 const backupName = ".gitlab.npmrc.backup"
