@@ -52,7 +52,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Delete without the confirmation prompt
 			glab opentofu state delete production --force`),
-		Args: cobra.MinimumNArgs(1),
+		Args: cobra.RangeArgs(1, 2),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
@@ -69,10 +69,6 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) complete(args []string) error {
-	if len(args) < 1 || len(args) > 2 {
-		return errors.New("must provide 1 or 2 positional arguments")
-	}
-
 	o.stateName = args[0]
 
 	if len(args) == 2 {

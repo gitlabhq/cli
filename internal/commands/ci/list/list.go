@@ -25,7 +25,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 		Example: heredoc.Doc(`
 			glab ci list
 			glab ci list --status=failed`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

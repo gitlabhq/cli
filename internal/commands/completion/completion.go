@@ -115,6 +115,7 @@ func NewCmdCompletion(io *iostreams.IOStreams) *cobra.Command {
 
 			# Print the bash completion script
 			glab completion -s bash`),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

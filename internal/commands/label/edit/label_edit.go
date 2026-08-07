@@ -33,7 +33,7 @@ func NewCmdEdit(f cmdutils.Factory) *cobra.Command {
 			# Change a label's color and description in another project
 			glab label edit --label-id 1234 --color "#FF0000" --description "Top priority" -R owner/repo
 		`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

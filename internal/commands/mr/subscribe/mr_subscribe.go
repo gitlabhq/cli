@@ -36,6 +36,7 @@ func NewCmdSubscribe(f cmdutils.Factory) *cobra.Command {
 
 		# Subscribe to multiple merge requests
 		glab mr subscribe 123 branch`),
+		Args: cobra.ArbitraryArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

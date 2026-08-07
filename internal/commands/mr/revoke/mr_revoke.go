@@ -27,6 +27,7 @@ func NewCmdRevoke(f cmdutils.Factory) *cobra.Command {
 		glab mr revoke
 		# Revoke approval on merge request 123 on branch 456
 		glab mr revoke 123 branch 456`),
+		Args: cobra.ArbitraryArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

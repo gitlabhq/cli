@@ -28,6 +28,7 @@ func NewCmdRetry(f cmdutils.Factory) *cobra.Command {
 
 			# Retry job with the name 'lint'
 			glab ci retry lint`),
+		Args: cobra.MaximumNArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

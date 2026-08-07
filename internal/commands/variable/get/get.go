@@ -42,7 +42,7 @@ func NewCmdGet(f cmdutils.Factory, runE func(opts *options) error) *cobra.Comman
 			select a variable in a specific environment, or %[1]s--group%[1]s to read a
 			group variable instead.
 		`, "`"),
-		Args: cobra.RangeArgs(1, 1),
+		Args: cobra.ExactArgs(1),
 		Example: heredoc.Doc(`
 			glab variable get VAR_KEY
 			glab variable get -g GROUP VAR_KEY

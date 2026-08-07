@@ -39,7 +39,7 @@ func NewCmdSearch(f cmdutils.Factory) *cobra.Command {
 			name. Provide the query with %[1]s--search%[1]s, and use %[1]s-F json%[1]s for
 			machine-readable output.
 		`, "`"),
-		Args:    cobra.ExactArgs(0),
+		Args:    cobra.NoArgs,
 		Aliases: []string{"find", "lookup"},
 		Example: heredoc.Doc(`
 			glab project search -s "title"

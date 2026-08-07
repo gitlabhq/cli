@@ -35,6 +35,7 @@ func NewCmdClose(f cmdutils.Factory) *cobra.Command {
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			c := f.IO().Color()

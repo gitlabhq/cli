@@ -46,7 +46,7 @@ func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 		Use:     "rotate <token-name|token-id>",
 		Short:   "Rotate user, group, or project access tokens.",
 		Aliases: []string{"rot"},
-		Args:    cobra.RangeArgs(1, 1),
+		Args:    cobra.ExactArgs(1),
 		Long: heredoc.Docf(`
 			Rotating a token revokes the existing token and creates a new one
 			with a new secret value and expiration date.

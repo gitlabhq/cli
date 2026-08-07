@@ -46,7 +46,7 @@ func NewCmdContributors(f cmdutils.Factory) *cobra.Command {
 
 			# List contributors for a specific repository
 			glab repo contributors -R gitlab-com/www-gitlab-com`),
-		Args:    cobra.ExactArgs(0),
+		Args:    cobra.NoArgs,
 		Aliases: []string{"users"},
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",

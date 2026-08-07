@@ -80,7 +80,7 @@ func NewDummyCmd(f Factory, runE func(opts *options) error) *cobra.Command {
 		Use:   "list [flags]",
 		Short: "List objects",
 		Long:  "List objects",
-		Args:  cobra.ExactArgs(0),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.complete(cmd); err != nil {
 				return err

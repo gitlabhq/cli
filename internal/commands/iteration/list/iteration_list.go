@@ -48,7 +48,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 			glab iteration ls
 			glab iteration list -R owner/repository
 			glab iteration list -g mygroup`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

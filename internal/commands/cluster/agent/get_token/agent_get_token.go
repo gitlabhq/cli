@@ -64,6 +64,7 @@ func NewCmdAgentGetToken(f cmdutils.Factory) *cobra.Command {
 		Example: heredoc.Doc(`
 			# Get a token for agent 123
 			glab cluster agent get-token --agent 123`),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},

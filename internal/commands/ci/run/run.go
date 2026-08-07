@@ -243,7 +243,7 @@ func NewCmdRun(f cmdutils.Factory) *cobra.Command {
 			#   }
 			# ]
 			glab ci run -b main --variables-from variables.json`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

@@ -74,7 +74,7 @@ func NewCmd(f cmdutils.Factory, runE func(opts *options) error) *cobra.Command {
 			with %[1]sglab variable set --hidden%[1]s.
 		`, "`"),
 		Aliases: []string{"im"},
-		Args:    cobra.ExactArgs(0),
+		Args:    cobra.NoArgs,
 		Example: heredoc.Doc(`
 			# Pipe an export straight into an import, to restore the same project
 			glab variable export | glab variable import

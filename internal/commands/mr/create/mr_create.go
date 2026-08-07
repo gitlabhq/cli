@@ -117,7 +117,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			glab mr create --fill --fill-commit-body --yes
 			glab mr create -t "Fix login bug" --template bug_fix
 			glab mr create -t "Security patch" --template security_fix.md --yes`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			opts.headRepo = ResolvedHeadRepo(cmd.Context(), f)
 

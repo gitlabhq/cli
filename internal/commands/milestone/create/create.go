@@ -55,7 +55,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			# Create a milestone in a group
 			glab milestone create --title='FY26 planning' --due-date='2026-01-31' --group 456
 		`),
-		Args: cobra.MaximumNArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "false",
 		},

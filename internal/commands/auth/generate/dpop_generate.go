@@ -76,7 +76,7 @@ func NewCmdGenerate(f cmdutils.Factory) *cobra.Command {
 			# Generate a DPoP JWT for a different GitLab instance
 			glab auth dpop-gen --private-key "~/.ssh/id_rsa" --hostname "https://gitlab.com"
 		`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

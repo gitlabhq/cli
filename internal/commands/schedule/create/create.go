@@ -40,6 +40,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			# Create a schedule with pipeline variables
 			glab schedule create --cron "0 0 * * *" --description "Daily build" --ref main --variable "foo:bar" --variable "baz:qux"
 		`),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

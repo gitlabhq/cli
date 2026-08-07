@@ -45,7 +45,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Download the serial 42 of the state production
 			glab opentofu state download production 42`),
-		Args: cobra.MinimumNArgs(1),
+		Args: cobra.RangeArgs(1, 2),
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},
@@ -62,10 +62,6 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) complete(args []string) error {
-	if len(args) < 1 || len(args) > 2 {
-		return fmt.Errorf("must provide 1 or 2 positional arguments")
-	}
-
 	o.stateName = args[0]
 
 	if len(args) == 2 {

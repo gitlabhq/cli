@@ -78,6 +78,7 @@ func NewCmdAgentUpdateKubeconfig(f cmdutils.Factory) *cobra.Command {
 
 			# Update kubeconfig and set as the default context
 			glab cluster agent update-kubeconfig --agent 123 --use-context`),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

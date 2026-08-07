@@ -48,7 +48,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "create <name>",
 		Aliases: []string{"create", "new"},
-		Args:    cobra.RangeArgs(1, 1),
+		Args:    cobra.ExactArgs(1),
 		Short:   "Creates user, group, or project access tokens.",
 		Long: heredoc.Doc(`
 		Creates a new access token for a user, group, or project. Defaults to a

@@ -64,7 +64,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 			# List labels as JSON
 			glab label list --output json
 		`),
-		Args: cobra.ExactArgs(0),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

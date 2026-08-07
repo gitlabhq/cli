@@ -45,7 +45,7 @@ func NewCmdStatus(f cmdutils.Factory, runE func(*options) error) *cobra.Command 
 
 	cmd := &cobra.Command{
 		Use:   "status",
-		Args:  cobra.ExactArgs(0),
+		Args:  cobra.NoArgs,
 		Short: "View authentication status.",
 		Long: heredoc.Docf(`
 		Verifies and displays information about your authentication state.

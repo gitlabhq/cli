@@ -36,6 +36,7 @@ func NewCmdUnsubscribe(f cmdutils.Factory) *cobra.Command {
 
 		# Unsubscribe from multiple merge requests
 		glab mr unsubscribe 123 branch`),
+		Args: cobra.ArbitraryArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

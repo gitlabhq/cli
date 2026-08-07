@@ -26,7 +26,7 @@ func NewCmdLogout(f cmdutils.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "logout",
-		Args:  cobra.ExactArgs(0),
+		Args:  cobra.NoArgs,
 		Short: "Log out from a GitLab instance.",
 		Long: heredoc.Docf(`
 		Logs out from a GitLab instance. The credentials for the specified instance

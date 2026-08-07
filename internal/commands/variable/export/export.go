@@ -49,7 +49,7 @@ func NewCmdExport(f cmdutils.Factory, runE func(opts *options) error) *cobra.Com
 			%[1]sexport%[1]s (shell export statements).
 		`, "`"),
 		Aliases: []string{"ex"},
-		Args:    cobra.ExactArgs(0),
+		Args:    cobra.NoArgs,
 		Example: heredoc.Doc(`
 			glab variable export
 			glab variable export --per-page 1000 --page 1
