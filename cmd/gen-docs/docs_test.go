@@ -52,6 +52,7 @@ func TestGenWebDocsPrunesAndDocuments(t *testing.T) {
 
 	// Documented pages exist.
 	assert.FileExists(t, filepath.Join(dir, "_index.md"))
+	assert.FileExists(t, filepath.Join(dir, "commands.md"))
 	assert.FileExists(t, filepath.Join(dir, "normal", "_index.md"))
 	assert.FileExists(t, filepath.Join(dir, "parent", "_index.md"))
 	assert.FileExists(t, filepath.Join(dir, "parent", "child.md"))
@@ -69,6 +70,42 @@ func TestGenWebDocsPrunesAndDocuments(t *testing.T) {
 	// Non-generated content is preserved.
 	assert.FileExists(t, filepath.Join(dir, "keepme.md"))
 	assert.FileExists(t, filepath.Join(dir, "img", "logo.png"))
+}
+
+// TestGenCommandsPage checks that the commands landing page lists the available
+// top-level commands, excludes hidden and deprecated ones, and carries the
+// generated marker so it is rewritten on every run.
+func TestGenCommandsPage(t *testing.T) {
+	root := &cobra.Command{Use: "glab"}
+	normal := &cobra.Command{Use: "normal", Short: "Normal command", Run: func(*cobra.Command, []string) {}}
+	deprecated := &cobra.Command{Use: "deprecated", Short: "d", Deprecated: "use 'glab normal' instead.", Run: func(*cobra.Command, []string) {}}
+	secret := &cobra.Command{Use: "secret", Short: "s", Hidden: true, Run: func(*cobra.Command, []string) {}}
+	root.AddCommand(normal, deprecated, secret)
+
+	dir := t.TempDir()
+	require.NoError(t, genCommandsPage(root, dir))
+
+	page, err := os.ReadFile(filepath.Join(dir, "commands.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(page), generatedMarker)
+	assert.Contains(t, string(page), "- [`glab normal`](normal/_index.md)\n")
+	assert.NotContains(t, string(page), "glab deprecated")
+	assert.NotContains(t, string(page), "glab secret")
+}
+
+// TestGenRootCommandDocsPointsAtCommandsPage checks that the root page links to
+// the commands landing page instead of repeating the list.
+func TestGenRootCommandDocsPointsAtCommandsPage(t *testing.T) {
+	root := &cobra.Command{Use: "glab"}
+	root.AddCommand(&cobra.Command{Use: "normal", Short: "Normal command", Run: func(*cobra.Command, []string) {}})
+
+	dir := t.TempDir()
+	require.NoError(t, genRootCommandDocs(root, dir))
+
+	page, err := os.ReadFile(filepath.Join(dir, "_index.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(page), "For the list of top-level `glab` commands, see [Commands](commands.md).")
+	assert.NotContains(t, string(page), "- [`glab normal`](normal/_index.md)")
 }
 
 func TestGenNavExcludesHiddenAndDeprecated(t *testing.T) {
