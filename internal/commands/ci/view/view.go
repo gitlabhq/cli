@@ -334,7 +334,7 @@ func handleBridgeJobSelection(app *tview.Application, root *tview.Pages, forceUp
 
 	modal := tview.NewModal().
 		SetBackgroundColor(tcell.ColorDefault).
-		SetText(message).
+		SetText(tview.Escape(message)).
 		AddButtons([]string{"OK"}).
 		SetButtonActivatedStyle(buttonActivatedStyle).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
@@ -403,7 +403,7 @@ func inputCapture(
 				modalVisible = true
 				modal := tview.NewModal().
 					SetBackgroundColor(tcell.ColorDefault).
-					SetText(fmt.Sprintf("Are you sure you want to cancel %s?", curJob.Name)).
+					SetText(tview.Escape(fmt.Sprintf("Are you sure you want to cancel %s?", curJob.Name))).
 					AddButtons([]string{"✘ No", "✔ Yes"}).
 					SetButtonActivatedStyle(buttonActivatedStyle).
 					SetDoneFunc(func(buttonIndex int, buttonLabel string) {
@@ -437,7 +437,7 @@ func inputCapture(
 			modalVisible = true
 			modal := tview.NewModal().
 				SetBackgroundColor(tcell.ColorDefault).
-				SetText(fmt.Sprintf("Are you sure you want to run %s?", curJob.Name)).
+				SetText(tview.Escape(fmt.Sprintf("Are you sure you want to run %s?", curJob.Name))).
 				AddButtons([]string{"✘ No", "✔ Yes"}).
 				SetButtonActivatedStyle(buttonActivatedStyle).
 				SetDoneFunc(func(buttonIndex int, buttonLabel string) {
@@ -862,6 +862,7 @@ func jobsView(
 		// different stages for the same service and it tends
 		// to make the title spill over the max
 		title = strings.TrimSuffix(title, ":"+j.Stage)
+		title = tview.Escape(title)
 		b.SetTitle(title)
 		// tview default aligns center, which is nice, but if
 		// the title is too long we want to bias towards seeing
