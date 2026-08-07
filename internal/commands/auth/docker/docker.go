@@ -4,7 +4,6 @@ package docker
 
 import (
 	"fmt"
-	"runtime"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/docker/docker-credential-helpers/credentials"
@@ -12,16 +11,6 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
-)
-
-const (
-	// helperFullName is the full name of the credential helper,
-	// and is what Docker will look for in the user's PATH.
-	helperFullName = "docker-credential-glab"
-	// helperShortName is the short name of the credential,
-	// and is what the Docker config will list in the credHelpers
-	// configuration object.
-	helperShortName = "glab"
 )
 
 // NewCmdConfigureDocker returns a command that configures the CLI
@@ -46,15 +35,6 @@ func NewCmdConfigureDocker(f cmdutils.Factory) *cobra.Command {
 			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: The shell wrapper approach is only implemented for POSIX
-			// compliant operating systems at the moment.
-			// See https://gitlab.com/gitlab-org/cli/-/issues/7906 to track
-			// the work on support for additional operating systems.
-			if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-				return fmt.Errorf("operating system %q is not supported; "+
-					"only Linux and MacOS (Darwin) are supported", runtime.GOOS)
-			}
-
 			io := f.IO()
 			cfg := f.Config()
 			return configureDocker(io, cfg)
@@ -93,7 +73,7 @@ func NewCmdCredentialHelper(f cmdutils.Factory) *cobra.Command {
 
 			httpClient := apiClient.HTTPClient()
 
-			credHelper := Helper{httpClient, f.Config()}
+			credHelper := Helper{client: httpClient, cfg: f.Config(), io: f.IO()}
 
 			action := args[0]
 			return credentials.HandleCommand(&credHelper, action, f.IO().In, f.IO().StdOut)

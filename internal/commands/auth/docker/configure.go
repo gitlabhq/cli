@@ -1,45 +1,17 @@
 package docker
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-
-	dockerconfig "github.com/docker/cli/cli/config"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/dockercredhelper"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 )
 
-var helperShScript = []byte(`#!/bin/sh -eu
-glab auth docker-helper "$@"
-`)
-
 func configureDocker(iostreams *iostreams.IOStreams, cfg config.Config) error {
-	glabPath, err := exec.LookPath("glab")
-	if err != nil {
-		return fmt.Errorf("looking up parent directory of glab binary: %w", err)
-	}
-
-	glabParentDir := filepath.Dir(glabPath)
-	wrapperPath := filepath.Join(glabParentDir, helperFullName)
-	err = os.WriteFile(wrapperPath, helperShScript, 0o700)
-	if err != nil {
-		return fmt.Errorf("writing helper script: %w", err)
-	}
-
-	dockerConfig, err := dockerconfig.Load("")
-	if err != nil {
-		return fmt.Errorf("reading current docker config: %w", err)
-	}
-
-	// WARNING: This must be added to avoid accessing an uninitialized
-	// map. This happens when someone hasn't used a cred helper already
-	// and isn't handled by the Docker configuration module.
-	// See https://gitlab.com/gitlab-org/cli/-/issues/7921
-	if dockerConfig.CredentialHelpers == nil {
-		dockerConfig.CredentialHelpers = make(map[string]string)
+	if _, err := dockercredhelper.Install(); err != nil {
+		return err
 	}
 
 	hostnames, err := cfg.Hosts()
@@ -48,29 +20,56 @@ func configureDocker(iostreams *iostreams.IOStreams, cfg config.Config) error {
 	}
 
 	var configuredDomains []string
+	var readErr error
 	for _, hostname := range hostnames {
-		domains, _, _ := cfg.GetWithSource(hostname, "container_registry_domains", false)
-		for _, domain := range parseDomains(domains) {
-			configuredDomains = append(configuredDomains, domain)
-			dockerConfig.CredentialHelpers[domain] = helperShortName
+		// Report a read failure and carry on so the remaining hosts are still
+		// configured, but keep it to decide the exit below: "no domains are
+		// configured" and "your domains could not be read" need different
+		// messages, and a partial failure must not be reported as full success.
+		domains, err := readDomains(cfg, hostname)
+		if err != nil {
+			readErr = errors.Join(readErr, err)
+			iostreams.LogErrorf("%s Skipped %s: %v\n", iostreams.Color().WarnIcon(), hostname, err)
+			continue
 		}
-	}
-
-	for _, domain := range configuredDomains {
-		iostreams.LogInfof("%s Configured Docker credential helper for %s\n", iostreams.Color().GreenCheck(), domain)
-	}
-
-	err = dockerConfig.Save()
-	if err != nil {
-		return fmt.Errorf("registering glab docker credential helper: %w", err)
+		configuredDomains = append(configuredDomains, domains...)
 	}
 
 	if len(configuredDomains) == 0 {
+		// Telling the user to go configure a domain would misdirect when the
+		// domains they already have are the thing that could not be read.
+		if readErr != nil {
+			return readErr
+		}
 		return fmt.Errorf(
 			"no hosts were configured - " +
 				"ensure you've logged in via oauth2 and configured " +
 				"at least one container registry domain for a host")
 	}
 
-	return nil
+	dir, err := dockercredhelper.ConfigDir()
+	if err != nil {
+		return err
+	}
+
+	registrations, err := dockercredhelper.Register(dir, configuredDomains...)
+	if err != nil {
+		return err
+	}
+
+	for _, registration := range registrations {
+		iostreams.LogInfof("%s Configured Docker credential helper for %s\n", iostreams.Color().GreenCheck(), registration.Domain)
+		if registration.ShadowedLogin {
+			iostreams.LogErrorf("%s %s already had credentials from `docker login`. Docker asks glab first, so those are no longer used; run `docker logout %s` to remove them.\n",
+				iostreams.Color().WarnIcon(), registration.Domain, registration.Domain)
+		}
+	}
+
+	// readErr still fails the command even though every readable host was
+	// configured above: a CI script gating on `configure-docker` (for
+	// example, `glab auth configure-docker && docker pull ...`) needs a
+	// non-zero exit to detect that a host's registries were left
+	// unauthenticated, rather than only finding out later from an
+	// unrelated-looking `docker pull` failure.
+	return readErr
 }
