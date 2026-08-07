@@ -438,7 +438,7 @@ func Test_jobsView(t *testing.T) {
 		"  │       Stage1       │      │       Stage2       │      │       Stage3       │        ",
 		"  └────────────────────┘      └────────────────────┘      └────────────────────┘        ",
 		"                                                                                        ",
-		"  ╔✔ stage1-job1-reall…╗      ┌───● stage2-job1────┐      ┌───■ stage3-job1────┐        ",
+		"  ╔✔ stage1-job1-reall…╗      ┌● stage2-job1[step]─┐      ┌───■ stage3-job1────┐        ",
 		"  ║                    ║      │                    │      │                    │        ",
 		"  ║             01m 01s║═╦══╦═│                    │═╦══╦═│                    │        ",
 		"  ╚════════════════════╝ ║  ║ └────────────────────┘ ║  ║ └────────────────────┘        ",
@@ -487,7 +487,7 @@ func Test_jobsView(t *testing.T) {
 			Status: "failed",
 		},
 		{
-			Name:   "stage2-job1",
+			Name:   "stage2-job1[step]",
 			Stage:  "stage2",
 			Status: "running",
 		},
