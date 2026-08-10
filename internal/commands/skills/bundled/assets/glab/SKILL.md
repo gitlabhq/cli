@@ -48,8 +48,11 @@ glab mr list --output json | jq '.[].title'
 **Templates:** Check `.gitlab/merge_request_templates/` and
 `.gitlab/issue_templates/` for project-specific templates.
 
-**References:** Link issues with `#123`, MRs with `!456`, cross-project
-with `group/project#123`.
+**References:** Always use full URLs in note/comment bodies (e.g.
+`https://gitlab.com/org/project/-/issues/123`) instead of short references
+(`#123`, `!456`). This applies to issues, merge requests, epics, and so on.
+Short refs resolve against project context and render as literal text on
+group-level items (epics, group work items); full URLs expand everywhere.
 
 ## Comments and discussions
 
