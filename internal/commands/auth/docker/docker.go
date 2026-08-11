@@ -53,10 +53,11 @@ func NewCmdCredentialHelper(f cmdutils.Factory) *cobra.Command {
 			helperArgCheck,
 			cobra.OnlyValidArgs,
 		),
-		Short: "A Docker credential helper for GitLab container registries.",
+		Short: "A Docker credential helper for GitLab container and artifact registries.",
 		Long: heredoc.Doc(`
 		Responds to Docker credential helper requests for GitLab container
-		registries. Docker invokes this command automatically.
+		registries and Artifact Registries. Docker invokes this command
+		automatically.
 		`),
 		Example: heredoc.Doc(`
 		# Docker invokes the helper automatically; supported actions are 'store', 'get', and 'erase'.
@@ -73,7 +74,13 @@ func NewCmdCredentialHelper(f cmdutils.Factory) *cobra.Command {
 
 			httpClient := apiClient.HTTPClient()
 
-			credHelper := Helper{client: httpClient, cfg: f.Config(), io: f.IO()}
+			credHelper := Helper{
+				client:    httpClient,
+				cfg:       f.Config(),
+				io:        f.IO(),
+				userAgent: f.BuildInfo().UserAgent(),
+				ctx:       cmd.Context(),
+			}
 
 			action := args[0]
 			return credentials.HandleCommand(&credHelper, action, f.IO().In, f.IO().StdOut)

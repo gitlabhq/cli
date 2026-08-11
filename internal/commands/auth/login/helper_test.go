@@ -46,7 +46,7 @@ func Test_helperRun(t *testing.T) {
 
 	oauth2ApiClient := func(config config.Config, responseFunc roundTripFunc) func(repoHost string) (*api.Client, error) {
 		return func(repoHost string) (*api.Client, error) {
-			tokenSource, _ := oauth2.NewConfigTokenSource(config, &http.Client{}, glinstance.DefaultProtocol, repoHost)
+			tokenSource, _ := oauth2.NewConfigTokenSource(config, &http.Client{}, glinstance.DefaultProtocol, repoHost, true)
 			if responseFunc != nil {
 				return cmdtest.NewTestAuthSourceApiClient(t, &http.Client{Transport: responseFunc}, gitlab.OAuthTokenSource{TokenSource: tokenSource}, repoHost), nil
 			}

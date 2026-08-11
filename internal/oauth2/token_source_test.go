@@ -264,6 +264,49 @@ func TestToken_RefreshDoesNotOverwriteConcurrentConfigWrites(t *testing.T) {
 		"a config write from another process must survive the refresh")
 }
 
+// TestNewConfigTokenSource_IgnoresEnvironmentToken pins the fix for the gap
+// Timo flagged on !3704: api.WithoutTokenFromEnvironment set
+// searchEnvForIdentity=false for the token and is_oauth2 lookups in
+// api.NewClientFromConfig, but NewConfigTokenSource still read "token" through
+// cfg.Get, which always searches GITLAB_TOKEN/GITLAB_ACCESS_TOKEN/OAUTH_TOKEN
+// regardless of that option. A caller like the Docker credential helper,
+// which runs as a subprocess inheriting the user's shell environment, could
+// therefore mint a request using a stray environment token even though it
+// asked not to.
+func TestNewConfigTokenSource_IgnoresEnvironmentToken(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		searchEnvForIdentity bool
+		want                 string
+	}{
+		{"searches env when asked to", true, "env-token"},
+		{"ignores env when told not to", false, "config-token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GITLAB_TOKEN", "env-token")
+
+			expiry := time.Now().Add(time.Hour).Format(time.RFC3339)
+			cfg := config.NewFromString(`
+---
+hosts:
+  ` + testHost + `:
+    is_oauth2: "true"
+    client_id: abc
+    token: config-token
+    oauth2_refresh_token: refresh-token
+    oauth2_expiry_date: ` + expiry + `
+`)
+
+			ts, err := NewConfigTokenSource(cfg, &http.Client{}, "https", testHost, tc.searchEnvForIdentity)
+			require.NoError(t, err)
+
+			token, err := ts.Token()
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, token.AccessToken)
+		})
+	}
+}
+
 // newKeyringConfigInDir is newKeyringConfig with a caller-provided directory, so
 // a test can also open a second config pointing at the same files.
 func newKeyringConfigInDir(t *testing.T, dir, accessToken, refreshToken string, expiry time.Time) config.Config {

@@ -32,7 +32,14 @@ func oauthClientID(cfg config.Config, hostname string) (string, error) {
 	return glinstance.DefaultClientID, nil
 }
 
-func unmarshal(hostname string, cfg config.Config) (*oauth2.Token, error) {
+// unmarshal reads the OAuth2 token for hostname out of cfg. The "token" key
+// is also resolvable from GITLAB_TOKEN/GITLAB_ACCESS_TOKEN/OAUTH_TOKEN, so
+// searchEnvForIdentity gates that lookup the same way it does in
+// api.NewClientFromConfig: callers that act on behalf of another process
+// inheriting the environment (the Docker credential helper) must pass false
+// so a stray environment variable cannot substitute a different identity's
+// access token here.
+func unmarshal(hostname string, cfg config.Config, searchEnvForIdentity bool) (*oauth2.Token, error) {
 	result := &oauth2.Token{}
 	var err error
 
@@ -58,7 +65,7 @@ func unmarshal(hostname string, cfg config.Config) (*oauth2.Token, error) {
 		return nil, err
 	}
 
-	result.AccessToken, err = cfg.Get(hostname, "token")
+	result.AccessToken, _, err = cfg.GetWithSource(hostname, "token", searchEnvForIdentity)
 	if err != nil {
 		return nil, err
 	}
