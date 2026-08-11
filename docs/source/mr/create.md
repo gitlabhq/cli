@@ -36,13 +36,30 @@ new
 ## Examples
 
 ```console
+# Create a merge request interactively from the current branch
 glab mr new
+
+# Assign a user and set a title without prompting for description
 glab mr create -a username -t "fix annoying bug"
+
+# Fill title and description from commits, mark as draft, add a label
 glab mr create -f --draft --label RFC
+
+# Fill from commits and preview the compare page in the browser
 glab mr create --fill --web
+
+# Fill from commits, expand each commit body into the description
 glab mr create --fill --fill-commit-body --yes
+
+# Use a merge request template for the description
 glab mr create -t "Fix login bug" --template bug_fix
 glab mr create -t "Security patch" --template security_fix.md --yes
+
+# Create against another project without a local clone. All inputs must be passed as flags; no --push, --fill, or --template.
+glab mr create --repo group/project --source-branch feature-branch --target-branch main --title "Add feature" --description "Details..." --yes
+
+# Create a fork merge request from your fork into the upstream project, without a local clone.
+glab mr create --repo upstream/project --head your-namespace/project --source-branch feature-branch --target-branch main --title "Add feature" --description "Details..." --yes
 ```
 
 ## Options
