@@ -82,6 +82,43 @@ func TestExchangeToken_Success(t *testing.T) {
 	assert.Equal(t, "gitlab-artifact-registry,gitlab-iam-data-access", result.Audience)
 }
 
+// TestExchangeToken_RoundsSubSecondDuration guards against reintroducing
+// truncation of the sub-second remainder: harmless when MinDuration was 15
+// minutes, but now that it is 1 second, truncating toward zero can discard
+// nearly a full second of a short, precisely-chosen request.
+func TestExchangeToken_RoundsSubSecondDuration(t *testing.T) {
+	tests := []struct {
+		duration     time.Duration
+		wantExpireIn int
+	}{
+		{duration: 1500 * time.Millisecond, wantExpireIn: 2},
+		{duration: 1100 * time.Millisecond, wantExpireIn: 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.duration.String(), func(t *testing.T) {
+			wantToken := makeJWT(t, jwt.RegisteredClaims{
+				Issuer:    "https://gitlab.example.com",
+				Subject:   "gid://gitlab/User/1",
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(tc.duration)),
+			})
+
+			var gotBody wireRequest
+			srv, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"token":"` + wantToken + `"}`))
+			})
+			client := newTestClient(t, srv.URL)
+
+			_, err := client.ExchangeToken(t.Context(), tc.duration)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantExpireIn, gotBody.ExpiresIn)
+		})
+	}
+}
+
 func TestExchangeDefaultToken_OmitsExpiresIn(t *testing.T) {
 	exp := time.Now().Add(5 * time.Minute).Truncate(time.Second)
 	wantToken := makeJWT(t, jwt.RegisteredClaims{
@@ -207,7 +244,7 @@ func TestExchangeToken_DurationOutOfRange(t *testing.T) {
 	}{
 		{
 			name:     "below MinDuration",
-			duration: 1 * time.Minute,
+			duration: 999 * time.Millisecond,
 		},
 		{
 			name:     "above MaxDuration",
@@ -284,7 +321,8 @@ func TestValidateDuration(t *testing.T) {
 		{name: "exactly MaxDuration is valid", d: MaxDuration, wantErr: false},
 		{name: "one nanosecond below MinDuration is invalid", d: MinDuration - time.Nanosecond, wantErr: true},
 		{name: "one nanosecond above MaxDuration is invalid", d: MaxDuration + time.Nanosecond, wantErr: true},
-		{name: "well below MinDuration is invalid", d: time.Minute, wantErr: true},
+		{name: "zero duration is invalid", d: 0, wantErr: true},
+		{name: "negative duration is invalid", d: -1 * time.Hour, wantErr: true},
 		{name: "well above MaxDuration is invalid", d: 13 * time.Hour, wantErr: true},
 		{name: "within range is valid", d: time.Hour, wantErr: false},
 	}

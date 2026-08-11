@@ -46,15 +46,22 @@ type tokenExchangeResponse struct {
 
 const (
 	// MinDuration is the shortest lifetime a caller may request through
-	// ExchangeToken. This is a CLI-side choice, not a server contract: the
-	// server's actual floor is 1 second, and omitting expires_in (see
-	// ExchangeDefaultToken) gets the server's 5 minute default. AppSec is
-	// pushing for shorter-lived tokens (gitlab#601725, artifact-registry#229),
-	// so keep this a CLI policy that can move independently of the server.
-	MinDuration = 15 * time.Minute
+	// ExchangeToken: the server's actual floor. These tokens cannot be
+	// revoked once minted, and AppSec is pushing for shorter-lived tokens
+	// (gitlab#601725, artifact-registry#229), so the CLI does not add a
+	// floor of its own above the server's: a caller asking for less
+	// exposure should never be blocked from getting it.
+	MinDuration = 1 * time.Second
 	// MaxDuration is the longest lifetime a caller may request through
-	// ExchangeToken. A CLI-side choice, not a server contract; see MinDuration.
+	// ExchangeToken. A CLI-side choice, not a server contract; see
+	// MinDuration.
 	MaxDuration = 12 * time.Hour
+	// DefaultDuration is what callers get when they do not choose a
+	// duration explicitly, e.g. `glab artifact-registry get-token` with no
+	// --duration. A CLI-side choice, independent of MinDuration and of the
+	// server's own 5-minute default, which applies only when expires_in is
+	// omitted entirely (see ExchangeDefaultToken).
+	DefaultDuration = 15 * time.Minute
 )
 
 // Client exchanges a GitLab session token for a short-lived Artifact
@@ -118,7 +125,12 @@ func (c *Client) ExchangeToken(ctx context.Context, duration time.Duration) (*Ex
 	if err := ValidateDuration(duration); err != nil {
 		return nil, err
 	}
-	seconds := int(duration.Seconds())
+	// Round rather than truncate: truncating a sub-second remainder toward
+	// zero used to discard a negligible fraction of a request when
+	// MinDuration was 15 minutes. Now that MinDuration is 1 second, the same
+	// truncation can silently discard up to just under a full second of a
+	// short, precisely-chosen request.
+	seconds := int(duration.Round(time.Second).Seconds())
 	return c.exchange(ctx, &seconds)
 }
 
