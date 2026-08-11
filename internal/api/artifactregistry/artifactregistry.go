@@ -62,6 +62,16 @@ const (
 	// server's own 5-minute default, which applies only when expires_in is
 	// omitted entirely (see ExchangeDefaultToken).
 	DefaultDuration = 15 * time.Minute
+	// DockerHelperDuration is the token lifetime the Docker credential helper
+	// requests for every artifact-registry exchange it makes. Docker invokes
+	// the helper with no way to pass a duration, so this is the only lever;
+	// it is entirely independent of `get-token`, which always validates and
+	// uses its own --duration flag (defaulting to DefaultDuration, not
+	// MinDuration). It is deliberately longer than MinDuration: a docker
+	// pull/push holds the credential for the whole operation, not just the
+	// initial handshake, and a token expiring mid-pull hard-fails it.
+	// Changing it changes how long every docker pull/push's token stays valid.
+	DockerHelperDuration = time.Hour
 )
 
 // Client exchanges a GitLab session token for a short-lived Artifact

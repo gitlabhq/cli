@@ -292,8 +292,43 @@ func WithUserAgent(userAgent string) ClientOption {
 	}
 }
 
+// FromConfigOption customizes how NewClientFromConfig resolves credentials
+// out of config. Distinct from ClientOption, which configures the client
+// that has already been built: this affects resolution that happens before
+// a Client exists.
+type FromConfigOption func(*fromConfigOptions)
+
+type fromConfigOptions struct {
+	// searchEnvForIdentity controls whether the access token and the
+	// is_oauth2 flag may come from the environment (GITLAB_TOKEN,
+	// GITLAB_ACCESS_TOKEN, GLAB_IS_OAUTH2) in addition to config. job_token
+	// is deliberately excluded from this option: CI_JOB_TOKEN authentication
+	// must keep working under CI auto-login regardless.
+	searchEnvForIdentity bool
+}
+
+// WithoutTokenFromEnvironment resolves the access token and the is_oauth2
+// flag from config only, ignoring GITLAB_TOKEN, GITLAB_ACCESS_TOKEN, and
+// GLAB_IS_OAUTH2.
+//
+// Use it wherever glab acts on behalf of another process that inherits the
+// user's shell environment, such as a Docker credential helper, so a stray
+// environment variable cannot decide which identity the request is made as
+// or which auth flow (OAuth2 vs. PAT) it uses. job_token is unaffected, so
+// CI_JOB_TOKEN authentication keeps working under CI auto-login.
+func WithoutTokenFromEnvironment() FromConfigOption {
+	return func(o *fromConfigOptions) {
+		o.searchEnvForIdentity = false
+	}
+}
+
 // NewClientFromConfig initializes the global api with the config data
-func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, userAgent string) (*Client, error) {
+func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, userAgent string, opts ...FromConfigOption) (*Client, error) {
+	fromCfg := fromConfigOptions{searchEnvForIdentity: true}
+	for _, opt := range opts {
+		opt(&fromCfg)
+	}
+
 	apiHost, _ := cfg.Get(repoHost, "api_host")
 	if apiHost == "" {
 		apiHost = repoHost
@@ -305,14 +340,14 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 		apiProtocol = glinstance.DefaultProtocol
 	}
 
-	isOAuth2Cfg, isOAuth2Source, _ := cfg.GetWithSource(repoHost, "is_oauth2", true)
+	isOAuth2Cfg, isOAuth2Source, _ := cfg.GetWithSource(repoHost, "is_oauth2", fromCfg.searchEnvForIdentity)
 
 	// token and job_token may be backed by the OS keyring. Surface read errors
 	// (locked keyring, denied access, unavailable backend) instead of silently
 	// treating them as an empty credential, which produces confusing downstream
 	// auth errors. A credential that is simply not stored returns "" with no
 	// error.
-	token, tokenSource, err := cfg.GetWithSource(repoHost, "token", true)
+	token, tokenSource, err := cfg.GetWithSource(repoHost, "token", fromCfg.searchEnvForIdentity)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the access token for %q: %w", repoHost, err)
 	}
@@ -394,7 +429,7 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 		}
 
 		newAuthSource = func(client *http.Client) (gitlab.AuthSource, error) {
-			ts, err := oauth2.NewConfigTokenSource(cfg, client, glinstance.DefaultProtocol, repoHost)
+			ts, err := oauth2.NewConfigTokenSource(cfg, client, glinstance.DefaultProtocol, repoHost, fromCfg.searchEnvForIdentity)
 			if err != nil {
 				return nil, err
 			}

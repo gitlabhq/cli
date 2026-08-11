@@ -298,6 +298,16 @@ var KeySchema = []KeyDef{
 		Description: "The domains of associated container registries. These are used to configure the\nDocker credential helper.",
 	},
 	{
+		Name: "artifact_registry_domains", Scope: ScopePerHost, Type: TypeString,
+		UserSettable: true,
+		Description: "The domains of associated Artifact Registries. These are used to configure the\n" +
+			"Docker credential helper. Only list a domain here if it is actually backed by\n" +
+			"GitLab Artifact Registry: the credential helper tries this key first, and a\n" +
+			"successful token exchange is used as-is, with no fallback to\n" +
+			"container_registry_domains. A container-registry domain listed here by mistake\n" +
+			"gets an artifact-registry token the registry rejects, and 'docker pull' hard-fails.",
+	},
+	{
 		Name: "custom_headers", Scope: ScopePerHost, Type: TypeList,
 		UserSettable: true,
 		Description:  "Custom HTTP headers to add to all HTTP requests made by glab. Supports both direct values and environment variable loading.\n- name: Proxy-Authorization\n  value: Bearer token123\n- name: Cf-Access-Client-Secret\n  valueFromEnv: MY_SECRET_VALUE",

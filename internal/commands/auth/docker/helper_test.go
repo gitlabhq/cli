@@ -4,14 +4,19 @@ package docker
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/docker/docker-credential-helpers/credentials"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/testing/artifactregistrytest"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -133,7 +138,11 @@ hosts:
     container_registry_domains: registry.gitlab.example.com
 `),
 					registryURL: "registry.gitlab.example.com",
-					expectErr:   "glab token for this registryURL (hostname) is empty",
+					// With no per-host token and no refresh token, the
+					// upfront oauth2 refresh (kept out of the environment by
+					// searchEnvForIdentity=false) fails before the empty-token
+					// check downstream is even reached.
+					expectErr: "oauth2: token expired and refresh token is not set",
 				},
 				"no username": {
 					cfg: config.NewFromString(`
@@ -161,7 +170,9 @@ hosts:
     container_registry_domains: registry.gitlab.example.com
 `),
 					registryURL: "registry.gitlab.example.com",
-					expectErr:   "glab token for this registryURL (hostname) is empty",
+					// Same as "empty token": the upfront oauth2 refresh fails
+					// first since there is no per-host token or refresh token.
+					expectErr: "oauth2: token expired and refresh token is not set",
 				},
 			}
 
@@ -256,27 +267,167 @@ hosts:
 	})
 }
 
-// TestParseDomains covers that a trailing, leading, or doubled comma in
-// container_registry_domains must not produce a blank domain: an empty
-// string reaching dockercredhelper.Register would write "": "glab" into
-// the user's config.json.
-func TestParseDomains(t *testing.T) {
-	tests := map[string]struct {
-		domains string
-		want    []string
-	}{
-		"empty":          {domains: "", want: nil},
-		"single":         {domains: "registry.example.com", want: []string{"registry.example.com"}},
-		"multiple":       {domains: "registry.example.com, registry.other.example.com", want: []string{"registry.example.com", "registry.other.example.com"}},
-		"trailing comma": {domains: "registry.example.com,", want: []string{"registry.example.com"}},
-		"leading comma":  {domains: ",registry.example.com", want: []string{"registry.example.com"}},
-		"doubled comma":  {domains: "registry.example.com,,registry.other.example.com", want: []string{"registry.example.com", "registry.other.example.com"}},
-		"all whitespace": {domains: "   ", want: nil},
-	}
+// TestHelper_Get_Precedence pins the dual-listed-domain precedence rule: the
+// artifact registry is tried first, the container registry is only a
+// fallback, and a domain configured solely for artifact registry gets its
+// real exchange error rather than "unknown domain".
+func TestHelper_Get_Precedence(t *testing.T) {
+	futureDate := time.Now().Add(24 * time.Hour).Format(time.RFC822)
 
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tt.want, parseDomains(tt.domains))
+	t.Run("dual-listed domain, artifact registry exchange succeeds", func(t *testing.T) {
+		wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+			Issuer:    "https://gitlab.example.com",
+			Subject:   "gid://gitlab/User/1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		})
-	}
+		srv, count := artifactregistrytest.NewTokenExchangeServer(t, wantToken, &artifactregistrytest.WireRequest{})
+		host := apiHost(t, srv)
+
+		cfg := config.NewFromString(`
+---
+hosts:
+  gitlab.example.com:
+    is_oauth2: "true"
+    client_id: abc
+    user: user1
+    token: token1
+    oauth2_expiry_date: ` + futureDate + `
+    container_registry_domains: registry.gitlab.example.com
+    artifact_registry_domains: registry.gitlab.example.com
+    api_host: ` + host + `
+    api_protocol: http
+`)
+		helper := Helper{cfg: cfg}
+
+		gotUser, gotToken, err := helper.Get("registry.gitlab.example.com")
+		require.NoError(t, err)
+		assert.Equal(t, "__token__", gotUser)
+		assert.Equal(t, wantToken, gotToken)
+		assert.EqualValues(t, 1, count.Load())
+	})
+
+	t.Run("dual-listed domain, artifact registry exchange fails, container registry used", func(t *testing.T) {
+		srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		})
+		host := apiHost(t, srv)
+
+		cfg := config.NewFromString(`
+---
+hosts:
+  gitlab.example.com:
+    is_oauth2: "true"
+    client_id: abc
+    user: user1
+    token: token1
+    oauth2_expiry_date: ` + futureDate + `
+    container_registry_domains: registry.gitlab.example.com
+    artifact_registry_domains: registry.gitlab.example.com
+    api_host: ` + host + `
+    api_protocol: http
+`)
+		ios, _, _, errOut := cmdtest.TestIOStreams()
+		helper := Helper{cfg: cfg, io: ios}
+
+		gotUser, gotToken, err := helper.Get("registry.gitlab.example.com")
+		require.NoError(t, err)
+		assert.Equal(t, "user1", gotUser)
+		assert.Equal(t, "token1", gotToken)
+		// The fall-through must be visible on stderr without DEBUG=1, since
+		// Docker forwards the helper's stderr but not its debug logging.
+		assert.Contains(t, errOut.String(), "artifact registry exchange failed")
+	})
+
+	t.Run("artifact-registry-only domain, exchange fails, hard error", func(t *testing.T) {
+		srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"artifact registry is disabled for this project"}`))
+		})
+		host := apiHost(t, srv)
+
+		cfg := config.NewFromString(`
+---
+hosts:
+  gitlab.example.com:
+    is_oauth2: "true"
+    client_id: abc
+    user: user1
+    token: token1
+    oauth2_expiry_date: ` + futureDate + `
+    artifact_registry_domains: registry.gitlab.example.com
+    api_host: ` + host + `
+    api_protocol: http
+`)
+		helper := Helper{cfg: cfg}
+
+		_, _, err := helper.Get("registry.gitlab.example.com")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "artifact registry is disabled for this project")
+		assert.NotContains(t, err.Error(), "no hostname associated")
+	})
+
+	// Dual-listed domain, both exchanges fail: the container-registry error
+	// names a real failure (an empty stored token), not just an unassociated
+	// domain, so it must not be swallowed by the artifact-registry error alone.
+	t.Run("dual-listed domain, both exchanges fail, container registry error is not swallowed", func(t *testing.T) {
+		srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"artifact registry is disabled for this project"}`))
+		})
+		host := apiHost(t, srv)
+
+		cfg := config.NewFromString(`
+---
+hosts:
+  gitlab.example.com:
+    is_oauth2: "true"
+    client_id: abc
+    user: ""
+    token: token1
+    oauth2_expiry_date: ` + futureDate + `
+    container_registry_domains: registry.gitlab.example.com
+    artifact_registry_domains: registry.gitlab.example.com
+    api_host: ` + host + `
+    api_protocol: http
+`)
+		helper := Helper{cfg: cfg}
+
+		_, _, err := helper.Get("registry.gitlab.example.com")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "artifact registry is disabled for this project")
+		assert.Contains(t, err.Error(), "glab user for this registryURL (hostname) is empty")
+	})
+
+	t.Run("a config read failure surfaces as itself, not as an unknown domain", func(t *testing.T) {
+		cfg := failingConfig{
+			Config: config.NewFromString(`
+---
+hosts:
+  gitlab.example.com:
+    is_oauth2: "true"
+    client_id: abc
+    user: user1
+    token: token1
+    oauth2_expiry_date: ` + futureDate + `
+`),
+			failKey: "artifact_registry_domains",
+			err:     errors.New("keyring is locked"),
+		}
+		helper := Helper{cfg: cfg}
+
+		_, _, err := helper.Get("registry.gitlab.example.com")
+		require.ErrorContains(t, err, "keyring is locked")
+		assert.NotContains(t, err.Error(), "no hostname associated")
+	})
+}
+
+// apiHost returns srv's host:port, since the api_host config key takes a
+// bare host:port rather than a full URL.
+func apiHost(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	return u.Host
 }

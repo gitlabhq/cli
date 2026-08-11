@@ -26,7 +26,7 @@ func configureDocker(iostreams *iostreams.IOStreams, cfg config.Config) error {
 		// configured, but keep it to decide the exit below: "no domains are
 		// configured" and "your domains could not be read" need different
 		// messages, and a partial failure must not be reported as full success.
-		domains, err := readDomains(cfg, hostname)
+		domains, err := readDomains(cfg, hostname, "container_registry_domains")
 		if err != nil {
 			readErr = errors.Join(readErr, err)
 			iostreams.LogErrorf("%s Skipped %s: %v\n", iostreams.Color().WarnIcon(), hostname, err)

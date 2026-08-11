@@ -26,7 +26,12 @@ func (s stubConfig) Get(host string, key string) (string, error) {
 	return s.hosts[host][key], nil
 }
 
-func (s stubConfig) GetWithSource(string, string, bool) (string, string, error) { return "", "", nil }
+func (s stubConfig) GetWithSource(host string, key string, _ bool) (string, string, error) {
+	if s.getErr != nil {
+		return "", "", s.getErr
+	}
+	return s.hosts[host][key], "", nil
+}
 
 func (s stubConfig) Set(host string, key string, value string) error {
 	if _, ok := s.hosts[host]; !ok {
@@ -80,7 +85,7 @@ func TestConfig_unmarshal(t *testing.T) {
 				},
 			}
 
-			token, err := unmarshal("gitlab.com", cfg)
+			token, err := unmarshal("gitlab.com", cfg, true)
 			require.NoError(t, err)
 
 			assert.Equal(t, "refresh_token", token.RefreshToken)
@@ -138,7 +143,7 @@ func TestConfig_marshalPreservesKeyringRefreshTokenWhenReauthOmitsIt(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "existing-refresh-token", storedRefreshToken)
 
-	persistedToken, err := unmarshal("gitlab.com", cfg)
+	persistedToken, err := unmarshal("gitlab.com", cfg, true)
 	require.NoError(t, err)
 	assert.Equal(t, "existing-refresh-token", persistedToken.RefreshToken)
 	assert.Equal(t, "new-access-token", persistedToken.AccessToken)

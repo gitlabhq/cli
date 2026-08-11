@@ -402,3 +402,89 @@ func TestNewClientFromConfig_SurfacesKeyringReadError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "keyring")
 }
+
+// TestNewClientFromConfig_WithoutTokenFromEnvironment pins the option glab
+// uses when it acts on behalf of a process that inherits the user's shell
+// environment, such as the Docker credential helper: the environment must
+// not be able to decide which identity the request is made as.
+func TestNewClientFromConfig_WithoutTokenFromEnvironment(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "env-pat")
+	t.Setenv("GITLAB_ACCESS_TOKEN", "")
+
+	cfg := config.NewFromString(`
+---
+hosts:
+  gitlab.example.com:
+    token: config-pat
+`)
+
+	t.Run("the environment wins by default", func(t *testing.T) {
+		client, err := NewClientFromConfig("gitlab.example.com", cfg, false, "test-agent")
+		require.NoError(t, err)
+
+		key, value, err := client.AuthSource().Header(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, gitlab.AccessTokenHeaderName, key)
+		assert.Equal(t, "env-pat", value)
+	})
+
+	t.Run("the option restricts resolution to config", func(t *testing.T) {
+		client, err := NewClientFromConfig("gitlab.example.com", cfg, false, "test-agent", WithoutTokenFromEnvironment())
+		require.NoError(t, err)
+
+		key, value, err := client.AuthSource().Header(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, gitlab.AccessTokenHeaderName, key)
+		assert.Equal(t, "config-pat", value)
+	})
+
+	// A host with no stored credential must not silently fall back to the
+	// environment: an unauthenticated client makes the failure visible
+	// instead of acting as whoever GITLAB_TOKEN names.
+	t.Run("a host without a stored token yields an unauthenticated client", func(t *testing.T) {
+		blank := config.NewFromString("---\nhosts:\n  other.example.com:\n    user: someone\n")
+
+		client, err := NewClientFromConfig("other.example.com", blank, false, "test-agent", WithoutTokenFromEnvironment())
+		require.NoError(t, err)
+
+		_, _, err = client.AuthSource().Header(t.Context())
+		require.ErrorContains(t, err, "unauthenticated")
+	})
+
+	// A stray GLAB_IS_OAUTH2 must not flip a PAT-configured host onto the
+	// OAuth2 auth flow: without this, isOAuth2 would read "true" from the
+	// environment, sending the client down the oauth2AccessTokenOnlyAuthSource
+	// branch (Authorization: Bearer) instead of AccessTokenAuthSource
+	// (PRIVATE-TOKEN), even though the token value itself is correct.
+	t.Run("the option also ignores GLAB_IS_OAUTH2", func(t *testing.T) {
+		t.Setenv("GLAB_IS_OAUTH2", "true")
+
+		client, err := NewClientFromConfig("gitlab.example.com", cfg, false, "test-agent", WithoutTokenFromEnvironment())
+		require.NoError(t, err)
+
+		key, value, err := client.AuthSource().Header(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, gitlab.AccessTokenHeaderName, key)
+		assert.Equal(t, "config-pat", value)
+	})
+
+	// job_token is deliberately excluded from the option: CI_JOB_TOKEN
+	// authentication must keep working under CI auto-login regardless of
+	// whether the caller asked to ignore the environment for the identity
+	// (token/is_oauth2) lookups.
+	t.Run("the option does not affect job_token", func(t *testing.T) {
+		t.Setenv("GLAB_ENABLE_CI_AUTOLOGIN", "true")
+		t.Setenv("GITLAB_CI", "true")
+		t.Setenv("CI_JOB_TOKEN", "env-job-token")
+
+		blank := config.NewFromString("---\nhosts:\n  other.example.com:\n    user: someone\n")
+
+		client, err := NewClientFromConfig("other.example.com", blank, false, "test-agent", WithoutTokenFromEnvironment())
+		require.NoError(t, err)
+
+		key, value, err := client.AuthSource().Header(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, gitlab.JobTokenHeaderName, key)
+		assert.Equal(t, "env-job-token", value)
+	})
+}

@@ -32,13 +32,27 @@ type configTokenSource struct {
 	httpClient *http.Client
 	hostname   string
 
+	// searchEnvForIdentity controls whether the initial and freshly re-read
+	// access token may come from GITLAB_TOKEN/GITLAB_ACCESS_TOKEN/OAUTH_TOKEN
+	// in addition to config. See WithoutTokenFromEnvironment's doc comment in
+	// unmarshal for why this must be false for a caller like the Docker
+	// credential helper.
+	searchEnvForIdentity bool
+
 	oauth2Config *oauth2.Config
 
 	// Token is not thread-safe
 	mu sync.Mutex
 }
 
-func NewConfigTokenSource(cfg config.Config, httpClient *http.Client, protocol, hostname string) (oauth2.TokenSource, error) {
+// NewConfigTokenSource returns an oauth2.TokenSource backed by cfg's stored
+// OAuth2 credentials for hostname, refreshing and persisting a rotated token
+// as needed. searchEnvForIdentity controls whether the access token may also
+// come from GITLAB_TOKEN/GITLAB_ACCESS_TOKEN/OAUTH_TOKEN; pass false wherever
+// glab acts on behalf of another process that inherits the user's shell
+// environment, such as the Docker credential helper, so a stray environment
+// variable cannot substitute a different identity's access token.
+func NewConfigTokenSource(cfg config.Config, httpClient *http.Client, protocol, hostname string, searchEnvForIdentity bool) (oauth2.TokenSource, error) {
 	clientID, err := oauthClientID(cfg, hostname)
 	if err != nil {
 		return nil, err
@@ -46,16 +60,17 @@ func NewConfigTokenSource(cfg config.Config, httpClient *http.Client, protocol, 
 
 	oauth2Config := gitlaboauth2.NewOAuth2Config(fmt.Sprintf("%s://%s", protocol, hostname), clientID, redirectURL, scopes)
 
-	token, err := unmarshal(hostname, cfg)
+	token, err := unmarshal(hostname, cfg, searchEnvForIdentity)
 	if err != nil {
 		return nil, err
 	}
 
 	src := &configTokenSource{
-		cfg:          cfg,
-		oauth2Config: oauth2Config,
-		httpClient:   httpClient,
-		hostname:     hostname,
+		cfg:                  cfg,
+		oauth2Config:         oauth2Config,
+		httpClient:           httpClient,
+		hostname:             hostname,
+		searchEnvForIdentity: searchEnvForIdentity,
 	}
 
 	return oauth2.ReuseTokenSource(token, src), nil
@@ -137,7 +152,7 @@ func (c *configTokenSource) refreshLocked() (*oauth2.Token, error) {
 // in-memory config when it cannot be re-read.
 func (c *configTokenSource) freshest() (config.Config, *oauth2.Token, error) {
 	src := c.cfg
-	token, err := unmarshal(c.hostname, c.cfg)
+	token, err := unmarshal(c.hostname, c.cfg, c.searchEnvForIdentity)
 
 	fresh, reloadErr := c.cfg.Reload()
 	if reloadErr != nil {
@@ -145,7 +160,7 @@ func (c *configTokenSource) freshest() (config.Config, *oauth2.Token, error) {
 		return src, token, err
 	}
 
-	freshToken, freshErr := unmarshal(c.hostname, fresh)
+	freshToken, freshErr := unmarshal(c.hostname, fresh, c.searchEnvForIdentity)
 	if freshErr != nil {
 		dbg.Debugf("oauth2: could not parse re-read config for %q, using in-memory copy: %v", c.hostname, freshErr)
 		return src, token, err
@@ -170,7 +185,7 @@ func (c *configTokenSource) adopt() (*oauth2.Token, bool) {
 			return nil, false
 		}
 
-		token, err := unmarshal(c.hostname, fresh)
+		token, err := unmarshal(c.hostname, fresh, c.searchEnvForIdentity)
 		if err != nil {
 			dbg.Debugf("oauth2: adopt: could not parse re-read config for %q (attempt %d): %v", c.hostname, attempt+1, err)
 			continue
