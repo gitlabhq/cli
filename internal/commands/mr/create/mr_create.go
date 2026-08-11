@@ -110,23 +110,56 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 		`, "`"),
 		Aliases: []string{"new"},
 		Example: heredoc.Doc(`
+			# Create a merge request interactively from the current branch
 			glab mr new
+
+			# Assign a user and set a title without prompting for description
 			glab mr create -a username -t "fix annoying bug"
+
+			# Fill title and description from commits, mark as draft, add a label
 			glab mr create -f --draft --label RFC
+
+			# Fill from commits and preview the compare page in the browser
 			glab mr create --fill --web
+
+			# Fill from commits, expand each commit body into the description
 			glab mr create --fill --fill-commit-body --yes
+
+			# Use a merge request template for the description
 			glab mr create -t "Fix login bug" --template bug_fix
-			glab mr create -t "Security patch" --template security_fix.md --yes`),
+			glab mr create -t "Security patch" --template security_fix.md --yes
+
+			# Create against another project without a local clone. All inputs must be passed as flags; no --push, --fill, or --template.
+			glab mr create --repo group/project --source-branch feature-branch --target-branch main --title "Add feature" --description "Details..." --yes
+
+			# Create a fork merge request from your fork into the upstream project, without a local clone.
+			glab mr create --repo upstream/project --head your-namespace/project --source-branch feature-branch --target-branch main --title "Add feature" --description "Details..." --yes`),
 		Args: cobra.NoArgs,
 		PreRun: func(cmd *cobra.Command, args []string) {
-			opts.headRepo = ResolvedHeadRepo(cmd.Context(), f)
-
 			repoOverride, _ := cmd.Flags().GetString("head")
 			if repoFromEnv := os.Getenv("GITLAB_HEAD_REPO"); repoOverride == "" && repoFromEnv != "" {
 				repoOverride = repoFromEnv
 			}
 			if repoOverride != "" {
 				headRepoOverride(opts, repoOverride)
+				return
+			}
+
+			// Only fall back to baseRepo when there is no local git repo (or no
+			// remotes at all). Actionable resolver errors — GITLAB_HOST mismatch,
+			// unknown GitLab host — must propagate so the user sees the diagnostic.
+			resolved := ResolvedHeadRepo(cmd.Context(), f)
+			opts.headRepo = func() (glrepo.Interface, error) {
+				_, err := f.Remotes()
+				if err == nil {
+					return resolved()
+				}
+				msg := err.Error()
+				if strings.Contains(msg, "not a git repository") ||
+					strings.Contains(msg, "no git remotes found") {
+					return f.BaseRepo()
+				}
+				return nil, err
 			}
 		},
 		Annotations: map[string]string{
@@ -257,7 +290,7 @@ func parseIssue(apiClientFunc func(repoHost string) (*api.Client, error), gitlab
 	return issue, nil
 }
 
-func (o *options) selectTemplate(ctx context.Context, client *gitlab.Client) (string, error) {
+func (o *options) selectTemplate(ctx context.Context, client *gitlab.Client, getBaseRepoRemote func() (*glrepo.Remote, error)) (string, error) {
 	templateNames, err := cmdutils.ListGitLabTemplates(cmdutils.MergeRequestTemplate)
 	if err != nil {
 		return "", fmt.Errorf("error getting templates: %w", err)
@@ -277,6 +310,11 @@ func (o *options) selectTemplate(ctx context.Context, client *gitlab.Client) (st
 	var templateContents string
 	switch templateName {
 	case mrWithCommitsTemplate:
+		baseRepoRemote, err := getBaseRepoRemote()
+		if err != nil {
+			return "", err
+		}
+		o.TargetTrackingBranch = fmt.Sprintf("%s/%s", baseRepoRemote.Name, o.TargetBranch)
 		commits, err := git.Commits(o.TargetTrackingBranch, o.SourceBranch)
 		if err != nil {
 			return "", fmt.Errorf("failed to get commits: %w", err)
@@ -383,21 +421,41 @@ func (o *options) run(ctx context.Context) error {
 		return cmdutils.SilentError
 	}
 
-	headRepoRemote, err := repoRemote(o, headRepo, o.SourceProject, "glab-head")
-	if err != nil {
-		return err
-	}
-
-	var baseRepoRemote *glrepo.Remote
-
-	// check if baseRepo is the same as the headRepo and set the remote
-	if glrepo.IsSame(baseRepo, headRepo) {
-		baseRepoRemote = headRepoRemote
-	} else {
-		baseRepoRemote, err = repoRemote(o, baseRepo, o.TargetProject, "glab-base")
-		if err != nil {
-			return err
+	// repoRemote can mutate the current repo (git.AddRemote for glab-head /
+	// glab-base) and fails outside a repo. Only invoke it at the point of use.
+	var (
+		cachedHeadRepoRemote *glrepo.Remote
+		cachedBaseRepoRemote *glrepo.Remote
+	)
+	getHeadRepoRemote := func() (*glrepo.Remote, error) {
+		if cachedHeadRepoRemote != nil {
+			return cachedHeadRepoRemote, nil
 		}
+		r, err := repoRemote(o, headRepo, o.SourceProject, "glab-head")
+		if err != nil {
+			return nil, err
+		}
+		cachedHeadRepoRemote = r
+		return r, nil
+	}
+	getBaseRepoRemote := func() (*glrepo.Remote, error) {
+		if cachedBaseRepoRemote != nil {
+			return cachedBaseRepoRemote, nil
+		}
+		if glrepo.IsSame(baseRepo, headRepo) {
+			r, err := getHeadRepoRemote()
+			if err != nil {
+				return nil, err
+			}
+			cachedBaseRepoRemote = r
+			return r, nil
+		}
+		r, err := repoRemote(o, baseRepo, o.TargetProject, "glab-base")
+		if err != nil {
+			return nil, err
+		}
+		cachedBaseRepoRemote = r
+		return r, nil
 	}
 
 	if o.MilestoneFlag != "" {
@@ -462,7 +520,6 @@ func (o *options) run(ctx context.Context) error {
 			o.SourceBranch = sourceBranch
 		}
 	} else {
-		o.TargetTrackingBranch = fmt.Sprintf("%s/%s", baseRepoRemote.Name, o.TargetBranch)
 		if o.SourceBranch == o.TargetBranch && glrepo.IsSame(baseRepo, headRepo) {
 			o.io.LogErrorf("You must be on a different branch other than %q\n", o.TargetBranch)
 			return cmdutils.SilentError
@@ -470,7 +527,7 @@ func (o *options) run(ctx context.Context) error {
 
 		// Handle -d- flag: show template selection first, then open editor
 		err = cmdutils.HandleDescriptionEditor(ctx, &o.Description, o.io, o.config, func(ctx context.Context) (string, error) {
-			return o.selectTemplate(ctx, client)
+			return o.selectTemplate(ctx, client, getBaseRepoRemote)
 		})
 		if err != nil {
 			return err
@@ -488,10 +545,15 @@ func (o *options) run(ctx context.Context) error {
 		}
 
 		if o.Autofill {
+			baseRepoRemote, err := getBaseRepoRemote()
+			if err != nil {
+				return err
+			}
+			o.TargetTrackingBranch = fmt.Sprintf("%s/%s", baseRepoRemote.Name, o.TargetBranch)
 			if err = mrBodyAndTitle(o); err != nil {
 				return err
 			}
-			_, _, err := client.Commits.GetCommit(baseRepo.FullName(), o.TargetBranch, nil)
+			_, _, err = client.Commits.GetCommit(baseRepo.FullName(), o.TargetBranch, nil)
 			if err != nil {
 				return fmt.Errorf("target branch %s does not exist on remote. Specify target branch with the --target-branch flag",
 					o.TargetBranch)
@@ -507,7 +569,7 @@ func (o *options) run(ctx context.Context) error {
 						return err
 					}
 				} else {
-					templateContents, err = o.selectTemplate(ctx, client)
+					templateContents, err = o.selectTemplate(ctx, client, getBaseRepoRemote)
 					if err != nil {
 						return err
 					}
@@ -647,33 +709,40 @@ func (o *options) run(ctx context.Context) error {
 			return fmt.Errorf("failed to pick the metadata to add: %w", err)
 		}
 
-		for _, x := range metadataActions {
-			if x == "labels" {
-				err = cmdutils.LabelsPrompt(ctx, o.io, &o.Labels, client, baseRepoRemote)
-				if err != nil {
-					return err
-				}
+		if len(metadataActions) > 0 {
+			baseRepoRemote, err := getBaseRepoRemote()
+			if err != nil {
+				return err
 			}
-			if x == "assignees" {
-				// Use minimum permission level 30 (Maintainer) as it is the minimum level
-				// to accept a merge request
-				err = cmdutils.UsersPrompt(ctx, &o.Assignees, client, baseRepoRemote, o.io, 30, x)
-				if err != nil {
-					return err
+
+			for _, x := range metadataActions {
+				if x == "labels" {
+					err = cmdutils.LabelsPrompt(ctx, o.io, &o.Labels, client, baseRepoRemote)
+					if err != nil {
+						return err
+					}
 				}
-			}
-			if x == "milestones" {
-				err = cmdutils.MilestonesPrompt(ctx, &o.Milestone, client, baseRepoRemote, o.io)
-				if err != nil {
-					return err
+				if x == "assignees" {
+					// Use minimum permission level 30 (Maintainer) as it is the minimum level
+					// to accept a merge request
+					err = cmdutils.UsersPrompt(ctx, &o.Assignees, client, baseRepoRemote, o.io, 30, x)
+					if err != nil {
+						return err
+					}
 				}
-			}
-			if x == "reviewers" {
-				// Use minimum permission level 30 (Maintainer) as it is the minimum level
-				// to accept a merge request
-				err = cmdutils.UsersPrompt(ctx, &o.Reviewers, client, baseRepoRemote, o.io, 30, x)
-				if err != nil {
-					return err
+				if x == "milestones" {
+					err = cmdutils.MilestonesPrompt(ctx, &o.Milestone, client, baseRepoRemote, o.io)
+					if err != nil {
+						return err
+					}
+				}
+				if x == "reviewers" {
+					// Use minimum permission level 30 (Maintainer) as it is the minimum level
+					// to accept a merge request
+					err = cmdutils.UsersPrompt(ctx, &o.Reviewers, client, baseRepoRemote, o.io, 30, x)
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -718,8 +787,14 @@ func (o *options) run(ctx context.Context) error {
 		return nil
 	}
 
-	if err := handlePush(o, headRepoRemote); err != nil {
-		return err
+	if o.ShouldPush {
+		headRepoRemote, err := getHeadRepoRemote()
+		if err != nil {
+			return err
+		}
+		if err := handlePush(o, headRepoRemote); err != nil {
+			return err
+		}
 	}
 
 	if action == cmdutils.PreviewAction {

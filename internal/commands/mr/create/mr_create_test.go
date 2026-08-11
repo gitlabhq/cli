@@ -887,27 +887,48 @@ func Test_MRCreate_With_Recover_Integration(t *testing.T) {
 	assert.Contains(t, newOutput.String(), "https://gitlab.com/OWNER/REPO/-/merge_requests/12")
 }
 
-func TestMRCreate_RemotesError_PropagatesError(t *testing.T) {
+func TestMRCreate_NoGitRepo_FlagCompleteSucceeds(t *testing.T) {
 	t.Parallel()
-
-	// Test that errors from Remotes() are properly propagated (not swallowed)
-	// This ensures the bug from issue #8112 doesn't regress
 
 	testClient := gitlabtesting.NewTestClient(t)
 
-	// Setup command using cmdtest.SetupCmdForTest
+	testClient.MockProjects.EXPECT().
+		GetProject("OWNER/REPO", gomock.Any()).
+		Return(&gitlab.Project{
+			ID:                   1,
+			DefaultBranch:        "main",
+			WebURL:               "http://gitlab.com/OWNER/REPO",
+			Name:                 "OWNER",
+			Path:                 "REPO",
+			MergeRequestsEnabled: true,
+			PathWithNamespace:    "OWNER/REPO",
+		}, nil, nil).AnyTimes()
+
+	testClient.MockMergeRequests.EXPECT().
+		CreateMergeRequest("OWNER/REPO", gomock.Any()).
+		Return(&gitlab.MergeRequest{
+			BasicMergeRequest: gitlab.BasicMergeRequest{
+				ID:           1,
+				IID:          12,
+				Title:        "Test",
+				Description:  "TestDesc",
+				State:        "opened",
+				TargetBranch: "main",
+				SourceBranch: "test-branch",
+				WebURL:       "https://gitlab.com/OWNER/REPO/-/merge_requests/12",
+			},
+		}, nil, nil)
+
 	exec := cmdtest.SetupCmdForTest(t,
 		func(f cmdutils.Factory) *cobra.Command {
 			tf, ok := f.(*cmdtest.Factory)
 			require.True(t, ok, "expected cmdtest.Factory")
 
-			// Simulate being outside a git repository - Remotes() fails
-			remotesErr := errors.New("fatal: not a git repository (or any of the parent directories): .git")
 			tf.RemotesStub = func() (glrepo.Remotes, error) {
-				return nil, remotesErr
+				return nil, errors.New("fatal: not a git repository (or any of the parent directories): .git")
 			}
 			tf.BranchStub = func() (string, error) {
-				return "test-branch", nil
+				return "", errors.New("fatal: not a git repository (or any of the parent directories): .git")
 			}
 
 			return NewCmdCreate(f)
@@ -919,9 +940,93 @@ func TestMRCreate_RemotesError_PropagatesError(t *testing.T) {
 	cli := "--source-branch test-branch --target-branch main --title Test --description TestDesc --no-editor --yes"
 	output, err := exec(cli)
 
-	require.Error(t, err, "expected error when Remotes() fails")
+	require.NoError(t, err, "flag-complete mr create should succeed outside a git repo")
+	assert.Contains(t, output.String(), "https://gitlab.com/OWNER/REPO/-/merge_requests/12")
+	assert.Contains(t, output.Stderr(), "Creating merge request for test-branch into main in OWNER/REPO")
+}
+
+func TestMRCreate_PushOutsideGitRepo_PropagatesError(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+
+	testClient.MockProjects.EXPECT().
+		GetProject("OWNER/REPO", gomock.Any()).
+		Return(&gitlab.Project{
+			ID:                   1,
+			DefaultBranch:        "main",
+			WebURL:               "http://gitlab.com/OWNER/REPO",
+			Name:                 "OWNER",
+			Path:                 "REPO",
+			MergeRequestsEnabled: true,
+			PathWithNamespace:    "OWNER/REPO",
+		}, nil, nil).AnyTimes()
+
+	exec := cmdtest.SetupCmdForTest(t,
+		func(f cmdutils.Factory) *cobra.Command {
+			tf, ok := f.(*cmdtest.Factory)
+			require.True(t, ok, "expected cmdtest.Factory")
+
+			tf.RemotesStub = func() (glrepo.Remotes, error) {
+				return nil, errors.New("fatal: not a git repository (or any of the parent directories): .git")
+			}
+			tf.BranchStub = func() (string, error) {
+				return "", errors.New("fatal: not a git repository (or any of the parent directories): .git")
+			}
+
+			return NewCmdCreate(f)
+		},
+		false,
+		cmdtest.WithGitLabClient(testClient.Client),
+	)
+
+	cli := "--source-branch test-branch --target-branch main --title Test --description TestDesc --no-editor --yes --push"
+	output, err := exec(cli)
+
+	require.Error(t, err, "expected error when --push is used outside a git repo")
 	assert.Contains(t, err.Error(), "not a git repository", "error should mention git repository")
-	assert.NotContains(t, output.String(), "!12", "should not have created a merge request")
+	assert.NotContains(t, output.String(), "/-/merge_requests/", "should not have created a merge request")
+}
+
+func TestMRCreate_RemotesResolverError_PropagatesError(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+
+	testClient.MockProjects.EXPECT().
+		GetProject("OWNER/REPO", gomock.Any()).
+		Return(&gitlab.Project{
+			ID:                   1,
+			DefaultBranch:        "main",
+			WebURL:               "http://gitlab.com/OWNER/REPO",
+			Name:                 "OWNER",
+			Path:                 "REPO",
+			MergeRequestsEnabled: true,
+			PathWithNamespace:    "OWNER/REPO",
+		}, nil, nil).AnyTimes()
+
+	resolverErr := errors.New("none of the git remotes configured for this repository correspond to the GITLAB_HOST environment variable. Try adding a matching remote or unsetting the variable.")
+
+	exec := cmdtest.SetupCmdForTest(t,
+		func(f cmdutils.Factory) *cobra.Command {
+			tf, ok := f.(*cmdtest.Factory)
+			require.True(t, ok, "expected cmdtest.Factory")
+
+			tf.RemotesStub = func() (glrepo.Remotes, error) {
+				return nil, resolverErr
+			}
+
+			return NewCmdCreate(f)
+		},
+		false,
+		cmdtest.WithGitLabClient(testClient.Client),
+	)
+
+	cli := "--source-branch test-branch --target-branch main --title Test --description TestDesc --no-editor --yes"
+	_, err := exec(cli)
+
+	require.Error(t, err, "actionable resolver errors must not be swallowed")
+	assert.Contains(t, err.Error(), "GITLAB_HOST")
 }
 
 func TestMRCreate_SquashBeforeMergeFlag(t *testing.T) {
