@@ -4,12 +4,14 @@
 package artifactregistrytest
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -39,6 +41,30 @@ func NewTestServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *a
 	t.Cleanup(srv.Close)
 
 	return srv, &count
+}
+
+// NewTokenExchangeServer starts a fake token_exchange endpoint that asserts
+// the request is a well-formed POST to the expected path, decodes its body
+// into gotBody, and always responds with wantToken.
+func NewTokenExchangeServer(t *testing.T, wantToken string, gotBody *WireRequest) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+
+	return NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/api/v4/token_exchange", r.URL.Path)
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(gotBody))
+
+		body, err := json.Marshal(struct { //nolint:forbidigo // building the fake server's response body, not stdout output
+			Token string `json:"token"`
+		}{Token: wantToken})
+		if !assert.NoError(t, err) {
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	})
 }
 
 // NewTestClient builds a *gitlab.Client pointed at baseURL (typically an

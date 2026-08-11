@@ -15,7 +15,7 @@ Authenticate with GitLab Artifact Registry. (EXPERIMENTAL)
 ## Synopsis
 
 Exchange a GitLab credential for a short-lived Artifact Registry access
-token.
+token, either to check your access or to hand the token to a caller.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
@@ -36,4 +36,5 @@ ar
 
 ## Subcommands
 
+- [`get-token`](get-token.md)
 - [`status`](status.md)

@@ -20,6 +20,7 @@ func TestNewCmd(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 
 	assert.Contains(t, stdout.String(), "status")
+	assert.Contains(t, stdout.String(), "get-token")
 }
 
 func TestNewCmd_NameAndAlias(t *testing.T) {
