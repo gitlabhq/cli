@@ -139,11 +139,13 @@ func (o *options) run() error {
 			Value:            new(o.value),
 			EnvironmentScope: new(o.scope),
 			Masked:           new(o.masked),
-			MaskedAndHidden:  new(o.hidden),
 			Protected:        new(o.protected),
 			VariableType:     new(gitlab.VariableTypeValue(o.typ)),
 			Raw:              new(o.raw),
 			Description:      new(o.description),
+		}
+		if o.hidden {
+			createVarOpts.MaskedAndHidden = new(true)
 		}
 
 		_, _, err := client.GroupVariables.CreateVariable(o.group, createVarOpts)
@@ -165,11 +167,13 @@ func (o *options) run() error {
 		Value:            new(o.value),
 		EnvironmentScope: new(o.scope),
 		Masked:           new(o.masked),
-		MaskedAndHidden:  new(o.hidden),
 		Protected:        new(o.protected),
 		VariableType:     new(gitlab.VariableTypeValue(o.typ)),
 		Raw:              new(o.raw),
 		Description:      new(o.description),
+	}
+	if o.hidden {
+		createVarOpts.MaskedAndHidden = new(true)
 	}
 	_, _, err = client.ProjectVariables.CreateVariable(baseRepo.FullName(), createVarOpts)
 	if err != nil {
