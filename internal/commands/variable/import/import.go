@@ -225,31 +225,37 @@ func (o *options) run(ctx context.Context) error {
 
 func (o *options) create(ctx context.Context, client *gitlab.Client, target string, v importedVariable) error {
 	if o.group != "" {
-		_, _, err := client.GroupVariables.CreateVariable(target, &gitlab.CreateGroupVariableOptions{
+		groupOpts := &gitlab.CreateGroupVariableOptions{
 			Key:              new(v.Key),
 			Value:            new(v.Value),
 			EnvironmentScope: new(v.EnvironmentScope),
 			Masked:           new(v.Masked),
-			MaskedAndHidden:  new(v.Hidden),
 			Protected:        new(v.Protected),
 			VariableType:     new(gitlab.VariableTypeValue(v.VariableType)),
 			Raw:              new(v.Raw),
 			Description:      new(v.Description),
-		}, gitlab.WithContext(ctx))
+		}
+		if v.Hidden {
+			groupOpts.MaskedAndHidden = new(true)
+		}
+		_, _, err := client.GroupVariables.CreateVariable(target, groupOpts, gitlab.WithContext(ctx))
 		return err
 	}
 
-	_, _, err := client.ProjectVariables.CreateVariable(target, &gitlab.CreateProjectVariableOptions{
+	projectOpts := &gitlab.CreateProjectVariableOptions{
 		Key:              new(v.Key),
 		Value:            new(v.Value),
 		EnvironmentScope: new(v.EnvironmentScope),
 		Masked:           new(v.Masked),
-		MaskedAndHidden:  new(v.Hidden),
 		Protected:        new(v.Protected),
 		VariableType:     new(gitlab.VariableTypeValue(v.VariableType)),
 		Raw:              new(v.Raw),
 		Description:      new(v.Description),
-	}, gitlab.WithContext(ctx))
+	}
+	if v.Hidden {
+		projectOpts.MaskedAndHidden = new(true)
+	}
+	_, _, err := client.ProjectVariables.CreateVariable(target, projectOpts, gitlab.WithContext(ctx))
 	return err
 }
 

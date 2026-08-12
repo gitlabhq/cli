@@ -206,3 +206,79 @@ func Test_importRun_skipsHiddenWithEmptyValue(t *testing.T) {
 	assert.Contains(t, out, "Skipped SECRET: hidden variables' values aren't included")
 	assert.Contains(t, out, "Imported 0 variables into owner/repo (1 skipped).")
 }
+
+func Test_importRun_project_masked_and_hidden_omitted(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+
+	var capturedOpts *gitlab.CreateProjectVariableOptions
+	testClient.MockProjectVariables.EXPECT().
+		CreateVariable("owner/repo", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(pid any, opts *gitlab.CreateProjectVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.ProjectVariable, *gitlab.Response, error) {
+			capturedOpts = opts
+			return &gitlab.ProjectVariable{Key: "MY_VAR"}, nil, nil
+		})
+
+	file := writeVariablesFile(t, `[{"key":"MY_VAR","value":"val","variable_type":"env_var","environment_scope":"*"}]`)
+	opts, _ := newOptions(t, testClient, file)
+
+	require.NoError(t, opts.run(t.Context()))
+	assert.Nil(t, capturedOpts.MaskedAndHidden)
+}
+
+func Test_importRun_project_masked_and_hidden_sent(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+
+	var capturedOpts *gitlab.CreateProjectVariableOptions
+	testClient.MockProjectVariables.EXPECT().
+		CreateVariable("owner/repo", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(pid any, opts *gitlab.CreateProjectVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.ProjectVariable, *gitlab.Response, error) {
+			capturedOpts = opts
+			return &gitlab.ProjectVariable{Key: "MY_VAR"}, nil, nil
+		})
+
+	file := writeVariablesFile(t, `[{"key":"MY_VAR","value":"val","variable_type":"env_var","environment_scope":"*","hidden":true}]`)
+	opts, _ := newOptions(t, testClient, file)
+
+	require.NoError(t, opts.run(t.Context()))
+	require.NotNil(t, capturedOpts.MaskedAndHidden)
+	assert.True(t, *capturedOpts.MaskedAndHidden)
+}
+
+func Test_importRun_group_masked_and_hidden_omitted(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+
+	var capturedOpts *gitlab.CreateGroupVariableOptions
+	testClient.MockGroupVariables.EXPECT().
+		CreateVariable("mygroup", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(gid any, opts *gitlab.CreateGroupVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.GroupVariable, *gitlab.Response, error) {
+			capturedOpts = opts
+			return &gitlab.GroupVariable{Key: "MY_VAR"}, nil, nil
+		})
+
+	file := writeVariablesFile(t, `[{"key":"MY_VAR","value":"val","variable_type":"env_var","environment_scope":"*"}]`)
+	opts, _ := newOptions(t, testClient, file)
+	opts.group = "mygroup"
+
+	require.NoError(t, opts.run(t.Context()))
+	assert.Nil(t, capturedOpts.MaskedAndHidden)
+}
+
+func Test_importRun_group_masked_and_hidden_sent(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+
+	var capturedOpts *gitlab.CreateGroupVariableOptions
+	testClient.MockGroupVariables.EXPECT().
+		CreateVariable("mygroup", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(gid any, opts *gitlab.CreateGroupVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.GroupVariable, *gitlab.Response, error) {
+			capturedOpts = opts
+			return &gitlab.GroupVariable{Key: "MY_VAR"}, nil, nil
+		})
+
+	file := writeVariablesFile(t, `[{"key":"MY_VAR","value":"val","variable_type":"env_var","environment_scope":"*","hidden":true}]`)
+	opts, _ := newOptions(t, testClient, file)
+	opts.group = "mygroup"
+
+	require.NoError(t, opts.run(t.Context()))
+	require.NotNil(t, capturedOpts.MaskedAndHidden)
+	assert.True(t, *capturedOpts.MaskedAndHidden)
+}

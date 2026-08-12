@@ -282,3 +282,139 @@ func Test_setRun_group(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "✓ Created variable NEW_VARIABLE for group mygroup.\n", stdout.String())
 }
+
+func Test_setRun_group_masked_and_hidden_omitted(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+
+	var capturedOpts *gitlab.CreateGroupVariableOptions
+	testClient.MockGroupVariables.EXPECT().
+		CreateVariable("mygroup", gomock.Any()).
+		DoAndReturn(func(group any, opts *gitlab.CreateGroupVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.GroupVariable, *gitlab.Response, error) {
+			capturedOpts = opts
+			return &gitlab.GroupVariable{Key: "MY_VAR"}, nil, nil
+		})
+
+	io, _, _, _ := cmdtest.TestIOStreams()
+
+	opts := &options{
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return cmdtest.NewTestApiClient(t, nil, "", "gitlab.com", api.WithGitLabClient(testClient.Client)), nil
+		},
+		baseRepo: func() (glrepo.Interface, error) {
+			return glrepo.New("owner", "repo", "gitlab.com"), nil
+		},
+		io:    io,
+		key:   "MY_VAR",
+		value: "some value",
+		group: "mygroup",
+	}
+
+	err := opts.run()
+	require.NoError(t, err)
+	assert.Nil(t, capturedOpts.MaskedAndHidden)
+}
+
+func Test_setRun_group_masked_and_hidden_sent(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+
+	var capturedOpts *gitlab.CreateGroupVariableOptions
+	testClient.MockGroupVariables.EXPECT().
+		CreateVariable("mygroup", gomock.Any()).
+		DoAndReturn(func(group any, opts *gitlab.CreateGroupVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.GroupVariable, *gitlab.Response, error) {
+			capturedOpts = opts
+			return &gitlab.GroupVariable{Key: "MY_VAR"}, nil, nil
+		})
+
+	io, _, _, _ := cmdtest.TestIOStreams()
+
+	opts := &options{
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return cmdtest.NewTestApiClient(t, nil, "", "gitlab.com", api.WithGitLabClient(testClient.Client)), nil
+		},
+		baseRepo: func() (glrepo.Interface, error) {
+			return glrepo.New("owner", "repo", "gitlab.com"), nil
+		},
+		io:     io,
+		key:    "MY_VAR",
+		value:  "some value",
+		group:  "mygroup",
+		hidden: true,
+	}
+
+	err := opts.run()
+	require.NoError(t, err)
+	require.NotNil(t, capturedOpts.MaskedAndHidden)
+	assert.True(t, *capturedOpts.MaskedAndHidden)
+}
+
+func Test_setRun_project_masked_and_hidden_omitted(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+
+	var capturedOpts *gitlab.CreateProjectVariableOptions
+	testClient.MockProjectVariables.EXPECT().
+		CreateVariable("owner/repo", gomock.Any()).
+		DoAndReturn(func(pid any, opts *gitlab.CreateProjectVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.ProjectVariable, *gitlab.Response, error) {
+			capturedOpts = opts
+			return &gitlab.ProjectVariable{Key: "MY_VAR"}, nil, nil
+		})
+
+	io, _, _, _ := cmdtest.TestIOStreams()
+
+	opts := &options{
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return cmdtest.NewTestApiClient(t, nil, "", "gitlab.com", api.WithGitLabClient(testClient.Client)), nil
+		},
+		baseRepo: func() (glrepo.Interface, error) {
+			return glrepo.New("owner", "repo", "gitlab.com"), nil
+		},
+		io:    io,
+		key:   "MY_VAR",
+		value: "some value",
+		scope: "*",
+	}
+
+	err := opts.run()
+	require.NoError(t, err)
+	assert.Nil(t, capturedOpts.MaskedAndHidden)
+}
+
+func Test_setRun_project_masked_and_hidden_sent(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+
+	var capturedOpts *gitlab.CreateProjectVariableOptions
+	testClient.MockProjectVariables.EXPECT().
+		CreateVariable("owner/repo", gomock.Any()).
+		DoAndReturn(func(pid any, opts *gitlab.CreateProjectVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.ProjectVariable, *gitlab.Response, error) {
+			capturedOpts = opts
+			return &gitlab.ProjectVariable{Key: "MY_VAR"}, nil, nil
+		})
+
+	io, _, _, _ := cmdtest.TestIOStreams()
+
+	opts := &options{
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return cmdtest.NewTestApiClient(t, nil, "", "gitlab.com", api.WithGitLabClient(testClient.Client)), nil
+		},
+		baseRepo: func() (glrepo.Interface, error) {
+			return glrepo.New("owner", "repo", "gitlab.com"), nil
+		},
+		io:     io,
+		key:    "MY_VAR",
+		value:  "some value",
+		scope:  "*",
+		hidden: true,
+	}
+
+	err := opts.run()
+	require.NoError(t, err)
+	require.NotNil(t, capturedOpts.MaskedAndHidden)
+	assert.True(t, *capturedOpts.MaskedAndHidden)
+}
