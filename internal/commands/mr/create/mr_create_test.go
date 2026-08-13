@@ -4,6 +4,7 @@ package create
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -924,8 +925,10 @@ func TestMRCreate_NoGitRepo_FlagCompleteSucceeds(t *testing.T) {
 			tf, ok := f.(*cmdtest.Factory)
 			require.True(t, ok, "expected cmdtest.Factory")
 
+			// Mirrors what git.Remotes() returns outside a repo: git's own
+			// (localized) message, labelled with git.ErrNotAGitRepository.
 			tf.RemotesStub = func() (glrepo.Remotes, error) {
-				return nil, errors.New("fatal: not a git repository (or any of the parent directories): .git")
+				return nil, fmt.Errorf("%w: fatal: not a git repository (or any of the parent directories): .git", git.ErrNotAGitRepository)
 			}
 			tf.BranchStub = func() (string, error) {
 				return "", errors.New("fatal: not a git repository (or any of the parent directories): .git")
@@ -967,8 +970,10 @@ func TestMRCreate_PushOutsideGitRepo_PropagatesError(t *testing.T) {
 			tf, ok := f.(*cmdtest.Factory)
 			require.True(t, ok, "expected cmdtest.Factory")
 
+			// Mirrors what git.Remotes() returns outside a repo: git's own
+			// (localized) message, labelled with git.ErrNotAGitRepository.
 			tf.RemotesStub = func() (glrepo.Remotes, error) {
-				return nil, errors.New("fatal: not a git repository (or any of the parent directories): .git")
+				return nil, fmt.Errorf("%w: fatal: not a git repository (or any of the parent directories): .git", git.ErrNotAGitRepository)
 			}
 			tf.BranchStub = func() (string, error) {
 				return "", errors.New("fatal: not a git repository (or any of the parent directories): .git")

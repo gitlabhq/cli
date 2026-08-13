@@ -151,15 +151,14 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			resolved := ResolvedHeadRepo(cmd.Context(), f)
 			opts.headRepo = func() (glrepo.Interface, error) {
 				_, err := f.Remotes()
-				if err == nil {
+				switch {
+				case err == nil:
 					return resolved()
-				}
-				msg := err.Error()
-				if strings.Contains(msg, "not a git repository") ||
-					strings.Contains(msg, "no git remotes found") {
+				case errors.Is(err, git.ErrNotAGitRepository), errors.Is(err, cmdutils.ErrNoGitRemotes):
 					return f.BaseRepo()
+				default:
+					return nil, err
 				}
-				return nil, err
 			}
 		},
 		Annotations: map[string]string{

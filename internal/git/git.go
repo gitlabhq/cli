@@ -63,6 +63,11 @@ func ParseDefaultBranch(output []byte) (string, error) {
 // ErrNotOnAnyBranch indicates that the user is in detached HEAD state
 var ErrNotOnAnyBranch = errors.New("you're not on any Git branch (a 'detached HEAD' state)")
 
+// ErrNotAGitRepository indicates the command ran outside a Git repository.
+// Check it with errors.Is rather than matching git's message: git localizes
+// its output, so the wording varies with the user's locale.
+var ErrNotAGitRepository = errors.New("not a git repository")
+
 // Ref represents a git commit reference
 type Ref struct {
 	Hash string
@@ -424,6 +429,15 @@ func (r *Remote) String() string {
 func Remotes() (RemoteSet, error) {
 	list, err := listRemotes()
 	if err != nil {
+		// Distinguish "there is no repo here" from a genuine git failure, so
+		// callers can branch on errors.Is instead of matching git's localized
+		// message. GitDir keys off exit status, so it is locale-independent.
+		// Costs a second subprocess, but only on the error path. The two calls
+		// are not atomic: a repo deleted between them is reported as
+		// ErrNotAGitRepository. Accepted — the caller fails either way.
+		if _, gitDirErr := GitDir(); gitDirErr != nil {
+			return nil, fmt.Errorf("%w: %w", ErrNotAGitRepository, err)
+		}
 		return nil, err
 	}
 	remotes := parseRemotes(list)
