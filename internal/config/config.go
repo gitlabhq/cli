@@ -691,6 +691,13 @@ func (c *fileConfig) parseHosts(hostsEntry *yaml.Node) ([]*HostConfig, error) {
 	for i := 0; i < len(hostsEntry.Content)-1; i = i + 2 {
 		hostname := hostsEntry.Content[i].Value
 		hostRoot := hostsEntry.Content[i+1]
+
+		// Resolve YAML alias nodes (e.g. "*gitlab") to their anchored target.
+		// yaml.Unmarshal into yaml.Node preserves aliases as AliasNode with an
+		// Alias pointer; the node's own Content is empty until dereferenced.
+		if hostRoot.Kind == yaml.AliasNode {
+			hostRoot = hostRoot.Alias
+		}
 		hostConfig := HostConfig{
 			ConfigMap: ConfigMap{Root: hostRoot},
 			Host:      hostname,
