@@ -365,6 +365,37 @@ func TestConfig_parseHosts_NoHosts(t *testing.T) {
 	assert.True(t, isNotFoundError(err))
 }
 
+func TestConfig_parseHosts_YAMLAnchor(t *testing.T) {
+	t.Parallel()
+
+	configYAML := heredoc.Doc(`
+		hosts:
+		  gitlab.com: &gl
+		    token: glpat-secret
+		    user: testuser
+		  gitlab.com:443: *gl
+	`)
+
+	var root yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte(configYAML), &root))
+
+	cfg := &fileConfig{ConfigMap: ConfigMap{Root: root.Content[0]}}
+
+	// The anchored host must resolve its values.
+	anchoredToken, err := cfg.Get("gitlab.com", "token")
+	require.NoError(t, err)
+	assert.Equal(t, "glpat-secret", anchoredToken)
+
+	anchoredUser, err := cfg.Get("gitlab.com", "user")
+	require.NoError(t, err)
+	assert.Equal(t, "testuser", anchoredUser)
+
+	// The aliased host must resolve the same values as the anchored one.
+	aliasedToken, err := cfg.Get("gitlab.com:443", "token")
+	require.NoError(t, err)
+	assert.Equal(t, anchoredToken, aliasedToken)
+}
+
 func Test_SetKeyring_StoresTokenInKeyringAndSetsIndicator(t *testing.T) {
 	dir := t.TempDir()
 	keyring.MockInit()
