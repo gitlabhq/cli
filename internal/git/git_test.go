@@ -756,3 +756,58 @@ func Test_cloneTargetDir(t *testing.T) {
 		})
 	}
 }
+
+// TestRemotes_OutsideRepoReturnsErrNotAGitRepository pins the contract callers
+// depend on: outside a repo, Remotes() reports ErrNotAGitRepository via
+// errors.Is, regardless of locale. Callers must not match git's message text —
+// git translates it, so a substring check silently stops matching for anyone
+// not running in English.
+func TestRemotes_OutsideRepoReturnsErrNotAGitRepository(t *testing.T) {
+	// Cannot call t.Parallel(): t.Chdir and t.Setenv are incompatible with it.
+	unsetGitHookEnv(t)
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+	t.Setenv("LANG", "de_DE.UTF-8")
+
+	t.Chdir(t.TempDir())
+
+	_, err := Remotes()
+
+	require.ErrorIs(t, err, ErrNotAGitRepository)
+
+	// The underlying failure is preserved for display, not replaced. Assert on
+	// the exit-status suffix that run.CmdError appends: it is the one part of
+	// the message that is neither localized nor added by ErrNotAGitRepository.
+	assert.Contains(t, err.Error(), "git: exit status 128")
+}
+
+// TestRemotes_InsideRepoReturnsUnderlyingError covers the other half of the
+// branch that ErrNotAGitRepository introduced. When we are inside a repo but
+// `git remote -v` fails for an unrelated reason, the raw error must pass
+// through unchanged — labelling it ErrNotAGitRepository would make a genuine
+// git failure look like "no repo here" and silently trigger the caller's
+// fallback to --repo.
+func TestRemotes_InsideRepoReturnsUnderlyingError(t *testing.T) {
+	// Cannot call t.Parallel(): InitGitRepo uses t.Chdir, and we swap a
+	// package-level var below.
+	InitGitRepo(t)
+
+	// Fail only `git remote -v`; everything else — crucially GitDir's
+	// `rev-parse` — runs for real against the repo InitGitRepo just created, so
+	// the "am I in a repo" check genuinely succeeds rather than being mocked.
+	original := run.PrepareCmd
+	teardown := run.SetPrepareCmd(func(cmd *exec.Cmd) run.Runnable {
+		if len(cmd.Args) > 1 && cmd.Args[1] == "remote" {
+			return &test.OutputStub{Error: errors.New("simulated git remote failure")}
+		}
+		return original(cmd)
+	})
+	defer teardown()
+
+	_, err := Remotes()
+
+	require.Error(t, err, "the stubbed git remote invocation should fail")
+	require.NotErrorIs(t, err, ErrNotAGitRepository,
+		"a real git failure inside a repo must not be reported as 'not a git repository'")
+	assert.Contains(t, err.Error(), "simulated git remote failure",
+		"the underlying git error should pass through unchanged")
+}

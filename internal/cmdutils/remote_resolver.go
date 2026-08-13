@@ -13,6 +13,11 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 )
 
+// ErrNoGitRemotes indicates the repository has no git remotes configured.
+// Distinct from git.ErrNotAGitRepository: there is a repo, it just has
+// nothing to resolve against.
+var ErrNoGitRemotes = errors.New("no git remotes found")
+
 type remoteResolver struct {
 	readRemotes     func() (git.RemoteSet, error)
 	getConfig       func() config.Config
@@ -34,7 +39,7 @@ func (rr *remoteResolver) Resolver(hostOverride string) func() (glrepo.Remotes, 
 			return nil, err
 		}
 		if len(gitRemotes) == 0 {
-			remotesError = errors.New("no git remotes found")
+			remotesError = ErrNoGitRemotes
 			return nil, remotesError
 		}
 

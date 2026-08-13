@@ -252,15 +252,17 @@ func Test_remoteResolverErrors(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		remotes       git.RemoteSet
-		hostOverride  string
-		expectedError string
+		name            string
+		remotes         git.RemoteSet
+		hostOverride    string
+		expectedError   string
+		expectedErrorIs error
 	}{
 		{
-			name:          "No remotes",
-			remotes:       git.RemoteSet{},
-			expectedError: "no git remotes found",
+			name:            "No remotes",
+			remotes:         git.RemoteSet{},
+			expectedError:   "no git remotes found",
+			expectedErrorIs: ErrNoGitRemotes,
 		},
 		{
 			name:         "No match with host override",
@@ -298,6 +300,9 @@ func Test_remoteResolverErrors(t *testing.T) {
 			_, err := resolver()
 			require.Error(t, err)
 			assert.Equal(t, test.expectedError, err.Error())
+			if test.expectedErrorIs != nil {
+				require.ErrorIs(t, err, test.expectedErrorIs)
+			}
 		})
 	}
 }
