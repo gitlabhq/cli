@@ -221,9 +221,9 @@ func TestGraphStatus_FeatureFlagOff(t *testing.T) {
 	assert.Equal(t, orbiterr.ExitOrbitUnavailable, exitErr.Code)
 }
 
-func TestGraphStatus_GKGServiceUnavailable(t *testing.T) {
+func TestGraphStatus_OrbitServiceUnavailable(t *testing.T) {
 	t.Parallel()
-	// GIVEN the underlying GKG service is down (HTTP 503)
+	// GIVEN the underlying Orbit service is down (HTTP 503)
 	testClient := gitlabtesting.NewTestClient(t)
 	testClient.MockOrbit.EXPECT().
 		GetGraphStatus(gomock.Any(), gomock.Any()).
