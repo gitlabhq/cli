@@ -215,10 +215,10 @@ func printTTYMRPreview(opts *options, mr *gitlab.MergeRequest, mrApprovals *gitl
 	out := opts.io.StdOut
 	mrTimeAgo := utils.TimeToPrettyTimeAgo(*mr.CreatedAt)
 	// Header
-	opts.io.LogInfof("%s", mrState(c, mr))
-	opts.io.LogInfof(c.Gray(" • opened by @%s %s\n"), mr.Author.Username, mrTimeAgo)
 	opts.io.LogInfof("%s", mr.Title)
-	opts.io.LogInfof(c.Gray(" !%d"), mr.IID)
+	opts.io.LogInfof(c.Gray(" !%d\n"), mr.IID)
+	opts.io.LogInfof("%s", mrState(c, mr))
+	opts.io.LogInfof(c.Gray(" • @%s opened %s • merge: %s → %s\n"), mr.Author.Username, mrTimeAgo, mr.SourceBranch, mr.TargetBranch)
 	opts.io.LogInfo()
 
 	// Description
@@ -328,6 +328,8 @@ func rawMRPreview(opts *options, mr *gitlab.MergeRequest, discussions []*gitlab.
 	fmt.Fprintf(&out, "labels:\t%s\n", labels)                      //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 	fmt.Fprintf(&out, "assignees:\t%s\n", assignees)                //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 	fmt.Fprintf(&out, "reviewers:\t%s\n", reviewers)                //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
+	fmt.Fprintf(&out, "source_branch:\t%s\n", mr.SourceBranch)      //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
+	fmt.Fprintf(&out, "target_branch:\t%s\n", mr.TargetBranch)      //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 	fmt.Fprintf(&out, "comments:\t%d\n", mr.UserNotesCount)         //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 	if mr.Milestone != nil {
 		fmt.Fprintf(&out, "milestone:\t%s\n", mr.Milestone.Title) //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
