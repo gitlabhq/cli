@@ -103,6 +103,8 @@ func TestMain(m *testing.M) {
 				WebURL:         fmt.Sprintf("https://gitlab.com/%s/-/merge_requests/%d", repoPath, mrID),
 				CreatedAt:      &timer,
 				UserNotesCount: 2,
+				SourceBranch:   "feature-branch",
+				TargetBranch:   "main",
 				Milestone: &gitlab.Milestone{
 					Title: "MilestoneTitle",
 				},
@@ -179,6 +181,8 @@ func TestMRView(t *testing.T) {
 		outErr := stripansi.Strip(result.Stderr())
 
 		require.Contains(t, out, "mrTitle !13")
+		require.Contains(t, out, "@jdwick opened")
+		require.Contains(t, out, "merge: feature-branch → main")
 		require.Empty(t, outErr)
 		assert.Contains(t, out, "https://gitlab.com/cli-automated-testing/test/-/merge_requests/13")
 		assert.Contains(t, out, "johnwick Marked MR as ready")
@@ -211,6 +215,8 @@ func TestMRView(t *testing.T) {
 			`comments:\t2`,
 			`labels:\ttest, bug`,
 			`milestone:\tMilestoneTitle\n`,
+			`source_branch:\tfeature-branch`,
+			`target_branch:\tmain`,
 			`--`,
 			`mrBody`,
 		}
@@ -253,6 +259,8 @@ func Test_rawMRPreview(t *testing.T) {
 			Reviewers:      []*gitlab.BasicUser{{Username: "john"}, {Username: "paul"}},
 			UserNotesCount: 2,
 			Milestone:      &gitlab.Milestone{Title: "Some milestone"},
+			SourceBranch:   "topic",
+			TargetBranch:   "main",
 			WebURL:         "https://gitlab.com/OWNER/REPO/-/merge_requests/503",
 		},
 	}
@@ -323,6 +331,8 @@ func Test_rawMRPreview(t *testing.T) {
 				"labels:\tlabel1, label2",
 				"assignees:\talice, bob",
 				"reviewers:\tjohn, paul",
+				"source_branch:\ttopic",
+				"target_branch:\tmain",
 				"comments:\t2",
 				"milestone:\tSome milestone",
 				"number:\t503",
@@ -348,6 +358,8 @@ func Test_rawMRPreview(t *testing.T) {
 				"labels:\tlabel1, label2",
 				"assignees:\talice, bob",
 				"reviewers:\tjohn, paul",
+				"source_branch:\ttopic",
+				"target_branch:\tmain",
 				"comments:\t2",
 				"milestone:\tSome milestone",
 				"number:\t503",
@@ -374,6 +386,8 @@ func Test_rawMRPreview(t *testing.T) {
 				"labels:\tlabel1, label2",
 				"assignees:\talice, bob",
 				"reviewers:\tjohn, paul",
+				"source_branch:\ttopic",
+				"target_branch:\tmain",
 				"comments:\t2",
 				"milestone:\tSome milestone",
 				"number:\t503",
