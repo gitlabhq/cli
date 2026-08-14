@@ -127,14 +127,14 @@ func (o *options) run(ctx context.Context) error {
 
 	status, resp, err := client.Lab().Orbit.GetGraphStatus(apiOpts, gitlab.WithContext(ctx))
 	if err != nil {
-		// `graph_status` can return 503 when the underlying GKG service
+		// `graph_status` can return 503 when the underlying Orbit service
 		// is unavailable. The shared translator does not have a mapping
 		// for 503, so surface it as a clear, descriptive generic-exit
 		// error before falling through to the standard taxonomy.
 		if resp != nil && resp.StatusCode == http.StatusServiceUnavailable {
 			return cmdutils.WrapError(
 				errors.New("knowledge graph service unavailable"),
-				"The Orbit API returned HTTP 503. The underlying GKG service is\n"+
+				"The Orbit API returned HTTP 503. The underlying Orbit service is\n"+
 					"currently unreachable; retry shortly or check the GitLab status\n"+
 					"page.",
 			)
