@@ -17,6 +17,8 @@
   submenu:
     - title: glab artifact-registry get-token
       url: 'cli/artifact-registry/get-token/'
+    - title: glab artifact-registry login
+      url: 'cli/artifact-registry/login/'
     - title: glab artifact-registry status
       url: 'cli/artifact-registry/status/'
 - title: glab attestation

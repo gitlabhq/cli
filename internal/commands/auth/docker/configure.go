@@ -60,8 +60,7 @@ func configureDocker(iostreams *iostreams.IOStreams, cfg config.Config) error {
 	for _, registration := range registrations {
 		iostreams.LogInfof("%s Configured Docker credential helper for %s\n", iostreams.Color().GreenCheck(), registration.Domain)
 		if registration.ShadowedLogin {
-			iostreams.LogErrorf("%s %s already had credentials from `docker login`. Docker asks glab first, so those are no longer used; run `docker logout %s` to remove them.\n",
-				iostreams.Color().WarnIcon(), registration.Domain, registration.Domain)
+			iostreams.LogErrorf("%s %s\n", iostreams.Color().WarnIcon(), registration.ShadowedLoginWarning())
 		}
 	}
 

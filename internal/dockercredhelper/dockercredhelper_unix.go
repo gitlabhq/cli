@@ -4,19 +4,22 @@ package dockercredhelper
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 
 	"gitlab.com/gitlab-org/cli/internal/fsx"
 )
 
+// Supported reports whether this operating system can run the shim. It always
+// succeeds here.
+func Supported() error { return nil }
+
 // Install writes the shim next to the glab binary found on PATH and returns
 // its path. It is idempotent: re-running it overwrites the script and forces
 // the mode, so a shim left by an older glab is brought up to date.
 func Install() (string, error) {
-	glabPath, err := exec.LookPath("glab")
+	glabPath, err := Locate()
 	if err != nil {
-		return "", fmt.Errorf("looking up parent directory of glab binary: %w", err)
+		return "", err
 	}
 
 	path := filepath.Join(filepath.Dir(glabPath), FullName)

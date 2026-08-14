@@ -87,6 +87,60 @@ func TestInstall_UnsupportedOS(t *testing.T) {
 	assert.ErrorContains(t, err, runtime.GOOS, "the error should name the unsupported OS")
 }
 
+// TestLocate_ResolvesTheDirectoryInstallWritesInto pins what the returned path
+// is for: Install joins FullName onto its directory, so a caller checking
+// Locate up front is checking the same lookup that decides where the shim
+// lands.
+func TestLocate_ResolvesTheDirectoryInstallWritesInto(t *testing.T) {
+	binDir := t.TempDir()
+	writeFakeGlab(t, binDir)
+	t.Setenv("PATH", binDir)
+
+	path, err := Locate()
+	require.NoError(t, err)
+	assert.Equal(t, binDir, filepath.Dir(path))
+}
+
+// TestLocate_AgreesWithInstall pins what a caller that checks Locate up front
+// relies on: Install resolves glab through Locate too, so on a supported
+// platform it never fails for a reason Locate would have caught first. The
+// counterpart of TestSupported_AgreesWithInstall for the other precondition.
+func TestLocate_AgreesWithInstall(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	_, locateErr := Locate()
+	require.ErrorContains(t, locateErr, "glab")
+
+	_, installErr := Install()
+	require.Error(t, installErr)
+
+	if Supported() != nil {
+		// Install rejects the platform before it ever looks glab up, so the two
+		// errors legitimately differ here.
+		assert.ErrorContains(t, installErr, "is not supported")
+		return
+	}
+	assert.Equal(t, locateErr.Error(), installErr.Error(), "Install must surface Locate's error unchanged")
+}
+
+// TestSupported_AgreesWithInstall pins that the two never disagree about the
+// platform: callers check Supported up front and then rely on Install not
+// failing for that reason later.
+func TestSupported_AgreesWithInstall(t *testing.T) {
+	// An empty PATH makes a supported platform fail Install for the only other
+	// reason it can, which must not read as an unsupported platform.
+	t.Setenv("PATH", t.TempDir())
+	_, installErr := Install()
+	require.Error(t, installErr)
+
+	if err := Supported(); err != nil {
+		assert.ErrorContains(t, err, runtime.GOOS)
+		assert.ErrorContains(t, installErr, "is not supported")
+		return
+	}
+	assert.NotContains(t, installErr.Error(), "is not supported")
+}
+
 // readDockerConfig returns the parsed config.json from dir.
 func readDockerConfig(t *testing.T, dir string) map[string]any {
 	t.Helper()
