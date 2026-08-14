@@ -117,7 +117,7 @@ Prerequisites:
 - Meet the [prerequisites for GitLab Duo Agent Platform](https://docs.gitlab.com/user/duo_agent_platform/#prerequisites).
 - For GitLab Self-Managed and GitLab Dedicated on 19.2 or later, turn on [GitLab Duo CLI access](https://docs.gitlab.com/user/gitlab_duo_cli/#turn-gitlab-duo-cli-access-on-or-off). It is on by default.
 
-Note: If you are on GitLab 18.11 to 19.1, you can use the GitLab Duo CLI by turning on [beta and experimental features](https://docs.gitlab.com/user/duo_agent_platform/turn_on_off.md#turn-on-beta-and-experimental-features).
+Note: If you are on GitLab 18.11 to 19.1, you can use the GitLab Duo CLI by turning on [beta and experimental features](https://docs.gitlab.com/user/duo_agent_platform/turn_on_off/#turn-on-beta-and-experimental-features).
 
 Configuration options:
 
