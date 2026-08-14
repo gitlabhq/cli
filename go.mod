@@ -57,7 +57,7 @@ require (
 	k8s.io/apimachinery v0.36.3
 	k8s.io/client-go v0.36.3
 	mvdan.cc/xurls/v2 v2.6.0
-	oss.terrastruct.com/d2 v0.7.1
+	oss.terrastruct.com/d2 v0.7.2
 )
 
 require (

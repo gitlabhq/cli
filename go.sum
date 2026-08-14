@@ -401,8 +401,8 @@ k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2 h1:AZYQSJemyQB5eRxqcPky+/7EdBj0x
 k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2/go.mod h1:xDxuJ0whA3d0I4mf/C4ppKHxXynQ+fxnkmQH0vTHnuk=
 mvdan.cc/xurls/v2 v2.6.0 h1:3NTZpeTxYVWNSokW3MKeyVkz/j7uYXYiMtXRUfmjbgI=
 mvdan.cc/xurls/v2 v2.6.0/go.mod h1:bCvEZ1XvdA6wDnxY7jPPjEmigDtvtvPXAD/Exa9IMSk=
-oss.terrastruct.com/d2 v0.7.1 h1:LafTW1UoXJGODvKDZ8obyBfGcc2k2vHZ3EzrabMqEVE=
-oss.terrastruct.com/d2 v0.7.1/go.mod h1:aT0PwLaxBZGgsWrIT8oSFYm5xoYX08BaOHewi5qLE2E=
+oss.terrastruct.com/d2 v0.7.2 h1:E8Hhv+xOqTBj0831OiK7hmGLZEC3OKtFtm5rZN1425Y=
+oss.terrastruct.com/d2 v0.7.2/go.mod h1:GQEDseVmgxcoS3BlUlFD4FqGlc2vixzjNccsu+cF/UA=
 oss.terrastruct.com/util-go v0.0.0-20250213174338-243d8661088a h1:UXF/Z9i9tOx/wqGUOn/T12wZeez1Gg0sAVKKl7YUDwM=
 oss.terrastruct.com/util-go v0.0.0-20250213174338-243d8661088a/go.mod h1:eMWv0sOtD9T2RUl90DLWfuShZCYp4NrsqNpI8eqO6U4=
 sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 h1:IpInykpT6ceI+QxKBbEflcR5EXP7sU1kvOlxwZh5txg=
