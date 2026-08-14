@@ -82,5 +82,8 @@ scripts/commit-lint/node_modules/
 # Claude Code personal settings
 .claude/settings.local.json
 
+# Agent skills installed via `glab skills install` (per-user; regenerable)
+.agents/
+
 # MR-review audit (transient artifacts; never commit)
 .audit/
