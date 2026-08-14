@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -27,6 +28,22 @@ const (
 // `glab auth docker-helper`, which reads the requested registry on stdin.
 var script = []byte("#!/bin/sh -eu\nglab auth docker-helper \"$@\"\n")
 
+// Locate resolves the glab binary on PATH. Install writes the shim next to
+// it, and the shim shells out to it, so a glab that PATH cannot resolve means
+// the install can never work.
+//
+// Exported separately from Install so a caller that does other work first,
+// such as a token exchange, can fail on a missing glab before spending that
+// work rather than after. Install calls it too, so a caller that skips the
+// check is not left unguarded.
+func Locate() (string, error) {
+	path, err := exec.LookPath("glab")
+	if err != nil {
+		return "", fmt.Errorf("looking up the glab binary on PATH: %w", err)
+	}
+	return path, nil
+}
+
 // Registration reports the outcome of pointing Docker at glab for one domain.
 type Registration struct {
 	Domain string
@@ -35,6 +52,19 @@ type Registration struct {
 	// credHelpers ahead of that entry, so the stored credential is now unused
 	// and the caller should say so.
 	ShadowedLogin bool
+}
+
+// ShadowedLoginWarning is what to tell the user when ShadowedLogin is set. It
+// lives next to the field rather than in each caller so the commands that
+// register domains (`glab auth configure-docker` and `glab artifact-registry
+// login --docker`) cannot drift apart on the remedy they name.
+//
+// No leading icon and no trailing newline: those belong to how the caller
+// formats a warning line.
+func (r Registration) ShadowedLoginWarning() string {
+	return fmt.Sprintf(
+		"%s already had credentials from `docker login`. Docker asks %s first, so those are no longer used; run `docker logout %s` to remove them.",
+		r.Domain, ShortName, r.Domain)
 }
 
 // ConflictError reports domains that a different credential helper already

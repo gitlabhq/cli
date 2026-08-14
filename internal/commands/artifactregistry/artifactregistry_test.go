@@ -21,6 +21,7 @@ func TestNewCmd(t *testing.T) {
 
 	assert.Contains(t, stdout.String(), "status")
 	assert.Contains(t, stdout.String(), "get-token")
+	assert.Contains(t, stdout.String(), "login")
 }
 
 func TestNewCmd_NameAndAlias(t *testing.T) {
