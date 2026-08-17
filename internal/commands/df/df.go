@@ -13,12 +13,12 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "dependency-firewall <command>",
 		Aliases: []string{"df"},
-		Short:   "Configure and monitor GitLab Dependency Firewall for local package managers.",
+		Short:   "Configure and monitor GitLab Dependency Firewall for local package managers. (EXPERIMENTAL)",
 		Long: heredoc.Doc(`
 			Commands to configure GitLab Dependency Firewall for local package
 			managers, run local package managers with a summary of blocked or
 			flagged packages, and view activity during the current session.
-		`) + text.BetaString,
+		`) + text.ExperimentalString,
 	}
 
 	cmd.AddCommand(cmdCISummary.NewCmd(f))
