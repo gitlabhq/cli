@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,12 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/config"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestBuildInfoUserAgent(t *testing.T) {
 	tests := []struct {
@@ -318,58 +325,74 @@ func TestNewClientFromConfig_DuoWorkflowID(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "test-pat")
 	t.Setenv("DUO_WORKFLOW_WORKFLOW_ID", "")
 
-	baseURL, _ := url.Parse("https://example.com/api")
+	receivedHeaders := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		receivedHeaders <- req.Header.Get("X-Gitlab-Duo-Workflow-Id")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+
+	hostname := strings.TrimPrefix(server.URL, "http://")
+	baseURL, err := url.Parse(server.URL + "/api")
+	require.NoError(t, err)
+
+	newConfig := func(customHeaderValue string) config.Config {
+		configYAML := fmt.Sprintf("hosts:\n  %q:\n    api_protocol: http\n", hostname)
+		if customHeaderValue != "" {
+			configYAML += fmt.Sprintf("    custom_headers:\n      - name: X-Gitlab-Duo-Workflow-Id\n        value: %q\n", customHeaderValue)
+		}
+		return config.NewFromString(configYAML)
+	}
+	sentDuoWorkflowIDHeader := func(t *testing.T, client *Client, req *http.Request) string {
+		t.Helper()
+		resp, err := client.httpClient.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		return <-receivedHeaders
+	}
 
 	t.Run("header injected when env var is set", func(t *testing.T) {
 		t.Setenv("DUO_WORKFLOW_WORKFLOW_ID", "workflow-id-xyz")
 
-		client, err := NewClientFromConfig("example.com", config.NewBlankConfig(), false, "test-agent")
+		client, err := NewClientFromConfig(hostname, newConfig(""), false, "test-agent")
 		require.NoError(t, err)
 
 		req, err := NewHTTPRequest(t.Context(), client, "GET", baseURL, nil, []string{}, false)
 		require.NoError(t, err)
-		assert.Equal(t, "workflow-id-xyz", req.Header.Get("X-Gitlab-Duo-Workflow-Id"))
+		assert.Equal(t, "workflow-id-xyz", sentDuoWorkflowIDHeader(t, client, req))
 	})
 
 	t.Run("no header when env var is empty", func(t *testing.T) {
 		t.Setenv("DUO_WORKFLOW_WORKFLOW_ID", "")
 
-		client, err := NewClientFromConfig("example.com", config.NewBlankConfig(), false, "test-agent")
+		client, err := NewClientFromConfig(hostname, newConfig(""), false, "test-agent")
 		require.NoError(t, err)
 
 		req, err := NewHTTPRequest(t.Context(), client, "GET", baseURL, nil, []string{}, false)
 		require.NoError(t, err)
-		assert.Empty(t, req.Header.Get("X-Gitlab-Duo-Workflow-Id"))
+		assert.Empty(t, sentDuoWorkflowIDHeader(t, client, req))
 	})
 
 	t.Run("env var overrides X-Gitlab-Duo-Workflow-Id from config headers", func(t *testing.T) {
 		t.Setenv("DUO_WORKFLOW_WORKFLOW_ID", "from-env")
 
-		cfg := config.NewFromString(`
-hosts:
-  example.com:
-    custom_headers:
-      - name: X-Gitlab-Duo-Workflow-Id
-        value: from-config
-`)
-
-		client, err := NewClientFromConfig("example.com", cfg, false, "test-agent")
+		client, err := NewClientFromConfig(hostname, newConfig("from-config"), false, "test-agent")
 		require.NoError(t, err)
 
 		req, err := NewHTTPRequest(t.Context(), client, "GET", baseURL, nil, []string{}, false)
 		require.NoError(t, err)
-		assert.Equal(t, "from-env", req.Header.Get("X-Gitlab-Duo-Workflow-Id"))
+		assert.Equal(t, "from-env", sentDuoWorkflowIDHeader(t, client, req))
 	})
 
 	t.Run("malformed workflow ID is ignored", func(t *testing.T) {
 		t.Setenv("DUO_WORKFLOW_WORKFLOW_ID", "workflow\r\nid")
 
-		client, err := NewClientFromConfig("example.com", config.NewBlankConfig(), false, "test-agent")
+		client, err := NewClientFromConfig(hostname, newConfig(""), false, "test-agent")
 		require.NoError(t, err)
 
 		req, err := NewHTTPRequest(t.Context(), client, "GET", baseURL, nil, []string{}, false)
 		require.NoError(t, err)
-		assert.Empty(t, req.Header.Get("X-Gitlab-Duo-Workflow-Id"))
+		assert.Empty(t, sentDuoWorkflowIDHeader(t, client, req))
 	})
 }
 

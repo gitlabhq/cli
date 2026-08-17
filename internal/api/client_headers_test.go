@@ -3,142 +3,274 @@
 package api
 
 import (
+	"bytes"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+
+	"gitlab.com/gitlab-org/cli/internal/config"
 )
 
-func TestConfigHeadersViaNewHTTPRequest(t *testing.T) {
+func TestCustomHeadersTransport(t *testing.T) {
 	tests := []struct {
 		name          string
 		customHeaders map[string]string
-		expectValue   map[string]string
+		allowedHosts  map[string]struct{}
+		requestURL    string
+		requestHeader string
+		expected      map[string]string
 	}{
 		{
-			name: "basic header injection",
+			name: "adds one header",
 			customHeaders: map[string]string{
 				"X-Custom-Header": "custom-value",
 			},
-			expectValue: map[string]string{"X-Custom-Header": "custom-value"},
+			expected: map[string]string{"X-Custom-Header": "custom-value"},
 		},
 		{
-			name: "proxy authorization header",
+			name: "adds proxy authorization header",
 			customHeaders: map[string]string{
 				"Proxy-Authorization": "Bearer token123",
 			},
-			expectValue: map[string]string{"Proxy-Authorization": "Bearer token123"},
+			expected: map[string]string{"Proxy-Authorization": "Bearer token123"},
 		},
 		{
-			name: "authorization header",
+			name: "adds authorization header",
 			customHeaders: map[string]string{
 				"Authorization": "Bearer token456",
 			},
-			expectValue: map[string]string{"Authorization": "Bearer token456"},
+			expected: map[string]string{"Authorization": "Bearer token456"},
 		},
 		{
-			name: "multiple headers",
-			customHeaders: map[string]string{
-				"X-Custom-Header":     "value1",
-				"Authorization":       "Bearer token",
-				"Proxy-Authorization": "Bearer proxy-token",
-			},
-			expectValue: map[string]string{
-				"X-Custom-Header":     "value1",
-				"Authorization":       "Bearer token",
-				"Proxy-Authorization": "Bearer proxy-token",
-			},
-		},
-		{
-			name: "cloudflare access headers",
+			name: "adds cloudflare access headers",
 			customHeaders: map[string]string{
 				"Cf-Access-Client-Id":     "client-123",
 				"Cf-Access-Client-Secret": "secret-456",
 			},
-			expectValue: map[string]string{
+			expected: map[string]string{
 				"Cf-Access-Client-Id":     "client-123",
 				"Cf-Access-Client-Secret": "secret-456",
 			},
+		},
+		{
+			name: "adds multiple headers",
+			customHeaders: map[string]string{
+				"X-Custom-Header":     "value1",
+				"Proxy-Authorization": "Bearer proxy-token",
+			},
+			expected: map[string]string{
+				"X-Custom-Header":     "value1",
+				"Proxy-Authorization": "Bearer proxy-token",
+			},
+		},
+		{
+			name: "configured value replaces a request value",
+			customHeaders: map[string]string{
+				"X-Custom-Header": "configured-value",
+			},
+			requestHeader: "request-value",
+			expected:      map[string]string{"X-Custom-Header": "configured-value"},
+		},
+		{
+			name: "does not add headers without an allowed host",
+			customHeaders: map[string]string{
+				"Proxy-Authorization": "Bearer proxy-token",
+			},
+			allowedHosts: map[string]struct{}{},
+			expected:     map[string]string{"Proxy-Authorization": ""},
+		},
+		{
+			name: "does not add headers to another host",
+			customHeaders: map[string]string{
+				"Proxy-Authorization": "Bearer proxy-token",
+			},
+			allowedHosts: map[string]struct{}{"example.com": {}},
+			requestURL:   "https://redirect.example.com",
+			expected:     map[string]string{"Proxy-Authorization": ""},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Create client with custom headers
-			mockGitLabClient := &gitlab.Client{}
-			client := &Client{
-				gitlabClient:  mockGitLabClient,
-				authSource:    gitlab.AccessTokenAuthSource{Token: "test-token"},
-				customHeaders: tc.customHeaders,
+			var transportedRequest *http.Request
+			allowedHosts := tc.allowedHosts
+			if allowedHosts == nil {
+				allowedHosts = map[string]struct{}{"example.com": {}}
+			}
+			transport := &customHeadersTransport{
+				headers:      tc.customHeaders,
+				allowedHosts: allowedHosts,
+				rt: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					transportedRequest = req
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader("")),
+						Request:    req,
+					}, nil
+				}),
 			}
 
-			// Create request using NewHTTPRequest
-			baseURL, _ := url.Parse("https://example.com/api")
-			req, err := NewHTTPRequest(t.Context(), client, "GET", baseURL, nil, []string{}, false)
+			requestURL := tc.requestURL
+			if requestURL == "" {
+				requestURL = "https://example.com"
+			}
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, requestURL, nil)
 			require.NoError(t, err)
+			if tc.requestHeader != "" {
+				req.Header.Set("X-Custom-Header", tc.requestHeader)
+			}
 
-			// Check that expected headers are present
-			for expectedHeader, expectedValue := range tc.expectValue {
-				actualValue := req.Header.Get(expectedHeader)
-				require.Equal(t, expectedValue, actualValue, "Header %s should be %s but got %s", expectedHeader, expectedValue, actualValue)
+			resp, err := transport.RoundTrip(req)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+
+			for name, value := range tc.expected {
+				assert.Equal(t, value, transportedRequest.Header.Get(name))
+			}
+			if tc.requestHeader != "" {
+				assert.Equal(t, []string{"configured-value"}, transportedRequest.Header.Values("X-Custom-Header"))
+			}
+			if tc.requestHeader == "" {
+				assert.Empty(t, req.Header.Get("X-Custom-Header"), "the caller request must not be mutated")
+			} else {
+				assert.Equal(t, tc.requestHeader, req.Header.Get("X-Custom-Header"), "the caller request must not be mutated")
 			}
 		})
 	}
 }
 
-func TestCustomHeadersIntegration(t *testing.T) {
-	// Create a client with custom headers configured
-	mockGitLabClient := &gitlab.Client{}
-	client := &Client{
-		gitlabClient: mockGitLabClient,
-		authSource:   gitlab.AccessTokenAuthSource{Token: "test-token"},
-		customHeaders: map[string]string{
-			"X-Test-Header":       "test-value",
-			"Proxy-Authorization": "Bearer test-token",
-		},
-	}
+func TestDebugTransportIncludesCustomHeaders(t *testing.T) {
+	t.Setenv("GLAB_DEBUG_HTTP", "true")
 
-	// Create request using NewHTTPRequest
-	baseURL, _ := url.Parse("https://example.com/api")
-	req, err := NewHTTPRequest(t.Context(), client, "GET", baseURL, nil, []string{}, false)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(
+		func(*http.Client) (gitlab.AuthSource, error) {
+			return gitlab.Unauthenticated{}, nil
+		},
+		WithBaseURL(server.URL+"/api/v4/"),
+		WithCustomHeaders(map[string]string{
+			"X-Debug-Header":      "visible-value",
+			"Proxy-Authorization": "Bearer secret-value",
+		}),
+	)
 	require.NoError(t, err)
 
-	require.Equal(t, "test-value", req.Header.Get("X-Test-Header"))
-	require.Equal(t, "Bearer test-token", req.Header.Get("Proxy-Authorization"))
+	customTransport, ok := client.HTTPClient().Transport.(*customHeadersTransport)
+	require.True(t, ok, "custom header transport should be the outer transport")
+	debug, ok := customTransport.rt.(*debugTransport)
+	require.True(t, ok, "debug transport should receive the injected custom headers")
+	var output bytes.Buffer
+	debug.w = &output
+
+	resp, err := client.HTTPClient().Get(server.URL)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	assert.Contains(t, output.String(), "X-Debug-Header: visible-value")
+	assert.Contains(t, output.String(), "Proxy-Authorization: [REDACTED]")
+	assert.NotContains(t, output.String(), "secret-value")
 }
 
-func TestCustomHeadersWithRequestBody(t *testing.T) {
-	// Create a client with custom headers
-	mockGitLabClient := &gitlab.Client{}
-	client := &Client{
-		gitlabClient: mockGitLabClient,
-		authSource:   gitlab.AccessTokenAuthSource{Token: "test-token"},
-		customHeaders: map[string]string{
-			"X-Custom-Header":     "custom-value",
-			"Content-Type":        "application/json",
-			"Proxy-Authorization": "Bearer proxy-token",
+func TestCustomHeadersCoverAuthSourceAndAPIRequests(t *testing.T) {
+	requestPaths := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requestPaths <- req.URL.Path + ":" + req.Header.Get("Proxy-Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(
+		func(httpClient *http.Client) (gitlab.AuthSource, error) {
+			resp, err := httpClient.Get(server.URL + "/oauth/token")
+			if err != nil {
+				return nil, err
+			}
+			if err := resp.Body.Close(); err != nil {
+				return nil, err
+			}
+			return gitlab.Unauthenticated{}, nil
 		},
-	}
-
-	// Create request with a non-empty body using NewHTTPRequest
-	baseURL, _ := url.Parse("https://example.com/api")
-	body := strings.NewReader(`{"key": "value", "data": "test"}`)
-	req, err := NewHTTPRequest(t.Context(), client, "POST", baseURL, body, []string{}, false)
+		WithBaseURL(server.URL+"/api/v4/"),
+		WithCustomHeaders(map[string]string{"Proxy-Authorization": "Bearer proxy-token"}),
+	)
 	require.NoError(t, err)
 
-	// Check that custom headers are present even with a request body
-	require.Equal(t, "custom-value", req.Header.Get("X-Custom-Header"))
-	require.Equal(t, "application/json", req.Header.Get("Content-Type"))
-	require.Equal(t, "Bearer proxy-token", req.Header.Get("Proxy-Authorization"))
-
-	// Verify that the request body is preserved
-	bodyBytes, err := io.ReadAll(req.Body)
+	baseURL, err := url.Parse(server.URL + "/api/v4/projects")
 	require.NoError(t, err)
-	require.JSONEq(t, `{"key": "value", "data": "test"}`, string(bodyBytes))
+	req, err := NewHTTPRequest(t.Context(), client, http.MethodPost, baseURL, strings.NewReader(`{"key":"value"}`), nil, true)
+	require.NoError(t, err)
+	resp, err := client.HTTPClient().Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	assert.Equal(t, "/oauth/token:Bearer proxy-token", <-requestPaths)
+	assert.Equal(t, "/api/v4/projects:Bearer proxy-token", <-requestPaths)
+}
+
+func TestCustomHeadersCoverOAuthHostWhenAPIHostDiffers(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GITLAB_ACCESS_TOKEN", "")
+	t.Setenv("OAUTH_TOKEN", "")
+	t.Setenv("GLAB_IS_OAUTH2", "")
+
+	oauthHeader := make(chan string, 1)
+	oauthServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		oauthHeader <- req.Header.Get("Proxy-Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"refreshed-access-token","token_type":"Bearer","refresh_token":"refreshed-refresh-token","expires_in":3600}`)
+	}))
+	t.Cleanup(oauthServer.Close)
+
+	apiHeader := make(chan string, 1)
+	apiServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		apiHeader <- req.Header.Get("Proxy-Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(apiServer.Close)
+
+	repoHost := strings.TrimPrefix(oauthServer.URL, "https://")
+	apiHost := strings.TrimPrefix(apiServer.URL, "https://")
+	cfg := config.NewFromStringInDir(fmt.Sprintf(`hosts:
+  %q:
+    api_host: %q
+    api_protocol: https
+    skip_tls_verify: true
+    is_oauth2: true
+    client_id: test-client-id
+    token: expired-access-token
+    oauth2_refresh_token: stored-refresh-token
+    oauth2_expiry_date: %q
+    custom_headers:
+      - name: Proxy-Authorization
+        value: Bearer proxy-token
+`, repoHost, apiHost, time.Now().Add(-time.Hour).Format(time.RFC3339)), t.TempDir())
+	require.NoError(t, cfg.Write())
+
+	client, err := NewClientFromConfig(repoHost, cfg, false, "test-agent")
+	require.NoError(t, err)
+
+	_, _, err = client.AuthSource().Header(t.Context())
+	require.NoError(t, err)
+	resp, err := client.HTTPClient().Get(apiServer.URL + "/api/v4/projects")
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	assert.Equal(t, "Bearer proxy-token", <-oauthHeader)
+	assert.Equal(t, "Bearer proxy-token", <-apiHeader)
 }
 
 func TestNewHTTPRequest_UnauthenticatedAuthSource(t *testing.T) {
@@ -147,50 +279,25 @@ func TestNewHTTPRequest_UnauthenticatedAuthSource(t *testing.T) {
 		authSource:   gitlab.Unauthenticated{},
 	}
 
-	baseURL, _ := url.Parse("https://example.com/api")
-	req, err := NewHTTPRequest(t.Context(), client, "GET", baseURL, nil, []string{}, false)
+	baseURL, err := url.Parse("https://example.com/api")
+	require.NoError(t, err)
+	req, err := NewHTTPRequest(t.Context(), client, http.MethodGet, baseURL, nil, nil, false)
 	require.NoError(t, err)
 	require.NotNil(t, req)
-	require.Empty(t, req.Header.Get("PRIVATE-TOKEN"))
-	require.Empty(t, req.Header.Get("Authorization"))
-	require.Empty(t, req.Header.Get("Job-Token"))
+	assert.Empty(t, req.Header.Get("PRIVATE-TOKEN"))
+	assert.Empty(t, req.Header.Get("Authorization"))
+	assert.Empty(t, req.Header.Get("Job-Token"))
 }
 
 func TestClientInitializationWithNoCustomHeaders(t *testing.T) {
-	tests := []struct {
-		name          string
-		customHeaders map[string]string
-	}{
-		{
-			name:          "nil custom headers",
-			customHeaders: nil,
+	client, err := NewClient(
+		func(*http.Client) (gitlab.AuthSource, error) {
+			return gitlab.Unauthenticated{}, nil
 		},
-		{
-			name:          "empty custom headers map",
-			customHeaders: map[string]string{},
-		},
-	}
+		WithBaseURL("https://example.com/api/v4/"),
+	)
+	require.NoError(t, err)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Create client with no custom headers
-			mockGitLabClient := &gitlab.Client{}
-			client := &Client{
-				gitlabClient:  mockGitLabClient,
-				authSource:    gitlab.AccessTokenAuthSource{Token: "test-token"},
-				customHeaders: tc.customHeaders,
-			}
-
-			// Create request using NewHTTPRequest - should not fail
-			baseURL, _ := url.Parse("https://example.com/api")
-			req, err := NewHTTPRequest(t.Context(), client, "GET", baseURL, nil, []string{}, false)
-			require.NoError(t, err)
-			require.NotNil(t, req)
-
-			// Verify no custom headers are present (only standard headers like User-Agent, etc.)
-			require.Empty(t, req.Header.Get("X-Custom-Header"))
-			require.Empty(t, req.Header.Get("Proxy-Authorization"))
-			require.Empty(t, req.Header.Get("Authorization")) // Should be empty since we're testing custom headers, not auth
-		})
-	}
+	_, wrapped := client.HTTPClient().Transport.(*customHeadersTransport)
+	assert.False(t, wrapped)
 }

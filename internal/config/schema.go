@@ -310,7 +310,7 @@ var KeySchema = []KeyDef{
 	{
 		Name: "custom_headers", Scope: ScopePerHost, Type: TypeList,
 		UserSettable: true,
-		Description:  "Custom HTTP headers to add to all HTTP requests made by glab. Supports both direct values and environment variable loading.\n- name: Proxy-Authorization\n  value: Bearer token123\n- name: Cf-Access-Client-Secret\n  valueFromEnv: MY_SECRET_VALUE",
+		Description:  "Custom HTTP headers to add to all HTTP requests made by glab. Each header must use exactly one of value, valueFromEnv, or valueFromCommand. A command must print the complete header value on one line. glab runs it once for each process.\n- name: Proxy-Authorization\n  valueFromCommand: token-helper --audience example\n- name: Cf-Access-Client-Secret\n  valueFromEnv: MY_SECRET_VALUE",
 	},
 
 	// ---------------- CLI-managed internal state ----------------

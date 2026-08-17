@@ -4,9 +4,13 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/stretchr/testify/assert"
@@ -351,6 +355,167 @@ hosts:
 	require.Nil(t, headers)
 	require.Contains(t, err.Error(), "failed to resolve header \"Cf-Access-Client-Secret\"")
 	require.Contains(t, err.Error(), "environment variable \"MISSING_SECRET\" for header \"Cf-Access-Client-Secret\" is not set or empty")
+}
+
+func TestCustomHeader_ResolvedValue_Command(t *testing.T) {
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER", "1")
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER_OUTPUT", "  Bearer generated-token\n")
+
+	header := CustomHeader{
+		Name:             "Proxy-Authorization",
+		ValueFromCommand: customHeaderHelperCommand(),
+	}
+
+	value, err := header.ResolvedValue()
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer generated-token", value)
+}
+
+func TestCustomHeader_ResolvedValue_CommandErrorIncludesStderr(t *testing.T) {
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER", "1")
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER_ERROR", "no active credentials")
+
+	header := CustomHeader{
+		Name:             "Proxy-Authorization",
+		ValueFromCommand: customHeaderHelperCommand(),
+	}
+
+	value, err := header.ResolvedValue()
+	require.Error(t, err)
+	assert.Empty(t, value)
+	assert.Contains(t, err.Error(), "no active credentials")
+}
+
+func TestCustomHeader_ResolvedValue_CommandTimesOut(t *testing.T) {
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER", "1")
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER_SLEEP", "1s")
+
+	value, err := resolveCustomHeaderCommandWithTimeout(customHeaderHelperCommand(), 10*time.Millisecond)
+	require.Error(t, err)
+	assert.Empty(t, value)
+	assert.Contains(t, err.Error(), "command timed out after 10ms")
+}
+
+func TestCustomHeader_ResolvedValue_CommandTimeoutKillsGrandchild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh -c wrapping is a Unix-specific pattern")
+	}
+
+	marker := filepath.Join(t.TempDir(), "ran-to-completion")
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER", "1")
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER_SLEEP", "500ms")
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER_MARKER_AFTER_SLEEP", marker)
+
+	// Mirrors the README's documented pattern for pipelines: the process
+	// glab spawns directly is `sh`, and the real work happens in a child
+	// of that shell.
+	command := "sh -c " + strconv.Quote(customHeaderHelperCommand())
+
+	value, err := resolveCustomHeaderCommandWithTimeout(command, 50*time.Millisecond)
+	require.Error(t, err)
+	assert.Empty(t, value)
+	assert.Contains(t, err.Error(), "command timed out after 50ms")
+
+	// Give the grandchild long enough to have finished its sleep and
+	// written the marker, if it survived the timeout.
+	time.Sleep(1 * time.Second)
+	_, err = os.Stat(marker)
+	assert.True(t, os.IsNotExist(err), "grandchild process should have been killed along with its parent shell")
+}
+
+func TestResolveCustomHeaders_CachesCommandValue(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "calls")
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER", "1")
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER_OUTPUT", "Bearer generated-token")
+	t.Setenv("GLAB_CUSTOM_HEADER_HELPER_MARKER", marker)
+
+	cfg := NewFromString(fmt.Sprintf(`
+hosts:
+  gitlab.com:
+    custom_headers:
+      - name: Proxy-Authorization
+        valueFromCommand: %s
+`, strconv.Quote(customHeaderHelperCommand())))
+
+	first, err := ResolveCustomHeaders(cfg, "gitlab.com")
+	require.NoError(t, err)
+	second, err := ResolveCustomHeaders(cfg, "gitlab.com")
+	require.NoError(t, err)
+
+	assert.Equal(t, "Bearer generated-token", first["Proxy-Authorization"])
+	assert.Equal(t, first, second)
+	calls, err := os.ReadFile(marker)
+	require.NoError(t, err)
+	assert.Equal(t, "x", string(calls), "the configured command should run once")
+}
+
+func TestGetCustomHeaders_RequiresExactlyOneValueSource(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields string
+	}{
+		{name: "no value source", fields: ""},
+		{name: "value and environment", fields: "        value: direct\n        valueFromEnv: TOKEN"},
+		{name: "environment and command", fields: "        valueFromEnv: TOKEN\n        valueFromCommand: token-helper"},
+		{name: "value and command", fields: "        value: direct\n        valueFromCommand: token-helper"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := NewFromString("hosts:\n  gitlab.com:\n    custom_headers:\n      - name: X-Test\n" + tc.fields + "\n")
+
+			_, err := ResolveCustomHeaders(cfg, "gitlab.com")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "exactly one of 'value', 'valueFromEnv', or 'valueFromCommand'")
+		})
+	}
+}
+
+func customHeaderHelperCommand() string {
+	return strconv.Quote(os.Args[0]) + " -test.run=^TestCustomHeaderCommandHelper$"
+}
+
+func TestCustomHeaderCommandHelper(t *testing.T) {
+	if os.Getenv("GLAB_CUSTOM_HEADER_HELPER") != "1" {
+		return
+	}
+
+	if marker := os.Getenv("GLAB_CUSTOM_HEADER_HELPER_MARKER"); marker != "" {
+		file, err := os.OpenFile(marker, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			os.Exit(2)
+		}
+		if _, err := file.WriteString("x"); err != nil {
+			os.Exit(2)
+		}
+		if err := file.Close(); err != nil {
+			os.Exit(2)
+		}
+	}
+	if message := os.Getenv("GLAB_CUSTOM_HEADER_HELPER_ERROR"); message != "" {
+		if _, err := fmt.Fprint(os.Stderr, message); err != nil {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
+	if delay := os.Getenv("GLAB_CUSTOM_HEADER_HELPER_SLEEP"); delay != "" {
+		duration, err := time.ParseDuration(delay)
+		if err != nil {
+			os.Exit(2)
+		}
+		time.Sleep(duration)
+	}
+
+	if marker := os.Getenv("GLAB_CUSTOM_HEADER_HELPER_MARKER_AFTER_SLEEP"); marker != "" {
+		if err := os.WriteFile(marker, []byte("x"), 0o600); err != nil {
+			os.Exit(2)
+		}
+	}
+
+	if _, err := fmt.Fprint(os.Stdout, os.Getenv("GLAB_CUSTOM_HEADER_HELPER_OUTPUT")); err != nil {
+		os.Exit(2)
+	}
+	os.Exit(0)
 }
 
 func TestConfig_parseHosts_NoHosts(t *testing.T) {
