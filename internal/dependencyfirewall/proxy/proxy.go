@@ -110,7 +110,6 @@ type Proxy struct {
 
 	mu       sync.Mutex
 	verdicts []verdict.Entry
-	seen     map[string]struct{}
 }
 
 // Option configures a Proxy at construction time.
@@ -138,7 +137,6 @@ func New(opts ...Option) (*Proxy, error) {
 		// package manager verifies the proxy via its configured CA bundle, and
 		// the proxy in turn verifies the real registry.
 		upstream: &http.Transport{},
-		seen:     map[string]struct{}{},
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -183,16 +181,6 @@ func (p *Proxy) Verdicts() []verdict.Entry {
 	out := make([]verdict.Entry, len(p.verdicts))
 	copy(out, p.verdicts)
 	return out
-}
-
-func (p *Proxy) record(e verdict.Entry) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if _, ok := p.seen[e.Key()]; ok {
-		return
-	}
-	p.seen[e.Key()] = struct{}{}
-	p.verdicts = append(p.verdicts, e)
 }
 
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
@@ -257,18 +245,9 @@ func (p *Proxy) serveTunnel(conn net.Conn, authority string) {
 			return
 		}
 
-		pkg, version, isPackage := packageFromPath(req.URL.Path)
-
-		// Tarball downloads can be very large (100s of MB). They are never
-		// classified from their body — a blocked package returns a small JSON
-		// error and a warning arrives via header — so stream them straight
-		// through instead of buffering the whole payload in memory.
+		// Tarball downloads can be very large (100s of MB), so stream them
+		// straight through instead of buffering the whole payload in memory.
 		if isBinaryDownload(resp) {
-			if isPackage {
-				if entry, recorded := classify(pkg, version, resp.StatusCode, resp.Header, nil); recorded {
-					p.record(entry)
-				}
-			}
 			err := resp.Write(conn)
 			resp.Body.Close()
 			if err != nil {
@@ -281,12 +260,6 @@ func (p *Proxy) serveTunnel(conn net.Conn, authority string) {
 		resp.Body.Close()
 		if err != nil {
 			return
-		}
-
-		if isPackage {
-			if entry, recorded := classify(pkg, version, resp.StatusCode, resp.Header, body); recorded {
-				p.record(entry)
-			}
 		}
 
 		resp.Body = io.NopCloser(bytes.NewReader(body))

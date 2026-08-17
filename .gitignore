@@ -87,3 +87,6 @@ scripts/commit-lint/node_modules/
 
 # MR-review audit (transient artifacts; never commit)
 .audit/
+
+# git worktrees
+.worktrees/

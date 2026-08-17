@@ -15,47 +15,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 )
 
-func TestProxyRecordsBlockedAndForwardsResponse(t *testing.T) {
-	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/blocked-pkg" {
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = io.WriteString(w, `{"error":"blocked by policy: malware"}`)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `{"name":"ok"}`)
-	}))
-	defer upstream.Close()
-
-	p, err := New(WithUpstreamRootCAs(certPool(upstream)))
-	require.NoError(t, err)
-	require.NoError(t, p.Start())
-	defer p.Stop()
-
-	client := proxyClient(t, p)
-
-	resp, err := client.Get(upstream.URL + "/blocked-pkg")
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-	resp.Body.Close()
-
-	resp, err = client.Get(upstream.URL + "/ok-pkg")
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
-
-	verdicts := p.Verdicts()
-	require.Len(t, verdicts, 1)
-	assert.Equal(t, verdict.Blocked, verdicts[0].Verdict)
-	assert.Equal(t, "blocked-pkg", verdicts[0].Package)
-	assert.Contains(t, verdicts[0].Reason, "malware")
-}
-
-func TestProxyRecordsWarningFromGzippedBody(t *testing.T) {
+// TestProxyForwardsGzippedBody verifies the proxy transparently forwards a
+// gzip-encoded response body to the client on the buffered path.
+func TestProxyForwardsGzippedBody(t *testing.T) {
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/warn-pkg" {
 			var buf bytes.Buffer
@@ -87,13 +51,6 @@ func TestProxyRecordsWarningFromGzippedBody(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Contains(t, string(body), "license review required")
-
-	p.Stop()
-	verdicts := p.Verdicts()
-	require.Len(t, verdicts, 1)
-	assert.Equal(t, verdict.Warning, verdicts[0].Verdict)
-	assert.Equal(t, "warn-pkg", verdicts[0].Package)
-	assert.Contains(t, verdicts[0].Reason, "license review")
 }
 
 // TestProxyPreservesUndecompressedContentEncoding guards against the proxy
@@ -135,11 +92,10 @@ func TestProxyPreservesUndecompressedContentEncoding(t *testing.T) {
 	assert.Equal(t, payload, body, "body must reach the client unchanged (still encoded)")
 }
 
-func TestProxyStreamsTarballAndRecordsWarningFromHeader(t *testing.T) {
+func TestProxyStreamsTarballByteIdentical(t *testing.T) {
 	payload := bytes.Repeat([]byte("x"), 3<<20) // 3 MiB tarball
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set(firewallWarningHeader, "license review required")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(payload)
 	}))
@@ -159,13 +115,6 @@ func TestProxyStreamsTarballAndRecordsWarningFromHeader(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, payload, body, "tarball must be forwarded byte-identical")
-
-	p.Stop()
-	verdicts := p.Verdicts()
-	require.Len(t, verdicts, 1)
-	assert.Equal(t, verdict.Warning, verdicts[0].Verdict)
-	assert.Equal(t, "stream-pkg", verdicts[0].Package)
-	assert.Contains(t, verdicts[0].Reason, "license review")
 }
 
 func proxyClient(t *testing.T, p *Proxy) *http.Client {
