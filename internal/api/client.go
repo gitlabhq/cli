@@ -59,8 +59,9 @@ type Client struct {
 
 	userAgent string
 
-	customHeaders map[string]string
-	proxy         func(*http.Request) (*url.URL, error)
+	customHeaders          map[string]string
+	customHeaderExtraHosts map[string]struct{}
+	proxy                  func(*http.Request) (*url.URL, error)
 }
 
 func (c *Client) HTTPClient() *http.Client {
@@ -133,7 +134,6 @@ func NewClient(newAuthSource newAuthSource, options ...ClientOption) (*Client, e
 		gitlab.WithHTTPClient(client.httpClient),
 		gitlab.WithBaseURL(client.baseURL),
 		gitlab.WithUserAgent(client.userAgent),
-		gitlab.WithRequestOptions(gitlab.WithHeaders(client.customHeaders)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize GitLab client: %w", err)
@@ -215,6 +215,15 @@ func (c *Client) initializeHTTPClient() error {
 		rt = &debugTransport{rt: rt, w: os.Stderr}
 	}
 
+	if len(c.customHeaders) > 0 {
+		allowedHosts := make(map[string]struct{}, len(c.customHeaderExtraHosts)+1)
+		for host := range c.customHeaderExtraHosts {
+			allowedHosts[strings.ToLower(host)] = struct{}{}
+		}
+		allowedHosts[strings.ToLower(u.Host)] = struct{}{}
+		rt = &customHeadersTransport{rt: rt, headers: c.customHeaders, allowedHosts: allowedHosts}
+	}
+
 	c.httpClient = &http.Client{Transport: rt}
 	return nil
 }
@@ -227,10 +236,16 @@ func WithProxy(proxy func(*http.Request) (*url.URL, error)) ClientOption {
 	}
 }
 
-// WithCustomHeaders is a ClientOption that sets custom headers
-func WithCustomHeaders(headers map[string]string) ClientOption {
+// WithCustomHeaders sets custom headers for requests to the client's base URL.
+// extraHosts covers destinations the base URL does not, notably the OAuth refresh
+// endpoint, which uses the configured host even when api_host points elsewhere.
+func WithCustomHeaders(headers map[string]string, extraHosts ...string) ClientOption {
 	return func(c *Client) error {
 		c.customHeaders = headers
+		c.customHeaderExtraHosts = make(map[string]struct{}, len(extraHosts))
+		for _, host := range extraHosts {
+			c.customHeaderExtraHosts[strings.ToLower(host)] = struct{}{}
+		}
 		return nil
 	}
 }
@@ -398,7 +413,9 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 	}
 
 	if len(headers) > 0 {
-		options = append(options, WithCustomHeaders(headers))
+		// OAuth refresh uses repoHost even when API requests use a separately
+		// configured api_host, so allow both destinations.
+		options = append(options, WithCustomHeaders(headers, repoHost))
 	}
 
 	// determine auth source
@@ -478,10 +495,6 @@ func NewHTTPRequest(ctx context.Context, c *Client, method string, baseURL *url.
 	req, err := http.NewRequestWithContext(ctx, method, baseURL.String(), body)
 	if err != nil {
 		return nil, err
-	}
-
-	for name, value := range c.customHeaders {
-		req.Header.Set(name, value)
 	}
 
 	// Add any headers passed directly to this function

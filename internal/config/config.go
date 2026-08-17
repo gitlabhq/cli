@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/zalando/go-keyring"
 	"go.yaml.in/yaml/v3"
@@ -214,7 +215,8 @@ type fileConfig struct {
 	dir          string
 	// localPath is the per-repository config file merged in at parse time, if
 	// any. Retained so Reload() re-merges the same local overrides.
-	localPath string
+	localPath                 string
+	customHeaderCommandValues sync.Map
 }
 
 func (c *fileConfig) Root() *yaml.Node {
