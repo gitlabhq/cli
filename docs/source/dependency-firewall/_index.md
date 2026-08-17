@@ -38,4 +38,3 @@ df
 ## Subcommands
 
 - [`ci-summary`](ci-summary.md)
-- [`configure`](configure.md)

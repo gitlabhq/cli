@@ -26,7 +26,6 @@ func TestNewCmdHasSubcommands(t *testing.T) {
 		subcommandNames = append(subcommandNames, subcmd.Name())
 	}
 
-	assert.Contains(t, subcommandNames, "configure")
 	assert.Contains(t, subcommandNames, "ci-summary")
 }
 
