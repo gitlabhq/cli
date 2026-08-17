@@ -102,6 +102,32 @@ func TestConfigSet(t *testing.T) {
 	}
 }
 
+// failingSetConfig is a configStub whose Set always fails, so a test can
+// assert on the error `config set` reports.
+type failingSetConfig struct {
+	configStub
+	err error
+}
+
+func (c failingSetConfig) Set(host, key, value string) error {
+	return c.err
+}
+
+func TestConfigSet_ErrorOmitsValue(t *testing.T) {
+	t.Parallel()
+
+	const secret = "glpat-nOtARealToken"
+	cfg := failingSetConfig{configStub: configStub{}, err: errors.New("keyring is locked")}
+	exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+	_, err := exec("token " + secret + " --host gitlab.com")
+	require.Error(t, err)
+
+	assert.NotContains(t, err.Error(), secret, "credential must not be echoed into the error")
+	assert.Contains(t, err.Error(), `failed to set "token"`)
+	assert.Contains(t, err.Error(), "keyring is locked", "underlying cause must be preserved")
+}
+
 func TestConfigSet_RejectsUnknownKey(t *testing.T) {
 	t.Parallel()
 

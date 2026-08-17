@@ -79,7 +79,11 @@ func (o *options) run() error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to set %q to %q: %w", o.key, o.value, err)
+		// The value is deliberately left out of the message: keys such as
+		// `token` and `job_token` hold credentials, and this error reaches
+		// stderr, CI logs, and terminal scrollback. The user supplied the
+		// value, so the key alone is enough to locate the failure.
+		return fmt.Errorf("failed to set %q: %w", o.key, err)
 	}
 
 	if o.isGlobal || o.hostname != "" {
