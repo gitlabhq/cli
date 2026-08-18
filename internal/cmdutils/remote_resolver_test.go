@@ -13,6 +13,10 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/git"
 )
 
+// noSSHAliases injects an empty ~/.ssh/config into the resolver, so tests that do not
+// exercise SSH-alias translation stay independent of the developer's real config.
+func noSSHAliases() git.SSHAliasMap { return nil }
+
 func Test_remoteResolver(t *testing.T) {
 	rr := &remoteResolver{
 		readRemotes: func() (git.RemoteSet, error) {
@@ -29,6 +33,7 @@ func Test_remoteResolver(t *testing.T) {
 				    oauth_token: OTOKEN
 			`))
 		},
+		parseSSHConfig: noSSHAliases,
 	}
 
 	resolver := rr.Resolver("")
@@ -56,6 +61,7 @@ func Test_remoteResolverOverride(t *testing.T) {
 				    oauth_token: GHETOKEN
 			`))
 		},
+		parseSSHConfig: noSSHAliases,
 	}
 
 	resolver := rr.Resolver("gitlab.com")
@@ -81,6 +87,7 @@ func Test_remoteResolverSSHHostMapping(t *testing.T) {
 				    ssh_host: ssh.gitlab.example.com
 			`))
 		},
+		parseSSHConfig: noSSHAliases,
 	}
 
 	resolver := rr.Resolver("")
@@ -93,6 +100,169 @@ func Test_remoteResolverSSHHostMapping(t *testing.T) {
 	assert.Equal(t, "gitlab.example.com", remotes[0].RepoHost())
 	assert.Equal(t, "owner", remotes[0].RepoOwner())
 	assert.Equal(t, "repo", remotes[0].RepoName())
+}
+
+func Test_remoteResolverSameHostSSHAlias(t *testing.T) {
+	// A remote whose literal SSH host is already a configured host (a config key or an
+	// entry's ssh_host) must resolve to that account, regardless of what ~/.ssh/config
+	// would rewrite it to; genuine aliases for unknown hosts still translate. See #8394.
+	//
+	// The sshAliases map is what ParseSSHConfig would return for the corresponding
+	// ~/.ssh/config, injected through the parseSSHConfig seam.
+	tests := []struct {
+		name       string
+		sshAliases git.SSHAliasMap
+		remoteURL  string
+		config     string
+		wantHost   string
+	}{
+		{
+			name:       "second same-host account resolves to its own key (#8394)",
+			sshAliases: git.SSHAliasMap{"gitlab.com-work": "gitlab.com"},
+			remoteURL:  "git@gitlab.com-work:owner/repo.git",
+			config: heredoc.Doc(`
+				hosts:
+				  gitlab.com:
+				    token: PRIMARY
+				  gitlab.com-work:
+				    api_host: gitlab.com
+				    ssh_host: gitlab.com
+				    token: WORK
+			`),
+			wantHost: "gitlab.com-work",
+		},
+		{
+			name:       "primary account still resolves over the shared host (#8394)",
+			sshAliases: git.SSHAliasMap{"gitlab.com-work": "gitlab.com"},
+			remoteURL:  "git@gitlab.com:owner/repo.git",
+			config: heredoc.Doc(`
+				hosts:
+				  gitlab.com:
+				    token: PRIMARY
+				  gitlab.com-work:
+				    api_host: gitlab.com
+				    ssh_host: gitlab.com
+				    token: WORK
+			`),
+			wantHost: "gitlab.com",
+		},
+		{
+			name:       "genuine alias for an unknown host still translates",
+			sshAliases: git.SSHAliasMap{"gl": "gitlab.example.com"},
+			remoteURL:  "git@gl:owner/repo.git",
+			config: heredoc.Doc(`
+				hosts:
+				  gitlab.example.com:
+				    token: OTOKEN
+			`),
+			wantHost: "gitlab.example.com",
+		},
+		{
+			name:       "configured host aliased away with no ssh_host resolves to that host",
+			sshAliases: git.SSHAliasMap{"gitlab.example.com": "internal.example.com"},
+			remoteURL:  "git@gitlab.example.com:owner/repo.git",
+			config: heredoc.Doc(`
+				hosts:
+				  gitlab.example.com:
+				    token: OTOKEN
+			`),
+			wantHost: "gitlab.example.com",
+		},
+		{
+			name:       "gitlab.com aliased to a non-official SSH endpoint resolves to gitlab.com",
+			sshAliases: git.SSHAliasMap{"gitlab.com": "gitlab-proxy.corp.example.com"},
+			remoteURL:  "git@gitlab.com:owner/repo.git",
+			config: heredoc.Doc(`
+				hosts:
+				  gitlab.com:
+				    token: OTOKEN
+			`),
+			wantHost: "gitlab.com",
+		},
+		{
+			name:       "ssh_host value is matched before ssh_config translation",
+			sshAliases: git.SSHAliasMap{"git.example.com": "git-internal.example.com"},
+			remoteURL:  "git@git.example.com:owner/repo.git",
+			config: heredoc.Doc(`
+				hosts:
+				  api.example.com:
+				    token: OTOKEN
+				    ssh_host: git.example.com
+			`),
+			wantHost: "api.example.com",
+		},
+		{
+			// A mixed-case ssh_host value must still map, exercising NormalizeHostname
+			// on the sshHostMapping populate side. (Config keys, by contrast, are
+			// matched case-sensitively, so they are intentionally not normalized.)
+			name:       "mixed-case ssh_host value still maps to its config key",
+			sshAliases: git.SSHAliasMap{},
+			remoteURL:  "git@ssh.example.com:owner/repo.git",
+			config: heredoc.Doc(`
+				hosts:
+				  api.example.com:
+				    token: OTOKEN
+				    ssh_host: SSH.Example.com
+			`),
+			wantHost: "api.example.com",
+		},
+		{
+			// gitlab.com is not a configured host here, so the alias is a redirect to
+			// another instance, not an identity alias: follow it, as git does.
+			name:       "gitlab.com aliased to a configured host follows the alias",
+			sshAliases: git.SSHAliasMap{"gitlab.com": "gitlab.corp.com"},
+			remoteURL:  "git@gitlab.com:owner/repo.git",
+			config: heredoc.Doc(`
+				hosts:
+				  gitlab.corp.com:
+				    token: OTOKEN
+			`),
+			wantHost: "gitlab.corp.com",
+		},
+		{
+			// Same redirect, reached through the target's ssh_host rather than its key.
+			name:       "gitlab.com aliased to a configured host's ssh_host follows the alias",
+			sshAliases: git.SSHAliasMap{"gitlab.com": "ssh.gitlab.corp.com"},
+			remoteURL:  "git@gitlab.com:owner/repo.git",
+			config: heredoc.Doc(`
+				hosts:
+				  gitlab.corp.com:
+				    token: OTOKEN
+				    ssh_host: ssh.gitlab.corp.com
+			`),
+			wantHost: "gitlab.corp.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sshURL, err := git.ParseURL(tt.remoteURL)
+			require.NoError(t, err)
+
+			rr := &remoteResolver{
+				readRemotes: func() (git.RemoteSet, error) {
+					return git.RemoteSet{
+						&git.Remote{Name: "origin", FetchURL: sshURL, PushURL: sshURL},
+					}, nil
+				},
+				getConfig: func() config.Config {
+					return config.NewFromString(tt.config)
+				},
+				parseSSHConfig:  func() git.SSHAliasMap { return tt.sshAliases },
+				defaultHostname: "gitlab.com",
+			}
+
+			resolver := rr.Resolver("")
+			remotes, err := resolver()
+			require.NoError(t, err)
+			require.Len(t, remotes, 1)
+
+			assert.Equal(t, "origin", remotes[0].Name)
+			assert.Equal(t, tt.wantHost, remotes[0].RepoHost())
+			assert.Equal(t, "owner", remotes[0].RepoOwner())
+			assert.Equal(t, "repo", remotes[0].RepoName())
+		})
+	}
 }
 
 func Test_remoteResolverSSHHostMappingEdgeCases(t *testing.T) {
@@ -224,6 +394,7 @@ func Test_remoteResolverSSHHostMappingEdgeCases(t *testing.T) {
 				getConfig: func() config.Config {
 					return config.NewFromString(tt.config)
 				},
+				parseSSHConfig: noSSHAliases,
 			}
 
 			resolver := rr.Resolver(tt.hostOverride)
@@ -294,6 +465,7 @@ func Test_remoteResolverErrors(t *testing.T) {
 				    oauth_token: OTOKEN
 			`))
 				},
+				parseSSHConfig: noSSHAliases,
 			}
 
 			resolver := rr.Resolver(test.hostOverride)
@@ -336,6 +508,7 @@ func Test_remoteResolverSplitHostWithSubfolder(t *testing.T) {
 					    subfolder: gitlab
 				`))
 			},
+			parseSSHConfig:  noSSHAliases,
 			defaultHostname: "gitlab.com",
 		}
 
@@ -344,11 +517,9 @@ func Test_remoteResolverSplitHostWithSubfolder(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, remotes, 1)
 
-		// BUG: The remote should have RepoHost() = "api.example.com" (the config key)
-		// but it actually returns "git.example.com" (the SSH hostname)
-		// This causes downstream code to fail when looking up config (subfolder, token, etc.)
-
-		// This assertion should PASS after the fix:
+		// The remote should have RepoHost() = "api.example.com" (the config key),
+		// not "git.example.com" (the SSH hostname), so downstream config lookups
+		// (subfolder, token, etc.) resolve correctly.
 		assert.Equal(t, "api.example.com", remotes[0].RepoHost(),
 			"Remote.Repo should be updated to use the config key hostname, not the SSH hostname")
 
@@ -384,6 +555,7 @@ func Test_remoteResolverSplitHostWithSubfolder(t *testing.T) {
 					    subfolder: gitlab
 				`))
 			},
+			parseSSHConfig:  noSSHAliases,
 			defaultHostname: "gitlab.com",
 		}
 
@@ -391,9 +563,7 @@ func Test_remoteResolverSplitHostWithSubfolder(t *testing.T) {
 		remotes, err := resolver()
 		require.NoError(t, err)
 
-		// CRITICAL: Both remotes should be returned
-		// MR #2924 bug: Only returns 1 remote (filters out upstream)
-		// Our fix: Returns 2 remotes correctly
+		// Both remotes should be returned (MR #2924 bug returned only 1).
 		assert.Len(t, remotes, 2, "Both SSH and HTTPS remotes should be included")
 
 		// Verify both remotes use the correct API hostname

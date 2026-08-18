@@ -196,6 +196,7 @@ func (f *DefaultFactory) Remotes() (glrepo.Remotes, error) {
 	rr := &remoteResolver{
 		readRemotes:     git.Remotes,
 		getConfig:       f.Config,
+		parseSSHConfig:  git.ParseSSHConfig,
 		defaultHostname: f.defaultHostname,
 	}
 	fn := rr.Resolver(hostOverride)
