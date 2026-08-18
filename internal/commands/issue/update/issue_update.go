@@ -27,7 +27,13 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 		`, "`"),
 		Example: heredoc.Doc(`
 			glab issue update 42 --label ui,ux
-			glab issue update 42 --unlabel working`),
+			glab issue update 42 --unlabel working
+
+			# Read the description from a file
+			glab issue update 42 --description-file description.md
+
+			# Read the description from standard input
+			cat description.md | glab issue update 42 --description-file -`),
 		Args: cobra.ExactArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
@@ -63,6 +69,10 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 			}
 			if cmd.Flags().Changed("confidential") && cmd.Flags().Changed("public") {
 				return &cmdutils.FlagError{Err: errors.New("--public and --confidential can't be used together")}
+			}
+
+			if err := cmdutils.ResolveDescriptionFile(f.IO(), cmd); err != nil {
+				return err
 			}
 
 			client, err := f.GitLabClient()
@@ -216,6 +226,7 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 	issueUpdateCmd.Flags().Bool("unassign", false, "Unassign all users.")
 	issueUpdateCmd.Flags().IntP("weight", "w", 0, "Set weight of the issue.")
 	issueUpdateCmd.Flags().StringP("due-date", "", "", "A date in 'YYYY-MM-DD' format.")
+	cmdutils.AddDescriptionFileFlag(issueUpdateCmd, "issue")
 
 	return issueUpdateCmd
 }

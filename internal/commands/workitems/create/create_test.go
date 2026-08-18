@@ -3,6 +3,9 @@
 package create
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -85,6 +88,67 @@ func TestWorkItemsCreate(t *testing.T) {
 		_, err := exec("--type issue --title \"Test Issue\"")
 		require.Error(t, err)
 	})
+}
+
+func TestWorkItemsCreate_DescriptionFile(t *testing.T) {
+	const body = "# Heading\n\nMulti-line body with \"quotes\", $VARS and `backticks`.\n"
+
+	tests := []struct {
+		name     string
+		useStdin bool
+	}{
+		{name: "reads the description from a file"},
+		{name: "reads the description from standard input", useStdin: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tc := gitlabtesting.NewTestClient(t)
+
+			var gotDescription *string
+			tc.MockWorkItems.EXPECT().
+				CreateWorkItem(gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ string, _ gitlab.WorkItemTypeID, opts *gitlab.CreateWorkItemOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.WorkItem, *gitlab.Response, error) {
+					gotDescription = opts.Description
+					return &gitlab.WorkItem{IID: 1, WebURL: "https://gitlab.com/OWNER/REPO/-/work_items/1"}, &gitlab.Response{}, nil
+				})
+
+			factoryOpts := []cmdtest.FactoryOption{
+				cmdtest.WithGitLabClient(tc.Client),
+				cmdtest.WithBaseRepo("OWNER", "REPO", glinstance.DefaultHostname),
+			}
+
+			path := "-"
+			if tt.useStdin {
+				factoryOpts = append(factoryOpts, cmdtest.WithStdin(body))
+			} else {
+				path = filepath.Join(t.TempDir(), "description.md")
+				require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+			}
+
+			exec := cmdtest.SetupCmdForTest(t, NewCmd, false, factoryOpts...)
+
+			_, err := exec(fmt.Sprintf("--type issue --title Test --description-file %q", path))
+			require.NoError(t, err)
+
+			require.NotNil(t, gotDescription)
+			assert.Equal(t, body, *gotDescription)
+		})
+	}
+}
+
+func TestWorkItemsCreate_DescriptionFileConflictsWithDescription(t *testing.T) {
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepo("OWNER", "REPO", glinstance.DefaultHostname),
+	)
+
+	_, err := exec(`--type issue --title Test --description inline --description-file some.md`)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "[description description-file]")
 }
 
 func TestWorkItemsCreate_FlagValidation(t *testing.T) {

@@ -36,22 +36,29 @@ glab work-items update 42 --description "this issue tracks a new feature"
 # Update a work item in a group
 glab work-items update 40 --group MYGROUP --description "this epic tracks a new feature"
 
+# Read the description from a file
+glab work-items update 42 --description-file description.md
+
+# Read the description from standard input
+cat description.md | glab work-items update 42 --description-file -
+
 ```
 
 ## Options
 
 ```plaintext
-  -a, --assignee strings     Update the work item assignee with the supplied GitLab usernames.
-  -d, --description string   Update the description for the work item.
-      --duedate string       Update the due date for the work item.
-  -g, --group string         Update work items for a group or subgroup.
-      --jq string            Filter JSON output with a jq expression.
-  -m, --milestone string     Update the work item milestone with the title or ID.
-  -F, --output string        Format output as: text, json. (default "text")
-  -R, --repo string          Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
-      --startdate string     Update the start date for the work item.
-  -t, --title string         Update the title for the work item.
-  -w, --weight int           Update the weight value for the work item.
+  -a, --assignee strings          Update the work item assignee with the supplied GitLab usernames.
+  -d, --description string        Update the description for the work item.
+      --description-file string   Read the work item description from a file. Use "-" to read from standard input.
+      --duedate string            Update the due date for the work item.
+  -g, --group string              Update work items for a group or subgroup.
+      --jq string                 Filter JSON output with a jq expression.
+  -m, --milestone string          Update the work item milestone with the title or ID.
+  -F, --output string             Format output as: text, json. (default "text")
+  -R, --repo string               Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
+      --startdate string          Update the start date for the work item.
+  -t, --title string              Update the title for the work item.
+  -w, --weight int                Update the weight value for the work item.
 ```
 
 ## Options inherited from parent commands

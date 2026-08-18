@@ -68,6 +68,12 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 					
 					# Update a work item in a group
 					glab work-items update 40 --group MYGROUP --description "this epic tracks a new feature"
+
+					# Read the description from a file
+					glab work-items update 42 --description-file description.md
+
+					# Read the description from standard input
+					cat description.md | glab work-items update 42 --description-file -
 		`),
 		Args: cobra.ExactArgs(1),
 		Annotations: map[string]string{
@@ -97,6 +103,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl.StringVarP(&opts.milestone, "milestone", "m", "", "Update the work item milestone with the title or ID.")
 	fl.StringVar(&opts.startDate, "startdate", "", "Update the start date for the work item.")
 	fl.StringVar(&opts.dueDate, "duedate", "", "Update the due date for the work item.")
+	cmdutils.AddDescriptionFileFlag(cmd, "work item")
 
 	cmd.MarkFlagsMutuallyExclusive("group", "repo")
 
@@ -115,6 +122,10 @@ func (opts *options) complete(ctx context.Context, cmd *cobra.Command, args []st
 		return err
 	}
 	opts.group = group
+
+	if err := cmdutils.ResolveDescriptionFile(opts.io, cmd); err != nil {
+		return err
+	}
 
 	if err := cmdutils.HandleDescriptionEditor(ctx, &opts.description, opts.io, opts.config, nil); err != nil {
 		return err

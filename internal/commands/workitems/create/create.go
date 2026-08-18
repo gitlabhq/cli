@@ -62,6 +62,12 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Create a work item in a group
 			glab work-items create --type epic --group my-group
+
+			# Read the description from a file
+			glab work-items create --type issue --title "Add feature" --description-file description.md
+
+			# Read the description from standard input
+			cat description.md | glab work-items create --type issue --title "Add feature" --description-file -
 		`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
@@ -91,6 +97,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.description, "description", "d", "", "Description of the work item. Set to \"-\" to open an editor.")
 	cmd.Flags().BoolVarP(&opts.confidential, "confidential", "c", false, "Mark work item confidential.")
 
+	cmdutils.AddDescriptionFileFlag(cmd, "work item")
+
 	_ = cmd.MarkFlagRequired("type")
 	cmd.MarkFlagsMutuallyExclusive("group", "repo")
 
@@ -104,6 +112,10 @@ func (opts *options) complete(ctx context.Context, cmd *cobra.Command) error {
 	}
 	opts.group = group
 	opts.needsPrompt = !cmd.Flags().Changed("title")
+
+	if err := cmdutils.ResolveDescriptionFile(opts.io, cmd); err != nil {
+		return err
+	}
 
 	if err := cmdutils.HandleDescriptionEditor(ctx, &opts.description, opts.io, opts.config, nil); err != nil {
 		return err
