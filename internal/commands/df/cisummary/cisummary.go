@@ -31,7 +31,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "ci-summary",
-		Short: "Summarize Dependency Firewall activity from the CI log.",
+		Short: "Summarize Dependency Firewall activity from the CI log. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`
 			Read %[1]s.gitlab/df/ci-log.json%[1]s and print blocked and flagged packages
 			recorded during a %[1]sglab dependency-firewall%[1]s run.
@@ -45,7 +45,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			| %[1]s0%[1]s | No blocked entries in the log (allow-only or warnings). |
 			| %[1]s1%[1]s | The log could not be read. |
 			| %[1]s3%[1]s | At least one entry in the log is blocked. |
-		`, "`") + text.BetaString,
+		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Show blocked and flagged packages from the last firewall run
 			glab dependency-firewall ci-summary
