@@ -14,21 +14,23 @@ Run the GitLab Duo CLI.
 
 ## Synopsis
 
-Run the GitLab Duo CLI.
+Run the GitLab Duo CLI (`duo`) through `glab`.
 
-Use the GitLab Duo CLI to bring the GitLab Duo Agent Platform to your terminal.
-Ask GitLab Duo questions about your codebase and use it to autonomously perform actions
-on your behalf.
+The GitLab Duo CLI brings the GitLab Duo Agent Platform to your terminal. Ask GitLab Duo questions about your codebase and use it to autonomously perform actions on your behalf.
 
-When you use the GitLab Duo CLI in the GitLab CLI, `glab` handles
-authentication for you automatically.
-You only need to authenticate once.
+The GitLab Duo CLI runs in two modes:
+
+- Interactive (default): `glab duo cli` opens a session for multiple prompts, with build and plan modes.
+- Headless: `glab duo cli run --goal "<prompt>"` runs a single prompt and exits. For use in runners, scripts, and automated workflows.
+
+When you use the GitLab Duo CLI through `glab`, `glab` handles authentication for you. You authenticate only once.
 
 Prerequisites:
 
 - Use GitLab 19.2 or later.
 - Run `glab auth login` to authenticate.
 - Meet the [prerequisites for GitLab Duo Agent Platform](https://docs.gitlab.com/user/duo_agent_platform/#prerequisites).
+- Set a [default GitLab Duo namespace](https://docs.gitlab.com/user/profile/preferences/#namespace-resolution-in-your-local-environment), or run the command in a project that has GitLab Duo access.
 - For GitLab Self-Managed and GitLab Dedicated on 19.2 or later, turn on [GitLab Duo CLI access](https://docs.gitlab.com/user/gitlab_duo_cli/#turn-gitlab-duo-cli-access-on-or-off). It is on by default.
 
 Note: If you are on GitLab 18.11 to 19.1, you can use the GitLab Duo CLI by turning on [beta and experimental features](https://docs.gitlab.com/user/duo_agent_platform/turn_on_off/#turn-on-beta-and-experimental-features).
@@ -38,7 +40,7 @@ Configuration options:
 - `duo_cli_auto_run`: Skip the run confirmation prompt.
 - `duo_cli_auto_download`: Skip the download confirmation prompt.
 
-All other arguments and flags are passed through to the GitLab Duo CLI binary.
+`glab` passes all other arguments and flags through to the GitLab Duo CLI binary. To see the GitLab Duo CLI commands and flags, run `glab duo cli help`.
 
 For more information, see the [GitLab Duo CLI documentation](https://docs.gitlab.com/user/gitlab_duo_cli/).
 
@@ -49,16 +51,20 @@ glab duo cli [command] [flags]
 ## Examples
 
 ```console
-# Run the GitLab Duo CLI
+# Start an interactive GitLab Duo CLI session
 glab duo cli
 
-# Pass any command or flag through to the GitLab Duo CLI binary (for example: version, run, help)
-glab duo cli <command>
+# Use the GitLab Duo CLI in headless mode with a single prompt
+glab duo cli run --goal "Fix the failing tests in this project"
 
-# Show this help
+# Pass any command or flag through to the GitLab Duo CLI binary (for example: model, version, run)
+glab duo cli <command>
+glab duo cli --model claude_sonnet_4_6
+
+# Show GitLab CLI help content
 glab duo cli --help
 
-# Show GitLab Duo CLI help
+# Show GitLab Duo CLI help content, including commands and flags
 glab duo cli help
 
 # Run without prompts (for use in scripts and non-interactive environments)

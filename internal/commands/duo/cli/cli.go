@@ -12,7 +12,9 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/utils"
 )
 
 // duoMaxCompatibleMajorVersion caps Duo CLI auto-updates to this major
@@ -94,58 +96,125 @@ func duoInstalledName(goos string) string {
 	return "duo"
 }
 
+// AppendBinaryStatusFooter registers a help function on cmd that renders glab's
+// standard help and then appends a section describing how to reach the GitLab
+// Duo CLI's own help, depending on whether the binary is installed.
+func AppendBinaryStatusFooter(cmd *cobra.Command, f cmdutils.Factory) {
+	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		c.Root().HelpFunc()(c, args)
+
+		io := f.IO()
+		io.LogInfo(io.Color().Bold("GITLAB DUO CLI"))
+
+		path, version, installed := binaryStatus(f.Config())
+		if installed {
+			io.LogInfo(utils.Indent(heredoc.Docf(`
+			  Installed: %s (%s)
+			  Run 'glab duo cli help' for the GitLab Duo CLI commands and flags.`, version, path), "  "))
+			return
+		}
+
+		io.LogInfo(utils.Indent(heredoc.Doc(`
+		  The GitLab Duo CLI binary is not installed yet. To get started:
+
+		    1. glab auth login          # authenticate, once
+		    2. glab duo cli --install   # download the GitLab Duo CLI binary
+		    3. glab duo cli             # start an interactive session
+
+		  Or run 'glab duo cli' and follow the prompts.
+		  After it is installed, 'glab duo cli help' shows the GitLab Duo CLI
+		  commands and flags.`), "  "))
+	})
+}
+
+// binaryStatus resolves the Duo CLI binary that would be used, and reports
+// whether it is present on disk. Path resolution mirrors binarymgr.Runner.
+// Errors are logged via dbg (not returned) so a real failure is diagnosable
+// under GLAB_DEBUG instead of silently rendering as "not installed".
+func binaryStatus(cfg config.Config) (string, string, bool) {
+	path, err := cfg.Get("", "duo_cli_binary_path")
+	if err != nil {
+		dbg.Debugf("binaryStatus: reading duo_cli_binary_path from config: %v", err)
+	}
+	if path == "" {
+		var mbpErr error
+		path, mbpErr = binarymgr.ManagedBinaryPath(Spec())
+		if mbpErr != nil {
+			dbg.Debugf("binaryStatus: resolving managed Duo CLI binary path: %v", mbpErr)
+		}
+	}
+	version, err := cfg.Get("", "duo_cli_binary_version")
+	if err != nil {
+		dbg.Debugf("binaryStatus: reading duo_cli_binary_version from config: %v", err)
+	}
+	if version == "" {
+		version = "unknown version"
+	}
+	if _, err := os.Stat(path); err != nil {
+		return path, version, false
+	}
+	return path, version, true
+}
+
 // NewCmd creates the `glab duo cli` command.
 func NewCmd(f cmdutils.Factory) *cobra.Command {
 	spec := Spec()
 	cmd := &cobra.Command{
 		Use:   "cli [command]",
 		Short: "Run the GitLab Duo CLI.",
-		Long: heredoc.Docf(`Run the GitLab Duo CLI.
+		Long: heredoc.Docf(`
+			Run the GitLab Duo CLI (%[1]sduo%[1]s) through %[1]sglab%[1]s.
 
-Use the GitLab Duo CLI to bring the GitLab Duo Agent Platform to your terminal.
-Ask GitLab Duo questions about your codebase and use it to autonomously perform actions
-on your behalf.
+			The GitLab Duo CLI brings the GitLab Duo Agent Platform to your terminal. Ask GitLab Duo questions about your codebase and use it to autonomously perform actions on your behalf.
 
-When you use the GitLab Duo CLI in the GitLab CLI, %[1]sglab%[1]s handles
-authentication for you automatically.
-You only need to authenticate once.
+			The GitLab Duo CLI runs in two modes:
 
-Prerequisites:
+			- Interactive (default): %[1]sglab duo cli%[1]s opens a session for multiple prompts, with build and plan modes.
+			- Headless: %[1]sglab duo cli run --goal "<prompt>"%[1]s runs a single prompt and exits. For use in runners, scripts, and automated workflows.
 
-- Use GitLab 19.2 or later.
-- Run %[1]sglab auth login%[1]s to authenticate.
-- Meet the [prerequisites for GitLab Duo Agent Platform](https://docs.gitlab.com/user/duo_agent_platform/#prerequisites).
-- For GitLab Self-Managed and GitLab Dedicated on 19.2 or later, turn on [GitLab Duo CLI access](https://docs.gitlab.com/user/gitlab_duo_cli/#turn-gitlab-duo-cli-access-on-or-off). It is on by default.
+			When you use the GitLab Duo CLI through %[1]sglab%[1]s, %[1]sglab%[1]s handles authentication for you. You authenticate only once.
 
-Note: If you are on GitLab 18.11 to 19.1, you can use the GitLab Duo CLI by turning on [beta and experimental features](https://docs.gitlab.com/user/duo_agent_platform/turn_on_off/#turn-on-beta-and-experimental-features).
+			Prerequisites:
 
-Configuration options:
+			- Use GitLab 19.2 or later.
+			- Run %[1]sglab auth login%[1]s to authenticate.
+			- Meet the [prerequisites for GitLab Duo Agent Platform](https://docs.gitlab.com/user/duo_agent_platform/#prerequisites).
+			- Set a [default GitLab Duo namespace](https://docs.gitlab.com/user/profile/preferences/#namespace-resolution-in-your-local-environment), or run the command in a project that has GitLab Duo access.
+			- For GitLab Self-Managed and GitLab Dedicated on 19.2 or later, turn on [GitLab Duo CLI access](https://docs.gitlab.com/user/gitlab_duo_cli/#turn-gitlab-duo-cli-access-on-or-off). It is on by default.
 
-- %[1]sduo_cli_auto_run%[1]s: Skip the run confirmation prompt.
-- %[1]sduo_cli_auto_download%[1]s: Skip the download confirmation prompt.
+			Note: If you are on GitLab 18.11 to 19.1, you can use the GitLab Duo CLI by turning on [beta and experimental features](https://docs.gitlab.com/user/duo_agent_platform/turn_on_off/#turn-on-beta-and-experimental-features).
 
-All other arguments and flags are passed through to the GitLab Duo CLI binary.
+			Configuration options:
 
-For more information, see the [GitLab Duo CLI documentation](https://docs.gitlab.com/user/gitlab_duo_cli/).
-`, "`"),
+			- %[1]sduo_cli_auto_run%[1]s: Skip the run confirmation prompt.
+			- %[1]sduo_cli_auto_download%[1]s: Skip the download confirmation prompt.
+
+			%[1]sglab%[1]s passes all other arguments and flags through to the GitLab Duo CLI binary. To see the GitLab Duo CLI commands and flags, run %[1]sglab duo cli help%[1]s.
+
+			For more information, see the [GitLab Duo CLI documentation](https://docs.gitlab.com/user/gitlab_duo_cli/).
+		`, "`"),
 		Annotations: map[string]string{
 			"help:environment": heredoc.Docf(`
 				- %[1]sGLAB_DUO_CLI_BINARY_PATH%[1]s: Use a local binary instead of the managed one.
-				  Skips download, version checks, and updates. Can also be set via the
+				  Skips download, version checks, and updates. Can also be set through the
 				  %[1]sduo_cli_binary_path%[1]s configuration key.
 				`, "`"),
 		},
 		Example: heredoc.Doc(`
-			# Run the GitLab Duo CLI
+			# Start an interactive GitLab Duo CLI session
 			glab duo cli
 
-			# Pass any command or flag through to the GitLab Duo CLI binary (for example: version, run, help)
-			glab duo cli <command>
+			# Use the GitLab Duo CLI in headless mode with a single prompt
+			glab duo cli run --goal "Fix the failing tests in this project"
 
-			# Show this help
+			# Pass any command or flag through to the GitLab Duo CLI binary (for example: model, version, run)
+			glab duo cli <command>
+			glab duo cli --model claude_sonnet_4_6
+
+			# Show GitLab CLI help content
 			glab duo cli --help
 
-			# Show GitLab Duo CLI help
+			# Show GitLab Duo CLI help content, including commands and flags
 			glab duo cli help
 
 			# Run without prompts (for use in scripts and non-interactive environments)
@@ -205,6 +274,8 @@ For more information, see the [GitLab Duo CLI documentation](https://docs.gitlab
 	fl.BoolP("yes", "y", false, "Skip confirmation prompts.")
 	fl.Bool("install", false, "Install the GitLab Duo CLI binary without running it.")
 	fl.Bool("update", false, "Check for and install updates to the binary.")
+
+	AppendBinaryStatusFooter(cmd, f)
 
 	return cmd
 }
