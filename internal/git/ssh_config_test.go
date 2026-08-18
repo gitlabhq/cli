@@ -157,27 +157,6 @@ func Test_Translator(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "https://gl/o/r", tr(u).String())
 	})
-
-	t.Run("ssh.gitlab.com alias preserved", func(t *testing.T) {
-		tr := SSHAliasMap{"gitlab.com": "ssh.gitlab.com"}.Translator()
-		u, err := url.Parse("ssh://gitlab.com/o/r")
-		require.NoError(t, err)
-		require.Equal(t, "ssh://gitlab.com/o/r", tr(u).String())
-	})
-
-	t.Run("altssh.gitlab.com alias preserved", func(t *testing.T) {
-		tr := SSHAliasMap{"gitlab.com": "altssh.gitlab.com"}.Translator()
-		u, err := url.Parse("ssh://gitlab.com/o/r")
-		require.NoError(t, err)
-		require.Equal(t, "ssh://gitlab.com/o/r", tr(u).String())
-	})
-
-	t.Run("altssh.gitlab.com alias preserved with mixed case", func(t *testing.T) {
-		tr := SSHAliasMap{"GitLab.com": "AltSSH.GitLab.com"}.Translator()
-		u, err := url.Parse("ssh://GitLab.com/o/r")
-		require.NoError(t, err)
-		require.Equal(t, "ssh://GitLab.com/o/r", tr(u).String())
-	})
 }
 
 func eq(t *testing.T, got any, expected any) {

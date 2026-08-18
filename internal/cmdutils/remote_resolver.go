@@ -16,6 +16,7 @@ import (
 type remoteResolver struct {
 	readRemotes     func() (git.RemoteSet, error)
 	getConfig       func() config.Config
+	parseSSHConfig  func() git.SSHAliasMap
 	defaultHostname string
 }
 
@@ -40,34 +41,54 @@ func (rr *remoteResolver) Resolver(hostOverride string) func() (glrepo.Remotes, 
 
 		cfg := rr.getConfig()
 
-		sshTranslate := git.ParseSSHConfig().Translator()
+		// Collect the configured hosts before translating the remotes, so a remote
+		// whose literal SSH host already matches a configured host can skip the
+		// ssh_config translation below.
+		knownHosts := map[string]struct{}{}
+		configuredHosts := map[string]struct{}{} // Only the accounts present in the config file.
+		sshHostMapping := map[string]string{}    // Maps SSH hostnames to config keys
+		knownHosts[glinstance.DefaultHostname] = struct{}{}
+		if authenticatedHosts, err := cfg.Hosts(); err == nil {
+			for _, h := range authenticatedHosts {
+				// Config host lookups are case-sensitive: cfg.Hosts() returns the raw
+				// YAML keys and cfg.Get matches them literally, so keys go in verbatim.
+				knownHosts[h] = struct{}{}
+				configuredHosts[h] = struct{}{}
+
+				// The ssh_host value is only ever compared against a lower-cased remote
+				// host, so normalize it here to keep the two sides consistent.
+				if sshHost, _ := cfg.Get(h, "ssh_host"); sshHost != "" {
+					sshHostMapping[glinstance.NormalizeHostname(sshHost)] = h
+				}
+			}
+		}
+
+		sshTranslate := rr.parseSSHConfig().Translator()
 		resolvedRemotes := glrepo.TranslateRemotes(
 			gitRemotes,
 			func(u *url.URL) *url.URL {
-				switch u.Scheme {
-				case "ssh":
-					return sshTranslate(u)
-				default:
+				if u.Scheme != "ssh" {
 					return u
 				}
+				// A remote whose literal SSH host is already a configured account (a
+				// config key or an entry's ssh_host) resolves to that account, exactly as
+				// an HTTPS remote would; only unknown hosts fall back to ssh_config
+				// translation. The default gitlab.com is deliberately excluded here: when
+				// it is not a configured account, an alias pointing it elsewhere is a
+				// redirect to another instance and must be followed, as git does.
+				// See https://gitlab.com/gitlab-org/cli/-/issues/8394.
+				host := glinstance.NormalizeHostname(u.Hostname())
+				if _, configured := configuredHosts[host]; configured {
+					return u
+				}
+				if _, mapped := sshHostMapping[host]; mapped {
+					return u
+				}
+				return sshTranslate(u)
 			},
 			rr.defaultHostname,
 			cfg,
 		)
-
-		knownHosts := map[string]bool{}
-		sshHostMapping := map[string]string{} // Maps SSH hostnames to config keys
-		knownHosts[glinstance.DefaultHostname] = true
-		if authenticatedHosts, err := cfg.Hosts(); err == nil {
-			for _, h := range authenticatedHosts {
-				knownHosts[h] = true
-
-				// Build SSH host mapping
-				if sshHost, _ := cfg.Get(h, "ssh_host"); sshHost != "" {
-					sshHostMapping[sshHost] = h
-				}
-			}
-		}
 
 		// filter remotes to only those sharing a single, known hostname
 		var hostname string
@@ -104,7 +125,7 @@ func (rr *remoteResolver) Resolver(hostOverride string) func() (glrepo.Remotes, 
 			repoHost := r.RepoHost()
 
 			// Check if this is a known host or SSH host that maps to a config entry
-			if !knownHosts[repoHost] {
+			if _, ok := knownHosts[repoHost]; !ok {
 				configHost, found := sshHostMapping[repoHost]
 				if !found {
 					// Unknown host - skip this remote
