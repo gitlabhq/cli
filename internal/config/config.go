@@ -438,7 +438,11 @@ func (c *fileConfig) Set(hostname, key, value string) error {
 			// plaintext copy from the config file below.
 			keyringKey := buildKeyringKey(hostname, key)
 			if err := keyring.Set(keyringKey, "", value); err != nil {
-				return err
+				// Name the keyring and the host, mirroring the read path in
+				// GetWithSource. On macOS the backend shells out to
+				// /usr/bin/security, so the bare error is an unexplained
+				// "exit status <n>" with nothing tying it to the keyring.
+				return fmt.Errorf("failed to store %q in the operating system's keyring for host %q: %w", key, hostname, err)
 			}
 			value = ""
 		case useKeyring == "true" || !InCI():

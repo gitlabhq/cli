@@ -283,6 +283,22 @@ func Test_GetWithSource_SurfacesKeyringReadError(t *testing.T) {
 	assert.Contains(t, err.Error(), "keyring")
 }
 
+func Test_Set_SurfacesKeyringWriteError(t *testing.T) {
+	keyring.MockInitWithError(errors.New("exit status 161"))
+	t.Cleanup(keyring.MockInit)
+
+	c := NewBlankConfig()
+	require.NoError(t, c.Set("gitlab.com", "use_keyring", "true"))
+
+	err := c.Set("gitlab.com", "token", "secret-value")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "keyring", "error must name the keyring as the failing subsystem")
+	assert.Contains(t, err.Error(), "gitlab.com", "error must name the host")
+	assert.Contains(t, err.Error(), "token", "error must name the key")
+	assert.Contains(t, err.Error(), "exit status 161", "underlying cause must be preserved")
+	assert.NotContains(t, err.Error(), "secret-value", "credential must not be echoed into the error")
+}
+
 func Test_GetWithSource_KeyringNotFoundIsNotAnError(t *testing.T) {
 	keyring.MockInit()
 
