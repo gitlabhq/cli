@@ -35,30 +35,37 @@ glab mr update --draft
 
 # Update merge request with commit information
 glab mr update 23 --fill --fill-commit-body --yes
+
+# Read the description from a file
+glab mr update 23 --description-file description.md
+
+# Read the description from standard input
+cat description.md | glab mr update 23 --description-file -
 ```
 
 ## Options
 
 ```plaintext
-  -a, --assignee strings       Assign users via username. Prefix with '!' or '-' to remove from existing assignees, '+' to add. Otherwise, replace existing assignees with given users. Multiple usernames can be comma-separated or specified by repeating the flag.
-  -d, --description string     Merge request description. Set to "-" to open an editor.
-      --draft                  Mark merge request as a draft.
-  -f, --fill                   Do not prompt for title or body, and just use commit info.
-      --fill-commit-body       Fill body with each commit body when multiple commits. Can only be used with --fill.
-  -l, --label strings          Add labels.
-      --lock-discussion        Lock discussion on merge request.
-  -m, --milestone string       Title of the milestone to assign. Set to "" or 0 to unassign.
-  -r, --ready                  Mark merge request as ready to be reviewed and merged.
-      --remove-source-branch   Toggles the removal of the source branch on merge.
-      --reviewer strings       Request review from users by their usernames. Prefix with '!' or '-' to remove from existing reviewers, '+' to add. Otherwise, replace existing reviewers with given users. Multiple usernames can be comma-separated or specified by repeating the flag.
-      --squash-before-merge    Toggles the option to squash commits into a single commit when merging.
-      --target-branch string   Set target branch.
-  -t, --title string           Title of merge request.
-      --unassign               Unassign all users.
-  -u, --unlabel strings        Remove labels.
-      --unlock-discussion      Unlock discussion on merge request.
-      --wip                    Mark merge request as a work in progress. Alternative to --draft.
-  -y, --yes                    Skip confirmation prompt.
+  -a, --assignee strings          Assign users via username. Prefix with '!' or '-' to remove from existing assignees, '+' to add. Otherwise, replace existing assignees with given users. Multiple usernames can be comma-separated or specified by repeating the flag.
+  -d, --description string        Merge request description. Set to "-" to open an editor.
+      --description-file string   Read the merge request description from a file. Use "-" to read from standard input.
+      --draft                     Mark merge request as a draft.
+  -f, --fill                      Do not prompt for title or body, and just use commit info.
+      --fill-commit-body          Fill body with each commit body when multiple commits. Can only be used with --fill.
+  -l, --label strings             Add labels.
+      --lock-discussion           Lock discussion on merge request.
+  -m, --milestone string          Title of the milestone to assign. Set to "" or 0 to unassign.
+  -r, --ready                     Mark merge request as ready to be reviewed and merged.
+      --remove-source-branch      Toggles the removal of the source branch on merge.
+      --reviewer strings          Request review from users by their usernames. Prefix with '!' or '-' to remove from existing reviewers, '+' to add. Otherwise, replace existing reviewers with given users. Multiple usernames can be comma-separated or specified by repeating the flag.
+      --squash-before-merge       Toggles the option to squash commits into a single commit when merging.
+      --target-branch string      Set target branch.
+  -t, --title string              Title of merge request.
+      --unassign                  Unassign all users.
+  -u, --unlabel strings           Remove labels.
+      --unlock-discussion         Unlock discussion on merge request.
+      --wip                       Mark merge request as a work in progress. Alternative to --draft.
+  -y, --yes                       Skip confirmation prompt.
 ```
 
 ## Options inherited from parent commands

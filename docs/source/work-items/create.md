@@ -35,19 +35,26 @@ glab work-items create --type issue
 # Create a work item in a group
 glab work-items create --type epic --group my-group
 
+# Read the description from a file
+glab work-items create --type issue --title "Add feature" --description-file description.md
+
+# Read the description from standard input
+cat description.md | glab work-items create --type issue --title "Add feature" --description-file -
+
 ```
 
 ## Options
 
 ```plaintext
-  -c, --confidential         Mark work item confidential.
-  -d, --description string   Description of the work item. Set to "-" to open an editor.
-  -g, --group string         Create work items for a group or subgroup.
-      --jq string            Filter JSON output with a jq expression.
-  -F, --output string        Format output as: text, json. (default "text")
-  -R, --repo string          Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
-  -t, --title string         Add a title for the work item.
-  -T, --type string          Type of work item (epic, incident, issue, key_result, objective, requirement, task, test_case, ticket).
+  -c, --confidential              Mark work item confidential.
+  -d, --description string        Description of the work item. Set to "-" to open an editor.
+      --description-file string   Read the work item description from a file. Use "-" to read from standard input.
+  -g, --group string              Create work items for a group or subgroup.
+      --jq string                 Filter JSON output with a jq expression.
+  -F, --output string             Format output as: text, json. (default "text")
+  -R, --repo string               Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
+  -t, --title string              Add a title for the work item.
+  -T, --type string               Type of work item (epic, incident, issue, key_result, objective, requirement, task, test_case, ticket).
 ```
 
 ## Options inherited from parent commands

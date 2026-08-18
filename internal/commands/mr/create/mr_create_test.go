@@ -1820,3 +1820,128 @@ func TestMatchBranchPattern(t *testing.T) {
 		})
 	}
 }
+
+func TestNewCmdCreate_DescriptionFile(t *testing.T) {
+	const body = "# Heading\n\nMulti-line body with \"quotes\", $VARS and `backticks`.\n"
+
+	tests := []struct {
+		name     string
+		useStdin bool
+	}{
+		{name: "reads the description from a file"},
+		{name: "reads the description from standard input", useStdin: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("NO_COLOR", "true")
+
+			testClient := gitlabtesting.NewTestClient(t)
+			testClient.MockProjects.EXPECT().
+				GetProject("OWNER/REPO", gomock.Any()).
+				Return(&gitlab.Project{
+					ID:                   1,
+					DefaultBranch:        "master",
+					WebURL:               "http://gitlab.com/OWNER/REPO",
+					MergeRequestsEnabled: true,
+					PathWithNamespace:    "OWNER/REPO",
+				}, nil, nil)
+			testClient.MockProjects.EXPECT().
+				ListProjectTargetBranchRules("OWNER/REPO", gomock.Any()).
+				Return([]gitlab.TargetBranchRule{}, nil, nil)
+
+			var gotDescription *string
+			testClient.MockMergeRequests.EXPECT().
+				CreateMergeRequest("OWNER/REPO", gomock.Any()).
+				DoAndReturn(func(_ any, opts *gitlab.CreateMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+					gotDescription = opts.Description
+					return &gitlab.MergeRequest{
+						BasicMergeRequest: gitlab.BasicMergeRequest{
+							IID:          12,
+							Title:        "myMRtitle",
+							State:        "opened",
+							TargetBranch: "master",
+							SourceBranch: "feat-new-mr",
+							WebURL:       "https://gitlab.com/OWNER/REPO/-/merge_requests/12",
+						},
+					}, nil, nil
+				})
+
+			cs, csTeardown := test.InitCmdStubber()
+			defer csTeardown()
+			cs.Stub("HEAD branch: master\n")
+			cs.Stub(heredoc.Doc(`
+				deadbeef HEAD
+				deadb00f refs/remotes/upstream/feat-new-mr
+				deadbeef refs/remotes/origin/feat-new-mr
+			`))
+
+			pu, _ := url.Parse("https://gitlab.com/OWNER/REPO.git")
+
+			factoryOpts := []cmdtest.FactoryOption{
+				cmdtest.WithGitLabClient(testClient.Client),
+				func(f *cmdtest.Factory) {
+					f.RemotesStub = func() (glrepo.Remotes, error) {
+						return glrepo.Remotes{
+							{
+								Remote: &git.Remote{Name: "upstream", Resolved: "head", PushURL: pu},
+								Repo:   glrepo.New("OWNER", "REPO", glinstance.DefaultHostname),
+							},
+							{
+								Remote: &git.Remote{Name: "origin", Resolved: "base", PushURL: pu},
+								Repo:   glrepo.New("monalisa", "REPO", glinstance.DefaultHostname),
+							},
+						}, nil
+					}
+					f.BranchStub = func() (string, error) { return "feat-new-mr", nil }
+				},
+			}
+
+			path := "-"
+			if tt.useStdin {
+				factoryOpts = append(factoryOpts, cmdtest.WithStdin(body))
+			} else {
+				path = filepath.Join(t.TempDir(), "description.md")
+				require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+			}
+
+			exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, false, factoryOpts...)
+
+			_, err := exec(fmt.Sprintf("-t myMRtitle --description-file %q --yes", path))
+			require.NoError(t, err)
+
+			require.NotNil(t, gotDescription)
+			assert.Equal(t, body, *gotDescription)
+		})
+	}
+}
+
+func TestNewCmdCreate_DescriptionFileConflicts(t *testing.T) {
+	tests := []struct {
+		name string
+		cli  string
+		want string
+	}{
+		{
+			name: "with --description",
+			cli:  `-t title --description inline --description-file some.md`,
+			want: "[description description-file]",
+		},
+		{
+			name: "with --template",
+			cli:  `-t title --template bug_fix --description-file some.md`,
+			want: "[template description-file]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, false)
+
+			_, err := exec(tt.cli)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+}

@@ -4,6 +4,8 @@ package update
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -255,6 +257,69 @@ func TestUpdateMergeRequest(t *testing.T) {
 	}
 
 	api.UpdateMR = oldUpdateMr
+}
+
+func TestUpdateMergeRequest_DescriptionFile(t *testing.T) {
+	const body = "# Heading\n\nMulti-line body with \"quotes\", $VARS and `backticks`.\n"
+
+	oldUpdateMR, oldGetMR := api.UpdateMR, api.GetMR
+	t.Cleanup(func() { api.UpdateMR, api.GetMR = oldUpdateMR, oldGetMR })
+
+	api.GetMR = func(client *gitlab.Client, projectID any, mrID int64, opts *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error) {
+		return &gitlab.MergeRequest{BasicMergeRequest: gitlab.BasicMergeRequest{ID: mrID, IID: mrID, Title: "mrTitle", State: "opened"}}, nil
+	}
+
+	tests := []struct {
+		name     string
+		useStdin bool
+	}{
+		{name: "reads the description from a file"},
+		{name: "reads the description from standard input", useStdin: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotDescription *string
+			api.UpdateMR = func(client *gitlab.Client, projectID any, mrID int64, opts *gitlab.UpdateMergeRequestOptions) (*gitlab.MergeRequest, error) {
+				gotDescription = opts.Description
+				return &gitlab.MergeRequest{BasicMergeRequest: gitlab.BasicMergeRequest{ID: mrID, IID: mrID, Title: "mrTitle", State: "opened"}}, nil
+			}
+
+			factoryOpts := []cmdtest.FactoryOption{
+				cmdtest.WithConfig(config.NewFromString(heredoc.Doc(`
+					hosts:
+					  gitlab.com:
+					    username: monalisa
+					    token: OTOKEN
+				`))),
+			}
+
+			path := "-"
+			if tt.useStdin {
+				factoryOpts = append(factoryOpts, cmdtest.WithStdin(body))
+			} else {
+				path = filepath.Join(t.TempDir(), "description.md")
+				require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+			}
+
+			exec := cmdtest.SetupCmdForTest(t, NewCmdUpdate, false, factoryOpts...)
+
+			_, err := exec(fmt.Sprintf("1 --description-file %q", path))
+			require.NoError(t, err)
+
+			require.NotNil(t, gotDescription)
+			assert.Equal(t, body, *gotDescription)
+		})
+	}
+}
+
+func TestUpdateMergeRequest_DescriptionFileConflictsWithDescription(t *testing.T) {
+	exec := cmdtest.SetupCmdForTest(t, NewCmdUpdate, false)
+
+	_, err := exec(`1 --description inline --description-file some.md`)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "[description description-file]")
 }
 
 func TestWriteUpdatePreview(t *testing.T) {

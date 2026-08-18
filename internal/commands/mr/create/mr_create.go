@@ -133,7 +133,13 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			glab mr create --repo group/project --source-branch feature-branch --target-branch main --title "Add feature" --description "Details..." --yes
 
 			# Create a fork merge request from your fork into the upstream project, without a local clone.
-			glab mr create --repo upstream/project --head your-namespace/project --source-branch feature-branch --target-branch main --title "Add feature" --description "Details..." --yes`),
+			glab mr create --repo upstream/project --head your-namespace/project --source-branch feature-branch --target-branch main --title "Add feature" --description "Details..." --yes
+
+			# Read the description from a file
+			glab mr create -t "Fix login bug" --description-file description.md
+
+			# Read the description from standard input
+			cat description.md | glab mr create -t "Fix login bug" --description-file -`),
 		Args: cobra.NoArgs,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			repoOverride, _ := cmd.Flags().GetString("head")
@@ -165,6 +171,10 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := cmdutils.ResolveDescriptionFile(opts.io, cmd); err != nil {
+				return err
+			}
+
 			opts.complete(cmd)
 
 			if err := opts.validate(cmd); err != nil {
@@ -215,7 +225,9 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	_ = mrCreateCmd.Flags().MarkDeprecated("target-project", "Use --repo instead.")
 
 	mrCreateCmd.Flags().StringVar(&opts.Template, "template", "", "Name of a template in '.gitlab/merge_request_templates/' to pre-populate the description. The '.md' extension is optional. Templates are loaded from the local repository only.")
+	cmdutils.AddDescriptionFileFlag(mrCreateCmd, "merge request")
 	mrCreateCmd.MarkFlagsMutuallyExclusive("template", "description")
+	mrCreateCmd.MarkFlagsMutuallyExclusive("template", "description-file")
 	mrCreateCmd.MarkFlagsMutuallyExclusive("template", "fill")
 	mrCreateCmd.MarkFlagsMutuallyExclusive("template", "related-issue")
 

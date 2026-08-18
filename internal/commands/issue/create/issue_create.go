@@ -101,7 +101,13 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			glab issue new -t "Fix CVE-YYYY-XXXX" -l security --linked-mr 123
 			glab issue create -m release-1.0.1 -t "security fix" --label security --web --recover
 			glab issue create -t "Bug Report" --template bug
-			glab issue create -t "Feature Request" --template feature_proposal.md --yes`),
+			glab issue create -t "Feature Request" --template feature_proposal.md --yes
+
+			# Read the description from a file
+			glab issue create -t "we need this feature" --description-file description.md
+
+			# Read the description from standard input
+			cat description.md | glab issue create -t "we need this feature" --description-file -`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
@@ -116,6 +122,11 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			if err := cmdutils.ResolveDescriptionFile(opts.io, cmd); err != nil {
+				return err
+			}
+
 			hasTitle := cmd.Flags().Changed("title")
 			hasDescription := cmd.Flags().Changed("description")
 			hasTemplate := cmd.Flags().Changed("template")
@@ -177,7 +188,9 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	issueCreateCmd.Flags().Int64VarP(&opts.EpicID, "epic", "", 0, "ID of the epic to add the issue to.")
 	issueCreateCmd.Flags().StringVarP(&opts.DueDate, "due-date", "", "", "A date in 'YYYY-MM-DD' format.")
 	issueCreateCmd.Flags().StringVar(&opts.Template, "template", "", "Name of a template in '.gitlab/issue_templates/' to pre-populate the description. The '.md' extension is optional. Templates are loaded from the local repository only.")
+	cmdutils.AddDescriptionFileFlag(issueCreateCmd, "issue")
 	issueCreateCmd.MarkFlagsMutuallyExclusive("template", "description")
+	issueCreateCmd.MarkFlagsMutuallyExclusive("template", "description-file")
 
 	return issueCreateCmd
 }

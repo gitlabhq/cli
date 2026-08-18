@@ -27,24 +27,31 @@ glab issue update <id> [flags]
 ```console
 glab issue update 42 --label ui,ux
 glab issue update 42 --unlabel working
+
+# Read the description from a file
+glab issue update 42 --description-file description.md
+
+# Read the description from standard input
+cat description.md | glab issue update 42 --description-file -
 ```
 
 ## Options
 
 ```plaintext
-  -a, --assignee strings     Assign users by username. Prefix with '!' or '-' to remove from existing assignees, or '+' to add new. Otherwise, replace existing assignees with these users. Multiple usernames can be comma-separated or specified by repeating the flag.
-  -c, --confidential         Make issue confidential.
-  -d, --description string   Issue description. Set to "-" to open an editor.
-      --due-date string      A date in 'YYYY-MM-DD' format.
-  -l, --label strings        Add labels.
-      --lock-discussion      Lock discussion on issue.
-  -m, --milestone string     Title of the milestone to assign Set to "" or 0 to unassign.
-  -p, --public               Make issue public.
-  -t, --title string         Title of issue.
-      --unassign             Unassign all users.
-  -u, --unlabel strings      Remove labels.
-      --unlock-discussion    Unlock discussion on issue.
-  -w, --weight int           Set weight of the issue.
+  -a, --assignee strings          Assign users by username. Prefix with '!' or '-' to remove from existing assignees, or '+' to add new. Otherwise, replace existing assignees with these users. Multiple usernames can be comma-separated or specified by repeating the flag.
+  -c, --confidential              Make issue confidential.
+  -d, --description string        Issue description. Set to "-" to open an editor.
+      --description-file string   Read the issue description from a file. Use "-" to read from standard input.
+      --due-date string           A date in 'YYYY-MM-DD' format.
+  -l, --label strings             Add labels.
+      --lock-discussion           Lock discussion on issue.
+  -m, --milestone string          Title of the milestone to assign Set to "" or 0 to unassign.
+  -p, --public                    Make issue public.
+  -t, --title string              Title of issue.
+      --unassign                  Unassign all users.
+  -u, --unlabel strings           Remove labels.
+      --unlock-discussion         Unlock discussion on issue.
+  -w, --weight int                Set weight of the issue.
 ```
 
 ## Options inherited from parent commands

@@ -60,38 +60,45 @@ glab mr create --repo group/project --source-branch feature-branch --target-bran
 
 # Create a fork merge request from your fork into the upstream project, without a local clone.
 glab mr create --repo upstream/project --head your-namespace/project --source-branch feature-branch --target-branch main --title "Add feature" --description "Details..." --yes
+
+# Read the description from a file
+glab mr create -t "Fix login bug" --description-file description.md
+
+# Read the description from standard input
+cat description.md | glab mr create -t "Fix login bug" --description-file -
 ```
 
 ## Options
 
 ```plaintext
-      --allow-collaboration    Allow commits from other members. Set to true/false to override project defaults, or omit to use project settings.
-  -a, --assignee usernames     Assign merge request to people by their usernames. Multiple usernames can be comma-separated or specified by repeating the flag.
-      --auto-merge             Set the merge request to merge when all merge checks pass.
-      --copy-issue-labels      Copy labels from issue to the merge request. Used with --related-issue.
-      --create-source-branch   Create a source branch if it does not exist.
-  -d, --description string     Supply a description for the merge request. Set to "-" to open an editor.
-      --draft                  Mark merge request as a draft.
-  -f, --fill push              Do not prompt for title or description, and just use commit info. Sets push to `true`, and pushes the branch.
-      --fill-commit-body       Fill description with each commit body when multiple commits. Can only be used with --fill.
-  -H, --head OWNER/REPO        Select another head repository using the OWNER/REPO or `GROUP/NAMESPACE/REPO` format, the project ID, or the full URL.
-  -l, --label strings          Add label by name. Multiple labels can be comma-separated or specified by repeating the flag.
-  -m, --milestone string       The global ID or title of a milestone to assign.
-      --no-editor              Don't open editor to enter a description. If true, uses prompt. Defaults to false.
-      --push                   Push committed changes after creating merge request. Make sure you have committed changes.
-      --recover                Save the options to a file if the merge request creation fails. If the file exists, the options are loaded from the recovery file. (EXPERIMENTAL)
-  -i, --related-issue string   Create a merge request for an issue. If --title is not provided, uses the issue title.
-      --remove-source-branch   Remove source branch on merge. Set to true/false to override project defaults, or omit to use project settings.
-      --reviewer usernames     Request review from users by their usernames. Multiple usernames can be comma-separated or specified by repeating the flag.
-      --signoff                Append a DCO signoff to the merge request description.
-  -s, --source-branch string   Create a merge request from this branch. Default is the current branch.
-      --squash-before-merge    Squash commits into a single commit when merging. Set to true/false to override project defaults, or omit to use project settings.
-  -b, --target-branch string   The target or base branch into which you want your code merged into.
-      --template string        Name of a template in '.gitlab/merge_request_templates/' to pre-populate the description. The '.md' extension is optional. Templates are loaded from the local repository only.
-  -t, --title string           Supply a title for the merge request.
-  -w, --web                    Continue merge request creation in a browser.
-      --wip                    Mark merge request as a draft. Alternative to --draft.
-  -y, --yes                    Skip submission confirmation prompt. Use --fill to skip all optional prompts.
+      --allow-collaboration       Allow commits from other members. Set to true/false to override project defaults, or omit to use project settings.
+  -a, --assignee usernames        Assign merge request to people by their usernames. Multiple usernames can be comma-separated or specified by repeating the flag.
+      --auto-merge                Set the merge request to merge when all merge checks pass.
+      --copy-issue-labels         Copy labels from issue to the merge request. Used with --related-issue.
+      --create-source-branch      Create a source branch if it does not exist.
+  -d, --description string        Supply a description for the merge request. Set to "-" to open an editor.
+      --description-file string   Read the merge request description from a file. Use "-" to read from standard input.
+      --draft                     Mark merge request as a draft.
+  -f, --fill push                 Do not prompt for title or description, and just use commit info. Sets push to `true`, and pushes the branch.
+      --fill-commit-body          Fill description with each commit body when multiple commits. Can only be used with --fill.
+  -H, --head OWNER/REPO           Select another head repository using the OWNER/REPO or `GROUP/NAMESPACE/REPO` format, the project ID, or the full URL.
+  -l, --label strings             Add label by name. Multiple labels can be comma-separated or specified by repeating the flag.
+  -m, --milestone string          The global ID or title of a milestone to assign.
+      --no-editor                 Don't open editor to enter a description. If true, uses prompt. Defaults to false.
+      --push                      Push committed changes after creating merge request. Make sure you have committed changes.
+      --recover                   Save the options to a file if the merge request creation fails. If the file exists, the options are loaded from the recovery file. (EXPERIMENTAL)
+  -i, --related-issue string      Create a merge request for an issue. If --title is not provided, uses the issue title.
+      --remove-source-branch      Remove source branch on merge. Set to true/false to override project defaults, or omit to use project settings.
+      --reviewer usernames        Request review from users by their usernames. Multiple usernames can be comma-separated or specified by repeating the flag.
+      --signoff                   Append a DCO signoff to the merge request description.
+  -s, --source-branch string      Create a merge request from this branch. Default is the current branch.
+      --squash-before-merge       Squash commits into a single commit when merging. Set to true/false to override project defaults, or omit to use project settings.
+  -b, --target-branch string      The target or base branch into which you want your code merged into.
+      --template string           Name of a template in '.gitlab/merge_request_templates/' to pre-populate the description. The '.md' extension is optional. Templates are loaded from the local repository only.
+  -t, --title string              Supply a title for the merge request.
+  -w, --web                       Continue merge request creation in a browser.
+      --wip                       Mark merge request as a draft. Alternative to --draft.
+  -y, --yes                       Skip submission confirmation prompt. Use --fill to skip all optional prompts.
 ```
 
 ## Options inherited from parent commands

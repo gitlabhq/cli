@@ -3,6 +3,7 @@
 package create
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -183,4 +184,81 @@ func TestIssueCreateWhenIssuesDisabled(t *testing.T) {
 	assert.Equal(t, "Issues are disabled for project \"OWNER/REPO\" or require project membership. "+
 		"Make sure issues are enabled for the \"OWNER/REPO\" project, and if required, you are a member of the project.\n",
 		output.Stderr())
+}
+
+func TestIssueCreate_DescriptionFile(t *testing.T) {
+	const body = "# Heading\n\nMulti-line body with \"quotes\", $VARS and `backticks`.\n"
+
+	tests := []struct {
+		name     string
+		useStdin bool
+	}{
+		{name: "reads the description from a file"},
+		{name: "reads the description from standard input", useStdin: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testClient := gitlabtesting.NewTestClient(t)
+			testClient.MockProjects.EXPECT().
+				GetProject("OWNER/REPO", gomock.Any()).
+				Return(&gitlab.Project{ID: 1, PathWithNamespace: "OWNER/REPO", IssuesEnabled: true}, nil, nil)
+
+			var gotDescription *string
+			testClient.MockIssues.EXPECT().
+				CreateIssue("OWNER/REPO", gomock.Any()).
+				DoAndReturn(func(_ any, opts *gitlab.CreateIssueOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.Issue, *gitlab.Response, error) {
+					gotDescription = opts.Description
+					return &gitlab.Issue{IID: 1, Title: "Test Issue", WebURL: "https://gitlab.com/OWNER/REPO/-/issues/1"}, nil, nil
+				})
+
+			factoryOpts := []cmdtest.FactoryOption{cmdtest.WithGitLabClient(testClient.Client)}
+
+			path := "-"
+			if tt.useStdin {
+				factoryOpts = append(factoryOpts, cmdtest.WithStdin(body))
+			} else {
+				path = filepath.Join(t.TempDir(), "description.md")
+				require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+			}
+
+			exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, false, factoryOpts...)
+
+			_, err := exec(fmt.Sprintf(`--title "Test Issue" --description-file %q --yes`, path))
+			require.NoError(t, err)
+
+			require.NotNil(t, gotDescription)
+			assert.Equal(t, body, *gotDescription)
+		})
+	}
+}
+
+func TestIssueCreate_DescriptionFileConflicts(t *testing.T) {
+	tests := []struct {
+		name string
+		cli  string
+		want string
+	}{
+		{
+			name: "with --description",
+			cli:  `--title "Test Issue" --description inline --description-file some.md`,
+			want: "[description description-file]",
+		},
+		{
+			name: "with --template",
+			cli:  `--title "Test Issue" --template bug --description-file some.md`,
+			want: "[template description-file]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, false)
+
+			_, err := exec(tt.cli)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
 }

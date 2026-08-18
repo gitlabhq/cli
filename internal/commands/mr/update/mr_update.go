@@ -40,7 +40,13 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 		glab mr update --draft
 
 		# Update merge request with commit information
-		glab mr update 23 --fill --fill-commit-body --yes`),
+		glab mr update 23 --fill --fill-commit-body --yes
+
+		# Read the description from a file
+		glab mr update 23 --description-file description.md
+
+		# Read the description from standard input
+		cat description.md | glab mr update 23 --description-file -`),
 		Args: cobra.MaximumNArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
@@ -96,6 +102,10 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 				return &cmdutils.FlagError{
 					Err: errors.New("--lock-discussion and --unlock-discussion can't be used together"),
 				}
+			}
+
+			if err := cmdutils.ResolveDescriptionFile(f.IO(), cmd); err != nil {
+				return err
 			}
 
 			client, err := f.GitLabClient()
@@ -371,6 +381,7 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 	mrUpdateCmd.Flags().BoolP("fill", "f", false, "Do not prompt for title or body, and just use commit info.")
 	mrUpdateCmd.Flags().Bool("fill-commit-body", false, "Fill body with each commit body when multiple commits. Can only be used with --fill.")
 	mrUpdateCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt.")
+	cmdutils.AddDescriptionFileFlag(mrUpdateCmd, "merge request")
 
 	return mrUpdateCmd
 }
