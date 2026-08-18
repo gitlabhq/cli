@@ -82,7 +82,7 @@ Run `glab --help` to view a list of core commands in your terminal.
 - [`glab config`](docs/source/config): Set and get CLI settings.
 - [`glab container-registry`](docs/source/container-registry): Work with GitLab container registries.
 - [`glab deploy-key`](docs/source/deploy-key): Manage deploy keys.
-- [`glab duo`](docs/source/duo): Generate terminal commands from natural language.
+- [`glab duo`](docs/source/duo): Work with GitLab Duo.
 - [`glab gpg-key`](docs/source/gpg-key): Manage GPG keys registered with your GitLab account.
 - [`glab incident`](docs/source/incident): Work with GitLab incidents.
 - [`glab issue`](docs/source/issue): Work with GitLab issues.

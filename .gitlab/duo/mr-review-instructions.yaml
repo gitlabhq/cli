@@ -213,9 +213,14 @@ instructions:
          implemented. Internals leak into docs and rot.
       10. Document environment variables via the `cobra.Command.Annotations`
           map (key: `help:environment`), not inside `Long`.
+      11. Write each paragraph in `Long` as one source line. Cobra emits
+          `Long` verbatim, so hard-wrapped source stays hard-wrapped in the
+          terminal — the terminal then re-wraps around the source breaks,
+          producing orphan fragments. Bullets, section headers, and
+          `Example` lines are exempt.
 
       Usage line / positional arguments (`Use` field):
-      11. Format positional arguments with these conventions:
+      12. Format positional arguments with these conventions:
           - Required: `<arg>` (e.g., `glab mr view <id>`).
           - Optional: `[<arg>]` (e.g., `glab ci trace [<job-id>]`).
           - One of several, required: `<id | branch | url>`

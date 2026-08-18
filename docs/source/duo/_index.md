@@ -14,14 +14,22 @@ Work with GitLab Duo.
 
 ## Synopsis
 
-Work with GitLab Duo directly in your terminal. Receive AI-native assistance
-across the software development lifecycle, without switching contexts.
+Use the GitLab Duo Agent Platform in your terminal. Ask GitLab Duo questions about your codebase and use it to autonomously perform actions on your behalf.
 
-Retrieve forgotten Git commands and get guidance on Git operations, or interact
-with the GitLab Duo Agent Platform through the GitLab Duo CLI.
+`glab duo cli` installs and runs the GitLab Duo CLI (`duo`) binary. `glab` handles authentication, so you sign in only once with `glab auth login`.
+
+The GitLab Duo CLI requires GitLab 19.2 or later, or GitLab 18.11 to 19.1 with beta and experimental features turned on. For all prerequisites and usage, see `glab duo cli --help`.
 
 ```plaintext
-glab duo <command> prompt [flags]
+glab duo [command] [flags]
+```
+
+## Examples
+
+```console
+glab duo cli --install
+glab duo cli
+glab duo cli run --goal "Fix the failing tests in this project"
 ```
 
 ## Options inherited from parent commands
