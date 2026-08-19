@@ -123,6 +123,60 @@ glab auth login --job-token $CI_JOB_TOKEN --hostname $CI_SERVER_FQDN --api-proto
 GITLAB_HOST=$CI_SERVER_FQDN glab release list -R $CI_PROJECT_PATH
 ```
 
+## Claude Code sandboxing
+
+By default, the Claude Code sandbox allows writes only to the current working directory.
+Because `glab` stores credentials elsewhere, it cannot save refreshed OAuth credentials
+and commands fail until you run `glab auth login` again.
+Configure one of the following options to avoid this.
+
+### Option 1: Run `glab` outside the sandbox
+
+Add `glab` to `excludedCommands` in the `settings.json` file for Claude Code:
+
+```json
+{
+  "sandbox": {
+    "excludedCommands": ["glab"]
+  }
+}
+```
+
+When you use this option, `glab` clones repositories and connects to the hosts you give it without
+the sandbox's filesystem and network restrictions.
+Be aware that a compromised or prompt-injected agent could write outside the working directory or
+send data to an external host.
+
+### Option 2: Grant write access to credential storage
+
+Update the `settings.json` for Claude Code to allow write access to the configuration directory and, on macOS, the login keychain:
+
+```json
+{
+  "sandbox": {
+    "filesystem": {
+      "allowWrite": [
+        "~/Library/Keychains/login.keychain-db*",
+        "<CONFIG_DIR>"
+      ]
+    }
+  }
+}
+```
+
+Replace `<CONFIG_DIR>` with the output of `glab config path --dir`.
+
+The keychain entry applies to macOS only. On Linux, `glab` reaches the keyring over D-Bus
+instead of the filesystem, so omit the keychain entry.
+
+Grant write access to the directory rather than the configuration file, and keep the trailing `*` on
+the keychain path because both `glab` and macOS write a temporary file and rename it into place.
+
+When you use this option, `glab` stays inside the sandbox but gains write access to your whole login
+keychain and to every command in the sandbox, not just `glab`.
+Be aware that keychain items share a single file, so access cannot be narrowed to the credentials
+`glab` manages.
+
 ## Troubleshooting
 
 When authenticating with `glab`, you might encounter the following issues.
@@ -143,3 +197,25 @@ To resolve this issue, edit your OAuth application and clear the **Confidential*
 
 After saving the change, run `glab auth login` again. For the full list of required application
 settings, see [OAuth (GitLab Self-Managed, GitLab Dedicated)](#oauth-gitlab-self-managed-gitlab-dedicated).
+
+### Error: `invalid_grant` when refreshing credentials
+
+When running an authenticated command, `glab` might fail with an error:
+
+```plaintext
+Oauth2: "invalid_grant" "The provided authorization grant is invalid, expired, revoked, does not match the redirection URI used in the authorization request, or was issued to another client.".
+```
+
+This means the stored refresh token is no longer valid. Common causes include:
+
+- You revoked the OAuth application or its authorization.
+- The session expired after a long period of inactivity.
+- A previous refresh did not save the replacement credentials, so the stored token
+  remains the one GitLab already invalidated. This happens when `glab` cannot write to
+  its credential storage, most often inside a sandbox such as Claude Code.
+
+To resolve this issue, run `glab auth login` to authenticate again.
+
+If you see this error regularly and you run `glab` inside a sandbox, fix the write restriction.
+For details, see
+[Claude Code sandboxing](#claude-code-sandboxing).
