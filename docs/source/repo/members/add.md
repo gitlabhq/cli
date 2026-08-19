@@ -25,7 +25,7 @@ Roles:
 - owner (50): Full access to the project.
 
 For custom roles, use `--role-id` with the ID of a custom role defined in the project or group.
-Note: If the custom role does not exist an error is returned.
+If the custom role does not exist, an error is returned.
 
 ```plaintext
 glab repo members add [flags]

@@ -87,7 +87,8 @@ Get the Release
 • Download Assets
 ```
 
-**Note:** Commit hashes are clickable links to the actual commits on GitLab.
+> [!note]
+> Commit hashes are clickable links to the actual commits on GitLab.
 
 ## Customization
 
