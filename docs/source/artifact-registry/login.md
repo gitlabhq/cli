@@ -33,6 +33,17 @@ your credentials from the configuration file and ignores
 `GITLAB_TOKEN`. This command verifies the login the same way, so
 run `glab auth login` first if no token is stored for the host.
 
+With `--maven`, the exchanged token is written into a
+`<server>` block in `~/.m2/settings.xml`, keyed by
+`--registry-alias`. The token is not refreshed automatically.
+Pass a `--duration` that outlasts your build, and run the
+command again before it elapses. The default is 15 minutes and the
+maximum is 12 hours.
+Unlike `--docker`, `--maven` does read
+`GITLAB_TOKEN`. `glab` writes the token directly
+into `settings.xml`, so Maven does not need to resolve
+your credentials itself.
+
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
 For more information, see
@@ -48,15 +59,20 @@ glab artifact-registry login [flags]
 # Configure Docker to authenticate against a registry
 glab artifact-registry login --docker --registry registry.example.com
 
+# Configure Maven to authenticate against a registry for two hours
+glab artifact-registry login --maven --registry https://ar.example.com --duration 2h
+
 ```
 
 ## Options
 
 ```plaintext
-      --docker              Configure Docker to authenticate against the registry. Writes to $DOCKER_CONFIG, or ~/.docker when it is unset.
-      --duration duration   How long the exchanged token should remain valid. Ignored for now: --docker is the only tool this command configures, and its credential helper mints a fresh token for every request.
-      --hostname string     GitLab hostname to request the token from. Defaults to the configured GitLab instance.
-      --registry string     Bare hostname of the registry to authenticate against.
+      --docker                  Configure Docker to authenticate against the registry. Writes to $DOCKER_CONFIG, or ~/.docker when it is unset.
+      --duration duration       How long the exchanged token should remain valid. Ignored for --docker. (default 15m0s)
+      --hostname string         GitLab hostname to request the token from. Defaults to the configured GitLab instance.
+      --maven                   Configure Maven to authenticate against the registry. Writes to ~/.m2/settings.xml.
+      --registry string         Registry to authenticate against. For --docker, a bare hostname; for --maven, typically a URL.
+      --registry-alias string   Alias/ID to register the registry under (--maven only). Defaults to a name derived from --registry.
 ```
 
 ## Options inherited from parent commands

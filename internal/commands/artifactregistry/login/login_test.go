@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,10 +46,10 @@ const storedToken = "config-token"
 // newServerConfig builds a config that routes each of hostnames' API traffic to
 // srv and gives each a stored token.
 //
-// The token goes in the configuration file rather than GITLAB_TOKEN because run
-// builds its client with api.WithoutTokenFromEnvironment, the same way the
-// Docker credential helper builds its own, so an environment token would be
-// ignored here exactly as it is at `docker pull` time.
+// The token goes in the configuration file rather than GITLAB_TOKEN because the
+// --docker path builds its client with api.WithoutTokenFromEnvironment, the same
+// way the Docker credential helper builds its own, so an environment token would
+// be ignored here exactly as it is at `docker pull` time.
 func newServerConfig(t *testing.T, srv *httptest.Server, hostnames ...string) config.Config {
 	t.Helper()
 
@@ -85,6 +86,27 @@ func newTestExec(t *testing.T, cfg config.Config) cmdtest.CmdExecFunc {
 	return cmdtest.SetupCmdForTest(t, NewCmd, false, cmdtest.WithConfig(cfg))
 }
 
+// newMavenTestExec wires NewCmd to an api.Client pointed at srv. The --maven
+// path exchanges through options.apiClient, which is f.ApiClient, so unlike
+// newTestExec it needs no config: nothing on this path reads one.
+func newMavenTestExec(t *testing.T, srv *httptest.Server) cmdtest.CmdExecFunc {
+	t.Helper()
+
+	return artifactregistrytest.NewTestExec(t, srv, NewCmd)
+}
+
+// wireRequest mirrors the JSON body `glab artifact-registry login` sends to
+// POST /api/v4/token_exchange for the non-docker writers.
+type wireRequest = artifactregistrytest.WireRequest
+
+// tokenServer starts a fake token_exchange endpoint that always returns
+// wantToken, decoding each request body into gotBody.
+func tokenServer(t *testing.T, wantToken string, gotBody *wireRequest) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+
+	return artifactregistrytest.NewTokenExchangeServer(t, wantToken, gotBody)
+}
+
 // supportedOS stands in for dockercredhelper.Supported in tests that build
 // options directly, so they exercise validate on the supported-platform path
 // whatever the test host is.
@@ -109,22 +131,31 @@ func dockerTokenServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func TestLogin_DockerRequired(t *testing.T) {
+func TestLogin_NoToolFlag(t *testing.T) {
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
 
 	_, err := exec("--registry registry.example.com")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "required flag")
+	assert.Contains(t, err.Error(), "at least one of the flags")
 }
 
-func TestLogin_DockerMustNotBeFalse(t *testing.T) {
+func TestLogin_TwoToolFlags(t *testing.T) {
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
 
-	// cobra's MarkFlagRequired only checks that --docker was passed, so an
-	// explicit false satisfies it and reaches validate().
+	_, err := exec("--docker --maven --registry registry.example.com")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "none of the others can be")
+}
+
+func TestLogin_BothToolFlagsFalseLeavesNoneSelected(t *testing.T) {
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+
+	// MarkFlagsOneRequired only checks that a flag in the group was passed,
+	// so --docker=false alone satisfies it and reaches validate() with
+	// neither tool actually selected.
 	_, err := exec("--docker=false --registry registry.example.com")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid --docker: false is not supported")
+	assert.Contains(t, err.Error(), "invalid --docker and --maven: both false leaves no tool selected")
 }
 
 func TestLogin_MissingRegistry(t *testing.T) {
@@ -166,11 +197,141 @@ func TestLogin_RegistryMustNotBeEmpty(t *testing.T) {
 // newline in --registry, so this goes through options.validate() rather
 // than exec().
 func TestLogin_RegistryMustNotContainControlCharacters(t *testing.T) {
-	o := &options{registry: "ar.example.com\nEvil=1", docker: true, supportedOS: supportedOS}
+	for name, o := range map[string]*options{
+		"maven":  {registry: "https://ar.example.com/\nEvil=1", maven: true},
+		"docker": {registry: "ar.example.com\nEvil=1", docker: true, supportedOS: supportedOS},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := o.validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "control characters")
+		})
+	}
+}
 
-	err := o.validate()
+func TestLogin_RegistryAliasMustBeSafeCharacters(t *testing.T) {
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+
+	_, err := exec(`--maven --registry https://ar.example.com --registry-alias "bad<id>"`)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "control characters")
+	assert.Contains(t, err.Error(), "--registry-alias")
+}
+
+func TestLogin_RegistryAliasIgnoredOutsideMavenWarning(t *testing.T) {
+	binDir := t.TempDir()
+	writeFakeGlab(t, binDir)
+	setPath(t, binDir)
+	setHome(t, t.TempDir())
+
+	srv := dockerTokenServer(t)
+	exec := newTestExec(t, newServerConfig(t, srv, glinstance.DefaultHostname))
+
+	out, err := exec("--docker --registry registry.example.com --registry-alias my-alias")
+	require.NoError(t, err)
+	assert.Contains(t, out.ErrBuf.String(), "--registry-alias is ignored")
+}
+
+func TestLogin_Maven_DurationOutOfRange(t *testing.T) {
+	srv, count := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request to fake server: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	exec := newMavenTestExec(t, srv)
+
+	_, err := exec("--maven --registry https://ar.example.com --duration 13h")
+	require.Error(t, err)
+	assert.EqualValues(t, 0, count.Load(), "an out-of-range duration must be rejected before making an HTTP call")
+}
+
+func TestLogin_Maven_DispatchesToWriterAfterExchangingToken(t *testing.T) {
+	setHome(t, t.TempDir())
+
+	exp := time.Now().Add(time.Hour).Truncate(time.Second)
+	wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+		Issuer:    "https://gitlab.example.com",
+		Subject:   "gid://gitlab/User/1",
+		ExpiresAt: jwt.NewNumericDate(exp),
+	})
+
+	var gotBody wireRequest
+	srv, count := tokenServer(t, wantToken, &gotBody)
+	exec := newMavenTestExec(t, srv)
+
+	_, err := exec("--maven --registry https://ar.example.com")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, count.Load())
+}
+
+// TestLogin_Maven_ForwardsDurationToExchange pins the --duration value the
+// --maven path puts on the wire, in both directions: an explicit value must
+// reach token_exchange instead of the flag's default, and an omitted flag must
+// send DefaultDuration rather than whatever a previous run asked for.
+func TestLogin_Maven_ForwardsDurationToExchange(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          string
+		wantExpiresIn time.Duration
+	}{
+		{
+			name:          "explicit duration is forwarded",
+			args:          "--maven --registry https://ar.example.com --duration 42m",
+			wantExpiresIn: 42 * time.Minute,
+		},
+		{
+			name:          "omitted duration sends the default",
+			args:          "--maven --registry https://ar.example.com",
+			wantExpiresIn: artifactregistry.DefaultDuration,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setHome(t, t.TempDir())
+
+			wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+				Issuer:    "https://gitlab.example.com",
+				Subject:   "gid://gitlab/User/1",
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(tc.wantExpiresIn).Truncate(time.Second)),
+			})
+
+			var gotBody wireRequest
+			srv, count := tokenServer(t, wantToken, &gotBody)
+			exec := newMavenTestExec(t, srv)
+
+			_, err := exec(tc.args)
+			require.NoError(t, err)
+
+			assert.EqualValues(t, 1, count.Load())
+			assert.Equal(t, wireRequest{
+				Audience:  "gitlab-artifact-registry",
+				ExpiresIn: int(tc.wantExpiresIn.Seconds()),
+			}, gotBody)
+		})
+	}
+}
+
+// TestLogin_Maven_DefaultRegistryAliasIsDerivedFromRegistry pins that a
+// --maven login with no --registry-alias writes a <server> block keyed by an
+// alias derived from --registry, not a literal or empty id.
+func TestLogin_Maven_DefaultRegistryAliasIsDerivedFromRegistry(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+
+	wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+		Issuer:    "https://gitlab.example.com",
+		Subject:   "gid://gitlab/User/1",
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
+	})
+	var gotBody wireRequest
+	srv, _ := tokenServer(t, wantToken, &gotBody)
+	exec := newMavenTestExec(t, srv)
+
+	_, err := exec("--maven --registry https://ar.example.com")
+	require.NoError(t, err)
+
+	content, readErr := os.ReadFile(settingsPath(home))
+	require.NoError(t, readErr)
+	assert.Contains(t, string(content), "<id>artifact-registry-ar-example-com</id>")
 }
 
 // TestLogin_RegistryMustNotContainWhitespace covers the value that would
@@ -546,7 +707,7 @@ func TestLogin_Docker_ExchangeUsesResolvedHostname(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var got string
 			o := &options{
-				apiClient: func(repoHost string) (*api.Client, error) {
+				credHelperApiClient: func(repoHost string) (*api.Client, error) {
 					got = repoHost
 					// Stop before the exchange: the host the client is built
 					// for is all this test is about.
