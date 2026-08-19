@@ -273,32 +273,42 @@ func (o *options) run(x cmdutils.Factory, cmd *cobra.Command, args []string) err
 		return err
 	}
 	o.io.StopSpinner("")
-	isMerged := true
+
+	// After a successful AcceptMergeRequest the merge request is merged
+	// (mr.State == "merged"), armed for auto-merge (open with
+	// MergeWhenPipelineSucceeds), or still open for some other reason. Only the
+	// merged state is an unambiguous success; anything else surfaces the API's
+	// merge status verbatim rather than guessing whether the merge happened.
+
+	// Report the pipeline state when auto-merge was requested.
 	if o.setAutoMerge {
-		if mr.Pipeline == nil {
+		switch {
+		case mr.Pipeline == nil:
 			o.io.LogInfo(c.WarnIcon(), "No pipeline running on", mr.SourceBranch)
-		} else {
-			switch mr.Pipeline.Status {
-			case "success":
-				o.io.LogInfo(c.GreenCheck(), "Pipeline succeeded.")
-			default:
-				o.io.LogInfo(c.WarnIcon(), "Pipeline status:", mr.Pipeline.Status)
-				if mr.State != "merged" {
-					o.io.LogInfo(c.GreenCheck(), "Will auto-merge")
-					isMerged = false
-				}
-			}
+		case mr.Pipeline.Status == "success":
+			o.io.LogInfo(c.GreenCheck(), "Pipeline succeeded.")
+		default:
+			o.io.LogInfo(c.WarnIcon(), "Pipeline status:", mr.Pipeline.Status)
 		}
 	}
-	if isMerged {
-		action := "Merged!"
+
+	// Report the merge status.
+	switch {
+	case mr.State == "merged":
+		var action string
 		switch o.mergeMethod {
 		case MRMergeMethodRebase:
 			action = "Rebased and merged!"
 		case MRMergeMethodSquash:
 			action = "Squashed and merged!"
+		default:
+			action = "Merged!"
 		}
 		o.io.LogInfo(c.GreenCheck(), action)
+	case mr.MergeWhenPipelineSucceeds:
+		o.io.LogInfo(c.GreenCheck(), "Auto-merge enabled")
+	default:
+		o.io.LogInfo(c.WarnIcon(), "Merge status:", mr.DetailedMergeStatus)
 	}
 	o.io.LogInfo(mrutils.DisplayMR(c, &mr.BasicMergeRequest, o.io.IsaTTY))
 	return nil
