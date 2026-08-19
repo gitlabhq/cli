@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -43,6 +44,20 @@ type tokenExchangeRequest struct {
 type tokenExchangeResponse struct {
 	Token string `json:"token"`
 }
+
+// jwtCompactRe matches the JWS compact serialization: three base64url segments,
+// with a possibly-empty signature for alg=none. Nothing but [A-Za-z0-9_-] and
+// the two dots may appear.
+//
+// Enforced because every caller writes this token verbatim into a
+// line-oriented credential file (~/.m2/settings.xml here, .npmrc and friends in
+// later steps), and decodeUnverifiedClaims alone does not keep line breaks out
+// of it. Go's base64 decoder skips "\r" and "\n" as insignificant whitespace,
+// so a token whose signature or payload segment carries them decodes cleanly,
+// claims and all, and reaches the writer with the breaks intact. Bytes like
+// "=", ":", '"' and " " are rejected by the base64 decode already; the line
+// breaks are the gap.
+var jwtCompactRe = regexp.MustCompile(`^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$`)
 
 const (
 	// MinDuration is the shortest lifetime a caller may request through
@@ -176,6 +191,13 @@ func (c *Client) exchange(ctx context.Context, expiresIn *int) (*ExchangeResult,
 
 	if resp.Token == "" {
 		return nil, fmt.Errorf("server returned an empty token")
+	}
+
+	// Checked before the claims decode, so a token that cannot safely be
+	// written to a credential file is rejected on its shape rather than on
+	// whichever claim happens to be missing.
+	if !jwtCompactRe.MatchString(resp.Token) {
+		return nil, fmt.Errorf("server returned a token that is not in JWS compact form")
 	}
 
 	claims, err := decodeUnverifiedClaims(resp.Token)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -284,6 +285,89 @@ func TestExchangeToken_MalformedToken(t *testing.T) {
 		assert.Nil(t, result)
 	})
 	assert.EqualValues(t, 1, count.Load())
+}
+
+// TestExchangeToken_RejectsTokenCarryingLineBreaks pins the guard that keeps
+// line breaks out of a token every caller writes verbatim into a credential
+// file. decodeUnverifiedClaims does not catch these on its own: Go's base64
+// decoder treats "\r" and "\n" as insignificant whitespace, so each of these
+// tokens decodes with valid exp/iss/sub claims and would reach the writer.
+func TestExchangeToken_RejectsTokenCarryingLineBreaks(t *testing.T) {
+	valid := makeJWT(t, jwt.RegisteredClaims{
+		Issuer:    "https://gitlab.example.com",
+		Subject:   "gid://gitlab/User/1",
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
+	})
+	segments := strings.Split(valid, ".")
+	require.Len(t, segments, 3)
+
+	tests := map[string]string{
+		"newline inside the signature": segments[0] + "." + segments[1] + "." + segments[2][:3] + "\n" + segments[2][3:],
+		"newline inside the payload":   segments[0] + "." + segments[1] + "\n." + segments[2],
+		"trailing newline":             valid + "\n",
+		"leading newline":              "\n" + valid,
+		"carriage return":              valid + "\r",
+	}
+
+	for name, token := range tests {
+		t.Run(name, func(t *testing.T) {
+			// Proves the guard is load-bearing rather than a restatement of
+			// what the claims decode already rejects.
+			claims, decodeErr := decodeUnverifiedClaims(token)
+			require.NoError(t, decodeErr, "precondition: this token decodes, so only the shape guard can reject it")
+			require.Equal(t, "https://gitlab.example.com", claims.Issuer)
+
+			srv, count := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(mustJSON(t, token))
+			})
+
+			result, err := newTestClient(t, srv.URL).ExchangeToken(t.Context(), 15*time.Minute)
+			require.Error(t, err)
+			assert.Nil(t, result)
+			assert.Contains(t, err.Error(), "not in JWS compact form")
+			assert.EqualValues(t, 1, count.Load())
+		})
+	}
+}
+
+// TestExchangeToken_AcceptsEmptySignature keeps the shape guard from
+// over-rejecting: an alg=none token has an empty third segment and is still
+// well-formed, so the guard must not require a signature to be present.
+func TestExchangeToken_AcceptsEmptySignature(t *testing.T) {
+	valid := makeJWT(t, jwt.RegisteredClaims{
+		Issuer:    "https://gitlab.example.com",
+		Subject:   "gid://gitlab/User/1",
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
+	})
+	segments := strings.Split(valid, ".")
+	unsigned := segments[0] + "." + segments[1] + "."
+
+	srv, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(mustJSON(t, unsigned))
+	})
+
+	result, err := newTestClient(t, srv.URL).ExchangeToken(t.Context(), 15*time.Minute)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, unsigned, result.Token)
+}
+
+// mustJSON renders {"token": <token>} with the token JSON-escaped, so a test
+// fixture carrying a newline reaches the client as that newline rather than as
+// an invalid JSON body the transport rejects first.
+func mustJSON(t *testing.T, token string) []byte {
+	t.Helper()
+
+	body, err := json.Marshal(struct {
+		Token string `json:"token"`
+	}{Token: token})
+	require.NoError(t, err)
+
+	return body
 }
 
 func TestExchangeToken_MissingExpiryClaim(t *testing.T) {
