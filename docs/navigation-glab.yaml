@@ -126,6 +126,8 @@
       url: 'cli/config/edit/'
     - title: glab config get
       url: 'cli/config/get/'
+    - title: glab config path
+      url: 'cli/config/path/'
     - title: glab config set
       url: 'cli/config/set/'
 - title: glab container-registry

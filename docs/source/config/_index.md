@@ -64,4 +64,5 @@ conf
 
 - [`edit`](edit.md)
 - [`get`](get.md)
+- [`path`](path.md)
 - [`set`](set.md)

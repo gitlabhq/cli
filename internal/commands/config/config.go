@@ -7,6 +7,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	editCmd "gitlab.com/gitlab-org/cli/internal/commands/config/edit"
 	getCmd "gitlab.com/gitlab-org/cli/internal/commands/config/get"
+	pathCmd "gitlab.com/gitlab-org/cli/internal/commands/config/path"
 	setCmd "gitlab.com/gitlab-org/cli/internal/commands/config/set"
 )
 
@@ -52,6 +53,7 @@ func NewCmdConfig(f cmdutils.Factory) *cobra.Command {
 	configCmd.AddCommand(getCmd.NewCmdGet(f))
 	configCmd.AddCommand(setCmd.NewCmdSet(f))
 	configCmd.AddCommand(editCmd.NewCmdEdit(f))
+	configCmd.AddCommand(pathCmd.NewCmd(f))
 
 	return configCmd
 }
