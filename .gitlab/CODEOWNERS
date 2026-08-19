@@ -1,3 +1,18 @@
-^[Documentation Pages]
-/*.md @aqualls
-/docs/ @aqualls
+# Reference: https://docs.gitlab.com/user/project/codeowners/reference/
+#
+# A single section, so a change needs one approval from the owners of the last
+# pattern that matches it. The specific patterns repeat the maintainers because
+# a later pattern replaces the owners of an earlier one rather than adding to
+# them.
+#
+# Documentation is owned jointly so technical writing can approve a docs-only
+# change without a maintainer. Conduct, security and agent files are left to
+# the maintainers alone.
+
+* @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers
+/README.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/technical-writing
+/CONTRIBUTING.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/technical-writing
+/docs/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/technical-writing
+/internal/dependencyfirewall/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
+/internal/commands/df/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
+/docs/source/dependency-firewall/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/technical-writing @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
