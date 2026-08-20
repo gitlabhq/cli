@@ -108,33 +108,48 @@ func (h *Helper) getContainerRegistryToken(registryURL string) (string, string, 
 		return "", "", err
 	}
 
-	// searchEnvForIdentity: false. This helper runs as a Docker subprocess
-	// that inherits the user's shell environment, so a stray GITLAB_TOKEN must
-	// not decide which identity's token gets refreshed here.
-	ts, err := oauth2.NewConfigTokenSource(h.cfg, h.client, glinstance.DefaultProtocol, hostname, false)
+	// searchEnvForIdentity: false, for the same reason as the token read below: a
+	// stray GLAB_IS_OAUTH2 inherited from the user's shell must not decide how the
+	// stored per-host credentials are interpreted.
+	isOAuth2, _, err := h.cfg.GetWithSource(hostname, "is_oauth2", false)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to get OAuth2 token source to potentially refresh token: %w", err)
-	}
-	if _, err := ts.Token(); err != nil {
-		return "", "", fmt.Errorf("refreshing oauth2 token: %w", err)
+		return "", "", fmt.Errorf("failed to read is_oauth2 for %q: %w", hostname, err)
 	}
 
-	// ts.Token() persists a refreshed token but does not mutate our in-memory
-	// config, so re-read it to pick up a rotated token. For a file-backed host the
-	// in-memory copy would otherwise still hold the pre-refresh (now expired)
-	// token; a keyring-backed host reads live, but reloading is correct for both.
-	// We deliberately do not use the token ts.Token() returns: it is derived with
-	// env-var lookup enabled, and GITLAB_TOKEN must not override the per-host
-	// credential here.
-	//
-	// A config that cannot be re-read is not fatal (for example, the config lives
-	// in an XDG_CONFIG_DIRS entry and no user-level file exists yet, so no refresh
-	// ever created one); fall back to the in-memory copy, matching freshest().
 	cfg := h.cfg
-	if fresh, err := h.cfg.Reload(); err == nil {
-		cfg = fresh
-	} else {
-		dbg.Debugf("docker helper: could not re-read config for %q, using in-memory copy: %v", hostname, err)
+
+	// Only an OAuth2 access token expires, so only an OAuth2 host has anything to
+	// refresh. A host authenticated with a personal access token has no
+	// oauth2_expiry_date, and the token source fails parsing that empty value
+	// before it ever reads the user and token this needs.
+	if isOAuth2 == "true" {
+		// searchEnvForIdentity: false. This helper runs as a Docker subprocess
+		// that inherits the user's shell environment, so a stray GITLAB_TOKEN must
+		// not decide which identity's token gets refreshed here.
+		ts, err := oauth2.NewConfigTokenSource(h.cfg, h.client, glinstance.DefaultProtocol, hostname, false)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get OAuth2 token source to potentially refresh token: %w", err)
+		}
+		if _, err := ts.Token(); err != nil {
+			return "", "", fmt.Errorf("refreshing oauth2 token: %w", err)
+		}
+
+		// ts.Token() persists a refreshed token but does not mutate our in-memory
+		// config, so re-read it to pick up a rotated token. For a file-backed host the
+		// in-memory copy would otherwise still hold the pre-refresh (now expired)
+		// token; a keyring-backed host reads live, but reloading is correct for both.
+		// We deliberately do not use the token ts.Token() returns: it is derived with
+		// env-var lookup enabled, and GITLAB_TOKEN must not override the per-host
+		// credential here.
+		//
+		// A config that cannot be re-read is not fatal (for example, the config lives
+		// in an XDG_CONFIG_DIRS entry and no user-level file exists yet, so no refresh
+		// ever created one); fall back to the in-memory copy, matching freshest().
+		if fresh, err := h.cfg.Reload(); err == nil {
+			cfg = fresh
+		} else {
+			dbg.Debugf("docker helper: could not re-read config for %q, using in-memory copy: %v", hostname, err)
+		}
 	}
 
 	user, err := cfg.Get(hostname, "user")
