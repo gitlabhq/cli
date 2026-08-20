@@ -135,6 +135,12 @@ pre-push:
       tags: backend test
       run: make test-changed
 
+    # Forbid //go:embed of .md files as help text; use heredoc.Doc instead
+    check-embed:
+      tags: backend lint
+      glob: "internal/**/*.go"
+      run: make check-embed
+
     # Check generated docs and Go code. Chained into one command because both
     # mutate the working tree and check git diff — running them in parallel
     # would cause false positives.

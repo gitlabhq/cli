@@ -300,6 +300,15 @@ check_go_version:
         - .tool-versions
         - .gitlab-ci.yml
 
+check_embed:
+  stage: test
+  needs: []
+  image: ${GITLAB_DEPENDENCY_PROXY}alpine:3
+  before_script:
+    - apk add --no-cache make
+  script:
+    - make check-embed
+
 lint:
   extends:
     - .go-cache
