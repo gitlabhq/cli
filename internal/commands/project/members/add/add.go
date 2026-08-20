@@ -1,11 +1,10 @@
 package add
 
 import (
-	_ "embed"
 	"fmt"
 	"strconv"
-	"strings"
 
+	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -36,13 +35,6 @@ var roles = map[string]gitlab.AccessLevelValue{
 	"owner":      gitlab.OwnerPermissions,
 }
 
-var (
-	//go:embed long.md
-	longHelp string
-	//go:embed example.md
-	exampleHelp string
-)
-
 func newOptions(f cmdutils.Factory) *options {
 	return &options{
 		io:           f.IO(),
@@ -55,11 +47,32 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	opts := newOptions(f)
 
 	cmd := &cobra.Command{
-		Use:     "add [flags]",
-		Short:   `Add a member to the project.`,
-		Long:    longHelp,
-		Example: strings.Trim(exampleHelp, "\n\r"),
-		Args:    cobra.NoArgs,
+		Use:   "add [flags]",
+		Short: `Add a member to the project.`,
+		Long: heredoc.Docf(`
+			Add a member to the project with the specified role.
+
+			Roles:
+
+			- guest (10): Can view the project.
+			- reporter (20): Can view and create issues.
+			- developer (30): Can push to non-protected branches.
+			- maintainer (40): Can manage the project.
+			- owner (50): Full access to the project.
+
+			For custom roles, use %[1]s--role-id%[1]s with the ID of a custom role defined in the project or group.
+			If the custom role does not exist, an error is returned.
+		`, "`"),
+		Example: heredoc.Doc(`
+			# Add a user as a developer
+			glab repo members add --username=john.doe --role=developer
+			# Add a user as a maintainer with expiration date
+			glab repo members add --username=jane.smith --role=maintainer --expires-at=2024-12-31
+			# Add a user by ID
+			glab repo members add --user-id=123 --role=reporter
+			# Add a user with a custom role
+			glab repo members add --username=john.doe --role-id=101`),
+		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "false",
 		},

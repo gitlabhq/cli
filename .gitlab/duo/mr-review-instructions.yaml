@@ -269,6 +269,17 @@ instructions:
       26. Do not use `-v` as a shorthand for anything — it collides with
           `--verbose` and `--version` conventions.
 
+  - name: Help text sources
+    fileFilters:
+      - 'internal/**/*.go'
+      - '!**/*_test.go'
+    instructions: |
+      1. Do not embed help text from a sidecar `.md` file with `//go:embed`.
+         Inline the content in the Go source via `heredoc.Doc`. Sidecar
+         files bypass the CI markdown lint glob and split help text
+         across two files without a corresponding readability win.
+         `make check-embed` enforces this.
+
   - name: Flag handling
     fileFilters:
       - 'internal/commands/**/*.go'

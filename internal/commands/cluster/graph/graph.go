@@ -2,7 +2,6 @@ package graph
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,9 +21,6 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
-
-//go:embed long.md
-var longHelp string
 
 type options struct {
 	io                    *iostreams.IOStreams
@@ -61,7 +57,60 @@ func NewCmdGraph(f cmdutils.Factory) *cobra.Command {
 	graphCmd := &cobra.Command{
 		Use:   "graph [flags]",
 		Short: `Query the Kubernetes object graph using the GitLab Agent for Kubernetes. (EXPERIMENTAL)`,
-		Long:  longHelp + text.ExperimentalString,
+		Long: heredoc.Docf(`
+			This command starts a web server that shows a live view of the Kubernetes object graph in a browser.
+			It uses the GitLab Agent for Kubernetes running in the cluster.
+			It requires:
+
+			- Version 18.1 or later of GitLab and the GitLab Agent.
+			- At least the Developer role in the agent project.
+			- This command requires a personal access token or project access token
+			  for authentication. The token must have the %[1]sread_api%[1]s and %[1]sk8s_proxy%[1]s scopes.
+
+			Leave feedback in [issue 7900](https://gitlab.com/gitlab-org/cli/-/issues/7900).
+
+			### Resource filtering
+
+			To filter resources, namespaces, and select root objects, use
+			[Common Expression Language (CEL)](https://cel.dev/).
+
+			%[1]sobject_selector_expression%[1]s: Filters objects. The expression must return a boolean. These variables are available:
+
+			- %[1]sobj%[1]s: The Kubernetes object being evaluated.
+			- %[1]sgroup%[1]s: The group of the object.
+			- %[1]sversion%[1]s: The version of the object.
+			- %[1]sresource%[1]s: The resource name of the object, like %[1]spods%[1]s for the %[1]sPod%[1]s kind.
+			- %[1]snamespace%[1]s: The namespace of the object.
+			- %[1]sname%[1]s: The name of the object.
+			- %[1]slabels%[1]s: The labels of the object.
+			- %[1]sannotations%[1]s: The annotations of the object.
+
+			%[1]sresource_selector_expression%[1]s: Filters Kubernetes discovery information to include or exclude resources
+			from the watch request. The expression must return a boolean. These variables are available:
+
+			- %[1]sgroup%[1]s: The group of the object.
+			- %[1]sversion%[1]s: The version of the object.
+			- %[1]sresource%[1]s: The resource name of the object, like %[1]spods%[1]s for the %[1]sPod%[1]s kind.
+			- %[1]snamespaced%[1]s: The scope of group, version, and resource. Can be %[1]sbool%[1]s, %[1]strue%[1]s, or %[1]sfalse%[1]s.
+
+			To select root objects, use the %[1]s--root-expression%[1]s flag. When set, only objects that are directly
+			or transitively reachable from root objects are shown. This flag uses the same variables
+			as %[1]sobject_selector_expression%[1]s, and must return a boolean. Multiple values are joined with %[1]sOR%[1]s
+			statements. If any match, the object is used as root.
+
+			For more information about using [label selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors)
+			and [field selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/) to select namespaces, see the Kubernetes documentation.
+
+			### Advanced usage
+
+			Apart from high-level ways to construct the query, this command enables
+			you to construct and send the query using all underlying API features.
+			To understand what is possible, and how to do it, see the
+			[technical design doc](https://gitlab.com/gitlab-org/cluster-integration/gitlab-agent/-/blob/master/doc/graph_api.md)
+
+			The user should have permission to access the agent project.
+			For more information, see [Grant users Kubernetes access](https://docs.gitlab.com/user/clusters/agent/user_access/).
+		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Run the default query for agent 123
 			glab cluster graph -R user/project -a 123

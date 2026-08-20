@@ -1,19 +1,43 @@
 package cmdutils
 
 import (
-	_ "embed"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
-//go:embed pipeline_inputs.md
-var PipelineInputsDescription string
+// PipelineInputsDescription documents the --input flag; commands append it to
+// their Long help text.
+var PipelineInputsDescription = heredoc.Docf(`
+	Specify one or more pipeline inputs using the %[1]s-i%[1]s or %[1]s--input%[1]s flag for each
+	input. Each input flag uses the format %[1]skey:value%[1]s.
+
+	The values are typed and will default to %[1]sstring%[1]s unless a type is explicitly
+	specified. To specify a type, use the %[1]stype(value)%[1]s syntax. For example,
+	%[1]skey:string(value)%[1]s will pass the string %[1]svalue%[1]s as the input.
+
+	Valid types are:
+
+	- %[1]sstring%[1]s: A string value. This is the default type. For example, %[1]skey:string(value)%[1]s.
+	- %[1]sint%[1]s: An integer value. For example, %[1]skey:int(42)%[1]s.
+	- %[1]sfloat%[1]s: A floating-point value. For example, %[1]skey:float(3.14)%[1]s.
+	- %[1]sbool%[1]s: A boolean value. For example, %[1]skey:bool(true)%[1]s.
+	- %[1]sarray%[1]s: An array of strings. For example, %[1]skey:array(foo,bar)%[1]s.
+
+	An array of strings can be specified with a trailing comma. For example,
+	%[1]skey:array(foo,bar,)%[1]s will pass the array %[1]s[foo, bar]%[1]s. %[1]sarray()%[1]s specifies an
+	empty array. To pass an array with the empty string, use %[1]sarray(,)%[1]s.
+
+	Value arguments containing parentheses should be escaped from the shell with
+	quotes. For example, %[1]s--input key:array(foo,bar)%[1]s should be written as
+	%[1]s--input 'key:array(foo,bar)'%[1]s.
+`, "`")
 
 // AddPipelineInputsFlag adds a flag to a cobra command for pipeline inputs.
 func AddPipelineInputsFlag(cmd *cobra.Command) {
