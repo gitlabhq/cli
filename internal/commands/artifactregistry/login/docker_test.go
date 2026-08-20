@@ -50,6 +50,15 @@ func setHome(t *testing.T, dir string) {
 	// it: an ambient value in the developer's shell would otherwise send
 	// loginDocker's writes outside the sandbox this helper sets up.
 	t.Setenv("DOCKER_CONFIG", "")
+	// The same hazard for the other writers: each prefers its own variable
+	// over the home directory, so a developer who has one set would have this
+	// package's tests write into their real gradle.properties or .npmrc, and
+	// fail. make test clears VISUAL, EDITOR, PAGER and GITLAB_TOKEN, not
+	// these. The two tests that exercise an override set it after this helper
+	// has run.
+	t.Setenv("GRADLE_USER_HOME", "")
+	t.Setenv("npm_config_userconfig", "")
+	t.Setenv("NPM_CONFIG_USERCONFIG", "")
 }
 
 // failingConfig wraps a config.Config and makes reads of failKey return err,
