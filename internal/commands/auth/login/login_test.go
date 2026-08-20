@@ -544,6 +544,7 @@ func Test_keyringUnavailableFallsBackToFile(t *testing.T) {
 	// GITLAB_CI/CI in case the suite itself runs inside CI.
 	t.Setenv("GITLAB_CI", "")
 	t.Setenv("CI", "")
+	t.Setenv("SNAP_NAME", "")
 
 	d := t.TempDir()
 	t.Setenv("GLAB_CONFIG_DIR", d)
@@ -560,12 +561,37 @@ func Test_keyringUnavailableFallsBackToFile(t *testing.T) {
 	_, err := cmd.ExecuteC()
 	require.NoError(t, err)
 
-	// With no keyring backend, the default warns and falls back to plaintext
-	// file storage.
 	assert.Contains(t, stderr.String(), "The operating system keyring is unavailable. Storing credentials as plaintext in the configuration file.")
+	assert.NotContains(t, stderr.String(), "sudo snap connect")
 	data, err := os.ReadFile(filepath.Join(d, "config.yml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "glpat-fallback")
+}
+
+func Test_keyringUnavailableUnderSnapShowsConnectHint(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+	t.Setenv("GITLAB_CI", "")
+	t.Setenv("CI", "")
+	t.Setenv("SNAP_NAME", "glab")
+
+	d := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", d)
+
+	io, _, _, stderr := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(io, currentUserFactoryOption(t))
+	cfg := config.NewBlankConfigInDir(d)
+	f.ConfigStub = func() config.Config { return cfg }
+	cmd := NewCmdLogin(f)
+	cmd.Flags().BoolP("help", "x", false, "")
+
+	cmd.SetArgs([]string{"--token", "glpat-snap"})
+
+	_, err := cmd.ExecuteC()
+	require.NoError(t, err)
+
+	assert.Contains(t, stderr.String(), "The operating system keyring is unavailable")
+	assert.Contains(t, stderr.String(), "sudo snap connect glab:password-manager-service")
 }
 
 func Test_ciLoginDefaultsToFile(t *testing.T) {
@@ -627,6 +653,7 @@ func Test_useKeyringDeprecatedFallsBackToFileWhenUnavailable(t *testing.T) {
 	t.Cleanup(keyring.MockInit)
 	t.Setenv("GITLAB_CI", "")
 	t.Setenv("CI", "")
+	t.Setenv("SNAP_NAME", "")
 
 	d := t.TempDir()
 	t.Setenv("GLAB_CONFIG_DIR", d)

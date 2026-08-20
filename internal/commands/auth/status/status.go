@@ -209,6 +209,10 @@ func (o *options) run(ctx context.Context) error {
 				if isPlaintextTokenSource(tokenSource) {
 					addMsg("%s To store this token more securely, run %s to move it into the operating system keyring.",
 						c.WarnIcon(), c.Bold("glab auth login --hostname "+instance))
+					if config.SnapConfined() {
+						addMsg("  Under snap confinement, first run %s to grant keyring access.",
+							c.Bold(config.SnapConnectCommand))
+					}
 				}
 			} else {
 				addMsg("%s No token found (checked config file, keyring, and environment variables).", c.WarnIcon())

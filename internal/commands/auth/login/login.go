@@ -248,6 +248,9 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 		// No keyring backend available: fall back to file storage, but warn that
 		// credentials are stored as plaintext.
 		opts.IO.LogErrorf("%s The operating system keyring is unavailable. Storing credentials as plaintext in the configuration file.\n", c.Yellow("WARNING:"))
+		if config.SnapConfined() {
+			opts.IO.LogErrorf("glab is running under snap confinement. To enable OS keyring storage, run:\n  %s\nThen re-run %s to migrate this token into the keyring.\n", c.Bold(config.SnapConnectCommand), c.Bold("glab auth login"))
+		}
 	}
 
 	if opts.Token != "" {

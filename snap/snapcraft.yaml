@@ -39,6 +39,8 @@ apps:
     - network-bind
     - desktop
     - ssh-keys
+    # Manual-connect only: `sudo snap connect glab:password-manager-service`.
+    - password-manager-service
     completer: completion.sh
     environment:
       GIT_EDITOR: nano
