@@ -146,9 +146,9 @@ var mavenXMLText = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 // alias/token pair, and the URL itself lives in the caller's pom.xml or
 // settings <repositories>, keyed by the same alias.
 func loginMaven(alias, token string) error {
-	home, err := os.UserHomeDir()
+	home, err := homeDir()
 	if err != nil {
-		return fmt.Errorf("resolving home directory: %w", err)
+		return err
 	}
 
 	dir := filepath.Join(home, ".m2")

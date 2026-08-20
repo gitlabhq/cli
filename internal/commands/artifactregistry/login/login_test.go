@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -37,6 +38,16 @@ func apiHost(t *testing.T, srv *httptest.Server) string {
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 	return u.Host
+}
+
+// mustURL parses raw the way validate does, so a writer test hands its writer
+// the same *url.URL the command would.
+func mustURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+
+	u, err := url.Parse(raw)
+	require.NoError(t, err)
+	return u
 }
 
 // storedToken is the credential newServerConfig puts in the configuration file,
@@ -86,10 +97,11 @@ func newTestExec(t *testing.T, cfg config.Config) cmdtest.CmdExecFunc {
 	return cmdtest.SetupCmdForTest(t, NewCmd, false, cmdtest.WithConfig(cfg))
 }
 
-// newMavenTestExec wires NewCmd to an api.Client pointed at srv. The --maven
-// path exchanges through options.apiClient, which is f.ApiClient, so unlike
-// newTestExec it needs no config: nothing on this path reads one.
-func newMavenTestExec(t *testing.T, srv *httptest.Server) cmdtest.CmdExecFunc {
+// newWriterTestExec wires NewCmd to an api.Client pointed at srv. Every writer
+// path (--maven, --gradle, --npm, --sbt) exchanges through options.apiClient,
+// which is f.ApiClient, so unlike newTestExec it needs no config: nothing on
+// those paths reads one. Only --docker does.
+func newWriterTestExec(t *testing.T, srv *httptest.Server) cmdtest.CmdExecFunc {
 	t.Helper()
 
 	return artifactregistrytest.NewTestExec(t, srv, NewCmd)
@@ -139,23 +151,35 @@ func TestLogin_NoToolFlag(t *testing.T) {
 	assert.Contains(t, err.Error(), "at least one of the flags")
 }
 
+// TestLogin_TwoToolFlags pins that every pair of tool flags is refused, not
+// just the two the group started with. Each tool writes its own credential
+// file, so a pair that slipped through the group would write two of them from
+// one exchange.
 func TestLogin_TwoToolFlags(t *testing.T) {
-	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+	tools := []string{"--docker", "--maven", "--gradle", "--npm", "--sbt"}
 
-	_, err := exec("--docker --maven --registry registry.example.com")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "none of the others can be")
+	for i, first := range tools {
+		for _, second := range tools[i+1:] {
+			t.Run(first+" "+second, func(t *testing.T) {
+				exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+
+				_, err := exec(first + " " + second + " --registry registry.example.com")
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "none of the others can be")
+			})
+		}
+	}
 }
 
-func TestLogin_BothToolFlagsFalseLeavesNoneSelected(t *testing.T) {
+func TestLogin_ToolFlagFalseLeavesNoneSelected(t *testing.T) {
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
 
 	// MarkFlagsOneRequired only checks that a flag in the group was passed,
-	// so --docker=false alone satisfies it and reaches validate() with
-	// neither tool actually selected.
+	// so --docker=false alone satisfies it and reaches validate() with no
+	// tool actually selected.
 	_, err := exec("--docker=false --registry registry.example.com")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid --docker and --maven: both false leaves no tool selected")
+	assert.Contains(t, err.Error(), "invalid --docker, --maven, --gradle, --npm, and --sbt: all false leaves no tool selected")
 }
 
 func TestLogin_MissingRegistry(t *testing.T) {
@@ -199,6 +223,9 @@ func TestLogin_RegistryMustNotBeEmpty(t *testing.T) {
 func TestLogin_RegistryMustNotContainControlCharacters(t *testing.T) {
 	for name, o := range map[string]*options{
 		"maven":  {registry: "https://ar.example.com/\nEvil=1", maven: true},
+		"gradle": {registry: "https://ar.example.com/\nEvil=1", gradle: true},
+		"npm":    {registry: "https://ar.example.com/\nEvil=1", npm: true},
+		"sbt":    {registry: "https://ar.example.com/\nEvil=1", sbt: true},
 		"docker": {registry: "ar.example.com\nEvil=1", docker: true, supportedOS: supportedOS},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -217,7 +244,7 @@ func TestLogin_RegistryAliasMustBeSafeCharacters(t *testing.T) {
 	assert.Contains(t, err.Error(), "--registry-alias")
 }
 
-func TestLogin_RegistryAliasIgnoredOutsideMavenWarning(t *testing.T) {
+func TestLogin_RegistryAliasIgnoredOutsideMavenGradleWarning(t *testing.T) {
 	binDir := t.TempDir()
 	writeFakeGlab(t, binDir)
 	setPath(t, binDir)
@@ -231,12 +258,269 @@ func TestLogin_RegistryAliasIgnoredOutsideMavenWarning(t *testing.T) {
 	assert.Contains(t, out.ErrBuf.String(), "--registry-alias is ignored")
 }
 
+func TestLogin_Npm_RegistryMustHaveSchemeAndHost(t *testing.T) {
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+
+	_, err := exec("--npm --registry registry.example.com:8080")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scheme and host")
+}
+
+// TestLogin_Gradle_RegistryMustHaveSchemeAndHost pins that --gradle is held to
+// the same URL shape as --npm and --sbt. It writes the registry into
+// {alias}Url, so a value that is not a URL only fails later, at build time.
+// --maven is the exception and has its own test below.
+func TestLogin_Gradle_RegistryMustHaveSchemeAndHost(t *testing.T) {
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+
+	_, err := exec("--gradle --registry registry.example.com:8080")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scheme and host")
+}
+
+// TestLogin_Maven_RegistryNeedsNoURLShape pins the deliberate exception: a
+// <server> block carries only the alias and the credentials, and the URL lives
+// in the caller's pom.xml, so --maven accepts a bare host.
+func TestLogin_Maven_RegistryNeedsNoURLShape(t *testing.T) {
+	setHome(t, t.TempDir())
+
+	wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+		Issuer:    "https://gitlab.example.com",
+		Subject:   "gid://gitlab/User/1",
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
+	})
+	var gotBody wireRequest
+	srv, count := tokenServer(t, wantToken, &gotBody)
+	exec := newWriterTestExec(t, srv)
+
+	_, err := exec("--maven --registry registry.example.com")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, count.Load())
+}
+
+func TestLogin_Sbt_RegistryMustHaveSchemeAndHost(t *testing.T) {
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+
+	_, err := exec("--sbt --registry registry.example.com:8080")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scheme and host")
+}
+
+// TestLogin_RegistryWithoutASchemeIsRejected pins the "scheme" half of the
+// message the three URL-shaped writers share. url.Parse gives a
+// scheme-relative "//ar.example.com" a host and no scheme, so a host-only
+// check would accept it, and --gradle would write it verbatim into {alias}Url
+// for Gradle to reject at build time.
+func TestLogin_RegistryWithoutASchemeIsRejected(t *testing.T) {
+	for _, flag := range []string{"--gradle", "--npm", "--sbt"} {
+		t.Run(flag, func(t *testing.T) {
+			exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+
+			_, err := exec(flag + " --registry //ar.example.com")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "scheme and host")
+		})
+	}
+}
+
+// TestLogin_RegistryHostMustLookLikeAHost pins that a host carrying anything
+// but host-name characters is refused before a writer sees it. url.Parse
+// accepts '"', '(' and ')' in a host, and credentials.sbt is compiled as
+// Scala: one '"' closes the string literal, so the rest of the host would land
+// in the file as code that sbt runs on every build.
+// Exercised through options.validate() rather than exec(), since shlex cannot
+// carry an unbalanced quote through a command line.
+func TestLogin_RegistryHostMustLookLikeAHost(t *testing.T) {
+	for name, registry := range map[string]string{
+		"scala injection": `https://x")+sys.error("boom")+Credentials("z/`,
+		"single quote":    `https://ar.example.com"/`,
+		"unicode host":    `https://münchen.example.com/`,
+	} {
+		for _, o := range []*options{
+			{registry: registry, gradle: true},
+			{registry: registry, npm: true},
+			{registry: registry, sbt: true},
+		} {
+			t.Run(name, func(t *testing.T) {
+				err := o.validate()
+
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "its host must be")
+			})
+		}
+	}
+}
+
+// TestLogin_RegistryHostAcceptsAnIPAddress guards the other side of that
+// check: an IP literal is a legitimate registry host, and an IPv6 one arrives
+// from url.Parse without its brackets.
+func TestLogin_RegistryHostAcceptsAnIPAddress(t *testing.T) {
+	for _, registry := range []string{"https://192.0.2.10:8443/", "https://[2001:db8::1]:8443/"} {
+		t.Run(registry, func(t *testing.T) {
+			setHome(t, t.TempDir())
+
+			token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+				Issuer:    "https://gitlab.example.com",
+				Subject:   "gid://gitlab/User/1",
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
+			})
+			var gotBody wireRequest
+			srv, count := tokenServer(t, token, &gotBody)
+			exec := newWriterTestExec(t, srv)
+
+			_, err := exec("--npm --registry " + registry)
+
+			require.NoError(t, err)
+			assert.EqualValues(t, 1, count.Load())
+		})
+	}
+}
+
+// TestLogin_UnresolvableHomeDirectoryIsReported pins the shared homeDir
+// helper's contract: every writer roots its target path in the home
+// directory, and each one reports the same failure, in the same words, when
+// it cannot be resolved.
+func TestLogin_UnresolvableHomeDirectoryIsReported(t *testing.T) {
+	for _, flag := range []string{"--gradle", "--npm", "--sbt"} {
+		t.Run(flag, func(t *testing.T) {
+			setHome(t, "")
+
+			token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+				Issuer:    "https://gitlab.example.com",
+				Subject:   "gid://gitlab/User/1",
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
+			})
+			var gotBody wireRequest
+			srv, _ := tokenServer(t, token, &gotBody)
+			exec := newWriterTestExec(t, srv)
+
+			_, err := exec(flag + " --registry https://ar.example.com")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "resolving home directory")
+		})
+	}
+}
+
+// writerPaths maps each token-writing tool flag to the file it writes, keyed by
+// flag so a new writer that forgets to register here fails the "every tool flag
+// is covered" check in TestLogin_DispatchesToTheSelectedWriter.
+var writerPaths = map[string]func(home string) string{
+	"--maven":  settingsPath,
+	"--gradle": gradlePropertiesPath,
+	"--npm":    npmrcPath,
+	"--sbt":    sbtCredentialsPath,
+}
+
+// TestLogin_DispatchesToTheSelectedWriter pins which writer each tool flag
+// reaches. Asserting the exchange happened is not enough on its own: every arm
+// exchanges a token, so a flag wired to the wrong writer would satisfy a
+// request-count assertion. Each case therefore also checks that the token
+// landed in that tool's file and that no other tool's file was created.
+func TestLogin_DispatchesToTheSelectedWriter(t *testing.T) {
+	paths := writerPaths
+
+	for flag, wantPath := range paths {
+		t.Run(flag, func(t *testing.T) {
+			home := t.TempDir()
+			setHome(t, home)
+
+			wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+				Issuer:    "https://gitlab.example.com",
+				Subject:   "gid://gitlab/User/1",
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
+			})
+			var gotBody wireRequest
+			srv, count := tokenServer(t, wantToken, &gotBody)
+			exec := newWriterTestExec(t, srv)
+
+			_, err := exec(flag + " --registry https://ar.example.com")
+			require.NoError(t, err)
+			assert.EqualValues(t, 1, count.Load())
+
+			got, err := os.ReadFile(wantPath(home))
+			require.NoError(t, err, "%s must write its own file", flag)
+			assert.Contains(t, string(got), wantToken, "%s must write the exchanged token", flag)
+
+			for otherFlag, otherPath := range paths {
+				if otherFlag == flag {
+					continue
+				}
+				_, err := os.Stat(otherPath(home))
+				assert.ErrorIs(t, err, os.ErrNotExist, "%s must not write %s's file", flag, otherFlag)
+			}
+		})
+	}
+
+	// Guards the map above against drifting from the command's actual flag set,
+	// in the direction that matters: a writer added without a writerPaths entry
+	// is one this test and TestLogin_TokenWithALineBreakReachesNoWriter would
+	// silently stop covering. Walking the map instead would only catch a flag
+	// that was removed.
+	//
+	// --docker is the one tool flag with no writerPaths entry: it registers a
+	// credential helper rather than writing a credential file of its own.
+	cmd := NewCmd(cmdtest.NewTestFactory(nil))
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Value.Type() != "bool" || f.Name == "docker" || f.Name == "help" {
+			return
+		}
+		_, ok := paths["--"+f.Name]
+		assert.True(t, ok, "--%s writes a credential file but has no writerPaths entry", f.Name)
+	})
+}
+
+// TestLogin_TokenWithALineBreakReachesNoWriter pins that a token carrying a line
+// break is refused before any credential file is touched.
+//
+// Every writer interpolates the token into a file it does not re-parse, so a
+// line break in it becomes a line of that file: a bare entry in .npmrc or
+// gradle.properties, and in credentials.sbt a syntax error in a file sbt
+// compiles as Scala, which breaks every later build.
+//
+// The break survives the claims decode, which is why the shape check in
+// artifactregistry.exchange is load-bearing rather than belt-and-braces: Go's
+// base64 decoder treats "\r" and "\n" as insignificant whitespace, so a token
+// whose signature segment carries one decodes cleanly, claims and all. Bytes
+// like "=", ":" and '"' cannot get this far, the base64 decode rejects those
+// already; the line breaks were the gap.
+func TestLogin_TokenWithALineBreakReachesNoWriter(t *testing.T) {
+	for flag, path := range writerPaths {
+		t.Run(flag, func(t *testing.T) {
+			home := t.TempDir()
+			setHome(t, home)
+
+			valid := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+				Issuer:    "https://gitlab.example.com",
+				Subject:   "gid://gitlab/User/1",
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
+			})
+			// Spliced into the signature segment, so what follows the break would
+			// land on its own line in the written file.
+			cut := strings.LastIndex(valid, ".") + 3
+			require.Less(t, cut, len(valid), "the signature segment must be long enough to split")
+			crafted := valid[:cut] + "\n" + valid[cut:]
+
+			var gotBody wireRequest
+			srv, count := tokenServer(t, crafted, &gotBody)
+			exec := newWriterTestExec(t, srv)
+
+			_, err := exec(flag + " --registry https://ar.example.com")
+
+			require.Error(t, err, "%s must refuse a token carrying a line break", flag)
+			assert.EqualValues(t, 1, count.Load(), "the refusal must come after the exchange, not instead of it")
+
+			_, statErr := os.Stat(path(home))
+			assert.ErrorIs(t, statErr, os.ErrNotExist, "%s must write nothing when the token is refused", flag)
+		})
+	}
+}
+
 func TestLogin_Maven_DurationOutOfRange(t *testing.T) {
 	srv, count := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("unexpected request to fake server: %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusInternalServerError)
 	})
-	exec := newMavenTestExec(t, srv)
+	exec := newWriterTestExec(t, srv)
 
 	_, err := exec("--maven --registry https://ar.example.com --duration 13h")
 	require.Error(t, err)
@@ -255,7 +539,7 @@ func TestLogin_Maven_DispatchesToWriterAfterExchangingToken(t *testing.T) {
 
 	var gotBody wireRequest
 	srv, count := tokenServer(t, wantToken, &gotBody)
-	exec := newMavenTestExec(t, srv)
+	exec := newWriterTestExec(t, srv)
 
 	_, err := exec("--maven --registry https://ar.example.com")
 	require.NoError(t, err)
@@ -296,7 +580,7 @@ func TestLogin_Maven_ForwardsDurationToExchange(t *testing.T) {
 
 			var gotBody wireRequest
 			srv, count := tokenServer(t, wantToken, &gotBody)
-			exec := newMavenTestExec(t, srv)
+			exec := newWriterTestExec(t, srv)
 
 			_, err := exec(tc.args)
 			require.NoError(t, err)
@@ -324,7 +608,7 @@ func TestLogin_Maven_DefaultRegistryAliasIsDerivedFromRegistry(t *testing.T) {
 	})
 	var gotBody wireRequest
 	srv, _ := tokenServer(t, wantToken, &gotBody)
-	exec := newMavenTestExec(t, srv)
+	exec := newWriterTestExec(t, srv)
 
 	_, err := exec("--maven --registry https://ar.example.com")
 	require.NoError(t, err)

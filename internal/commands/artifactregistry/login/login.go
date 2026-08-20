@@ -5,6 +5,7 @@ package login
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"strings"
@@ -36,6 +37,20 @@ var aliasInvalidCharsRe = regexp.MustCompile(`[^a-z0-9]+`)
 // instead.
 var registryAliasRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
+// registryHostRe restricts a --registry host to what a host name can hold.
+// url.Parse is far looser: it accepts '"', '(' and ')' there, and every writer
+// interpolates the host into a file its tool parses. credentials.sbt is the
+// sharpest case, since sbt compiles it as Scala: one '"' closes the string
+// literal and the rest of the host lands in the file as code, so a registry
+// like `https://x")+sys.error("boom")+Credentials("z/` becomes something sbt
+// runs. The others fail more quietly, on a key their tool never looks up.
+//
+// An internationalized host has to be given in punycode. That is what the
+// tools look for anyway: npm builds its .npmrc key with the WHATWG URL parser,
+// which converts the host to punycode, so a UTF-8 host here would write a key
+// npm never reads.
+var registryHostRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
 type options struct {
 	io *iostreams.IOStreams
 	// apiClient builds the client for an exchange whose token this command
@@ -63,11 +78,19 @@ type options struct {
 	// distinguish "not passed" from "passed as 0s".
 	durationChanged bool
 
-	registry      string
+	registry string
+	// registryURL is registry parsed, set by validate on the --gradle/--npm/
+	// --sbt paths and nil elsewhere. It travels from the check that rejects a
+	// bad URL to the writers that key their entries on one, so no writer has to
+	// parse the same string again and handle a failure that cannot happen.
+	registryURL   *url.URL
 	registryAlias string
 
 	docker bool
 	maven  bool
+	gradle bool
+	npm    bool
+	sbt    bool
 }
 
 // NewCmd returns the `glab artifact-registry login` command.
@@ -99,31 +122,58 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			Registry, using a short-lived access token exchanged from your GitLab
 			session.
 
-			With %[1]s--docker%[1]s, glab is registered as a Docker credential helper
-			for the registry, and Docker exchanges a fresh token on every pull or
-			push, so %[1]s--duration%[1]s does not apply.
+			Use the flag for your package manager:
 
-			Use %[1]s--registry%[1]s only for a registry the Artifact Registry
-			actually backs. The credential helper prefers the artifact registry
-			token and falls back to %[1]scontainer_registry_domains%[1]s only
-			when that exchange fails, so a container registry listed here gets an
-			artifact registry token it rejects on every pull.
+			- %[1]s--docker%[1]s: registers %[1]sglab%[1]s as a Docker credential
+			  helper for the registry.
+			- %[1]s--maven%[1]s: writes a %[1]s<server>%[1]s block in
+			  %[1]s~/.m2/settings.xml%[1]s, keyed by %[1]s--registry-alias%[1]s.
+			  Reference it from a %[1]s<repository>%[1]s carrying the same
+			  %[1]s<id>%[1]s.
+			- %[1]s--gradle%[1]s: writes %[1]s{alias}Url%[1]s,
+			  %[1]s{alias}Username%[1]s, and %[1]s{alias}Password%[1]s in
+			  %[1]s~/.gradle/gradle.properties%[1]s, where %[1]s{alias}%[1]s is
+			  %[1]s--registry-alias%[1]s.
+			- %[1]s--npm%[1]s: writes a %[1]s//{host}{path}/:_authToken%[1]s entry
+			  in %[1]s~/.npmrc%[1]s. You still need to point npm at the registry, with a
+			  %[1]sregistry=%[1]s or %[1]s@scope:registry=%[1]s line.
+			- %[1]s--sbt%[1]s: writes a %[1]scredentials +=%[1]s line in
+			  %[1]s~/.sbt/1.0/credentials.sbt%[1]s, which assumes a stock sbt 1.x.
+			  An sbt that moved its global base, with
+			  %[1]s-Dsbt.global.base%[1]s or a newer default, does not read that
+			  file.
 
-			Docker runs that credential helper as its own subprocess, which reads
-			your credentials from the configuration file and ignores
-			%[1]sGITLAB_TOKEN%[1]s. This command verifies the login the same way, so
-			run %[1]sglab auth login%[1]s first if no token is stored for the host.
+			Token lifetime:
 
-			With %[1]s--maven%[1]s, the exchanged token is written into a
-			%[1]s<server>%[1]s block in %[1]s~/.m2/settings.xml%[1]s, keyed by
-			%[1]s--registry-alias%[1]s. The token is not refreshed automatically.
-			Pass a %[1]s--duration%[1]s that outlasts your build, and run the
-			command again before it elapses. The default is 15 minutes and the
-			maximum is 12 hours.
-			Unlike %[1]s--docker%[1]s, %[1]s--maven%[1]s does read
-			%[1]sGITLAB_TOKEN%[1]s. %[1]sglab%[1]s writes the token directly
-			into %[1]ssettings.xml%[1]s, so Maven does not need to resolve
-			your credentials itself.
+			- %[1]s--docker%[1]s exchanges a fresh token on every pull or push,
+			  so %[1]s--duration%[1]s does not apply.
+			- Every other flag writes one token, and nothing refreshes it. Run
+			  the command again before %[1]s--duration%[1]s elapses. The default
+			  is 15 minutes and the maximum is 12 hours.
+
+			Credential resolution:
+
+			- Docker runs the credential helper as its own subprocess, which
+			  reads your credentials from the configuration file and ignores
+			  %[1]sGITLAB_TOKEN%[1]s. This command verifies the login the same
+			  way, so run %[1]sglab auth login%[1]s first if no token is stored
+			  for the host.
+			- Every other flag does read %[1]sGITLAB_TOKEN%[1]s. %[1]sglab%[1]s
+			  writes the token into each file itself, so the tool can read it
+			  without fetching credentials itself.
+
+			Registry and alias selection:
+
+			- Use %[1]s--registry%[1]s only for a registry the Artifact Registry
+			  actually backs. If you name a container registry here, it receives the
+			  wrong token and the error only surfaces on the next pull.
+			- %[1]s--registry-alias%[1]s applies to %[1]s--maven%[1]s and
+			  %[1]s--gradle%[1]s only, because %[1]s--npm%[1]s and
+			  %[1]s--sbt%[1]s key their entries on %[1]s--registry%[1]s itself.
+			  For %[1]s--gradle%[1]s, use an alias that is a valid identifier
+			  in your build script: the default is derived from the registry
+			  host and contains hyphens, which Groovy cannot interpolate as
+			  %[1]s${...}%[1]s.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Configure Docker to authenticate against a registry
@@ -131,12 +181,23 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Configure Maven to authenticate against a registry for two hours
 			glab artifact-registry login --maven --registry https://ar.example.com --duration 2h
+
+			# Configure Gradle to authenticate against a registry for two hours
+			glab artifact-registry login --gradle --registry https://ar.example.com --duration 2h
+
+			# Configure npm to authenticate against a registry for two hours
+			glab artifact-registry login --npm --registry https://ar.example.com --duration 2h
+
+			# Configure sbt to authenticate against a registry for two hours
+			glab artifact-registry login --sbt --registry https://ar.example.com --duration 2h
 		`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 			"help:environment": heredoc.Doc(`
 				DOCKER_CONFIG: the directory holding Docker's config.json, written by --docker. Defaults to ~/.docker.
+				GRADLE_USER_HOME: the directory holding gradle.properties, written by --gradle. Defaults to ~/.gradle.
+				npm_config_userconfig: the .npmrc written by --npm. Defaults to ~/.npmrc.
 			`),
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -151,12 +212,15 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	cmd.Flags().BoolVar(&opts.docker, "docker", false, "Configure Docker to authenticate against the registry. Writes to $DOCKER_CONFIG, or ~/.docker when it is unset.")
 	cmd.Flags().BoolVar(&opts.maven, "maven", false, "Configure Maven to authenticate against the registry. Writes to ~/.m2/settings.xml.")
-	cmd.MarkFlagsMutuallyExclusive("docker", "maven")
-	cmd.MarkFlagsOneRequired("docker", "maven")
+	cmd.Flags().BoolVar(&opts.gradle, "gradle", false, "Configure Gradle to authenticate against the registry. Writes to ~/.gradle/gradle.properties.")
+	cmd.Flags().BoolVar(&opts.npm, "npm", false, "Configure npm to authenticate against the registry. Writes to ~/.npmrc.")
+	cmd.Flags().BoolVar(&opts.sbt, "sbt", false, "Configure sbt to authenticate against the registry. Writes to ~/.sbt/1.0/credentials.sbt.")
+	cmd.MarkFlagsMutuallyExclusive("docker", "maven", "gradle", "npm", "sbt")
+	cmd.MarkFlagsOneRequired("docker", "maven", "gradle", "npm", "sbt")
 
-	cmd.Flags().StringVar(&opts.registry, "registry", "", "Registry to authenticate against. For --docker, a bare hostname; for --maven, typically a URL.")
+	cmd.Flags().StringVar(&opts.registry, "registry", "", "Registry to authenticate against. For --docker, a bare hostname; for others, typically a URL.")
 	cobra.CheckErr(cmd.MarkFlagRequired("registry"))
-	cmd.Flags().StringVar(&opts.registryAlias, "registry-alias", "", "Alias/ID to register the registry under (--maven only). Defaults to a name derived from --registry.")
+	cmd.Flags().StringVar(&opts.registryAlias, "registry-alias", "", "Alias/ID to register the registry under (Maven/Gradle only). Defaults to a name derived from --registry.")
 	// --duration is accepted and ignored on the --docker path, deliberately:
 	// that credential helper exchanges its own token for every request, with its
 	// own lifetime (artifactregistry.DockerHelperDuration), so there is no token
@@ -179,7 +243,8 @@ func (o *options) complete(cmd *cobra.Command) {
 // validate rejects everything that makes the login impossible, before any
 // network call or write. The --registry rules split by tool: --docker needs a
 // bare hostname because that is what a credential helper is handed, while
-// --maven takes the repository URL it writes into settings.xml.
+// --gradle, --npm and --sbt need a URL with a host because they write it, or a
+// key derived from it, into their own files.
 //
 // Two kinds of error come out of it. A bad flag value is a
 // *cmdutils.FlagError, naming the flag whose value the user has to change. The
@@ -192,13 +257,14 @@ func (o *options) complete(cmd *cobra.Command) {
 // leading "--docker=false" into "--Docker=False": a flag spelling that does not
 // exist. Leading with "invalid" keeps the flag as the user typed it.
 func (o *options) validate() error {
-	// MarkFlagsOneRequired only checks that one of --docker/--maven was passed,
-	// so --docker=false --maven=false reaches here with neither tool selected.
-	if !o.docker && !o.maven {
-		return &cmdutils.FlagError{Err: fmt.Errorf("invalid --docker and --maven: both false leaves no tool selected; pass one of them as true")}
+	// MarkFlagsOneRequired only checks that one of the tool flags was passed, so
+	// --docker=false alone (all others left at their false default) reaches here
+	// with no tool actually selected.
+	if !o.docker && !o.maven && !o.gradle && !o.npm && !o.sbt {
+		return &cmdutils.FlagError{Err: fmt.Errorf("invalid --docker, --maven, --gradle, --npm, and --sbt: all false leaves no tool selected; pass one of them as true")}
 	}
 
-	if o.registryAlias != "" && o.maven && !registryAliasRe.MatchString(o.registryAlias) {
+	if o.registryAlias != "" && (o.maven || o.gradle) && !registryAliasRe.MatchString(o.registryAlias) {
 		return &cmdutils.FlagError{Err: fmt.Errorf("invalid --registry-alias: must contain only letters, digits, '.', '_', and '-' (got %q)", o.registryAlias)}
 	}
 
@@ -262,9 +328,35 @@ func (o *options) validate() error {
 		return nil
 	}
 
-	// --maven: no URL-shape requirement here. Maven's <server> block carries
-	// only the alias and credentials; --npm/--sbt (step 6) require a URL with
-	// a host because they key their own files on it.
+	// --gradle joins --npm and --sbt: all three put the registry URL, or a key
+	// derived from it, into the file they write, so a value that is not a URL
+	// only fails later at build time. --maven is the exception, and deliberately
+	// so: its <server> block carries just the alias and the credentials, and the
+	// URL itself lives in the caller's pom.xml keyed by that alias.
+	//
+	// The scheme is required as well as the host, and not just because the
+	// message says so: url.Parse gives "//ar.example.com" a host and no scheme,
+	// and --gradle writes that value verbatim into {alias}Url, where Gradle
+	// rejects it as a repository URL at build time.
+	if o.gradle || o.npm || o.sbt {
+		u, err := url.Parse(o.registry)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return &cmdutils.FlagError{Err: fmt.Errorf("invalid --registry: must be a URL with a scheme and host, for example https://registry.example.com (got %q)", o.registry)}
+		}
+		// Hostname(), so an IPv6 literal arrives without its brackets and the
+		// port stays out of the check: url.Parse has already refused a port
+		// that is not numeric.
+		host := u.Hostname()
+		if net.ParseIP(host) == nil && !registryHostRe.MatchString(host) {
+			return &cmdutils.FlagError{Err: fmt.Errorf("invalid --registry: its host must be an IP address, or contain only letters, digits, '.', '_' and '-' (got %q); an internationalized host must be given in punycode", host)}
+		}
+
+		// Kept, not thrown away: loginNpm and loginSbt both need the parsed
+		// URL, and parsing it a second time there would give them an error
+		// branch that this check has already ruled out.
+		o.registryURL = u
+	}
+
 	return artifactregistry.ValidateDuration(o.duration)
 }
 
@@ -278,8 +370,8 @@ func hasWhitespaceOrControl(s string) bool {
 }
 
 func (o *options) run(ctx context.Context) error {
-	if o.registryAlias != "" && !o.maven {
-		o.io.LogErrorf("%s --registry-alias is ignored outside --maven logins.\n", o.io.Color().WarnIcon())
+	if o.registryAlias != "" && !o.maven && !o.gradle {
+		o.io.LogErrorf("%s --registry-alias is ignored outside --maven/--gradle logins.\n", o.io.Color().WarnIcon())
 	}
 
 	// Resolved once, then used everywhere: the token exchange must run against
@@ -336,10 +428,37 @@ func (o *options) run(ctx context.Context) error {
 		return fmt.Errorf("failed to get artifact registry token: %w", err)
 	}
 
-	if err := loginMaven(alias, result.Token); err != nil {
-		return err
+	switch {
+	case o.maven:
+		if err := loginMaven(alias, result.Token); err != nil {
+			return err
+		}
+		o.io.LogInfof("%s Configured Maven server %q for %s. Token expires at %s.\n", o.io.Color().GreenCheck(), alias, o.registry, result.ExpiresAt.Format(time.RFC3339))
+	case o.gradle:
+		if err := loginGradle(o.registry, alias, result.Token); err != nil {
+			return err
+		}
+		// Names the three property keys, not just the file: the alias is what the
+		// user has to type into build.gradle, and it is the one writer whose
+		// output is unusable without knowing it.
+		o.io.LogInfof("%s Configured Gradle properties %sUrl, %sUsername and %sPassword for %s. Token expires at %s.\n",
+			o.io.Color().GreenCheck(), alias, alias, alias, o.registry, result.ExpiresAt.Format(time.RFC3339))
+	case o.npm:
+		if err := loginNpm(o.registryURL, result.Token); err != nil {
+			return err
+		}
+		// Says "auth token", not "configured npm": all this writes is the
+		// credential. npm still resolves packages from its default registry
+		// until the user points it at this one, so a message claiming npm was
+		// configured would be describing a step the user still has to take.
+		o.io.LogInfof("%s Wrote an npm auth token for %s. Point npm at that registry with a `registry=` or `@scope:registry=` line if you have not already. Token expires at %s.\n",
+			o.io.Color().GreenCheck(), o.registry, result.ExpiresAt.Format(time.RFC3339))
+	case o.sbt:
+		if err := loginSbt(o.registryURL, result.Token); err != nil {
+			return err
+		}
+		o.io.LogInfof("%s Configured sbt for %s. Token expires at %s.\n", o.io.Color().GreenCheck(), o.registry, result.ExpiresAt.Format(time.RFC3339))
 	}
-	o.io.LogInfof("%s Configured Maven server %q for %s. Token expires at %s.\n", o.io.Color().GreenCheck(), alias, o.registry, result.ExpiresAt.Format(time.RFC3339))
 
 	return nil
 }
