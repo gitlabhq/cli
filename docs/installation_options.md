@@ -102,6 +102,7 @@ To install `glab` from the [Snap Store](https://snapcraft.io/glab):
 1. For the latest stable release: `sudo snap install glab`
 1. For the latest edge release (updated on every commit to `main`): `sudo snap install --edge glab`
 1. Grant `glab` access to SSH keys: `sudo snap connect glab:ssh-keys`
+1. Grant `glab` access to the OS keyring for encrypted credential storage: `sudo snap connect glab:password-manager-service`. Without this connection, `glab auth login` falls back to plaintext storage. See [credential storage](source/authentication.md#credential-storage).
 
 [![Download from the Snap Store](https://snapcraft.io/static/images/badges/en/snap-store-black.svg)](https://snapcraft.io/glab)
 

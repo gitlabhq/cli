@@ -123,6 +123,40 @@ glab auth login --job-token $CI_JOB_TOKEN --hostname $CI_SERVER_FQDN --api-proto
 GITLAB_HOST=$CI_SERVER_FQDN glab release list -R $CI_PROJECT_PATH
 ```
 
+## Credential storage
+
+By default, `glab auth login` stores your credentials in the operating system's
+keyring:
+
+- macOS: Keychain
+- Windows: Credential Manager
+- Linux: Secret Service (GNOME Keyring, KWallet, and other implementations)
+
+If no keyring is available, if you pass `--insecure-storage`, or if you use `glab` in CI/CD
+environments where `GITLAB_CI` or `CI` is set to `true`, `glab` stores credentials as plaintext in the
+[configuration file](https://gitlab.com/gitlab-org/cli#configuration) and prints a warning.
+
+To move an existing plaintext token into the keyring later, run
+`glab auth login --hostname <HOSTNAME>` again. `glab auth status` reports where
+each token is stored and nudges you to migrate when it finds one in plaintext.
+
+### Snap installations
+
+The snap package runs under strict confinement, so it cannot reach the Secret
+Service until the `password-manager-service` interface is connected.
+
+To connect the interface:
+
+1. On a fresh install, run:
+
+   ```shell
+   sudo snap connect glab:password-manager-service
+   ```
+
+1. Run (or re-run) `glab auth login` to store your token in the keyring.
+
+Without this connection, `glab` warns and falls back to plaintext file storage.
+
 ## Claude Code sandboxing
 
 By default, the Claude Code sandbox allows writes only to the current working directory.

@@ -259,7 +259,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 				return errors.New("the --install and --update flags are mutually exclusive")
 			}
 
-			warnIfSnapConfined(f.IO(), os.Getenv, runner.Install, runner.Update)
+			warnIfSnapConfined(f.IO(), runner.Install, runner.Update)
 
 			if runner.Install {
 				return runner.HandleInstall(cmd.Context())
@@ -280,20 +280,15 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	return cmd
 }
 
-// warnIfSnapConfined prints a clear warning when glab is running inside a
-// snap. The Duo CLI authenticates by spawning `glab auth credential-helper`,
-// but snap's AppArmor profile blocks the downloaded Duo binary from exec'ing
-// back into glab, so the credential lookup fails with a confusing
-// "no credentials found" error even after a successful `glab auth login`.
-//
-// The warning only applies to the actual `glab duo cli` run path: --install
-// and --update don't depend on the credential-helper callback and stay
-// silent. getenv is injected for testability.
-func warnIfSnapConfined(io *iostreams.IOStreams, getenv func(string) string, install, update bool) {
+// warnIfSnapConfined warns when `glab duo cli` runs under snap confinement:
+// the sandbox blocks the credential-helper callback the Duo binary needs, so
+// authentication fails even after a successful `glab auth login`. --install
+// and --update skip this warning since they don't hit the callback.
+func warnIfSnapConfined(io *iostreams.IOStreams, install, update bool) {
 	if install || update {
 		return
 	}
-	if getenv("SNAP") == "" {
+	if !config.SnapConfined() {
 		return
 	}
 	msg := heredoc.Docf(`

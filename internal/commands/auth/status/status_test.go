@@ -99,6 +99,7 @@ func Test_statusRun(t *testing.T) {
 	// not emitted; these fixtures assert the base output.
 	keyring.MockInitWithError(errors.New("keyring unavailable"))
 	t.Cleanup(keyring.MockInit)
+	t.Setenv("SNAP_NAME", "")
 
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
@@ -366,6 +367,7 @@ hosts:
 func Test_statusRun_noHostnameSpecified(t *testing.T) {
 	keyring.MockInitWithError(errors.New("keyring unavailable"))
 	t.Cleanup(keyring.MockInit)
+	t.Setenv("SNAP_NAME", "")
 
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
@@ -445,6 +447,7 @@ func Test_statusRun_keyringMigrationHint(t *testing.T) {
 	// report the storage location and nudge the user to migrate it.
 	keyring.MockInitWithError(errors.New("keyring unavailable"))
 	t.Cleanup(keyring.MockInit)
+	t.Setenv("SNAP_NAME", "")
 
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
@@ -481,6 +484,48 @@ hosts:
 	require.NoError(t, opts.run(t.Context()))
 	assert.Contains(t, stderr.String(), "Token found in configuration file (plaintext):")
 	assert.Contains(t, stderr.String(), "To store this token more securely, run glab auth login --hostname gitlab.example.com to move it into the operating system keyring.")
+}
+
+func Test_statusRun_keyringMigrationHint_snapConfined(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+	t.Setenv("SNAP_NAME", "glab")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    token: xxxxxxxxxxxxxxxxxxxx
+    git_protocol: ssh
+    api_protocol: https
+`), 0o600))
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(&gitlab.User{Username: "john_smith"}, nil, nil)
+	client := func(token, hostname string) (*api.Client, error) { //nolint:unparam
+		return cmdtest.NewTestApiClient(t, nil, token, hostname, api.WithGitLabClient(tc.Client)), nil
+	}
+
+	t.Setenv("GITLAB_TOKEN", "")
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, _, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		hostname: "gitlab.example.com",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return client("", repoHost)
+		},
+		httpClientOverride: client,
+		io:                 io,
+	}
+
+	require.NoError(t, opts.run(t.Context()))
+	assert.Contains(t, stderr.String(), "To store this token more securely, run glab auth login --hostname gitlab.example.com")
+	assert.Contains(t, stderr.String(), "sudo snap connect glab:password-manager-service")
 }
 
 func Test_statusRun_surfacesKeyringReadError(t *testing.T) {

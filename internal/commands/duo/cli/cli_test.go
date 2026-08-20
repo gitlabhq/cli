@@ -208,21 +208,11 @@ func TestRunE_InstallAndUpdateAreMutuallyExclusive(t *testing.T) {
 }
 
 func TestWarnIfSnapConfined(t *testing.T) {
-	t.Parallel()
-
-	snapSet := func(k string) string {
-		if k == "SNAP" {
-			return "/snap/glab/6032"
-		}
-		return ""
-	}
-	snapUnset := func(string) string { return "" }
-
 	t.Run("warns on stderr when SNAP is set and command is a normal run", func(t *testing.T) {
-		t.Parallel()
+		t.Setenv("SNAP_NAME", "glab")
 		ios, _, stdout, stderr := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
 
-		warnIfSnapConfined(ios, snapSet, false, false)
+		warnIfSnapConfined(ios, false, false)
 
 		out := stderr.String()
 		assert.Contains(t, out, "snap confinement")
@@ -232,30 +222,30 @@ func TestWarnIfSnapConfined(t *testing.T) {
 	})
 
 	t.Run("stays silent when SNAP is unset", func(t *testing.T) {
-		t.Parallel()
+		t.Setenv("SNAP_NAME", "")
 		ios, _, stdout, stderr := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
 
-		warnIfSnapConfined(ios, snapUnset, false, false)
+		warnIfSnapConfined(ios, false, false)
 
 		assert.Empty(t, stderr.String())
 		assert.Empty(t, stdout.String())
 	})
 
 	t.Run("stays silent under --install even when SNAP is set", func(t *testing.T) {
-		t.Parallel()
+		t.Setenv("SNAP_NAME", "glab")
 		ios, _, stdout, stderr := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
 
-		warnIfSnapConfined(ios, snapSet, true, false)
+		warnIfSnapConfined(ios, true, false)
 
 		assert.Empty(t, stderr.String())
 		assert.Empty(t, stdout.String())
 	})
 
 	t.Run("stays silent under --update even when SNAP is set", func(t *testing.T) {
-		t.Parallel()
+		t.Setenv("SNAP_NAME", "glab")
 		ios, _, stdout, stderr := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
 
-		warnIfSnapConfined(ios, snapSet, false, true)
+		warnIfSnapConfined(ios, false, true)
 
 		assert.Empty(t, stderr.String())
 		assert.Empty(t, stdout.String())
