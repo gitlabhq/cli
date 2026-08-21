@@ -8,11 +8,14 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/git"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 )
 
@@ -530,6 +533,288 @@ func Test_NewWitHost(t *testing.T) {
 			if tC.wantFullname != "" {
 				assert.Equal(t, tC.wantFullname, got.FullName())
 			}
+		})
+	}
+}
+
+// FromURL resolves a remote URL against a host entry in the config. The entry is
+// keyed exactly as `auth login` writes it, which is `u.Host` — the hostname plus
+// the port when one is given. This matrix covers the combinations a self-managed
+// instance can be reached on: default or custom port, root or subfolder install,
+// and the `subfolder` key or the older `api_host`-with-path spelling.
+//
+// RepoHost is asserted alongside the project path because it is the key every
+// later config lookup uses (protocol, token, API host). A resolution that gets
+// the path right but the host wrong still sends unauthenticated requests to the
+// wrong port.
+func Test_FromURL_PortAndSubfolderMatrix(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		cfg          string
+		url          string
+		wantFullName string
+		wantHost     string
+	}{
+		{
+			name: "no port, no subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TOKEN
+			`),
+			url:          "https://example.com/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com",
+		},
+		{
+			name: "custom port, no subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TOKEN
+			`),
+			url:          "http://example.com:8080/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com:8080",
+		},
+		{
+			name: "no port, subfolder key",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TOKEN
+				    subfolder: gitlab
+			`),
+			url:          "https://example.com/gitlab/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com",
+		},
+		{
+			name: "custom port, subfolder key",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TOKEN
+				    subfolder: gitlab
+			`),
+			url:          "http://example.com:8080/gitlab/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com:8080",
+		},
+		{
+			name: "no port, nested subfolder key",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TOKEN
+				    subfolder: apps/gitlab
+			`),
+			url:          "https://example.com/apps/gitlab/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com",
+		},
+		{
+			name: "custom port, nested subfolder key",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TOKEN
+				    subfolder: apps/gitlab
+			`),
+			url:          "http://example.com:8080/apps/gitlab/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com:8080",
+		},
+		{
+			name: "no port, api_host backward compatibility",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TOKEN
+				    api_host: example.com/gitlab
+			`),
+			url:          "https://example.com/gitlab/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com",
+		},
+		{
+			name: "custom port, api_host backward compatibility",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TOKEN
+				    api_host: example.com:8080/gitlab
+			`),
+			url:          "http://example.com:8080/gitlab/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com:8080",
+		},
+		{
+			name: "custom port, subfolder key wins over api_host",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TOKEN
+				    subfolder: gitlab
+				    api_host: example.com:8080/wrong
+			`),
+			url:          "http://example.com:8080/gitlab/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com:8080",
+		},
+		{
+			name: "custom port, subgroup under a subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TOKEN
+				    subfolder: gitlab
+			`),
+			url:          "http://example.com:8080/gitlab/group/subgroup/repo.git",
+			wantFullName: "group/subgroup/repo",
+			wantHost:     "example.com:8080",
+		},
+		{
+			// The subfolder is only a prefix to strip. A group that happens to
+			// share its name must survive when it appears deeper in the path.
+			name: "custom port, group name repeats the subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TOKEN
+				    subfolder: gitlab
+			`),
+			url:          "http://example.com:8080/gitlab/gitlab/repo.git",
+			wantFullName: "gitlab/repo",
+			wantHost:     "example.com:8080",
+		},
+		{
+			// A host entry for the portless name must not answer for a ported
+			// remote: they are different instances as far as the config is
+			// concerned, and the API client treats them that way too.
+			name: "port on the remote, config keyed without it, is not applied",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TOKEN
+				    subfolder: gitlab
+			`),
+			url:          "http://example.com:8080/gitlab/group/repo.git",
+			wantFullName: "gitlab/group/repo",
+			wantHost:     "example.com:8080",
+		},
+		{
+			name: "config for an unrelated host does not leak",
+			cfg: heredoc.Doc(`
+				hosts:
+				  other.example.com:8080:
+				    token: TOKEN
+				    subfolder: gitlab
+			`),
+			url:          "http://example.com:8080/gitlab/group/repo.git",
+			wantFullName: "gitlab/group/repo",
+			wantHost:     "example.com:8080",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			u, err := url.Parse(tc.url)
+			require.NoError(t, err)
+
+			repo, err := FromURL(u, glinstance.DefaultHostname, config.NewFromString(tc.cfg))
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantFullName, repo.FullName())
+			assert.Equal(t, tc.wantHost, repo.RepoHost())
+		})
+	}
+}
+
+// SSH remotes reach FromURL after git.ParseURL has normalized SCP-style syntax.
+// git.ParseURL deliberately drops the SSH port (see its TestParseURL "ssh with
+// port" case), because an SSH port is not the port the API is served on: the
+// host entry a remote resolves against is keyed on the HTTP host. So an SSH
+// remote always looks up the portless entry, whatever port Git connects on.
+//
+// FromURL is scheme-agnostic, so the subfolder segment in these paths is a
+// probe: stripping it proves which host entry answered the lookup. Real SSH
+// remotes do not carry one — see Test_remoteResolver_SSHRemoteOnPortedSubfolderHost.
+func Test_FromURL_SSHSubfolderMatrix(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		cfg          string
+		remote       string
+		wantFullName string
+		wantHost     string
+	}{
+		{
+			name: "scp-style, subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TOKEN
+				    subfolder: gitlab
+			`),
+			remote:       "git@example.com:gitlab/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com",
+		},
+		{
+			name: "scp-style, nested subfolder and subgroup",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TOKEN
+				    subfolder: apps/gitlab
+			`),
+			remote:       "git@example.com:apps/gitlab/group/subgroup/repo.git",
+			wantFullName: "group/subgroup/repo",
+			wantHost:     "example.com",
+		},
+		{
+			// The SSH port is dropped, so the portless host entry applies and
+			// the subfolder is still stripped.
+			name: "ssh:// with port, subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TOKEN
+				    subfolder: gitlab
+			`),
+			remote:       "ssh://git@example.com:2222/gitlab/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com",
+		},
+		{
+			name: "ssh:// with port, no subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TOKEN
+			`),
+			remote:       "ssh://git@example.com:2222/group/repo.git",
+			wantFullName: "group/repo",
+			wantHost:     "example.com",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			u, err := git.ParseURL(tc.remote)
+			require.NoError(t, err)
+
+			repo, err := FromURL(u, glinstance.DefaultHostname, config.NewFromString(tc.cfg))
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantFullName, repo.FullName())
+			assert.Equal(t, tc.wantHost, repo.RepoHost())
 		})
 	}
 }
