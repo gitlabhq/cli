@@ -329,6 +329,47 @@ hosts:
 	})
 }
 
+// TranslateRemotes is the path `mr create` takes to resolve the head repo from
+// git remotes, which is why the ported-host lookup bug surfaces there while
+// `-R`-driven commands are unaffected.
+func TestTranslateRemotes_SubfolderOnPortedHost(t *testing.T) {
+	t.Run("host entry keyed with port", func(t *testing.T) {
+		cfg := config.NewFromString(`---
+hosts:
+  example.com:8080:
+    token: TEST_TOKEN
+    api_protocol: http
+    subfolder: gitlab
+`)
+
+		remoteURL, _ := url.Parse("http://example.com:8080/gitlab/owner/repo.git")
+
+		gitRemotes := git.RemoteSet{
+			&git.Remote{
+				Name:     "origin",
+				FetchURL: remoteURL,
+			},
+		}
+
+		identityURL := func(u *url.URL) *url.URL { return u }
+
+		result := TranslateRemotes(gitRemotes, identityURL, "gitlab.com", cfg)
+
+		assert.Len(t, result, 1, "should translate one remote")
+		assert.Equal(t, "owner/repo", result[0].FullName(), "subfolder should be stripped from project path")
+		assert.Equal(t, "example.com:8080", result[0].RepoHost(), "RepoHost should retain the port")
+
+		// RepoHost is the key the API client resolves its own settings under, so
+		// it has to address the same host entry FromURL just read the subfolder
+		// from. When the two disagree, requests are built with the wrong project
+		// path, the default protocol, and no token.
+		token, _ := cfg.Get(result[0].RepoHost(), "token")
+		protocol, _ := cfg.Get(result[0].RepoHost(), "api_protocol")
+		assert.Equal(t, "TEST_TOKEN", token, "RepoHost must address the configured host entry")
+		assert.Equal(t, "http", protocol, "RepoHost must address the configured host entry")
+	})
+}
+
 func TestRemotes_UniqueHosts(t *testing.T) {
 	tests := []struct {
 		name string

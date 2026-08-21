@@ -168,14 +168,19 @@ func FromURL(u *url.URL, defaultHostname string, cfg config.Config) (Interface, 
 		return nil, fmt.Errorf("no hostname detected")
 	}
 
-	// Retrieve subfolder from the injected config when available.
+	// Retrieve subfolder from the injected config when available. The lookup is
+	// keyed on u.Host, not u.Hostname(): host entries are written with the port
+	// (`auth login --hostname example.com:8080`), and RepoHost below carries the
+	// port too, so the API client resolves its own settings under the same key.
+	// Keying on the port-stripped hostname silently misses every setting for a
+	// ported instance.
 	var subfolder string
 	if cfg != nil {
-		subfolder, _ = cfg.Get(u.Hostname(), "subfolder")
+		subfolder, _ = cfg.Get(u.Host, "subfolder")
 
 		// Backward compatibility: extract subfolder from api_host if subfolder field is empty
 		if subfolder == "" {
-			apiHost, _ := cfg.Get(u.Hostname(), "api_host")
+			apiHost, _ := cfg.Get(u.Host, "api_host")
 			if apiHost != "" && strings.Contains(apiHost, "/") {
 				parts := strings.SplitN(apiHost, "/", 2)
 				if len(parts) == 2 {

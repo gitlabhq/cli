@@ -576,3 +576,190 @@ func Test_remoteResolverSplitHostWithSubfolder(t *testing.T) {
 		assert.Contains(t, names, "upstream")
 	})
 }
+
+// remoteResolver is the single path from raw git remotes to resolved repos that
+// every command inherits through the factory, so exercising the port/subfolder
+// matrix here covers all of them at once. Command-level tests cannot: they stub
+// Factory.Remotes with repos that are already resolved, which is why a
+// resolution bug could reach a release with the command suites green.
+//
+// Each case asserts the resolved project path and that RepoHost still addresses
+// the configured host entry. RepoHost is what the API client keys its own
+// lookups on, so a remote that resolves to a host with no entry sends
+// unauthenticated requests over the default protocol.
+func Test_remoteResolver_PortAndSubfolderMatrix(t *testing.T) {
+	cases := []struct {
+		name      string
+		cfg       string
+		remoteURL string
+		wantOwner string
+		wantName  string
+		wantHost  string
+	}{
+		{
+			name: "custom port with subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TEST_TOKEN
+				    api_protocol: http
+				    subfolder: gitlab
+			`),
+			remoteURL: "http://example.com:8080/gitlab/owner/repo.git",
+			wantOwner: "owner",
+			wantName:  "repo",
+			wantHost:  "example.com:8080",
+		},
+		{
+			name: "custom port without subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TEST_TOKEN
+				    api_protocol: http
+			`),
+			remoteURL: "http://example.com:8080/owner/repo.git",
+			wantOwner: "owner",
+			wantName:  "repo",
+			wantHost:  "example.com:8080",
+		},
+		{
+			name: "subfolder without custom port",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:
+				    token: TEST_TOKEN
+				    subfolder: gitlab
+			`),
+			remoteURL: "https://example.com/gitlab/owner/repo.git",
+			wantOwner: "owner",
+			wantName:  "repo",
+			wantHost:  "example.com",
+		},
+		{
+			name: "custom port with nested subfolder",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TEST_TOKEN
+				    api_protocol: http
+				    subfolder: apps/gitlab
+			`),
+			remoteURL: "http://example.com:8080/apps/gitlab/owner/repo.git",
+			wantOwner: "owner",
+			wantName:  "repo",
+			wantHost:  "example.com:8080",
+		},
+		{
+			name: "custom port with subfolder from legacy api_host",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TEST_TOKEN
+				    api_protocol: http
+				    api_host: example.com:8080/gitlab
+			`),
+			remoteURL: "http://example.com:8080/gitlab/owner/repo.git",
+			wantOwner: "owner",
+			wantName:  "repo",
+			wantHost:  "example.com:8080",
+		},
+		{
+			name: "custom port with subfolder and a subgroup",
+			cfg: heredoc.Doc(`
+				hosts:
+				  example.com:8080:
+				    token: TEST_TOKEN
+				    api_protocol: http
+				    subfolder: gitlab
+			`),
+			remoteURL: "http://example.com:8080/gitlab/group/subgroup/repo.git",
+			wantOwner: "group/subgroup",
+			wantName:  "repo",
+			wantHost:  "example.com:8080",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			remoteURL, err := git.ParseURL(tc.remoteURL)
+			require.NoError(t, err)
+
+			cfg := config.NewFromString(tc.cfg)
+			rr := &remoteResolver{
+				readRemotes: func() (git.RemoteSet, error) {
+					return git.RemoteSet{
+						&git.Remote{Name: "origin", FetchURL: remoteURL, PushURL: remoteURL},
+					}, nil
+				},
+				getConfig:       func() config.Config { return cfg },
+				parseSSHConfig:  noSSHAliases,
+				defaultHostname: "gitlab.com",
+			}
+
+			resolver := rr.Resolver("")
+			remotes, err := resolver()
+			require.NoError(t, err)
+			require.Len(t, remotes, 1)
+
+			assert.Equal(t, tc.wantOwner, remotes[0].RepoOwner())
+			assert.Equal(t, tc.wantName, remotes[0].RepoName())
+			assert.Equal(t, tc.wantHost, remotes[0].RepoHost())
+
+			token, _ := cfg.Get(remotes[0].RepoHost(), "token")
+			assert.Equal(t, "TEST_TOKEN", token,
+				"RepoHost must address the configured host entry, or the API client authenticates as nobody")
+		})
+	}
+}
+
+// An SSH remote on a subfolder instance resolves to the ported host entry that
+// names it through ssh_host, so downstream config lookups address the same
+// entry an HTTPS remote would.
+//
+// The subfolder is deliberately absent from the SSH path. A relative URL root
+// is an HTTP concept: GitLab reports ssh_url_to_repo as git@host:group/repo.git
+// whatever prefix the web UI is served under, which is why the `subfolder` key
+// is documented as applying to HTTP/HTTPS only. It stays in the fixture because
+// a subfolder instance really does hand out SSH remotes like this, and the
+// assertion pins that it is not mistakenly stripped from — or prepended to — a
+// path that never carried it.
+func Test_remoteResolver_SSHRemoteOnPortedSubfolderHost(t *testing.T) {
+	t.Run("ssh_host mapping to a ported host entry", func(t *testing.T) {
+		sshURL, err := git.ParseURL("git@git.example.com:owner/repo.git")
+		require.NoError(t, err)
+
+		cfg := config.NewFromString(heredoc.Doc(`
+			hosts:
+			  example.com:8080:
+			    token: TEST_TOKEN
+			    api_protocol: http
+			    ssh_host: git.example.com
+			    subfolder: gitlab
+		`))
+
+		rr := &remoteResolver{
+			readRemotes: func() (git.RemoteSet, error) {
+				return git.RemoteSet{
+					&git.Remote{Name: "origin", FetchURL: sshURL, PushURL: sshURL},
+				}, nil
+			},
+			getConfig:       func() config.Config { return cfg },
+			parseSSHConfig:  noSSHAliases,
+			defaultHostname: "gitlab.com",
+		}
+
+		resolver := rr.Resolver("")
+		remotes, err := resolver()
+		require.NoError(t, err)
+		require.Len(t, remotes, 1)
+
+		assert.Equal(t, "owner/repo", remotes[0].FullName(),
+			"an SSH path carries no subfolder segment, so none is stripped and none is added")
+		assert.Equal(t, "example.com:8080", remotes[0].RepoHost(),
+			"the SSH remote should resolve to the config key, port included")
+
+		token, _ := cfg.Get(remotes[0].RepoHost(), "token")
+		assert.Equal(t, "TEST_TOKEN", token)
+	})
+}
