@@ -127,6 +127,14 @@ func (c *configTokenSource) refreshLocked() (*oauth2.Token, error) {
 		return token, nil
 	}
 
+	// Everything below is irreversible: GitLab spends the single-use refresh
+	// token the moment it answers, so a write that fails afterwards loses the
+	// session, and the invalid_grant that follows surfaces on a later command
+	// with nothing pointing back at the write.
+	if err := config.CredentialWriteProbe(src, c.hostname); err != nil {
+		return nil, fmt.Errorf("not refreshing the OAuth token for %q, because the refreshed credentials could not be saved: %w", c.hostname, err)
+	}
+
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, c.httpClient)
 	refreshedToken, err := c.oauth2Config.TokenSource(ctx, token).Token()
 	if err != nil {
