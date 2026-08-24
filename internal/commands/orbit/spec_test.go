@@ -1,6 +1,6 @@
 //go:build !integration
 
-package local
+package orbit
 
 import (
 	"archive/tar"
@@ -19,33 +19,16 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
-func TestNewCmd_Structure(t *testing.T) {
-	t.Parallel()
-
-	ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
-	factory := cmdtest.NewTestFactory(ios)
-	cmd := NewCmd(factory)
-
-	assert.True(t, cmd.DisableFlagParsing, "DisableFlagParsing should be enabled for transparent pass-through")
-	assert.Nil(t, cmd.Args, "Args should be nil to accept any arguments")
-	assert.NotNil(t, cmd.RunE, "RunE should be set")
-
-	assert.NotNil(t, cmd.Flags().Lookup("install"), "--install flag should be registered")
-	assert.NotNil(t, cmd.Flags().Lookup("update"), "--update flag should be registered")
-	yesFlag := cmd.Flags().Lookup("yes")
-	assert.NotNil(t, yesFlag, "--yes flag should be registered")
-	assert.Equal(t, "y", yesFlag.Shorthand, "--yes should have -y shorthand")
-}
-
 func TestSpec_Wiring(t *testing.T) {
 	t.Parallel()
 
 	s := Spec()
-	assert.Equal(t, "Orbit local CLI", s.DisplayName)
+	assert.Equal(t, "Orbit CLI", s.DisplayName)
 	assert.Equal(t, "77960826", s.ProjectID)
-	assert.Equal(t, "orbit-local", s.PackageName)
+	assert.Equal(t, "orbit-cli", s.PackageName)
 	assert.Equal(t, "orbit_local", s.ConfigPrefix)
 	assert.Equal(t, "GLAB_ORBIT_LOCAL", s.EnvVarPrefix)
+	assert.Equal(t, "0.103.0", s.MinVersion)
 	assert.Zero(t, s.MaxCompatibleMajor, "Orbit is pre-1.0; major-version cap should be uncapped")
 	assert.ElementsMatch(t, []string{"darwin", "linux", "windows"}, s.SupportedOS)
 	assert.NotNil(t, s.Extract, "Orbit ships archives and requires an Extractor")
@@ -89,13 +72,11 @@ func TestOrbitNormalizeArch(t *testing.T) {
 func TestOrbitAssetName(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "orbit-local-darwin-aarch64.tar.gz", orbitAssetName("darwin", "aarch64"))
-	assert.Equal(t, "orbit-local-darwin-x86_64.tar.gz", orbitAssetName("darwin", "x86_64"))
-	// Linux uses the musl build (orbit-local-linux-musl-*) instead of the
-	// default orbit-local-<os>-<arch> pattern for glibc portability.
-	assert.Equal(t, "orbit-local-linux-musl-aarch64.tar.gz", orbitAssetName("linux", "aarch64"))
-	assert.Equal(t, "orbit-local-linux-musl-x86_64.tar.gz", orbitAssetName("linux", "x86_64"))
-	assert.Equal(t, "orbit-local-windows-x86_64.zip", orbitAssetName("windows", "x86_64"))
+	assert.Equal(t, "orbit-cli-darwin-aarch64.tar.gz", orbitAssetName("darwin", "aarch64"))
+	assert.Equal(t, "orbit-cli-darwin-x86_64.tar.gz", orbitAssetName("darwin", "x86_64"))
+	assert.Equal(t, "orbit-cli-linux-musl-aarch64.tar.gz", orbitAssetName("linux", "aarch64"))
+	assert.Equal(t, "orbit-cli-linux-musl-x86_64.tar.gz", orbitAssetName("linux", "x86_64"))
+	assert.Equal(t, "orbit-cli-windows-x86_64.zip", orbitAssetName("windows", "x86_64"))
 }
 
 func TestOrbitInstalledName(t *testing.T) {
@@ -109,9 +90,6 @@ func TestOrbitInstalledName(t *testing.T) {
 func TestOrbitExtractorFor_picksByOS(t *testing.T) {
 	t.Parallel()
 
-	// The binarymgr writes downloads to a generic .tmp file, so the
-	// extractor is selected by GOOS at Spec construction time rather than by
-	// inspecting the source path.
 	tarPath := filepath.Join(t.TempDir(), "src.tmp")
 	require.NoError(t, os.WriteFile(tarPath, buildOrbitTarGz(t), 0o644))
 
@@ -201,19 +179,6 @@ func TestRunWithCustomPath_Validation(t *testing.T) {
 	})
 }
 
-func TestRunE_InstallAndUpdateAreMutuallyExclusive(t *testing.T) {
-	t.Parallel()
-
-	ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
-	factory := cmdtest.NewTestFactory(ios)
-	cmd := NewCmd(factory)
-	cmd.SetArgs([]string{"--install", "--update"})
-
-	err := cmd.Execute()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "mutually exclusive")
-}
-
 func TestHandleInstall_CustomPath(t *testing.T) {
 	if _, err := binarymgr.ManagedBinaryPath(Spec()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
 		t.Skipf("skipping on unsupported platform: %v", err)
@@ -231,6 +196,6 @@ func TestHandleInstall_CustomPath(t *testing.T) {
 	err := runner.HandleInstall(t.Context())
 
 	require.NoError(t, err)
-	assert.Contains(t, stderr.String(), "Using custom Orbit local CLI binary:")
+	assert.Contains(t, stderr.String(), "Using custom Orbit CLI binary:")
 	assert.Contains(t, stderr.String(), execFile)
 }

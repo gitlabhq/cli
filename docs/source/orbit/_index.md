@@ -14,35 +14,60 @@ GitLab Knowledge Graph commands. (EXPERIMENTAL)
 
 ## Synopsis
 
-Access the GitLab Knowledge Graph (product name: Orbit) from the
-CLI. Use `glab orbit remote` to query the remote API, or
-`glab orbit local` to run the Orbit local CLI binary.
+Run the Orbit CLI for the GitLab Knowledge Graph (product name: Orbit).
+
+Every command and flag is forwarded verbatim to the managed Orbit binary, which is downloaded, verified, and kept up to date for you on first use. `glab orbit remote <command>` authenticates automatically using your resolved GitLab credential; all other commands run the binary with no extra environment.
+
+Prerequisites:
+
+- Run `glab auth login` to authenticate.
+- Orbit must be enabled for your namespace (the `knowledge_graph` feature flag).
+
+Configuration options:
+
+- `orbit_local_auto_run`: Skip the run confirmation prompt.
+- `orbit_local_auto_download`: Skip the download confirmation prompt.
+
+For more information, see the [Orbit documentation](https://docs.gitlab.com/orbit/).
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
 For more information, see
 <https://docs.gitlab.com/policy/development_stages_support/>.
 
+```plaintext
+glab orbit [<command>] [flags]
+```
+
 ## Examples
 
 ```console
-# Guided onboarding: verify access, install the skill, install the local CLI
-$ glab orbit setup
+# Guided onboarding (choose your assistant)
+$ glab orbit setup claude
 
-# Discover the remote Knowledge Graph
+# Discover and query the remote Knowledge Graph (authenticates automatically)
 $ glab orbit remote status
-$ glab orbit remote schema
-$ glab orbit remote tools
-
-# Run a query against the remote Knowledge Graph
 $ glab orbit remote query ./query.json
-
-# Inspect indexing progress for a namespace or project
 $ glab orbit remote graph-status --full-path gitlab-org/gitlab
 
-# Run the Orbit local CLI (downloads the binary on first use)
-$ glab orbit local
+# Index and query a local copy of the graph
+$ glab orbit local index
+$ glab orbit local sql "SELECT 1"
 
+# Show the Orbit binary version
+$ glab orbit version
+
+# Install or update the managed binary without running it
+$ glab orbit --install
+$ glab orbit --update
+```
+
+## Options
+
+```plaintext
+      --install   Install the Orbit binary without running it.
+      --update    Check for and install updates to the binary.
+  -y, --yes       Skip confirmation prompts.
 ```
 
 ## Options inherited from parent commands
@@ -50,9 +75,3 @@ $ glab orbit local
 ```plaintext
   -h, --help   Show help for this command.
 ```
-
-## Subcommands
-
-- [`local`](local.md)
-- [`remote`](remote/_index.md)
-- [`setup`](setup.md)

@@ -214,6 +214,10 @@ func (m *Manager) promptDownload(ctx context.Context, autoDownload string) (bool
 		return true, "", nil
 	}
 
+	if !m.io.CanPrompt() {
+		return false, "", consentRequiredError(m.spec, "auto_download", fmt.Sprintf("download the %s binary", m.spec.DisplayName))
+	}
+
 	confirm := true
 	if err := m.io.Confirm(ctx, &confirm, fmt.Sprintf("Download %s binary?", m.spec.DisplayName)); err != nil {
 		return false, "", err
