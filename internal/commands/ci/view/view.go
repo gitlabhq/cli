@@ -194,40 +194,16 @@ func (o *options) run(ctx context.Context) error {
 	}
 
 	projectID := repo.FullName()
-	var pipelineID int64
-	var webURL string
-	var pipelineCreatedAt time.Time
-	var commit *gitlab.Commit
-	var commitSHA string
 
+	var pipeline *gitlab.Pipeline
 	if o.pipelineID != 0 {
-		pipeline, _, err := client.Pipelines.GetPipeline(projectID, o.pipelineID)
+		pipeline, _, err = client.Pipelines.GetPipeline(projectID, o.pipelineID)
 		if err != nil {
-			return err
-		}
-
-		pipelineID = pipeline.ID
-		webURL = pipeline.WebURL
-		pipelineCreatedAt = *pipeline.CreatedAt
-		commitSHA = pipeline.SHA
-		commit, _, err = client.Commits.GetCommit(projectID, commitSHA, nil)
-		if err != nil {
-			return err
+			return fmt.Errorf("can't get pipeline #%d info: %w", o.pipelineID, err)
 		}
 	} else {
-		// Get pipeline by branch reference (not by commit's LastPipeline)
-		pipeline, err := ciutils.GetPipelineWithFallback(ctx, client, projectID, o.refName, o.io)
-		if err != nil {
-			return err
-		}
-
-		pipelineID = pipeline.ID
-		webURL = pipeline.WebURL
-		pipelineCreatedAt = *pipeline.CreatedAt
-		commitSHA = pipeline.SHA
-
-		// Get commit details for display purposes
-		commit, _, err = client.Commits.GetCommit(projectID, commitSHA, nil)
+		// The commit's newest pipeline may belong to another branch.
+		pipeline, err = ciutils.GetPipelineWithFallback(ctx, client, projectID, o.refName, o.io)
 		if err != nil {
 			return err
 		}
@@ -235,21 +211,17 @@ func (o *options) run(ctx context.Context) error {
 
 	if o.openInBrowser { // open in browser if --web flag is specified
 		if o.io.IsOutputTTY() {
-			o.io.LogErrorf("Opening %s in your browser.\n", utils.DisplayURL(webURL))
+			o.io.LogErrorf("Opening %s in your browser.\n", utils.DisplayURL(pipeline.WebURL))
 		}
 
 		cfg := o.config()
 		browser, _ := cfg.Get(repo.RepoHost(), "browser")
-		return utils.OpenInBrowser(webURL, browser)
+		return utils.OpenInBrowser(pipeline.WebURL, browser)
 	}
 
-	p, _, err := client.Pipelines.GetPipeline(projectID, pipelineID)
-	if err != nil {
-		return fmt.Errorf("can't get pipeline #%d info: %w", pipelineID, err)
-	}
-	pipelineUser := p.User
-
-	pipelines = make([]gitlab.PipelineInfo, 0, 10)
+	// The job grid, logs, cancel, and retry all read the top of this stack to
+	// decide which pipeline they are acting on.
+	pipelines = append(make([]gitlab.PipelineInfo, 0, 10), pipelineInfo(pipeline))
 
 	// Use terminal default colors instead of tview's hardcoded white-on-black theme.
 	tview.Styles = tview.Theme{}
@@ -259,7 +231,7 @@ func (o *options) run(ctx context.Context) error {
 		SetBackgroundColor(tcell.ColorDefault).
 		SetBorderPadding(1, 1, 2, 2).
 		SetBorder(true).
-		SetTitle(fmt.Sprintf(" Pipeline #%d triggered %s by %s ", pipelineID, utils.TimeToPrettyTimeAgo(pipelineCreatedAt), pipelineUser.Name))
+		SetTitle(fmt.Sprintf(" Pipeline #%d triggered %s by %s ", pipeline.ID, utils.TimeToPrettyTimeAgo(*pipeline.CreatedAt), pipeline.User.Name))
 
 	boxes = make(map[string]*tview.TextView)
 	jobsCh := make(chan []*ViewJob)
@@ -279,13 +251,13 @@ func (o *options) run(ctx context.Context) error {
 	defer recoverPanic(app)
 
 	var navi navigator
-	app.SetInputCapture(inputCapture(ctx, app, root, &navi, inputCh, forceUpdateCh, o, client, projectID, commitSHA))
-	go updateJobs(app, jobsCh, forceUpdateCh, client, commit)
+	app.SetInputCapture(inputCapture(ctx, app, root, &navi, inputCh, forceUpdateCh, o, client))
+	go updateJobs(app, jobsCh, forceUpdateCh, client)
 	go func() {
 		defer recoverPanic(app)
 		for {
 			app.SetFocus(root)
-			jobsView(ctx, app, jobsCh, inputCh, root, client, projectID, commitSHA)
+			jobsView(ctx, app, jobsCh, inputCh, root, client)
 			app.Draw()
 		}
 	}()
@@ -355,8 +327,6 @@ func inputCapture(
 	forceUpdateCh chan<- bool,
 	opts *options,
 	apiClient *gitlab.Client,
-	projectID string,
-	commitSHA string,
 ) func(event *tcell.EventKey) *tcell.EventKey {
 	return func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Rune() == 'q' || event.Key() == tcell.KeyEscape {
@@ -369,12 +339,13 @@ func inputCapture(
 				}
 			case logsVisible:
 				logsVisible = !logsVisible
-				root.HidePage("logs-" + curJob.Name)
+				root.HidePage(logsPageKey(curJob))
 				if inputCh == nil {
 					inputCh <- struct{}{}
 				}
 				app.ForceDraw()
-			case len(pipelines) > 0:
+			// Only a descent stacks a second pipeline; at the bottom, quit.
+			case len(pipelines) > 1:
 				pipelines = pipelines[:len(pipelines)-1]
 				curJob = nil
 				// Reset cursor: see comment in handleBridgeJobSelection (#8313).
@@ -413,9 +384,9 @@ func inputCapture(
 							app.ForceDraw()
 							return
 						}
-						root.RemovePage("logs-" + curJob.Name)
+						root.RemovePage(logsPageKey(curJob))
 						app.ForceDraw()
-						job, _, err := apiClient.Jobs.CancelJob(projectID, curJob.ID)
+						job, _, err := apiClient.Jobs.CancelJob(curProjectID(app), curJob.ID)
 						if err != nil {
 							app.Stop()
 							log.Fatal(err)
@@ -447,12 +418,12 @@ func inputCapture(
 						app.ForceDraw()
 						return
 					}
-					root.RemovePage("logs-" + curJob.Name)
+					root.RemovePage(logsPageKey(curJob))
 					app.ForceDraw()
 
 					job, err := api.PlayOrRetryJobs(
 						apiClient,
-						projectID,
+						curProjectID(app),
 						curJob.ID,
 						curJob.Status,
 					)
@@ -474,7 +445,7 @@ func inputCapture(
 				if curJob.Kind == Job {
 					logsVisible = !logsVisible
 					if !logsVisible {
-						root.HidePage("logs-" + curJob.Name)
+						root.HidePage(logsPageKey(curJob))
 					}
 					inputCh <- struct{}{}
 					app.ForceDraw()
@@ -485,16 +456,23 @@ func inputCapture(
 				return nil
 			}
 		case tcell.KeyCtrlSpace:
+			// A bridge ID is not a job ID. Enter descends into it instead.
+			if curJob.Kind != Job {
+				break
+			}
+			// curJob moves as the user navigates, so snapshot before suspending.
+			traceJob := curJob
+			traceProjectID := curProjectID(app)
 			app.Suspend(func() {
 				ctx, cancel := context.WithCancel(ctx)
 				go func() {
-					err := ciutils.RunTraceSha(
+					err := ciutils.RunTraceJob(
 						ctx,
 						apiClient,
 						opts.io.StdOut,
-						projectID,
-						commitSHA,
-						curJob.Name,
+						traceProjectID,
+						traceJob.ID,
+						ciutils.DefaultTracePollInterval,
 					)
 					if err != nil {
 						app.Stop()
@@ -527,6 +505,41 @@ func inputCapture(
 		}
 		return event
 	}
+}
+
+// pipelineInfo narrows a pipeline to the shape the stack holds, matching the
+// downstream pipelines that arrive from bridges.
+func pipelineInfo(p *gitlab.Pipeline) gitlab.PipelineInfo {
+	return gitlab.PipelineInfo{
+		ID:        p.ID,
+		IID:       p.IID,
+		ProjectID: p.ProjectID,
+		Status:    p.Status,
+		Source:    string(p.Source),
+		Ref:       p.Ref,
+		SHA:       p.SHA,
+		Name:      p.Name,
+		WebURL:    p.WebURL,
+		UpdatedAt: p.UpdatedAt,
+		CreatedAt: p.CreatedAt,
+	}
+}
+
+// curProjectID returns the project owning the pipeline being viewed. Resolve it
+// per action: descending into a child pipeline changes it.
+func curProjectID(app *tview.Application) int64 {
+	pipeline, err := curPipeline()
+	if err != nil {
+		app.Stop()
+		log.Fatalf("%v", err)
+	}
+	return pipeline.ProjectID
+}
+
+// logsPageKey names a job's cached trace page. Parent and child pipelines
+// reuse job names, so only the ID is unique.
+func logsPageKey(job *ViewJob) string {
+	return fmt.Sprintf("logs-%d", job.ID)
 }
 
 func normalizeCtrlM(event *tcell.EventKey) *tcell.EventKey {
@@ -593,14 +606,13 @@ func (b *bracketEscaper) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func curPipeline(commit *gitlab.Commit) (gitlab.PipelineInfo, error) {
-	if len(pipelines) > 0 {
-		return pipelines[len(pipelines)-1], nil
+// curPipeline returns the pipeline being viewed: the top of the stack run()
+// seeds and descending into a child pipeline pushes onto.
+func curPipeline() (gitlab.PipelineInfo, error) {
+	if len(pipelines) == 0 {
+		return gitlab.PipelineInfo{}, errors.New("no pipeline is being viewed")
 	}
-	if commit.LastPipeline == nil {
-		return gitlab.PipelineInfo{}, fmt.Errorf("commit %s has no associated pipeline", commit.ID)
-	}
-	return *commit.LastPipeline, nil
+	return pipelines[len(pipelines)-1], nil
 }
 
 // navigator manages the internal state for processing tcell.EventKeys
@@ -714,8 +726,6 @@ func jobsView(
 	inputCh <-chan struct{},
 	root *tview.Pages,
 	apiClient *gitlab.Client,
-	projectID string,
-	commitSHA string,
 ) {
 	select {
 	case jobs = <-jobsCh:
@@ -732,7 +742,7 @@ func jobsView(
 		return
 	}
 	if logsVisible {
-		logsKey := "logs-" + curJob.Name
+		logsKey := logsPageKey(curJob)
 		if !root.SwitchToPage(logsKey).HasPage(logsKey) {
 			tv := tview.NewTextView()
 			tv.
@@ -740,6 +750,11 @@ func jobsView(
 				SetBackgroundColor(tcell.ColorDefault).
 				SetBorderPadding(0, 0, 1, 1).
 				SetBorder(true)
+
+			// curJob moves as the user navigates, so snapshot it before the
+			// goroutine reads it.
+			traceJob := curJob
+			traceProjectID := curProjectID(app)
 
 			go func() {
 				// Chain: bracketEscaper -> vtclean -> ANSIWriter -> TextView
@@ -758,20 +773,20 @@ func jobsView(
 				vtcleanWriter := vtclean.NewWriter(ansiWriter, true)
 				bracketWriter := &bracketEscaper{Writer: vtcleanWriter}
 
-				err := ciutils.RunTraceSha(
+				err := ciutils.RunTraceJob(
 					ctx,
 					apiClient,
 					bracketWriter,
-					projectID,
-					commitSHA,
-					curJob.Name,
+					traceProjectID,
+					traceJob.ID,
+					ciutils.DefaultTracePollInterval,
 				)
 				if err != nil {
 					app.Stop()
 					log.Fatal(err)
 				}
 			}()
-			root.AddAndSwitchToPage("logs-"+curJob.Name, tv, true)
+			root.AddAndSwitchToPage(logsKey, tv, true)
 		}
 		return
 	}
@@ -923,7 +938,6 @@ func updateJobs(
 	jobsCh chan<- []*ViewJob,
 	forceUpdateCh <-chan bool,
 	apiClient *gitlab.Client,
-	commit *gitlab.Commit,
 ) {
 	defer recoverPanic(app)
 	for {
@@ -933,7 +947,7 @@ func updateJobs(
 		}
 		var jobs []*gitlab.Job
 		var bridges []*gitlab.Bridge
-		pipeline, err := curPipeline(commit)
+		pipeline, err := curPipeline()
 		if err != nil {
 			app.Stop()
 			log.Fatalf("%v", err)

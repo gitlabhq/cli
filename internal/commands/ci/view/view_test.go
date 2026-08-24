@@ -536,7 +536,7 @@ func Test_jobsView(t *testing.T) {
 		jobsCh <- jobs
 	}()
 	root.Box.Focus(nil)
-	jobsView(t.Context(), nil, jobsCh, inputCh, root, nil, "", "")
+	jobsView(t.Context(), nil, jobsCh, inputCh, root, nil)
 	root.Focus(func(p tview.Primitive) { p.Focus(nil) })
 	root.Draw(screen)
 	linkJobsView(nil)(screen)
@@ -1194,39 +1194,158 @@ func Test_navigatorSurvivesPipelineSwitch(t *testing.T) {
 	assert.Less(t, navi.idx, len(childJobs))
 }
 
-// Test_curPipeline_nilLastPipeline verifies that curPipeline returns an error
-// instead of panicking when the stack is empty and the commit has no
-// LastPipeline. Before the fix, this dereferenced a nil pointer.
-func Test_curPipeline_nilLastPipeline(t *testing.T) {
+func Test_pipelineInfo(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	updatedAt := time.Date(2026, 8, 17, 12, 5, 0, 0, time.UTC)
+
+	got := pipelineInfo(&gitlab.Pipeline{
+		ID:        225,
+		IID:       12,
+		ProjectID: 777,
+		Status:    "running",
+		Source:    gitlab.PipelineSource("parent_pipeline"),
+		Ref:       "main",
+		SHA:       "2dc6aa325a317eda67812f05600bdf0fcdc70ab0",
+		Name:      "child pipeline",
+		WebURL:    "https://gitlab.com/OWNER/REPO/-/pipelines/225",
+		CreatedAt: &createdAt,
+		UpdatedAt: &updatedAt,
+	})
+
+	assert.Equal(t, int64(225), got.ID)
+	assert.Equal(t, int64(777), got.ProjectID)
+	assert.Equal(t, int64(12), got.IID)
+	assert.Equal(t, "running", got.Status)
+	assert.Equal(t, "parent_pipeline", got.Source)
+	assert.Equal(t, "main", got.Ref)
+	assert.Equal(t, "2dc6aa325a317eda67812f05600bdf0fcdc70ab0", got.SHA)
+	assert.Equal(t, "child pipeline", got.Name)
+	assert.Equal(t, "https://gitlab.com/OWNER/REPO/-/pipelines/225", got.WebURL)
+	assert.Equal(t, &createdAt, got.CreatedAt)
+	assert.Equal(t, &updatedAt, got.UpdatedAt)
+}
+
+func Test_curPipeline_emptyStack(t *testing.T) {
 	// Cannot run in parallel: mutates the package-level `pipelines` global.
 	pipelines = nil
 
-	t.Run("stack empty and LastPipeline nil returns error", func(t *testing.T) {
-		commit := &gitlab.Commit{ID: "deadbeef", LastPipeline: nil}
-		got, err := curPipeline(commit)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "deadbeef")
-		assert.Equal(t, gitlab.PipelineInfo{}, got)
+	got, err := curPipeline()
+
+	require.Error(t, err)
+	assert.Equal(t, gitlab.PipelineInfo{}, got)
+}
+
+func Test_handleBridgeJobSelection_retargetsTraceAtDownstreamPipeline(t *testing.T) {
+	// Cannot run in parallel: mutates the package-level view globals.
+	t.Cleanup(func() {
+		pipelines, curJob, jobs, modalVisible = nil, nil, nil, false
 	})
 
-	t.Run("stack empty falls back to LastPipeline", func(t *testing.T) {
-		pipelines = nil
-		commit := &gitlab.Commit{
-			ID:           "deadbeef",
-			LastPipeline: &gitlab.PipelineInfo{ID: 42, ProjectID: 7},
-		}
-		got, err := curPipeline(commit)
-		require.NoError(t, err)
-		assert.Equal(t, int64(42), got.ID)
+	app := tview.NewApplication()
+	pipelines = []gitlab.PipelineInfo{{ID: 10, ProjectID: 7}}
+	require.Equal(t, int64(7), curProjectID(app), "precondition: viewing the parent")
+
+	curJob = ViewJobFromBridge(&gitlab.Bridge{
+		ID:                 55,
+		Name:               "trigger-child",
+		Status:             "success",
+		DownstreamPipeline: &gitlab.PipelineInfo{ID: 20, ProjectID: 777},
+	})
+	navi := &navigator{idx: 3, depth: 2}
+	forceUpdateCh := make(chan bool, 1)
+
+	handleBridgeJobSelection(app, tview.NewPages(), forceUpdateCh, navi)
+
+	assert.Equal(t, int64(777), curProjectID(app),
+		"after descending, a trace must be fetched from the downstream project")
+	assert.Nil(t, curJob, "selection is cleared so the child's first job is picked")
+	assert.Equal(t, &navigator{}, navi, "cursor resets for the child's jobs slice")
+	assert.True(t, <-forceUpdateCh, "the job list is refreshed for the child pipeline")
+
+	pipelines = pipelines[:len(pipelines)-1]
+	assert.Equal(t, int64(7), curProjectID(app))
+}
+
+func Test_inputCapture_ctrlSpaceIgnoresBridgeJobs(t *testing.T) {
+	// Cannot run in parallel: mutates the package-level view globals.
+	t.Cleanup(func() {
+		pipelines, curJob, jobs, logsVisible, modalVisible = nil, nil, nil, false, false
+	})
+	pipelines = []gitlab.PipelineInfo{{ID: 10, ProjectID: 7}}
+	jobs = nil
+	curJob = &ViewJob{ID: 55, Name: "trigger-child", Kind: Bridge}
+	logsVisible, modalVisible = false, false
+
+	// No EXPECT() calls: any API request this key press makes fails the test.
+	tc := gitlabtesting.NewTestClient(t)
+	ios, _, _, _ := cmdtest.TestIOStreams()
+
+	handler := inputCapture(
+		t.Context(), tview.NewApplication(), tview.NewPages(), &navigator{},
+		make(chan struct{}, 1), make(chan bool, 1),
+		&options{io: ios}, tc.Client,
+	)
+
+	event := tcell.NewEventKey(tcell.KeyCtrlSpace, 0, tcell.ModNone)
+	got := handler(event)
+
+	// Assert on the returned event, not the absence of an API call: Suspend is
+	// a no-op on an application that is not running, so the call never happens.
+	assert.Same(t, event, got, "Ctrl+Space on a bridge job must not start a trace")
+}
+
+func Test_curPipeline_tracksDescentIntoChildPipeline(t *testing.T) {
+	// Cannot run in parallel: mutates the package-level `pipelines` global.
+	t.Cleanup(func() { pipelines = nil })
+
+	pipelines = []gitlab.PipelineInfo{{ID: 10, ProjectID: 7}}
+	parent, err := curPipeline()
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), parent.ProjectID)
+
+	// A child pipeline in another project, as a multi-project trigger produces.
+	pipelines = append(pipelines, gitlab.PipelineInfo{ID: 20, ProjectID: 777})
+	child, err := curPipeline()
+	require.NoError(t, err)
+	assert.Equal(t, int64(20), child.ID)
+	assert.Equal(t, int64(777), child.ProjectID)
+
+	pipelines = pipelines[:len(pipelines)-1]
+	back, err := curPipeline()
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), back.ID)
+	assert.Equal(t, int64(7), back.ProjectID)
+}
+
+func Test_logsPageKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("same name in different pipelines gets distinct keys", func(t *testing.T) {
+		t.Parallel()
+
+		parentJob := &ViewJob{ID: 100, Name: "build"}
+		childJob := &ViewJob{ID: 200, Name: "build"}
+
+		assert.NotEqual(t, logsPageKey(parentJob), logsPageKey(childJob))
 	})
 
-	t.Run("stack non-empty ignores LastPipeline", func(t *testing.T) {
-		pipelines = []gitlab.PipelineInfo{{ID: 99, ProjectID: 7}}
-		t.Cleanup(func() { pipelines = nil })
-		commit := &gitlab.Commit{ID: "deadbeef", LastPipeline: nil}
-		got, err := curPipeline(commit)
-		require.NoError(t, err)
-		assert.Equal(t, int64(99), got.ID)
+	t.Run("same job gets a stable key", func(t *testing.T) {
+		t.Parallel()
+
+		job := &ViewJob{ID: 100, Name: "build"}
+
+		assert.Equal(t, logsPageKey(job), logsPageKey(&ViewJob{ID: 100, Name: "renamed"}))
+	})
+
+	t.Run("a retried job does not reuse the original job's cached page", func(t *testing.T) {
+		t.Parallel()
+
+		original := &ViewJob{ID: 100, Name: "build", Status: "failed"}
+		retried := &ViewJob{ID: 101, Name: "build", Status: "running"}
+
+		assert.NotEqual(t, logsPageKey(original), logsPageKey(retried))
 	})
 }
 
@@ -1404,21 +1523,6 @@ func TestCIView(t *testing.T) {
 				tc.MockJobs.EXPECT().
 					ListPipelineJobs("OWNER/REPO", int64(8), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.Job{{ID: 1}}, nil, nil)
-
-				tc.MockCommits.EXPECT().
-					GetCommit("OWNER/REPO", "2dc6aa325a317eda67812f05600bdf0fcdc70ab0", gomock.Any(), gomock.Any()).
-					Return(&gitlab.Commit{
-						ID: "2dc6aa325a317eda67812f05600bdf0fcdc70ab0",
-						LastPipeline: &gitlab.PipelineInfo{
-							ID:        8,
-							Ref:       "foo",
-							SHA:       "2dc6aa325a317eda67812f05600bdf0fcdc70ab0",
-							Status:    "created",
-							WebURL:    "https://gitlab.com/OWNER/REPO/-/pipelines/225",
-							CreatedAt: &createdAt,
-						},
-						Status: new(gitlab.Running),
-					}, nil, nil)
 			},
 			expectedOutput: "Opening gitlab.com/OWNER/REPO/-/pipelines/225 in your browser.\n",
 		},
@@ -1433,21 +1537,6 @@ func TestCIView(t *testing.T) {
 						WebURL:    "https://gitlab.com/OWNER/REPO/-/pipelines/5",
 						CreatedAt: &createdAt,
 						SHA:       "2dc6aa325a317eda67812f05600bdf0fcdc70ab0",
-					}, nil, nil)
-
-				tc.MockCommits.EXPECT().
-					GetCommit("OWNER/REPO", "2dc6aa325a317eda67812f05600bdf0fcdc70ab0", gomock.Any(), gomock.Any()).
-					Return(&gitlab.Commit{
-						ID: "6104942438c14ec7bd21c6cd5bd995272b3faff6",
-						LastPipeline: &gitlab.PipelineInfo{
-							ID:        5,
-							Ref:       "main",
-							SHA:       "2dc6aa325a317eda67812f05600bdf0fcdc70ab0",
-							Status:    "created",
-							WebURL:    "https://gitlab.com/OWNER/REPO/-/pipelines/225",
-							CreatedAt: &createdAt,
-						},
-						Status: new(gitlab.Running),
 					}, nil, nil)
 			},
 			expectedOutput: "Opening gitlab.com/OWNER/REPO/-/pipelines/5 in your browser.\n",

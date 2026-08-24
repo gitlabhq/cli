@@ -522,6 +522,63 @@ func TestTraceJob(t *testing.T) {
 	}
 }
 
+func TestRunTraceJob(t *testing.T) {
+	t.Parallel()
+
+	t.Run("traces the requested job ID in a string-identified project", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockJobs.EXPECT().
+			GetJob("OWNER/REPO", int64(4242)).
+			Return(&gitlab.Job{ID: 4242, Name: "lint", Status: "success"}, nil, nil)
+		tc.MockJobs.EXPECT().
+			GetTraceFile("OWNER/REPO", int64(4242), gomock.Any()).
+			Return(bytes.NewReader([]byte("parent trace")), nil, nil)
+
+		var out bytes.Buffer
+		err := RunTraceJob(t.Context(), tc.Client, &out, "OWNER/REPO", 4242, time.Millisecond)
+
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "parent trace")
+	})
+
+	t.Run("traces a job in a numerically-identified downstream project", func(t *testing.T) {
+		t.Parallel()
+
+		// A child pipeline's project arrives as a numeric ID, not "owner/repo".
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockJobs.EXPECT().
+			GetJob(int64(777), int64(99)).
+			Return(&gitlab.Job{ID: 99, Name: "lint", Status: "success"}, nil, nil)
+		tc.MockJobs.EXPECT().
+			GetTraceFile(int64(777), int64(99), gomock.Any()).
+			Return(bytes.NewReader([]byte("child trace")), nil, nil)
+
+		var out bytes.Buffer
+		err := RunTraceJob(t.Context(), tc.Client, &out, int64(777), 99, time.Millisecond)
+
+		require.NoError(t, err)
+		assert.Contains(t, out.String(), "child trace")
+	})
+
+	t.Run("returns the error when the job cannot be fetched", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		notFound := &gitlab.Response{Response: &http.Response{StatusCode: http.StatusNotFound}}
+		tc.MockJobs.EXPECT().
+			GetJob(int64(777), int64(99)).
+			Return(nil, notFound, assert.AnError)
+
+		var out bytes.Buffer
+		err := RunTraceJob(t.Context(), tc.Client, &out, int64(777), 99, time.Millisecond)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to find job:")
+	})
+}
+
 // TestGetDefaultBranch_HappyPath tests successful scenarios for GetDefaultBranch
 func TestGetDefaultBranch_HappyPath(t *testing.T) {
 	tests := []struct {
