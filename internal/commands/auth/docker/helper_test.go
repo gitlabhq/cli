@@ -201,16 +201,11 @@ hosts:
 				})
 			}
 		})
-	})
 
-	// is_oauth2 resolves from GLAB_IS_OAUTH2 when env lookup is enabled, and this
-	// helper runs as a Docker subprocess inheriting the user's shell. Reading it
-	// with searchEnvForIdentity=false is what stops a stray value from sending a
-	// PAT host down the refresh path, where its absent oauth2_expiry_date fails.
-	t.Run("GLAB_IS_OAUTH2 does not force the refresh onto a PAT host", func(t *testing.T) {
-		t.Setenv("GLAB_IS_OAUTH2", "true")
+		t.Run("GLAB_IS_OAUTH2 does not force the refresh onto a PAT host", func(t *testing.T) {
+			t.Setenv("GLAB_IS_OAUTH2", "true")
 
-		helper := Helper{cfg: config.NewFromString(`
+			helper := Helper{cfg: config.NewFromString(`
 ---
 hosts:
   gitlab.com:
@@ -219,10 +214,11 @@ hosts:
     container_registry_domains: registry.gitlab.com
 `)}
 
-		gotUser, gotPassword, err := helper.Get("registry.gitlab.com")
-		require.NoError(t, err)
-		assert.Equal(t, "user1", gotUser)
-		assert.Equal(t, "token1", gotPassword)
+			gotUser, gotPassword, err := helper.Get("registry.gitlab.com")
+			require.NoError(t, err)
+			assert.Equal(t, "user1", gotUser)
+			assert.Equal(t, "token1", gotPassword)
+		})
 	})
 
 	// A read failure must name itself rather than arrive as "no hostname
