@@ -6,60 +6,25 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
-func PlayOrRetryJobs(client *gitlab.Client, repo string, jobID int64, status string) (*gitlab.Job, error) {
+func PlayOrRetryJobs(client *gitlab.Client, pid any, jobID int64, status string) (*gitlab.Job, error) {
 	switch status {
 	case "pending", "running":
 		return nil, nil
 	case "manual":
-		j, _, err := client.Jobs.PlayJob(repo, jobID, &gitlab.PlayJobOptions{})
+		j, _, err := client.Jobs.PlayJob(pid, jobID, &gitlab.PlayJobOptions{})
 		if err != nil {
 			return nil, err
 		}
 		return j, nil
 	default:
 
-		j, _, err := client.Jobs.RetryJob(repo, jobID)
+		j, _, err := client.Jobs.RetryJob(pid, jobID)
 		if err != nil {
 			return nil, err
 		}
 
 		return j, nil
 	}
-}
-
-func PipelineJobWithSha(client *gitlab.Client, pid any, sha, name string) (*gitlab.Job, error) {
-	jobs, _, err := pipelineJobsWithSha(client, pid, sha)
-	if len(jobs) == 0 || err != nil {
-		return nil, err
-	}
-	var (
-		job          *gitlab.Job
-		lastRunning  *gitlab.Job
-		firstPending *gitlab.Job
-	)
-
-	for _, j := range jobs {
-		if j.Status == "running" {
-			lastRunning = j
-		}
-		if j.Status == "pending" && firstPending == nil {
-			firstPending = j
-		}
-		if j.Name == name {
-			job = j
-			// don't break because there may be a newer version of the job
-		}
-	}
-	if job == nil {
-		job = lastRunning
-	}
-	if job == nil {
-		job = firstPending
-	}
-	if job == nil {
-		job = jobs[len(jobs)-1]
-	}
-	return job, err
 }
 
 type jobSort struct {
@@ -116,17 +81,4 @@ func PipelineJobsWithID(client *gitlab.Client, pid any, ppid int64) ([]*gitlab.J
 	sort.Sort(jobSort{Jobs: jobsList})
 	sort.Sort(bridgeSort{Bridges: bridgesList})
 	return jobsList, bridgesList, nil
-}
-
-// pipelineJobsWithSha returns a list of jobs in a pipeline for a given commit sha.
-// The jobs are returned in the order in which they were created
-func pipelineJobsWithSha(client *gitlab.Client, pid any, sha string) ([]*gitlab.Job, []*gitlab.Bridge, error) {
-	pipelines, _, err := client.Pipelines.ListProjectPipelines(pid, &gitlab.ListProjectPipelinesOptions{SHA: new(sha), ListOptions: gitlab.ListOptions{PerPage: DefaultListLimit}})
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(pipelines) == 0 {
-		return nil, nil, nil
-	}
-	return PipelineJobsWithID(client, pid, pipelines[0].ID)
 }

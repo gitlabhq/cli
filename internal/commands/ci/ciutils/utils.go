@@ -180,15 +180,15 @@ func DisplayMultiplePipelines(s *iostreams.IOStreams, p []*gitlab.PipelineInfo, 
 	return table.Render()
 }
 
-func RunTraceSha(ctx context.Context, apiClient *gitlab.Client, w io.Writer, pid any, sha, name string) error {
-	job, err := api.PipelineJobWithSha(apiClient, pid, sha, name)
-	if err != nil {
-		return fmt.Errorf("failed to find job: %w", err)
+const DefaultTracePollInterval = 3 * time.Second
+
+// RunTraceJob streams jobID's trace to w. A zero pollInterval uses
+// DefaultTracePollInterval.
+func RunTraceJob(ctx context.Context, apiClient *gitlab.Client, w io.Writer, pid any, jobID int64, pollInterval time.Duration) error {
+	if pollInterval == 0 {
+		pollInterval = DefaultTracePollInterval
 	}
-	if job == nil {
-		return fmt.Errorf("failed to find job: no matching job named %q for this pipeline", name)
-	}
-	return runTrace(ctx, apiClient, w, pid, job.ID, 3*time.Second)
+	return runTrace(ctx, apiClient, w, pid, jobID, pollInterval)
 }
 
 func runTrace(ctx context.Context, apiClient *gitlab.Client, w io.Writer, pid any, jobId int64, pollInterval time.Duration) error {
@@ -448,7 +448,7 @@ func TraceJob(ctx context.Context, inputs *JobInputs, opts *JobOptions) error {
 	}
 	pollInterval := opts.PollInterval
 	if pollInterval == 0 {
-		pollInterval = 3 * time.Second
+		pollInterval = DefaultTracePollInterval
 	}
 	opts.IO.LogInfo()
 	return runTrace(ctx, opts.Client, opts.IO.StdOut, opts.Repo.FullName(), jobID, pollInterval)
