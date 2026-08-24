@@ -17,7 +17,7 @@ type Spec struct {
 	// ProjectID is the GitLab project ID that hosts the generic package.
 	ProjectID string
 
-	// PackageName is the generic-package name (e.g. "duo-cli", "orbit-local").
+	// PackageName is the generic-package name (e.g. "duo-cli", "orbit-cli").
 	PackageName string
 
 	// ConfigPrefix is the config-key namespace. Keys are derived as
@@ -33,6 +33,9 @@ type Spec struct {
 	// 0 disables the cap (every newer version is considered compatible).
 	MaxCompatibleMajor int
 
+	// MinVersion forces a re-download when the installed version is below it; empty disables the floor.
+	MinVersion string
+
 	// SupportedOS lists the GOOS values the binary is published for.
 	SupportedOS []string
 
@@ -43,7 +46,7 @@ type Spec struct {
 	NormalizeArch func(goos, goarch string) (string, error)
 
 	// AssetName returns the upstream asset filename for a (os, arch) pair
-	// (e.g. "duo-darwin-arm64", "orbit-local-darwin-aarch64.tar.gz").
+	// (e.g. "duo-darwin-arm64", "orbit-cli-darwin-aarch64.tar.gz").
 	AssetName func(os, arch string) string
 
 	// InstalledName returns the local filename of the installed binary

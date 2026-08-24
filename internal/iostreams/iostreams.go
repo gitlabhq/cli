@@ -319,6 +319,13 @@ func (s *IOStreams) IsInteractive() bool {
 	return s.IsInTTY && s.PromptEnabled()
 }
 
+// CanPrompt returns true if the environment can show a prompt and read the answer.
+// Unlike IsInteractive, it does not require stdout to be a TTY, so it works when
+// stdout is piped. Use this for yes/no consent prompts that write to stderr.
+func (s *IOStreams) CanPrompt() bool {
+	return !s.promptDisabled && s.IsInTTY && s.IsErrTTY
+}
+
 func (s *IOStreams) ResolveBackgroundColor(style string) string {
 	styleEnvVar := os.Getenv("GLAB_GLAMOUR_STYLE")
 	deprecatedStyleEnvVar := os.Getenv("GLAMOUR_STYLE")

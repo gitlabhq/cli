@@ -16,8 +16,8 @@ import (
 //
 // In PreRun, the helper verifies that the command's output flag (looked
 // up by name: --output first, then --output-format) is set to "json".
-// Commands without either output flag (e.g. orbit/*) always emit JSON
-// and skip this check. The verification fails the command before RunE
+// Commands without either output flag always emit JSON and skip this
+// check. The verification fails the command before RunE
 // runs, so non-JSON output is never produced when --jq is active.
 func AddJQFlag(cmd *cobra.Command, io *iostreams.IOStreams) {
 	if io.JQ == nil {

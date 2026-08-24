@@ -47,6 +47,38 @@ func TestRunner_saveAutoDownloadPreference(t *testing.T) {
 	})
 }
 
+func TestRunner_versionAfterFloor(t *testing.T) {
+	managed := "/managed/bin/test"
+	newRunner := func(t *testing.T, min string) *Runner {
+		t.Helper()
+		ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+		spec := testSpec()
+		spec.MinVersion = min
+		return &Runner{IO: ios, Spec: spec}
+	}
+
+	t.Run("below floor is blanked to force download", func(t *testing.T) {
+		r := newRunner(t, "0.101.1")
+		assert.Empty(t, r.versionAfterFloor("0.101.0", managed, managed))
+	})
+
+	t.Run("at or above floor is preserved", func(t *testing.T) {
+		r := newRunner(t, "0.101.1")
+		assert.Equal(t, "0.101.1", r.versionAfterFloor("0.101.1", managed, managed))
+		assert.Equal(t, "0.102.0", r.versionAfterFloor("0.102.0", managed, managed))
+	})
+
+	t.Run("custom binary path is never forced", func(t *testing.T) {
+		r := newRunner(t, "0.101.1")
+		assert.Equal(t, "0.101.0", r.versionAfterFloor("0.101.0", "/custom/orbit", managed))
+	})
+
+	t.Run("no floor is a no-op", func(t *testing.T) {
+		r := newRunner(t, "")
+		assert.Equal(t, "0.0.1", r.versionAfterFloor("0.0.1", managed, managed))
+	})
+}
+
 func TestRunner_saveLastUpdateCheck(t *testing.T) {
 	r, cfg := runnerFor(t)
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)

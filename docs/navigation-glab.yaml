@@ -345,26 +345,6 @@
           url: 'cli/opentofu/state/unlock/'
 - title: glab orbit
   url: 'cli/orbit/'
-  submenu:
-    - title: glab orbit local
-      url: 'cli/orbit/local/'
-    - title: glab orbit remote
-      url: 'cli/orbit/remote/'
-      submenu:
-        - title: glab orbit remote dsl
-          url: 'cli/orbit/remote/dsl/'
-        - title: glab orbit remote graph-status
-          url: 'cli/orbit/remote/graph-status/'
-        - title: glab orbit remote query
-          url: 'cli/orbit/remote/query/'
-        - title: glab orbit remote schema
-          url: 'cli/orbit/remote/schema/'
-        - title: glab orbit remote status
-          url: 'cli/orbit/remote/status/'
-        - title: glab orbit remote tools
-          url: 'cli/orbit/remote/tools/'
-    - title: glab orbit setup
-      url: 'cli/orbit/setup/'
 - title: glab packages
   url: 'cli/packages/'
   submenu:

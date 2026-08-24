@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/hashicorp/go-version"
+
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 )
@@ -70,6 +72,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 
 	installedVersion, _ := r.Cfg.Get("", r.Spec.configKey("binary_version"))
+	installedVersion = r.versionAfterFloor(installedVersion, installedPath, managedPath)
 	autoDownload, _ := r.Cfg.Get("", r.Spec.configKey("auto_download"))
 	if r.Yes {
 		autoDownload = "true"
@@ -112,6 +115,7 @@ func (r *Runner) HandleInstall(ctx context.Context) error {
 
 	installedVersion, _ := r.Cfg.Get("", r.Spec.configKey("binary_version"))
 	installedPath, _ := r.Cfg.Get("", r.Spec.configKey("binary_path"))
+	installedVersion = r.versionAfterFloor(installedVersion, installedPath, managedPath)
 	autoDownload, _ := r.Cfg.Get("", r.Spec.configKey("auto_download"))
 	if r.Yes {
 		autoDownload = "true"
@@ -211,6 +215,26 @@ func (r *Runner) ShouldForceUpdateCheck() bool {
 	return os.Getenv(r.Spec.envVar("CHECK_UPDATE")) == "true"
 }
 
+func (r *Runner) versionAfterFloor(installedVersion, installedPath, managedPath string) string {
+	if installedPath != "" && installedPath != managedPath {
+		return installedVersion
+	}
+	if r.Spec.MinVersion == "" || installedVersion == "" {
+		return installedVersion
+	}
+	floor, err := version.NewVersion(r.Spec.MinVersion)
+	if err != nil {
+		return installedVersion
+	}
+	installed, err := version.NewVersion(installedVersion)
+	if err != nil || !installed.LessThan(floor) {
+		return installedVersion
+	}
+	color := r.IO.Color()
+	r.IO.LogInfof("%s Installed %s version %s is older than the required %s\n", color.DotWarnIcon(), r.Spec.DisplayName, installedVersion, r.Spec.MinVersion)
+	return ""
+}
+
 func (r *Runner) performUpdateCheck(ctx context.Context, forceCheck bool) (*updateCheckResult, error) {
 	currentVersion, _ := r.Cfg.Get("", r.Spec.configKey("binary_version"))
 	if currentVersion == "" {
@@ -248,6 +272,10 @@ func (r *Runner) performUpdateCheck(ctx context.Context, forceCheck bool) (*upda
 func (r *Runner) checkAutoRun(ctx context.Context) error {
 	autoRun, _ := r.Cfg.Get("", r.Spec.configKey("auto_run"))
 	if autoRun == "true" {
+		return nil
+	}
+
+	if !r.IO.CanPrompt() {
 		return nil
 	}
 
