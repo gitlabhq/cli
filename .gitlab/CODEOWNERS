@@ -10,9 +10,9 @@
 # the maintainers alone.
 
 * @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers
-/README.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/technical-writing
-/CONTRIBUTING.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/technical-writing
-/docs/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/technical-writing
+/README.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam
+/CONTRIBUTING.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam
+/docs/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam
 /internal/dependencyfirewall/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
 /internal/commands/df/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
-/docs/source/dependency-firewall/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/technical-writing @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
+/docs/source/dependency-firewall/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
