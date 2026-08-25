@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -338,21 +339,44 @@ func isKeyringEligibleKey(key string) bool {
 	return eligible
 }
 
-// keyringProbeService is the sentinel service name used to check whether a
-// working OS keyring backend is present.
-const keyringProbeService = "glab:__keyring_probe__"
+// keyringProbePrefix names the sentinel entries used to check whether a working
+// OS keyring backend is present.
+const keyringProbePrefix = "glab:__keyring_probe__"
+
+// keyringProbeSeq disambiguates concurrent probes within one process, since the
+// PID alone cannot.
+var keyringProbeSeq atomic.Uint64
+
+// keyringProbeService returns a sentinel service name unique to this probe, so
+// concurrent probes never contend for one entry. Backends vary in how badly they
+// take that: the macOS shell-out searches then creates as two steps, so the loser
+// of the race gets a duplicate-item error on a healthy keyring and the command
+// refuses to refresh, while the Secret Service and Windows backends replace
+// atomically. A sentinel leaked by a process that died mid-probe is harmless,
+// since every backend's write replaces an existing entry.
+func keyringProbeService() string {
+	return fmt.Sprintf("%s:%d:%d", keyringProbePrefix, os.Getpid(), keyringProbeSeq.Add(1))
+}
 
 // KeyringAvailable reports whether a usable OS keyring backend is present by
 // performing a lightweight write/delete of a sentinel entry. It returns false
 // on platforms without a keyring (for example, headless Linux without a Secret
 // Service, or CI runners), which lets callers fall back to file storage.
 func KeyringAvailable() bool {
-	if err := keyring.Set(keyringProbeService, "", "1"); err != nil {
-		return false
+	return keyringWriteError() == nil
+}
+
+// keyringWriteError probes the keyring the same way KeyringAvailable does, but
+// returns the underlying failure so callers can report why the keyring rejected
+// the write instead of only that it did.
+func keyringWriteError() error {
+	service := keyringProbeService()
+	if err := keyring.Set(service, "", "1"); err != nil {
+		return err
 	}
 	// Best effort cleanup; a lingering sentinel is harmless.
-	_ = keyring.Delete(keyringProbeService, "")
-	return true
+	_ = keyring.Delete(service, "")
+	return nil
 }
 
 // buildKeyringKey constructs the keyring key for a given hostname and config key
