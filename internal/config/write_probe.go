@@ -20,8 +20,13 @@ func CredentialWriteProbe(cfg Config, hostname string) error {
 	if err != nil {
 		return fmt.Errorf("could not determine whether host %q stores credentials in the keyring: %w", hostname, err)
 	}
-	if useKeyring == "true" && !KeyringAvailable() {
-		return fmt.Errorf("host %q stores credentials in the operating system keyring, but the keyring is not accepting writes", hostname)
+	if useKeyring == "true" {
+		// Report the backend's own error. Without it the message reads as a
+		// permissions or ACL problem, which sends anyone debugging it in the wrong
+		// direction.
+		if err := keyringWriteError(); err != nil {
+			return fmt.Errorf("host %q stores credentials in the operating system keyring, but the keyring is not accepting writes: %w", hostname, err)
+		}
 	}
 
 	fc, ok := cfg.(*fileConfig)
