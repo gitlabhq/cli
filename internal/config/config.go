@@ -11,10 +11,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/zalando/go-keyring"
 	"go.yaml.in/yaml/v3"
 
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 )
 
@@ -420,37 +422,65 @@ func buildLegacyKeyringKey(hostname, key string) string {
 	return ""
 }
 
+// lockedSyncKeyring runs syncKeyring while holding the config-directory lock so
+// a keyring write is serialized against other processes' writes. In-memory
+// configs (no backing dir) run without a lock.
+func (c *fileConfig) lockedSyncKeyring(hostname, key, value string) (string, error) {
+	if c.dir == "" {
+		return c.syncKeyring(hostname, key, value)
+	}
+
+	var out string
+	err := withLock(c.dir, func() error {
+		var e error
+		out, e = c.syncKeyring(hostname, key, value)
+		return e
+	})
+	return out, err
+}
+
+// syncKeyring reconciles the keyring copy of a credential with the value being
+// written and returns the value to persist in the config file. When storing to
+// the keyring, the plaintext copy is dropped from the file (empty return). When
+// storing to the file or clearing the value, any stale keyring copy is removed
+// so that switching keyring->file, or logging out, never orphans a secret,
+// regardless of the order in which use_keyring and the credential are written.
+// The keyring cleanup is skipped in CI, where the keyring is left untouched.
+func (c *fileConfig) syncKeyring(hostname, key, value string) (string, error) {
+	useKeyring, _ := c.Get(hostname, "use_keyring")
+	switch {
+	case useKeyring == "true" && value != "":
+		// Keyring mode: store in the keyring and drop the plaintext copy from the
+		// config file by returning an empty value.
+		if err := keyring.Set(buildKeyringKey(hostname, key), "", value); err != nil {
+			// Name the keyring and the host, mirroring the read path in
+			// GetWithSource. On macOS the backend shells out to
+			// /usr/bin/security, so the bare error is an unexplained
+			// "exit status <n>" with nothing tying it to the keyring.
+			return value, fmt.Errorf("failed to store %q in the operating system's keyring for host %q: %w", key, hostname, err)
+		}
+		return "", nil
+	case useKeyring == "true" || !InCI():
+		// Keyring mode clearing the value, or file mode storing/clearing: remove any
+		// keyring copy so switching keyring->file, or logging out, does not orphan a
+		// secret. Skipped in CI, where the keyring is left untouched (and file mode
+		// is the default there anyway).
+		deleteFromKeyring(hostname, key)
+	}
+	return value, nil
+}
+
 func (c *fileConfig) Set(hostname, key, value string) error {
 	key = ConfigKeyEquivalence(key)
 
 	// Keep the keyring-backed and file-backed copies of a credential from
-	// diverging. When storing to the keyring, the plaintext copy is dropped from
-	// the file (below). When storing to the file or clearing the value, any
-	// stale keyring copy is removed so that switching keyring->file, or logging
-	// out, never orphans a secret regardless of the order in which use_keyring
-	// and the credential are written. The keyring cleanup is skipped in CI,
-	// where the keyring is intentionally left untouched.
+	// diverging, serialized against concurrent writers via the config-directory
+	// lock so a keyring write cannot interleave with another process's refresh.
 	if isKeyringEligibleKey(key) && hostname != "" {
-		useKeyring, _ := c.Get(hostname, "use_keyring")
-		switch {
-		case useKeyring == "true" && value != "":
-			// Keyring mode: store in the keyring. Setting value to "" removes the
-			// plaintext copy from the config file below.
-			keyringKey := buildKeyringKey(hostname, key)
-			if err := keyring.Set(keyringKey, "", value); err != nil {
-				// Name the keyring and the host, mirroring the read path in
-				// GetWithSource. On macOS the backend shells out to
-				// /usr/bin/security, so the bare error is an unexplained
-				// "exit status <n>" with nothing tying it to the keyring.
-				return fmt.Errorf("failed to store %q in the operating system's keyring for host %q: %w", key, hostname, err)
-			}
-			value = ""
-		case useKeyring == "true" || !InCI():
-			// Keyring mode clearing the value, or file mode storing/clearing:
-			// remove any keyring copy so switching keyring->file, or logging out,
-			// does not orphan a secret. Skipped in CI, where the keyring is left
-			// untouched (and file mode is the default there anyway).
-			deleteFromKeyring(hostname, key)
+		var err error
+		value, err = c.lockedSyncKeyring(hostname, key, value)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -488,6 +518,22 @@ func (c *fileConfig) Write() error {
 		return nil
 	}
 
+	// Serialize the read-merge-write against other processes. renameio makes the
+	// write itself atomic, but not the merge that precedes it. If the lock cannot
+	// be taken (wedged peer), withLock degrades to writing unlocked.
+	return withLock(c.dir, func() error {
+		// A long-lived process (for example, `glab mcp serve`) writing its whole
+		// in-memory document for an unrelated reason (an update-check timestamp
+		// bump) could otherwise roll back OAuth credentials another process just
+		// rotated. Adopt any fresher on-disk credentials before serializing.
+		c.mergeFresherCredentialsFromDisk()
+		return c.writeLocked()
+	})
+}
+
+// writeLocked serializes the in-memory document to config.yml. Callers hold the
+// config-directory lock.
+func (c *fileConfig) writeLocked() error {
 	mainData := yaml.Node{Kind: yaml.MappingNode}
 
 	nodes := c.documentRoot.Content[0].Content
@@ -505,6 +551,101 @@ func (c *fileConfig) Write() error {
 	}
 
 	return writeConfigFile(filepath.Join(c.dir, "config.yml"), yamlNormalize(mainBytes))
+}
+
+// oauthCredentialKeys are the credential keys a token refresh rotates together.
+// oauth2_expiry_date is the freshness marker: when the on-disk copy is newer
+// than ours, another process rotated these values.
+var oauthCredentialKeys = []string{"token", "oauth2_refresh_token", "oauth2_expiry_date"}
+
+// mergeFresherCredentialsFromDisk re-reads config.yml and, for any host whose
+// on-disk oauth2_expiry_date is newer than the in-memory one, copies the on-disk
+// OAuth credential values into the in-memory document before it is serialized.
+// This prevents an unrelated write from a process holding a stale copy from
+// rolling back a rotated, single-use refresh token.
+//
+// It only touches the YAML document, never the keyring, and only adopts
+// non-empty on-disk values (so a keyring-backed host, whose token and
+// oauth2_refresh_token are absent from the file, keeps just its fresher expiry).
+// It is best-effort: a read error leaves the in-memory copy untouched. Callers
+// must hold the config-directory lock.
+func (c *fileConfig) mergeFresherCredentialsFromDisk() {
+	onDisk, err := ParseConfig(filepath.Join(c.dir, "config.yml"))
+	if err != nil {
+		// A missing or unreadable file has nothing fresher to adopt.
+		dbg.Debugf("config: merge-fresher: could not re-read config from %q: %v", c.dir, err)
+		return
+	}
+	diskCfg, ok := onDisk.(*fileConfig)
+	if !ok {
+		return
+	}
+
+	hosts, err := c.Hosts()
+	if err != nil {
+		return
+	}
+
+	for _, host := range hosts {
+		diskHost, err := diskCfg.configForHost(host)
+		if err != nil {
+			continue
+		}
+		memHost, err := c.configForHost(host)
+		if err != nil {
+			continue
+		}
+
+		diskExpiry, _ := diskHost.GetStringValue("oauth2_expiry_date")
+		memExpiry, _ := memHost.GetStringValue("oauth2_expiry_date")
+		if !expiryNewer(diskExpiry, memExpiry) {
+			continue
+		}
+
+		for _, key := range oauthCredentialKeys {
+			v, err := diskHost.GetStringValue(key)
+			if err != nil || v == "" {
+				continue
+			}
+			if setErr := memHost.SetStringValue(key, v); setErr != nil {
+				dbg.Debugf("config: merge-fresher: could not adopt %q for %q: %v", key, host, setErr)
+			}
+		}
+		dbg.Debugf("config: merge-fresher: adopted rotated credentials for %q from disk", host)
+	}
+}
+
+// expiryNewer reports whether the on-disk oauth2_expiry_date is strictly newer
+// than the in-memory one. A valid disk value with an unparseable in-memory value
+// counts as newer; an unparseable disk value never does.
+func expiryNewer(disk, mem string) bool {
+	dt, ok := parseExpiry(disk)
+	if !ok {
+		return false
+	}
+	mt, ok := parseExpiry(mem)
+	if !ok {
+		// An empty or unparseable in-memory expiry is not the stale-reader case
+		// this merge targets: a stale reader still holds an older but parseable
+		// expiry. An empty one usually means the caller intentionally cleared the
+		// credentials in memory (for example, `glab auth logout`, which clears
+		// token/oauth2_refresh_token/oauth2_expiry_date but keeps the host entry).
+		// Re-adopting the on-disk copy there would silently undo the clear, so
+		// treat a missing in-memory expiry as "nothing fresher to adopt".
+		return false
+	}
+	return dt.After(mt)
+}
+
+// parseExpiry parses an oauth2_expiry_date, tolerating the RFC822 formats older
+// glab versions wrote (matching the OAuth token unmarshaller).
+func parseExpiry(s string) (time.Time, bool) {
+	for _, layout := range []string{time.RFC3339, time.RFC822, time.RFC822Z} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func (c *fileConfig) WriteAll() error {
