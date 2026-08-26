@@ -322,7 +322,7 @@ lint:
   extends:
     - .go-cache
     - .test
-  image: ${GITLAB_DEPENDENCY_PROXY}golangci/golangci-lint:v2.11.1-alpine
+  image: ${GITLAB_DEPENDENCY_PROXY}golangci/golangci-lint:v2.13.1-alpine
   cache:
     key:
       prefix: lint

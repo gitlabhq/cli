@@ -245,7 +245,7 @@ func (r *ResolvedRemotes) HeadRepo(ctx context.Context, ios *iostreams.IOStreams
 			// We cannot prompt so get the first repo that is a fork
 			for _, repo := range repoNames {
 				if repoMap[repo].ForkedFromProject != nil {
-					selectedRepoInfo, _ := FromFullName((repoMap[repo].HTTPURLToRepo), r.defaultHostname, r.cfg)
+					selectedRepoInfo, _ := FromFullName(repoMap[repo].HTTPURLToRepo, r.defaultHostname, r.cfg)
 					remote, _ := r.RemoteForRepo(selectedRepoInfo)
 					return remote, nil
 				}
