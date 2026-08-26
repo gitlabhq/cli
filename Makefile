@@ -91,7 +91,7 @@ gen-docs: ## Generate web docs and the GitLab Docs navigation submenu for glab
 	go run ./cmd/gen-docs/docs.go
 
 .PHONY: check
-check: test lint check-embed ## Run tests and linters
+check: test lint check-embed check-args ## Run tests and linters
 
 .PHONY: check-embed
 # grep --include is GNU-only; use find|xargs so this works with BusyBox grep in CI (alpine:3).
@@ -99,6 +99,17 @@ check-embed: ## Forbid embedding .md files as help text; use heredoc.Doc instead
 	@matches=$$(find internal/ -name '*.go' -print0 | xargs -0 grep -nE '^[[:space:]]*//go:embed[[:space:]]+[^[:space:]]*\.md([[:space:]]|$$)' 2>/dev/null || true); \
 	if [ -n "$$matches" ]; then \
 		echo "Forbidden pattern: //go:embed of a .md file. Inline help text via heredoc.Doc:"; \
+		echo "$$matches"; \
+		exit 1; \
+	fi
+
+.PHONY: check-args
+# golangci-lint cannot express this: forbidigo matches call names, not argument
+# values, so it cannot distinguish ExactArgs(0) from a legitimate ExactArgs(1).
+check-args: ## Forbid cobra.ExactArgs(0); use cobra.NoArgs instead
+	@matches=$$(find internal/ cmd/ -name '*.go' -print0 | xargs -0 grep -nE 'cobra\.ExactArgs\([[:space:]]*0[[:space:]]*\)' 2>/dev/null || true); \
+	if [ -n "$$matches" ]; then \
+		echo "Forbidden pattern: cobra.ExactArgs(0). Use cobra.NoArgs, which reports unexpected arguments by name:"; \
 		echo "$$matches"; \
 		exit 1; \
 	fi
