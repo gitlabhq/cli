@@ -141,6 +141,12 @@ pre-push:
       glob: "internal/**/*.go"
       run: make check-embed
 
+    # Forbid cobra.ExactArgs(0); use cobra.NoArgs instead
+    check-args:
+      tags: backend lint
+      glob: "{internal,cmd}/**/*.go"
+      run: make check-args
+
     # Check generated docs and Go code. Chained into one command because both
     # mutate the working tree and check git diff — running them in parallel
     # would cause false positives.

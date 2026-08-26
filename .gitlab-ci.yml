@@ -309,6 +309,15 @@ check_embed:
   script:
     - make check-embed
 
+check_args:
+  stage: test
+  needs: []
+  image: ${GITLAB_DEPENDENCY_PROXY}alpine:3
+  before_script:
+    - apk add --no-cache make
+  script:
+    - make check-args
+
 lint:
   extends:
     - .go-cache

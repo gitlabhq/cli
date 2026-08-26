@@ -310,6 +310,9 @@ instructions:
          - `cmd.MarkFlagRequired("flag")`.
          - `Args: cobra.ExactArgs(N)` / `cobra.NoArgs` / `cobra.RangeArgs(...)`
            instead of manual `len(args) != N` checks in `RunE`/`complete`.
+           For commands that take no positional arguments, use `cobra.NoArgs`,
+           never `cobra.ExactArgs(0)` — `NoArgs` names the unexpected argument
+           in its error. Enforced by `make check-args`.
       2. For closed-set string flags, use `cmdutils.NewEnumValue(allowedValues,
          defaultValue)` from `internal/cmdutils/enum_flag.go`. Do not validate
          the string by hand in `complete`/`validate`.
