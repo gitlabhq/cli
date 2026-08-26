@@ -247,26 +247,43 @@ instructions:
       18. For commands with many options, show the most common combinations first.
       19. Use `heredoc.Doc(\`...\`)` (from `github.com/MakeNowJust/heredoc/v2`)
           for multi-line `Long` and `Example` content. Indent with tabs (the
-          heredoc package strips them). Don't hand-format multi-line strings.
+          heredoc package strips them). Never build these fields by
+          concatenating quoted literals with embedded `\n`:
+          ```go
+          Long: "First line.\n\n" +
+              "Second line.",
+          ```
+          Error and log messages are out of scope.
+      20. A heredoc block is a Go raw string, so it cannot contain a backtick
+          or an escape sequence — a literal `\n` renders as the two characters
+          `\` and `n`. If the content needs either, use `heredoc.Docf` with
+          `%[1]s` in place of each backtick and `` "`" `` as the final
+          argument:
+          ```go
+          Long: heredoc.Docf(`
+              Use %[1]s--foo%[1]s to enable foo.
+          `, "`"),
+          ```
+          Reference: `internal/commands/mr/note/mr_note_create.go`.
 
       Flag descriptions:
-      20. Start each flag description with a capital letter and end with a period.
-      21. Use angle-bracket placeholders for user-supplied values:
+      21. Start each flag description with a capital letter and end with a period.
+      22. Use angle-bracket placeholders for user-supplied values:
           `<username>`, `<branch>`, `<id>`.
-      22. Do not manually annotate boolean flag defaults. pflag automatically
+      23. Do not manually annotate boolean flag defaults. pflag automatically
           appends `(default true)` for boolean flags whose default is `true`.
           Do not add it manually. No default annotation is required for boolean
           flags whose default is `false`; do not add `(default false)`.
-      23. Use standard metavars for common value types: `username` for a
+      24. Use standard metavars for common value types: `username` for a
           username, `string` for a branch name / file path / output format,
           `int` for an integer ID.
-      24. For output-format flags, use `-F, --output [text | json]` as the
+      25. For output-format flags, use `-F, --output [text | json]` as the
           canonical form.
-      25. For slice flags (`StringSliceVar`, `Int64SliceVar`, etc.), include
+      26. For slice flags (`StringSliceVar`, `Int64SliceVar`, etc.), include
           the phrase: `Multiple <items> can be comma-separated or specified by
           repeating the flag.` Use `StringArrayVar` if comma-separation should
           NOT be supported.
-      26. Do not use `-v` as a shorthand for anything — it collides with
+      27. Do not use `-v` as a shorthand for anything — it collides with
           `--verbose` and `--version` conventions.
 
   - name: Help text sources
