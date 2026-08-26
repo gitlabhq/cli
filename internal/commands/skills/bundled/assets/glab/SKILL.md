@@ -190,6 +190,19 @@ glab api projects/:id/issues/:iid/notes -F body=@/tmp/comment.md
 glab api projects/:id/issues/:iid/notes \
   --input /tmp/body.json \
   -H "Content-Type: application/json"
+
+# --form — multipart/form-data. Required for endpoints that take a real file
+# upload, such as project or group uploads and wiki attachments. -F does not
+# do this: it reads the file into a text field, and the endpoint rejects the
+# request with HTTP 400.
+#
+# IMPORTANT: --form is mutually exclusive with -f, -F, and --input. Every
+# field in a multipart request must use --form
+glab api projects/:id/uploads --method POST --form "file=@screenshot.png"
+
+# Wiki attachment — both fields must use --form
+glab api projects/:fullpath/wikis/attachments --method POST \
+  --form "file=@screenshot.png" --form "branch=main"
 ```
 
 ### Arrays and nested objects
@@ -234,6 +247,12 @@ JSON for arrays. On GET and DELETE requests, and whenever `--input` is used,
   comments** — use `glab mr note create --reply` for MRs, or
   `glab api .../discussions/<id>/notes` for issues/incidents (write the body
   to a file and pass `-F body=@file` for anything non-trivial).
+- **`-F` does not upload files** — `-F file=@x.png` sends the file contents as
+  a string field, and upload endpoints reject it with HTTP 400. Use `--form
+  file=@x.png` for multipart uploads. `-F` reads a file only to fill a *text*
+  field, such as a note body. Also, `--form` is mutually exclusive with `-f`,
+  `-F`, and `--input` — every field in a multipart request must use `--form`
+  (e.g. `--form "file=@x.png" --form "branch=main"`).
 - **`--input` requires an explicit `Content-Type` header** — `glab api
   --input file.json` sends raw bytes without setting Content-Type, causing
   HTTP 415. Add `-H "Content-Type: application/json"` or use `-f` / `-F`
