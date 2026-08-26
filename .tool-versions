@@ -7,10 +7,10 @@ golangci-lint 2.12.2
 shellcheck 0.11.0
 
 # For linting documentation
-markdownlint-cli2 0.22.1
+markdownlint-cli2 0.23.2
 lychee 0.24.2
-vale 3.14.1
-node 24.15.0
+vale 3.18.0
+node 24.19.0
 
 # For git hooks
 lefthook 2.0.2
