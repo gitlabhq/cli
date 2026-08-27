@@ -5,6 +5,9 @@ import "fmt"
 type Verdict string
 
 const (
+	// Allowed is the zero-value verdict: the coordinate is permitted. It is
+	// the empty string so an unset Verdict reads as "allowed".
+	Allowed Verdict = ""
 	Blocked Verdict = "blocked"
 	Warning Verdict = "warning"
 )
