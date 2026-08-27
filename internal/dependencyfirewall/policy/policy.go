@@ -1,14 +1,13 @@
 // Package policy decides whether a package coordinate is allowed by the
 // GitLab Dependency Firewall. It is the seam between the inspection proxy
-// (which identifies a coordinate) and the verdict source. A fake,
-// environment-driven Checker exists for testing; the REST-backed Checker
-// that calls the real policy API lands in a follow-up. Callers wrap the
-// chosen Checker in a CachingChecker.
+// (which identifies a coordinate) and the verdict source. Two Checker
+// implementations exist: a fake, environment-driven one for testing and a
+// REST-backed one that calls the real policy API. Callers wrap the chosen
+// Checker in a CachingChecker.
 package policy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -28,6 +27,19 @@ const (
 	Upload
 )
 
+// String returns a stable, human-readable name for the operation. It keeps
+// log lines legible and independent of the numeric ordering of the constants.
+func (o Operation) String() string {
+	switch o {
+	case Download:
+		return "download"
+	case Upload:
+		return "upload"
+	default:
+		return fmt.Sprintf("operation(%d)", int(o))
+	}
+}
+
 // Coordinate is the exact package identity a check is performed against.
 type Coordinate struct {
 	Ecosystem string // "npm", "pypi", "maven", "gem"
@@ -40,7 +52,11 @@ func (c Coordinate) Key() string {
 	return fmt.Sprintf("%s:%s@%s", c.Ecosystem, c.Name, c.Version)
 }
 
-// Request is a single policy question.
+// Request is a single policy question. ProjectID selects the project whose
+// firewall answers it; the REST checker evaluates against this field.
+// Operation records the package-manager action for cache-key isolation and
+// diagnostics; the evaluate API is scoped to project and coordinate only and
+// does not accept an operation, so it is not transmitted.
 type Request struct {
 	Coordinate Coordinate
 	ProjectID  string // project id or full-path slug, from git repo context
@@ -49,21 +65,28 @@ type Request struct {
 
 // Key is the cache and dedupe key for a request. It includes the project and
 // operation, not just the coordinate: the same package can get a different
-// verdict per project (policies are project-scoped) and per operation
-// (download vs upload), so keying on the coordinate alone would leak one
-// project's or operation's verdict to another once the real checker lands.
+// verdict per project (policies are project-scoped), and download and upload
+// are tracked separately, so keying on the coordinate alone would let one
+// project's or operation's cached verdict answer for another.
 func (r Request) Key() string {
-	return fmt.Sprintf("%s|%s|%d", r.Coordinate.Key(), r.ProjectID, r.Operation)
+	return fmt.Sprintf("%s|%s|%s", r.Coordinate.Key(), r.ProjectID, r.Operation)
 }
 
-// Result is the outcome of a policy check. A zero Verdict means allow.
+// Result is the outcome of a policy check. A zero Verdict (verdict.Allowed)
+// means allow.
 type Result struct {
-	Verdict verdict.Verdict // verdict.Blocked, verdict.Warning, or "" (allow)
+	Verdict verdict.Verdict // verdict.Allowed, verdict.Blocked, or verdict.Warning
 	Reason  string          // human-readable; used in the 403 body and summary
 }
 
+// Allowed reports whether the result permits the coordinate.
+func (r Result) Allowed() bool { return r.Verdict == verdict.Allowed }
+
 // Blocked reports whether the result denies the coordinate.
 func (r Result) Blocked() bool { return r.Verdict == verdict.Blocked }
+
+// Warned reports whether the result permits the coordinate but flags it.
+func (r Result) Warned() bool { return r.Verdict == verdict.Warning }
 
 // Checker answers policy questions.
 type Checker interface {
@@ -74,28 +97,16 @@ type Checker interface {
 // configures the fake checker.
 const fakeEnvPrefix = "GLAB_DF_FAKE_"
 
-// ErrNotImplemented is returned by the placeholder checker until the
-// REST-backed checker is wired in a follow-up. It fails closed so a
-// misconfigured build denies rather than silently allows.
-var ErrNotImplemented = errors.New("policy: real checker not yet implemented")
-
-// New returns the fake checker when any GLAB_DF_FAKE_* variable is set.
-// Until the REST checker lands, the non-fake path returns a placeholder
-// that fails closed. Callers wrap the result in a CachingChecker.
-func New(client *gitlab.Client, projectID string) Checker {
+// New returns the fake checker when any GLAB_DF_FAKE_* variable is set,
+// otherwise the REST checker backed by client. The REST checker evaluates
+// against each Request's ProjectID, so no project is bound here. Callers wrap
+// the result in a CachingChecker.
+func New(client *gitlab.Client) Checker {
 	environ := os.Environ()
 	if fakeConfigured(environ) {
 		return newFakeChecker(environ)
 	}
-	return notImplementedChecker{}
-}
-
-// notImplementedChecker is the fail-closed placeholder for the not-yet-wired
-// REST checker.
-type notImplementedChecker struct{}
-
-func (notImplementedChecker) Check(context.Context, Request) (Result, error) {
-	return Result{}, ErrNotImplemented
+	return newRESTChecker(client)
 }
 
 func fakeConfigured(environ []string) bool {
