@@ -281,7 +281,7 @@ func saveFile(ctx context.Context, ios *iostreams.IOStreams, apiClient *gitlab.C
 			return fmt.Errorf("unable to write to temporary file for checksum verification: %w", err)
 		}
 
-		if checksum := hex.EncodeToString((hasher.Sum(nil))); checksum != file.Checksum {
+		if checksum := hex.EncodeToString(hasher.Sum(nil)); checksum != file.Checksum {
 			if forceDownload {
 				ios.LogInfof("Checksum verification failed for %s: expected %s, got %s\n", file.Name, file.Checksum, checksum)
 				ios.LogInfo("Force-download selected, continuing to download file.")

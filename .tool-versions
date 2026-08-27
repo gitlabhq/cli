@@ -1,7 +1,7 @@
-golang 1.26.5
+golang 1.27.0
 
 # For linting and formatting Go code (includes gofumpt and goimports)
-golangci-lint 2.12.2
+golangci-lint 2.13.1
 
 # For linting shell scripts
 shellcheck 0.11.0

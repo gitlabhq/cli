@@ -194,7 +194,7 @@ func isValidEnvironmentScope(optScope string) bool {
 }
 
 func printGroupVariables(variables []*gitlab.GroupVariable, opts *options, out io.Writer) error {
-	if !isValidEnvironmentScope((opts.scope)) {
+	if !isValidEnvironmentScope(opts.scope) {
 		return fmt.Errorf("invalid environment scope: %s", opts.scope)
 	}
 
@@ -212,7 +212,7 @@ func printGroupVariables(variables []*gitlab.GroupVariable, opts *options, out i
 		keysMap := CreateWrittenKeysMap(writtenKeys)
 		for _, variable := range variables {
 			if matchesScope(variable.EnvironmentScope, opts.scope) {
-				if !(keysMap[variable.Key]) && (strings.Contains(variable.EnvironmentScope, "*")) {
+				if !keysMap[variable.Key] && strings.Contains(variable.EnvironmentScope, "*") {
 					fmt.Fprintf(out, "%s=%s\n", variable.Key, variable.Value) //nolint:forbidigo // out is a generic io.Writer with an os.Stdout fallback, not IOStreams directly
 				}
 			}
@@ -229,7 +229,7 @@ func printGroupVariables(variables []*gitlab.GroupVariable, opts *options, out i
 		keysMap := CreateWrittenKeysMap(writtenKeys)
 		for _, variable := range variables {
 			if matchesScope(variable.EnvironmentScope, opts.scope) {
-				if !(keysMap[variable.Key]) && (strings.Contains(variable.EnvironmentScope, "*")) {
+				if !keysMap[variable.Key] && strings.Contains(variable.EnvironmentScope, "*") {
 					fmt.Fprintf(out, "export %s=%s\n", variable.Key, variable.Value) //nolint:forbidigo // out is a generic io.Writer with an os.Stdout fallback, not IOStreams directly
 				}
 			}
@@ -250,7 +250,7 @@ func printGroupVariables(variables []*gitlab.GroupVariable, opts *options, out i
 }
 
 func printProjectVariables(variables []*gitlab.ProjectVariable, opts *options, out io.Writer) error {
-	if !isValidEnvironmentScope((opts.scope)) {
+	if !isValidEnvironmentScope(opts.scope) {
 		return fmt.Errorf("invalid environment scope: %s", opts.scope)
 	}
 
@@ -268,7 +268,7 @@ func printProjectVariables(variables []*gitlab.ProjectVariable, opts *options, o
 		keysMap := CreateWrittenKeysMap(writtenKeys)
 		for _, variable := range variables {
 			if matchesScope(variable.EnvironmentScope, opts.scope) {
-				if !(keysMap[variable.Key]) && (strings.Contains(variable.EnvironmentScope, "*")) {
+				if !keysMap[variable.Key] && strings.Contains(variable.EnvironmentScope, "*") {
 					fmt.Fprintf(out, "%s=\"%s\"\n", variable.Key, variable.Value) //nolint:forbidigo // out is a generic io.Writer with an os.Stdout fallback, not IOStreams directly
 				}
 			}
@@ -285,7 +285,7 @@ func printProjectVariables(variables []*gitlab.ProjectVariable, opts *options, o
 		keysMap := CreateWrittenKeysMap(writtenKeys)
 		for _, variable := range variables {
 			if matchesScope(variable.EnvironmentScope, opts.scope) {
-				if !(keysMap[variable.Key]) && (strings.Contains(variable.EnvironmentScope, "*")) {
+				if !keysMap[variable.Key] && strings.Contains(variable.EnvironmentScope, "*") {
 					fmt.Fprintf(out, "export %s=\"%s\"\n", variable.Key, variable.Value) //nolint:forbidigo // out is a generic io.Writer with an os.Stdout fallback, not IOStreams directly
 				}
 			}

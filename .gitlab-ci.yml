@@ -10,7 +10,7 @@ spec:
       description: "toggle release jobs on/off; set by pipeline schedules only!"
 ---
 variables:
-  GO_VERSION: "1.26.5"
+  GO_VERSION: "1.27.0"
   GITLAB_ADVANCED_SAST_ENABLED: "true"
   # glab image version for the weekly tag-release job. Defaults to latest
   # (dogfooding); override on the release schedule to pin a known-good version
@@ -322,7 +322,7 @@ lint:
   extends:
     - .go-cache
     - .test
-  image: ${GITLAB_DEPENDENCY_PROXY}golangci/golangci-lint:v2.11.1-alpine
+  image: ${GITLAB_DEPENDENCY_PROXY}golangci/golangci-lint:v2.13.1-alpine
   cache:
     key:
       prefix: lint
