@@ -25,8 +25,12 @@ ifndef CGO_LDFLAGS
     export CGO_LDFLAGS := $(LDFLAGS)
 endif
 
-HASGOTESTSUM := $(shell which gotestsum 2> /dev/null)
-HASGOCILINT := $(shell which golangci-lint 2> /dev/null)
+# Probe by running the tool, not by looking it up on PATH. A version manager
+# leaves a shim on PATH for every tool it knows about, including ones it has no
+# version configured for, so `which` finds a name that then fails to execute and
+# the bin/ fallback below never gets a chance to build a working copy.
+HASGOTESTSUM := $(shell gotestsum --version > /dev/null 2>&1 && echo 1)
+HASGOCILINT := $(shell golangci-lint --version > /dev/null 2>&1 && echo 1)
 
 ifdef HASGOTESTSUM
     GOTEST=gotestsum
