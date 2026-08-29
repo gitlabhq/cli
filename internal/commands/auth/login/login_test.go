@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/shlex"
@@ -905,4 +906,19 @@ func Test_persistProtocolFlags(t *testing.T) {
 		apiProto, _ := cfg.Get("gl.io", "api_protocol")
 		assert.Equal(t, "https", apiProto)
 	})
+}
+
+func Test_getAccessTokenTip(t *testing.T) {
+	const (
+		current = "https://gitlab.example.com/-/user_settings/personal_access_tokens/legacy/new?scopes=api,write_repository"
+		older   = "https://gitlab.example.com/-/user_settings/personal_access_tokens?scopes=api,write_repository"
+	)
+
+	tip := getAccessTokenTip("gitlab.example.com")
+
+	assert.Contains(t, tip, "The minimum required scopes are 'api' and 'write_repository'.")
+	assert.Contains(t, tip, current)
+	assert.Contains(t, tip, older)
+	assert.Less(t, strings.Index(tip, current), strings.Index(tip, older),
+		"the URL for supported versions should come first")
 }
