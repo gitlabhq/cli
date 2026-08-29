@@ -814,9 +814,11 @@ func hostnameValidator(v any) error {
 }
 
 func getAccessTokenTip(hostname string) string {
+	// legacy/new does not exist before GitLab 18.9, hence the fallback URL.
 	return fmt.Sprintf(`
 	The minimum required scopes are 'api' and 'write_repository'.
-	Generate a personal access token at https://%s/-/user_settings/personal_access_tokens/legacy/new?scopes=api,write_repository`, hostname)
+	Generate a personal access token at https://%[1]s/-/user_settings/personal_access_tokens/legacy/new?scopes=api,write_repository
+	On GitLab 18.8 and earlier, use https://%[1]s/-/user_settings/personal_access_tokens?scopes=api,write_repository instead.`, hostname)
 }
 
 func showTokenPrompt(ctx context.Context, io *iostreams.IOStreams, hostname string) (string, error) {
