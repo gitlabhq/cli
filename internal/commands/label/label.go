@@ -15,7 +15,7 @@ import (
 func NewCmdLabel(f cmdutils.Factory) *cobra.Command {
 	labelCmd := &cobra.Command{
 		Use:   "label <command> [flags]",
-		Short: `Manage labels on remote.`,
+		Short: `Manage project and group labels.`,
 		Long: heredoc.Doc(`
 		Manage labels on projects and groups. Labels are used to categorize
 		and filter issues, merge requests, and epics. Use the subcommands to

@@ -48,7 +48,11 @@ func TestGenWebDocsPrunesAndDocuments(t *testing.T) {
 	seedRaw(t, filepath.Join(dir, "keepme.md"), "Hand-maintained, no marker.\n")
 	seedRaw(t, filepath.Join(dir, "img", "logo.png"), "PNG")
 
-	require.NoError(t, genWebDocs(root, dir))
+	readmePath := filepath.Join(dir, "README.md")
+	seedRaw(t, readmePath,
+		readmeCommandListStart+"\n- [`glab old`](docs/source/old): Old.\n"+readmeCommandListEnd+"\n")
+
+	require.NoError(t, genWebDocs(root, dir, readmePath))
 
 	// Documented pages exist.
 	assert.FileExists(t, filepath.Join(dir, "_index.md"))
@@ -106,6 +110,56 @@ func TestGenRootCommandDocsPointsAtCommandsPage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(page), "For the list of top-level `glab` commands, see [Commands](commands.md).")
 	assert.NotContains(t, string(page), "- [`glab normal`](normal/_index.md)")
+}
+
+func TestReadmeCommandList(t *testing.T) {
+	root := &cobra.Command{Use: "glab"}
+	root.AddCommand(
+		&cobra.Command{Use: "alias", Short: "Create, list, and delete aliases.", Run: func(*cobra.Command, []string) {}},
+		&cobra.Command{Use: "mr", Short: "Create, view, and manage merge requests.", Run: func(*cobra.Command, []string) {}},
+		&cobra.Command{Use: "secret", Short: "Secret command.", Hidden: true, Run: func(*cobra.Command, []string) {}},
+		&cobra.Command{Use: "deprecated", Short: "Old command.", Deprecated: "use 'glab alias' instead.", Run: func(*cobra.Command, []string) {}},
+	)
+
+	got := readmeCommandList(root)
+
+	assert.Equal(t,
+		"- [`glab alias`](docs/source/alias): Create, list, and delete aliases.\n"+
+			"- [`glab mr`](docs/source/mr): Create, view, and manage merge requests.\n",
+		got,
+	)
+	assert.NotContains(t, got, "secret")
+	assert.NotContains(t, got, "deprecated")
+}
+
+func TestUpdateReadme(t *testing.T) {
+	input := "# GLab\n\nIntro.\n\n" +
+		readmeCommandListStart + "\n" +
+		"- [`glab old`](docs/source/old): Old description.\n" +
+		readmeCommandListEnd + "\n\n" +
+		"More prose.\n"
+
+	root := &cobra.Command{Use: "glab"}
+	root.AddCommand(
+		&cobra.Command{Use: "alias", Short: "Create, list, and delete aliases.", Run: func(*cobra.Command, []string) {}},
+	)
+
+	got, err := updateReadme([]byte(input), root)
+	require.NoError(t, err)
+
+	want := "# GLab\n\nIntro.\n\n" +
+		readmeCommandListStart + "\n" +
+		"- [`glab alias`](docs/source/alias): Create, list, and delete aliases.\n" +
+		readmeCommandListEnd + "\n\n" +
+		"More prose.\n"
+
+	assert.Equal(t, want, string(got))
+}
+
+func TestUpdateReadmeMissingMarkers(t *testing.T) {
+	root := &cobra.Command{Use: "glab"}
+	_, err := updateReadme([]byte("# GLab\n\nNo markers here.\n"), root)
+	require.Error(t, err)
 }
 
 func TestGenNavExcludesHiddenAndDeprecated(t *testing.T) {
