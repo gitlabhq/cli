@@ -42,6 +42,9 @@ _test
 # Dist binaries created at build with make rt
 /dist
 
+# gen-docs binary from `go build ./cmd/gen-docs/`
+/gen-docs
+
 # The testdata-* copies created by the unit tests must be ignored or the tests
 # will encounter write errors as Git attempts to add the dirs to its index.
 test/testdata-*

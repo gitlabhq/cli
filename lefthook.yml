@@ -70,11 +70,15 @@ pre-commit:
     # Check if documentation needs regeneration
     check-docs:
       tags: docs
-      glob: "internal/commands/**/*.go"
+      glob:
+        - "internal/commands/**/*.go"
+        - "cmd/gen-docs/*.go"
+        - "cmd/gen-docs/**/*.go"
+        - "README.md"
       run: |
         echo "Checking if documentation needs regeneration..."
         make gen-docs > /dev/null 2>&1
-        if git diff --quiet docs/; then
+        if git diff --quiet docs/ README.md; then
           echo "✔ Documentation is up to date."
           exit 0
         else
@@ -85,8 +89,8 @@ pre-commit:
           echo "The documentation has been regenerated for you."
           echo ""
           echo "Next steps:"
-          echo "  1. Review the changes in docs/"
-          echo "  2. Stage the changes: git add docs/"
+          echo "  1. Review the changes in docs/ and README.md"
+          echo "  2. Stage the changes: git add docs/ README.md"
           echo "  3. Commit again"
           echo ""
           exit 1
@@ -154,14 +158,14 @@ pre-push:
       tags: backend docs
       run: |
         # Skip if no command files changed vs origin/main
-        if git diff --quiet origin/main -- internal/commands/ cmd/gen-docs/; then
+        if git diff --quiet origin/main -- internal/commands/ cmd/gen-docs/ README.md; then
           echo "✔ No command changes detected. Skipping doc generation check."
           exit 0
         fi
 
         make gen-docs > /dev/null 2>&1
-        if ! git diff --quiet docs/; then
-          echo "✖ Generated docs or navigation are out of date. Run 'make gen-docs', then commit."
+        if ! git diff --quiet docs/ README.md; then
+          echo "✖ Generated docs, navigation, or README command list are out of date. Run 'make gen-docs', then commit."
           exit 1
         fi
         echo "✔ Documentation is up to date."
