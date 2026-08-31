@@ -17,6 +17,6 @@ func KnownKeys() map[string]struct{} {
 }
 
 func IsKnownKey(key string) bool {
-	_, ok := KnownKeys()[key]
+	_, ok := KnownKeys()[ConfigKeyEquivalence(key)]
 	return ok
 }

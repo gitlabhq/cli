@@ -92,6 +92,21 @@ hosts:
 	assert.Equal(t, expected, persistedFile(t, dir, "config.yml"))
 }
 
+func Test_fileConfig_Set_WritesAliasToCanonicalKey(t *testing.T) {
+	dir := t.TempDir()
+	seedFile(t, dir, "config.yml", `---
+editor: vim
+`)
+
+	c, err := ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+
+	require.NoError(t, c.Set("", "visual", "nano"))
+	require.NoError(t, c.WriteAll())
+
+	assert.Equal(t, "editor: nano\n", persistedFile(t, dir, "config.yml"))
+}
+
 func Test_fileConfig_Set_Empty_Removes(t *testing.T) {
 	dir := t.TempDir()
 	seedFile(t, dir, "config.yml", `---

@@ -36,9 +36,22 @@ func TestKnownKeys_IncludesUserSettableKeysFromSchema(t *testing.T) {
 		"use_keyring",
 		"api_protocol",
 		"api_host",
+		"glab_pager",
+		"debug",
 	} {
 		_, ok := keys[k]
 		assert.True(t, ok, "expected %q to be a known key", k)
+	}
+}
+
+func TestIsKnownKey_ResolvesAliases(t *testing.T) {
+	t.Parallel()
+
+	for _, kd := range KeySchema {
+		for _, alias := range kd.Aliases {
+			assert.Equal(t, kd.UserSettable, IsKnownKey(alias),
+				"alias %q of %q should be settable exactly when %q is", alias, kd.Name, kd.Name)
+		}
 	}
 }
 
@@ -70,6 +83,8 @@ func TestIsKnownKey(t *testing.T) {
 
 	assert.True(t, IsKnownKey("editor"))
 	assert.True(t, IsKnownKey("token"))
+	assert.True(t, IsKnownKey("visual"), "aliases resolve to their canonical key")
+	assert.True(t, IsKnownKey("EDITOR"), "key matching is case-insensitive")
 	assert.False(t, IsKnownKey("oauth_scopes"))
 	assert.False(t, IsKnownKey("oauth2_refresh_token"), "internal-state keys are not user-settable")
 	assert.False(t, IsKnownKey(""))
