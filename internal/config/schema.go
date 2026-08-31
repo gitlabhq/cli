@@ -40,7 +40,10 @@ type KeyDef struct {
 	// UserSettable false keeps the key off `config set` and out of the
 	// blank config, but Get and env-var lookups still resolve it.
 	UserSettable bool
-	Keyring      bool
+	// HelpHidden keeps a key the CLI maintains for itself out of generated
+	// help. It stays settable.
+	HelpHidden bool
+	Keyring    bool
 	// Fallback makes Default apply to runtime Get calls when the key is
 	// missing from the config, not just to the blank-config seed.
 	Fallback bool
@@ -53,7 +56,7 @@ var KeySchema = []KeyDef{
 	{
 		Name: "git_protocol", Scope: ScopeGlobal, Type: TypeString,
 		Default: "ssh", UserSettable: true, Fallback: true,
-		Description: "What protocol to use when performing Git operations. Supported values: ssh, https.",
+		Description: "What protocol to use when performing Git operations. Supported values: 'ssh', 'https'.",
 	},
 	{
 		Name: "branch_prefix", Scope: ScopeGlobal, Type: TypeString,
@@ -102,8 +105,8 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "last_update_check_timestamp", Scope: ScopeGlobal, Type: TypeString,
-		UserSettable: true,
-		Description:  "Last update check timestamp, used for checking when the last update check was performed.",
+		UserSettable: true, HelpHidden: true,
+		Description: "Last update check timestamp, used for checking when the last update check was performed.",
 	},
 	{
 		Name: "show_whats_new", Scope: ScopeGlobal, Type: TypeBool,
@@ -116,14 +119,14 @@ var KeySchema = []KeyDef{
 		// Seeded so the post-upgrade banner can surface immediately when
 		// existing users upgrade to the release that ships `glab whatsnew`.
 		// Bump only when intentionally re-announcing the feature.
-		Default: "v1.100.0", UserSettable: true, Fallback: true,
+		Default: "v1.100.0", UserSettable: true, Fallback: true, HelpHidden: true,
 		Description: "Last glab version a post-upgrade banner was shown for (automatically set).",
 	},
 	{
 		Name: "last_whatsnew_version", Scope: ScopeGlobal, Type: TypeString,
 		// Same seeded default as last_seen_version so the default whatsnew
 		// invocation has a non-empty baseline before the user runs it.
-		Default: "v1.100.0", UserSettable: true, Fallback: true,
+		Default: "v1.100.0", UserSettable: true, Fallback: true, HelpHidden: true,
 		Description: "Last glab version 'glab whatsnew' rendered notes for (automatically set).",
 	},
 	{
@@ -170,24 +173,24 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "duo_cli_binary_path", Scope: ScopeGlobal, Type: TypeString,
-		UserSettable: true,
-		EnvVars:      []string{"GLAB_DUO_CLI_BINARY_PATH"},
-		Description:  "Path to the installed Duo CLI binary (automatically set). Default: ~/.config/glab-cli/bin/duo",
+		UserSettable: true, HelpHidden: true,
+		EnvVars:     []string{"GLAB_DUO_CLI_BINARY_PATH"},
+		Description: "Path to the installed Duo CLI binary (automatically set). Default: ~/.config/glab-cli/bin/duo",
 	},
 	{
 		Name: "duo_cli_binary_version", Scope: ScopeGlobal, Type: TypeString,
-		UserSettable: true,
-		Description:  "Version of the installed Duo CLI binary (automatically set).",
+		UserSettable: true, HelpHidden: true,
+		Description: "Version of the installed Duo CLI binary (automatically set).",
 	},
 	{
 		Name: "duo_cli_binary_checksum", Scope: ScopeGlobal, Type: TypeString,
-		UserSettable: true,
-		Description:  "SHA256 checksum of the installed Duo CLI binary (automatically set).",
+		UserSettable: true, HelpHidden: true,
+		Description: "SHA256 checksum of the installed Duo CLI binary (automatically set).",
 	},
 	{
 		Name: "duo_cli_last_update_check", Scope: ScopeGlobal, Type: TypeString,
-		UserSettable: true,
-		Description:  "Last time an update check was performed (automatically set).",
+		UserSettable: true, HelpHidden: true,
+		Description: "Last time an update check was performed (automatically set).",
 	},
 	// ---- Orbit local binarymgr keys ----
 	{
@@ -202,31 +205,31 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "orbit_local_binary_path", Scope: ScopeGlobal, Type: TypeString,
-		UserSettable: true,
-		EnvVars:      []string{"GLAB_ORBIT_LOCAL_BINARY_PATH"},
-		Description:  "Path to the installed Orbit local CLI binary (automatically set). Default: ~/.config/glab-cli/bin/orbit",
+		UserSettable: true, HelpHidden: true,
+		EnvVars:     []string{"GLAB_ORBIT_LOCAL_BINARY_PATH"},
+		Description: "Path to the installed Orbit local CLI binary (automatically set). Default: ~/.config/glab-cli/bin/orbit",
 	},
 	{
 		Name: "orbit_local_binary_version", Scope: ScopeGlobal, Type: TypeString,
-		UserSettable: true,
-		Description:  "Version of the installed Orbit local CLI binary (automatically set).",
+		UserSettable: true, HelpHidden: true,
+		Description: "Version of the installed Orbit local CLI binary (automatically set).",
 	},
 	{
 		Name: "orbit_local_binary_checksum", Scope: ScopeGlobal, Type: TypeString,
-		UserSettable: true,
-		Description:  "SHA256 checksum of the installed Orbit local CLI binary (automatically set).",
+		UserSettable: true, HelpHidden: true,
+		Description: "SHA256 checksum of the installed Orbit local CLI binary (automatically set).",
 	},
 	{
 		Name: "orbit_local_last_update_check", Scope: ScopeGlobal, Type: TypeString,
-		UserSettable: true,
-		Description:  "Last time an Orbit local CLI update check was performed (automatically set).",
+		UserSettable: true, HelpHidden: true,
+		Description: "Last time an Orbit local CLI update check was performed (automatically set).",
 	},
 
 	// ---------------- Per-host ----------------
 	{
 		Name: "api_protocol", Scope: ScopePerHost, Type: TypeString,
 		Default: "https", UserSettable: true, Fallback: true,
-		Description: "What protocol to use to access the API endpoint. Supported values: http, https.",
+		Description: "What protocol to use to access the API endpoint. Supported values: 'http', 'https'.",
 	},
 	{
 		Name: "api_host", Scope: ScopePerHost, Type: TypeString,
@@ -240,14 +243,14 @@ var KeySchema = []KeyDef{
 		UserSettable: true,
 		Aliases:      []string{"gitlab_subfolder"},
 		EnvVars:      []string{"GITLAB_SUBFOLDER"},
-		Description:  "Subfolder where GitLab is installed (e.g., 'gitlab' for https://example.com/gitlab/)\nUse this when GitLab is hosted at a subfolder rather than domain root.\nSupports nested paths (e.g., 'apps/gitlab' for https://example.com/apps/gitlab/)\nSlashes are automatically trimmed, so 'gitlab', '/gitlab', and 'gitlab/' are equivalent.\nOnly applies to HTTP/HTTPS operations (API and git clone).",
+		Description:  "Subfolder where GitLab is installed (e.g., 'gitlab' for https://example.com/gitlab/).\nUse this when GitLab is hosted at a subfolder rather than domain root.\nSupports nested paths (e.g., 'apps/gitlab' for https://example.com/apps/gitlab/).\nSlashes are automatically trimmed, so 'gitlab', '/gitlab', and 'gitlab/' are equivalent.\nOnly applies to HTTP/HTTPS operations (API and Git clone).",
 	},
 	{
 		Name: "ssh_host", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
 		Aliases:      []string{"gitlab_ssh_host"},
 		EnvVars:      []string{"GITLAB_SSH_HOST"},
-		Description:  "Alternate hostname for SSH git operations (e.g., 'ssh.example.com' or 'git.example.com')\nUse this when SSH uses a different hostname than HTTP/API operations.\nOnly affects SSH cloning and git operations.",
+		Description:  "Alternate hostname for SSH Git operations (e.g., 'ssh.example.com' or 'git.example.com').\nUse this when SSH uses a different hostname than HTTP/API operations.\nOnly affects SSH cloning and Git operations.",
 	},
 	{
 		Name: "token", Scope: ScopePerHost, Type: TypeString,
@@ -263,9 +266,9 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "user", Scope: ScopePerHost, Type: TypeString,
-		UserSettable: true,
-		EnvVars:      []string{"GLAB_USER"},
-		Description:  "Username associated with the configured token. Set automatically on login.",
+		UserSettable: true, HelpHidden: true,
+		EnvVars:     []string{"GLAB_USER"},
+		Description: "Username associated with the configured token. Set automatically on login.",
 	},
 	{
 		Name: "client_id", Scope: ScopePerHost, Type: TypeString,
@@ -286,7 +289,7 @@ var KeySchema = []KeyDef{
 	{
 		Name: "ca_cert", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
-		Description:  "Path to a CA certificate (PEM) used to verify the GitLab server's\nTLS certificate. Useful for self-signed or private CAs.",
+		Description:  "Path to a CA certificate (PEM) used to verify the GitLab server's\nTLS certificate. Useful for self-signed or private certificate authorities.",
 	},
 	{
 		Name: "client_cert", Scope: ScopePerHost, Type: TypeString,
