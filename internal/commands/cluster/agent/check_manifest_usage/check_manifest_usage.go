@@ -41,8 +41,11 @@ func NewCmdCheckManifestUsage(f cmdutils.Factory) *cobra.Command {
 		apiClient: f.ApiClient,
 	}
 	checkManifestUsageCmd := &cobra.Command{
-		Use:   "check_manifest_usage [flags]",
-		Short: `Find agents using deprecated GitOps manifest settings. (EXPERIMENTAL)`,
+		Use: "check-manifest-usage [flags]",
+		// Retain the original snake_case name so existing invocations keep working.
+		// TODO: remove this alias in the next major version.
+		Aliases: []string{"check_manifest_usage"},
+		Short:   `Find agents using deprecated GitOps manifest settings. (EXPERIMENTAL)`,
 		Long: heredoc.Docf(`
 			Searches a group and its descendant projects for registered agents whose
 			configuration files include the deprecated %[1]sgitops.manifest_projects%[1]s setting.
@@ -51,10 +54,10 @@ func NewCmdCheckManifestUsage(f cmdutils.Factory) *cobra.Command {
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Check a group for agents using deprecated GitOps manifest settings
-			glab cluster agent check_manifest_usage --group my-group
+			glab cluster agent check-manifest-usage --group my-group
 
 			# Recursively check a group and all its subgroups
-			glab cluster agent check_manifest_usage --group my-group --recursive`),
+			glab cluster agent check-manifest-usage --group my-group --recursive`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",

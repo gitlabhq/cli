@@ -1,5 +1,5 @@
 ---
-title: '`glab cluster agent check_manifest_usage`'
+title: '`glab cluster agent check-manifest-usage`'
 stage: AI Coding
 group: Code Review
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see <https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments>
@@ -25,17 +25,23 @@ For more information, see
 <https://docs.gitlab.com/policy/development_stages_support/>.
 
 ```plaintext
-glab cluster agent check_manifest_usage [flags]
+glab cluster agent check-manifest-usage [flags]
+```
+
+## Aliases
+
+```plaintext
+check_manifest_usage
 ```
 
 ## Examples
 
 ```console
 # Check a group for agents using deprecated GitOps manifest settings
-glab cluster agent check_manifest_usage --group my-group
+glab cluster agent check-manifest-usage --group my-group
 
 # Recursively check a group and all its subgroups
-glab cluster agent check_manifest_usage --group my-group --recursive
+glab cluster agent check-manifest-usage --group my-group --recursive
 ```
 
 ## Options

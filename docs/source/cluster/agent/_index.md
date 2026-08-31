@@ -32,7 +32,7 @@ entries, and check configuration files for deprecated settings.
 ## Subcommands
 
 - [`bootstrap`](bootstrap.md)
-- [`check_manifest_usage`](check_manifest_usage.md)
+- [`check-manifest-usage`](check-manifest-usage.md)
 - [`get-token`](get-token.md)
 - [`list`](list.md)
 - [`token`](token/_index.md)

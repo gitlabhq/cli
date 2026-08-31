@@ -93,8 +93,8 @@
       submenu:
         - title: glab cluster agent bootstrap
           url: 'cli/cluster/agent/bootstrap/'
-        - title: glab cluster agent check_manifest_usage
-          url: 'cli/cluster/agent/check_manifest_usage/'
+        - title: glab cluster agent check-manifest-usage
+          url: 'cli/cluster/agent/check-manifest-usage/'
         - title: glab cluster agent get-token
           url: 'cli/cluster/agent/get-token/'
         - title: glab cluster agent list
