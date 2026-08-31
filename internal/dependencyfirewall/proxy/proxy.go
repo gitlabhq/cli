@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -19,8 +20,16 @@ import (
 	"time"
 
 	"gitlab.com/gitlab-org/cli/internal/dbg"
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 )
+
+// policyCheckTimeout bounds a single policy evaluation (the REST call to the
+// dependency_firewall/evaluate endpoint). Without it a hung or unreachable
+// backend would block the tunnel goroutine and its TLS connection
+// indefinitely; on timeout the check returns an error and the proxy fails
+// closed (blocks) rather than hanging.
+const policyCheckTimeout = 60 * time.Second
 
 type certAuthority struct {
 	cert    *x509.Certificate
@@ -107,9 +116,20 @@ type Proxy struct {
 	listener net.Listener
 	server   *http.Server
 	upstream *http.Transport
+	matcher  Matcher
+	checker  policy.Checker
+
+	projectID string
+
+	// ctx is the proxy-lifetime context; it bounds policy checks made on
+	// hijacked MITM tunnels, which have no request-scoped context of their
+	// own. cancel tears it down on Stop so in-flight checks are cancelled.
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	mu       sync.Mutex
 	verdicts []verdict.Entry
+	seen     map[string]struct{}
 }
 
 // Option configures a Proxy at construction time.
@@ -122,11 +142,15 @@ type Option func(*Proxy)
 // and for future support of enterprise CA bundles.
 func WithUpstreamRootCAs(pool *x509.CertPool) Option {
 	return func(p *Proxy) {
-		p.upstream.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+		p.upstream.TLSClientConfig = &tls.Config{
+			RootCAs:    pool,
+			MinVersion: tls.VersionTLS12,
+			NextProtos: []string{"http/1.1"}, // see New(): tunnel is HTTP/1.1
+		}
 	}
 }
 
-func New(opts ...Option) (*Proxy, error) {
+func New(matcher Matcher, checker policy.Checker, projectID string, opts ...Option) (*Proxy, error) {
 	ca, err := newCertAuthority()
 	if err != nil {
 		return nil, err
@@ -136,8 +160,25 @@ func New(opts ...Option) (*Proxy, error) {
 		// Upstream verification uses the system trust store by default; the
 		// package manager verifies the proxy via its configured CA bundle, and
 		// the proxy in turn verifies the real registry.
-		upstream: &http.Transport{},
+		//
+		// Force HTTP/1.1 upstream: the tunnel we serve back to the client is
+		// HTTP/1.1 (bufio.NewReader + http.ReadRequest + resp.Write), so an
+		// HTTP/2 response from the upstream would be re-serialized as HTTP/2
+		// framing over an HTTP/1 tunnel and the client sees
+		// `UnknownProtocol('HTTP/2.0')`.
+		upstream: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				NextProtos: []string{"http/1.1"},
+			},
+			TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
+		},
+		matcher:   matcher,
+		checker:   checker,
+		projectID: projectID,
+		seen:      map[string]struct{}{},
 	}
+	p.ctx, p.cancel = context.WithCancel(context.Background())
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -168,6 +209,9 @@ func (p *Proxy) Start() error {
 }
 
 func (p *Proxy) Stop() {
+	if p.cancel != nil {
+		p.cancel()
+	}
 	if p.server != nil {
 		if err := p.server.Shutdown(context.Background()); err != nil {
 			dbg.Debugf("dependency firewall proxy shutdown: %v", err)
@@ -181,6 +225,16 @@ func (p *Proxy) Verdicts() []verdict.Entry {
 	out := make([]verdict.Entry, len(p.verdicts))
 	copy(out, p.verdicts)
 	return out
+}
+
+func (p *Proxy) record(e verdict.Entry) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, ok := p.seen[e.Key()]; ok {
+		return
+	}
+	p.seen[e.Key()] = struct{}{}
+	p.verdicts = append(p.verdicts, e)
 }
 
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
@@ -224,10 +278,13 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tlsConn.Close()
 
-	p.serveTunnel(tlsConn, authority)
+	// A hijacked MITM tunnel outlives the CONNECT request and serves many
+	// requests, so r.Context() (cancelled when handleConnect returns) is the
+	// wrong lifetime. Use the proxy-lifetime context, which Stop cancels.
+	p.serveTunnel(p.ctx, tlsConn, authority) //nolint:contextcheck // MITM tunnel is bounded by the proxy lifetime, not the CONNECT request
 }
 
-func (p *Proxy) serveTunnel(conn net.Conn, authority string) {
+func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string) {
 	br := bufio.NewReader(conn)
 	for {
 		req, err := http.ReadRequest(br)
@@ -240,13 +297,59 @@ func (p *Proxy) serveTunnel(conn net.Conn, authority string) {
 		req.RequestURI = ""
 		req.Header.Del("Accept-Encoding")
 
+		// Match before the round trip: an upload carries its identity in the
+		// body, which the matcher reads and restores before RoundTrip.
+		m := p.matcher.Match(req)
+
+		if m.Matched && !m.Pass {
+			// The matcher recognized an in-scope request but did not clear it
+			// for the policy check — e.g. an over-limit upload body it could
+			// not inspect. Fail closed.
+			p.record(verdict.Entry{
+				Package: m.Coordinate.Name,
+				Version: m.Coordinate.Version,
+				Verdict: verdict.Blocked,
+				Status:  http.StatusForbidden,
+				Reason:  m.Reason,
+			})
+			_, _ = io.WriteString(conn, blockResponse(m.Coordinate.Ecosystem, m.Reason))
+			drainAndClose(req.Body)
+			return
+		}
+		if m.Matched {
+			res := p.checkPolicy(ctx, m)
+			if res.Blocked() {
+				p.record(verdict.Entry{
+					Package: m.Coordinate.Name,
+					Version: m.Coordinate.Version,
+					Verdict: verdict.Blocked,
+					Status:  http.StatusForbidden,
+					Reason:  res.Reason,
+				})
+				_, _ = io.WriteString(conn, blockResponse(m.Coordinate.Ecosystem, res.Reason))
+				drainAndClose(req.Body)
+				return
+			}
+			if res.Verdict == verdict.Warning {
+				// Status is left unset: a warning allows the request through,
+				// but the upstream round trip has not happened yet, so the real
+				// response status is unknown here. Recording StatusOK would be a
+				// guess that could contradict a later non-200 upstream response.
+				p.record(verdict.Entry{
+					Package: m.Coordinate.Name,
+					Version: m.Coordinate.Version,
+					Verdict: verdict.Warning,
+					Reason:  res.Reason,
+				})
+			}
+		}
+		req.Header.Set(firewallHeader, "allowed")
+
 		resp, err := p.upstream.RoundTrip(req)
 		if err != nil {
 			return
 		}
 
-		// Tarball downloads can be very large (100s of MB), so stream them
-		// straight through instead of buffering the whole payload in memory.
 		if isBinaryDownload(resp) {
 			err := resp.Write(conn)
 			resp.Body.Close()
@@ -261,13 +364,8 @@ func (p *Proxy) serveTunnel(conn net.Conn, authority string) {
 		if err != nil {
 			return
 		}
-
 		resp.Body = io.NopCloser(bytes.NewReader(body))
 		resp.ContentLength = int64(len(body))
-		// Only strip Content-Encoding when the Go http.Transport transparently
-		// decompressed the body for us (resp.Uncompressed). For any encoding
-		// Transport does not auto-decode (brotli, deflate, etc.), the buffered
-		// body is still encoded and the client needs the header to decode it.
 		if resp.Uncompressed {
 			resp.Header.Del("Content-Encoding")
 		}
@@ -277,6 +375,55 @@ func (p *Proxy) serveTunnel(conn net.Conn, authority string) {
 			return
 		}
 	}
+}
+
+// checkPolicy runs the policy check for a matched request under a bounded
+// context so a hung or unreachable backend degrades to a block rather than
+// hanging the tunnel goroutine. It fails closed: any error obtaining a
+// decision is mapped to a Blocked result. The deferred cancel scopes the
+// context to this call, which matters because the caller invokes it once per
+// request in a long-lived tunnel loop.
+func (p *Proxy) checkPolicy(ctx context.Context, m Match) policy.Result {
+	checkCtx, cancel := context.WithTimeout(ctx, policyCheckTimeout)
+	defer cancel()
+	res, err := p.checker.Check(checkCtx, policy.Request{
+		Coordinate: m.Coordinate,
+		ProjectID:  p.projectID,
+		Operation:  m.Operation,
+	})
+	if err != nil {
+		// Fail closed: a policy decision we cannot obtain is treated as a
+		// block, never allowed through. The CachingChecker also enforces
+		// this, but the proxy must not depend on its wrapper for its
+		// security posture.
+		dbg.Debugf("dependency firewall policy check failed for %s: %v", m.Coordinate.Key(), err)
+		return policy.Result{
+			Verdict: verdict.Blocked,
+			Reason:  fmt.Sprintf("policy check failed: %v", err),
+		}
+	}
+	return res
+}
+
+// blockDrainLimit bounds how much of a blocked upload's request body the proxy
+// reads and discards before closing the connection. On a blocked upload the
+// client may still be streaming its (potentially large) body; a bare Close
+// leaves those bytes unread, so some clients see a connection reset and never
+// read the synthesized 403. Draining a bounded amount lets the client's write
+// drain and its read of the 403 succeed, while the cap keeps a hostile or huge
+// upload from tying up the tunnel goroutine.
+const blockDrainLimit = 1 << 20 // 1 MiB
+
+// drainAndClose reads and discards up to blockDrainLimit bytes from body, then
+// closes it. body may be nil. It is used after a synthesized 403 so the client
+// reliably reads the block response instead of hitting a connection reset from
+// unread request bytes.
+func drainAndClose(body io.ReadCloser) {
+	if body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, blockDrainLimit))
+	_ = body.Close()
 }
 
 // isBinaryDownload reports whether resp is a successful binary package payload
