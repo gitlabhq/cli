@@ -83,6 +83,16 @@ func TestConfigSet(t *testing.T) {
 			cli:       "editor vim --host gitlab.com -g",
 			expectKey: "gitlab.com:editor",
 		},
+		{
+			name:      "set key by alias",
+			cli:       "visual vim -g",
+			expectKey: "visual",
+		},
+		{
+			name:      "set glab_pager",
+			cli:       "glab_pager vim -g",
+			expectKey: "glab_pager",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

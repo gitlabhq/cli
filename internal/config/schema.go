@@ -80,6 +80,17 @@ var KeySchema = []KeyDef{
 		Description:  "What browser glab should run when opening links. This global config cannot be overridden by hostname.",
 	},
 	{
+		Name: "glab_pager", Scope: ScopeGlobal, Type: TypeString,
+		UserSettable: true,
+		Description:  "Your desired pager command to use, such as 'less -R'. Takes precedence over the PAGER environment variable. GLAB_PAGER takes precedence over both.",
+	},
+	{
+		Name: "debug", Scope: ScopeGlobal, Type: TypeBool,
+		Default: "false", UserSettable: true,
+		EnvVars:     []string{"GLAB_DEBUG"},
+		Description: "Output more logging information, including underlying Git commands, expanded aliases, and DNS error details.",
+	},
+	{
 		Name: "glamour_style", Scope: ScopeGlobal, Type: TypeString,
 		Default: "dark", UserSettable: true, Fallback: true,
 		Description: "Set your desired Markdown renderer style. Available options are [dark, light, notty]. To set a custom style, refer to https://github.com/charmbracelet/glamour#styles",

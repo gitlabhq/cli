@@ -24,6 +24,7 @@ func NewCmdConfig(f cmdutils.Factory) *cobra.Command {
 		- %[1]sbranch_prefix%[1]s: Prefix used by %[1]sglab stack%[1]s when naming generated branches. Defaults to the current user's username (from %[1]sos/user.Current%[1]s), falling back to %[1]sglab-stack%[1]s if unavailable.
 		- %[1]sbrowser%[1]s: If unset, uses the default browser. Override with environment variable %[1]s$BROWSER%[1]s.
 		- %[1]scheck_update%[1]s: If true, notifies of new versions of glab. Defaults to %[1]strue%[1]s. Override with environment variable %[1]s$GLAB_CHECK_UPDATE%[1]s.
+		- %[1]sdebug%[1]s: If %[1]strue%[1]s, outputs more logging information, including underlying Git commands, expanded aliases, and DNS error details. Defaults to %[1]sfalse%[1]s. Override with environment variable %[1]s$GLAB_DEBUG%[1]s.
 		- %[1]sdisplay_hyperlinks%[1]s: If %[1]sfalse%[1]s, disables hyperlinks in terminal output. Defaults to %[1]strue%[1]s. Override with environment variable %[1]s$FORCE_HYPERLINKS%[1]s.
 		- %[1]sduo_cli_auto_download%[1]s: If %[1]strue%[1]s, automatically downloads the Duo CLI binary without prompting.
 		- %[1]sduo_cli_auto_run%[1]s: If %[1]strue%[1]s, automatically runs GitLab Duo CLI without prompting.
