@@ -25,7 +25,7 @@ func NewCmdConfig(f cmdutils.Factory) *cobra.Command {
 		%s
 
 		Configuration file locations follow the XDG Base Directory specification.
-		For the full search order and platform-specific paths, see [configuration](https://gitlab.com/gitlab-org/cli#configuration).
+		For the full search order and platform-specific paths, see [configuration](https://docs.gitlab.com/cli/configuration/).
 		`, confighelp.Settings()),
 		Aliases: []string{"conf"},
 	}

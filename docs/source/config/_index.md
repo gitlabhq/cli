@@ -55,7 +55,7 @@ Current respected settings:
 - `use_keyring`: Store the host's credentials in the operating system's keyring (true/false). Set automatically by `glab auth login`, which defaults to `true` when a keyring backend is available. Empty is treated as false (plaintext file storage). Scoped per host; set it with `--host`.
 
 Configuration file locations follow the XDG Base Directory specification.
-For the full search order and platform-specific paths, see [configuration](https://gitlab.com/gitlab-org/cli#configuration).
+For the full search order and platform-specific paths, see [configuration](https://docs.gitlab.com/cli/configuration/).
 
 ## Aliases
 

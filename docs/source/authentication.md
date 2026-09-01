@@ -88,7 +88,7 @@ To authenticate your installation of `glab` with a personal access token:
    - Authenticate with token and hostname: `glab auth login --hostname gitlab.example.org --token xxxxx`
      Not recommended for shared environments.
    - Credentials are stored in the global
-     [configuration file](https://gitlab.com/gitlab-org/cli#configuration).
+     [configuration file](configuration.md#configuration-file-locations).
 
 ## CI job token
 
@@ -136,7 +136,7 @@ keyring:
 
 If no keyring is available, if you pass `--insecure-storage`, or if you use `glab` in CI/CD
 environments where `GITLAB_CI` or `CI` is set to `true`, `glab` stores credentials as plaintext in the
-[configuration file](https://gitlab.com/gitlab-org/cli#configuration) and prints a warning.
+[configuration file](configuration.md#configuration-file-locations) and prints a warning.
 
 To move an existing plaintext token into the keyring later, run
 `glab auth login --hostname <HOSTNAME>` again. `glab auth status` reports where
