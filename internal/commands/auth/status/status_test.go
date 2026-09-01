@@ -486,6 +486,157 @@ hosts:
 	assert.Contains(t, stderr.String(), "To store this token more securely, run glab auth login --hostname gitlab.example.com to move it into the operating system keyring.")
 }
 
+func Test_statusRun_incompleteOAuth2Warning(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GLAB_IS_OAUTH2", "")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    token: xxxxxxxxxxxxxxxxxxxx
+    is_oauth2: "true"
+    api_protocol: https
+`), 0o600))
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(&gitlab.User{Username: "john_smith"}, nil, nil)
+	client := func(token, hostname string) (*api.Client, error) { //nolint:unparam
+		return cmdtest.NewTestApiClient(t, nil, token, hostname, api.WithGitLabClient(tc.Client)), nil
+	}
+
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, _, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		hostname: "gitlab.example.com",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return client("", repoHost)
+		},
+		httpClientOverride: client,
+		io:                 io,
+	}
+
+	require.NoError(t, opts.run(t.Context()))
+	assert.Contains(t, stderr.String(), "Logged in to gitlab.example.com as john_smith")
+	assert.Contains(t, stderr.String(), "gitlab.example.com is configured for OAuth, but no refresh token is stored")
+	assert.Contains(t, stderr.String(), "To clear it, run glab auth login --hostname gitlab.example.com.")
+}
+
+func Test_statusRun_noIncompleteOAuth2WarningWhenRefreshTokenPresent(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GLAB_IS_OAUTH2", "")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    token: xxxxxxxxxxxxxxxxxxxx
+    is_oauth2: "true"
+    oauth2_refresh_token: some-refresh-token
+    api_protocol: https
+`), 0o600))
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(&gitlab.User{Username: "john_smith"}, nil, nil)
+	client := func(token, hostname string) (*api.Client, error) { //nolint:unparam
+		return cmdtest.NewTestApiClient(t, nil, token, hostname, api.WithGitLabClient(tc.Client)), nil
+	}
+
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, _, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		hostname: "gitlab.example.com",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return client("", repoHost)
+		},
+		httpClientOverride: client,
+		io:                 io,
+	}
+
+	require.NoError(t, opts.run(t.Context()))
+	assert.NotContains(t, stderr.String(), "no refresh token is stored")
+}
+
+func Test_statusRun_noIncompleteOAuth2WarningWithoutToken(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GLAB_IS_OAUTH2", "")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    is_oauth2: "true"
+    api_protocol: https
+`), 0o600))
+
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, _, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		hostname: "gitlab.example.com",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return nil, errors.New("no access or refresh token was found")
+		},
+		io: io,
+	}
+
+	require.Error(t, opts.run(t.Context()))
+	assert.Contains(t, stderr.String(), "No token found")
+	assert.NotContains(t, stderr.String(), "no refresh token is stored")
+}
+
+func Test_statusRun_noIncompleteOAuth2WarningForEnvIsOAuth2(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GLAB_IS_OAUTH2", "true")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    token: xxxxxxxxxxxxxxxxxxxx
+    api_protocol: https
+`), 0o600))
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(&gitlab.User{Username: "john_smith"}, nil, nil)
+	client := func(token, hostname string) (*api.Client, error) { //nolint:unparam
+		return cmdtest.NewTestApiClient(t, nil, token, hostname, api.WithGitLabClient(tc.Client)), nil
+	}
+
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, _, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		hostname: "gitlab.example.com",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return client("", repoHost)
+		},
+		httpClientOverride: client,
+		io:                 io,
+	}
+
+	require.NoError(t, opts.run(t.Context()))
+	assert.NotContains(t, stderr.String(), "no refresh token is stored")
+}
+
 func Test_statusRun_keyringMigrationHint_snapConfined(t *testing.T) {
 	keyring.MockInitWithError(errors.New("keyring unavailable"))
 	t.Cleanup(keyring.MockInit)

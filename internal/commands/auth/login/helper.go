@@ -2,6 +2,7 @@ package login
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net/url"
 	"slices"
@@ -9,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
@@ -55,7 +54,7 @@ func NewCmdCredential(f cmdutils.Factory) *cobra.Command {
 				return err
 			}
 
-			return opts.run()
+			return opts.run(cmd.Context())
 		},
 	}
 
@@ -74,7 +73,7 @@ func (o *options) validate() error {
 	return nil
 }
 
-func (o *options) run() error {
+func (o *options) run(ctx context.Context) error {
 	expectedParams := map[string]string{}
 
 	s := bufio.NewScanner(o.io.In)
@@ -127,25 +126,22 @@ func (o *options) run() error {
 		if err != nil {
 			return err
 		}
-		// The AuthSource for apiClient with OAuth2 settings should give back
-		// gitlab.OAuthTokenSource, which should pass type assertion here.
-		authSource, ok := apiClient.AuthSource().(gitlab.OAuthTokenSource)
-		if !ok {
-			return fmt.Errorf("expected OAuthTokenSource auth source for %q, got %T", host, apiClient.AuthSource())
-		}
-		oauth2Token, err := authSource.TokenSource.Token()
+		cred, err := apiClient.Credential(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to refresh token for %q: %w", host, err)
+			return fmt.Errorf("failed to resolve the credentials for %q: %w", host, err)
+		}
+		if cred.Kind != api.CredentialOAuth2 {
+			return fmt.Errorf("%q is configured for OAuth, but its credential resolved as %s", host, cred.Kind)
 		}
 
 		// see https://docs.gitlab.com/ee/api/oauth2.html#access-git-over-https-with-access-token
 		output["username"] = "oauth2"
-		output["password"] = oauth2Token.AccessToken
-		if !oauth2Token.Expiry.IsZero() {
-			output["password_expiry_utc"] = fmt.Sprintf("%d", oauth2Token.Expiry.UTC().Unix())
+		output["password"] = cred.Token
+		if !cred.Expiry.IsZero() {
+			output["password_expiry_utc"] = fmt.Sprintf("%d", cred.Expiry.UTC().Unix())
 		}
-		if oauth2Token.RefreshToken != "" {
-			output["oauth_refresh_token"] = oauth2Token.RefreshToken
+		if cred.RefreshToken != "" {
+			output["oauth_refresh_token"] = cred.RefreshToken
 		}
 	case jobToken != "":
 		output["username"] = "gitlab-ci-token"

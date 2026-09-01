@@ -7,11 +7,15 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/auth/authutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
+	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
 
 type options struct {
+	io     *iostreams.IOStreams
 	config func() config.Config
 
 	hostname string
@@ -22,6 +26,7 @@ type options struct {
 
 func NewCmdSet(f cmdutils.Factory) *cobra.Command {
 	opts := &options{
+		io:     f.IO(),
 		config: f.Config,
 	}
 
@@ -71,6 +76,10 @@ func (o *options) run() error {
 
 	localCfg, _ := cfg.Local()
 
+	if err := o.clearStaleOAuth2Config(cfg); err != nil {
+		return err
+	}
+
 	var err error
 	if o.isGlobal || o.hostname != "" {
 		err = cfg.Set(o.hostname, o.key, o.value)
@@ -95,5 +104,35 @@ func (o *options) run() error {
 	if err != nil {
 		return fmt.Errorf("failed to write configuration to disk: %w", err)
 	}
+	return nil
+}
+
+// clearStaleOAuth2Config drops the OAuth session fields when a token is written
+// to an OAuth-authenticated host. Left in place, is_oauth2 sends the new token
+// as a Bearer credential: API calls still succeed, since GitLab accepts a
+// personal access token that way, but the credential helpers fail, so the
+// breakage surfaces far from this command. Persisted by the caller's Write.
+func (o *options) clearStaleOAuth2Config(cfg config.Config) error {
+	if o.hostname == "" || o.value == "" || config.ConfigKeyEquivalence(o.key) != "token" {
+		return nil
+	}
+
+	// searchEnvVars: false, so a stray GLAB_IS_OAUTH2 cannot trigger a rewrite of
+	// the config file. A read failure only costs the cleanup, which `glab auth
+	// status` also reports, so it must not fail the write the user asked for.
+	isOAuth2, _, err := cfg.GetWithSource(o.hostname, "is_oauth2", false)
+	if err != nil {
+		dbg.Debugf("could not read is_oauth2 for %s, leaving the OAuth configuration alone: %v", o.hostname, err)
+		return nil
+	}
+	if isOAuth2 != "true" {
+		return nil
+	}
+
+	if err := authutils.ClearOAuth2Fields(cfg, o.hostname); err != nil {
+		return fmt.Errorf("failed to clear the OAuth configuration for %q: %w", o.hostname, err)
+	}
+
+	o.io.LogErrorf("%s Cleared the OAuth configuration for %s, which authenticates with the token you set.\n", o.io.Color().WarnIcon(), o.hostname)
 	return nil
 }

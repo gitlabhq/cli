@@ -511,3 +511,47 @@ hosts:
 		assert.Equal(t, "env-job-token", value)
 	})
 }
+
+// The access-token-only path has no refresh token, so the stored expiry is the
+// only expiry anything downstream can report.
+func TestNewClientFromConfig_AccessTokenOnlyCarriesStoredExpiry(t *testing.T) {
+	tests := []struct {
+		name           string
+		expiryLine     string
+		expectedExpiry time.Time
+	}{
+		{
+			name:           "RFC3339",
+			expiryLine:     `    oauth2_expiry_date: "2099-01-02T03:04:05Z"`,
+			expectedExpiry: time.Date(2099, time.January, 2, 3, 4, 5, 0, time.UTC),
+		},
+		{
+			name:           "absent",
+			expiryLine:     "",
+			expectedExpiry: time.Time{},
+		},
+		{
+			name:       "unparseable is ignored rather than fatal",
+			expiryLine: `    oauth2_expiry_date: "not-a-date"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, k := range []string{"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GLAB_IS_OAUTH2"} {
+				t.Setenv(k, "")
+			}
+
+			cfg := config.NewFromString("hosts:\n  example.com:\n    is_oauth2: \"true\"\n    token: an-access-token\n" + tt.expiryLine + "\n")
+			client, err := NewClientFromConfig("example.com", cfg, false, "ua")
+			require.NoError(t, err)
+
+			cred, err := client.Credential(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, CredentialOAuth2, cred.Kind)
+			assert.Equal(t, "an-access-token", cred.Token)
+			assert.True(t, tt.expectedExpiry.Equal(cred.Expiry), "want %s, got %s", tt.expectedExpiry, cred.Expiry)
+			assert.Empty(t, cred.RefreshToken, "there is no refresh token in this path")
+		})
+	}
+}

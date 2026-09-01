@@ -39,6 +39,18 @@ func oauthClientID(cfg config.Config, hostname string) (string, error) {
 // inheriting the environment (the Docker credential helper) must pass false
 // so a stray environment variable cannot substitute a different identity's
 // access token here.
+// ParseExpiryDate reads a stored oauth2_expiry_date, accepting the RFC822 forms
+// older versions of glab wrote.
+func ParseExpiryDate(s string) (time.Time, error) {
+	for _, layout := range []string{time.RFC3339, time.RFC822, time.RFC822Z} {
+		if expiry, err := time.Parse(layout, s); err == nil {
+			return expiry, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("could not parse %q as an expiry date", s)
+}
+
 func unmarshal(hostname string, cfg config.Config, searchEnvForIdentity bool) (*oauth2.Token, error) {
 	result := &oauth2.Token{}
 	var err error
@@ -48,16 +60,9 @@ func unmarshal(hostname string, cfg config.Config, searchEnvForIdentity bool) (*
 		return nil, err
 	}
 
-	result.Expiry, err = time.Parse(time.RFC3339, expiryDateString)
+	result.Expiry, err = ParseExpiryDate(expiryDateString)
 	if err != nil {
-		// Fall back to RFC822/RFC822Z for configs written by older versions of glab.
-		result.Expiry, err = time.Parse(time.RFC822, expiryDateString)
-		if err != nil {
-			result.Expiry, err = time.Parse(time.RFC822Z, expiryDateString)
-			if err != nil {
-				return nil, err
-			}
-		}
+		return nil, err
 	}
 
 	result.RefreshToken, err = cfg.Get(hostname, "oauth2_refresh_token")

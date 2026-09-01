@@ -218,6 +218,15 @@ func (o *options) run(ctx context.Context) error {
 				addMsg("%s No token found (checked config file, keyring, and environment variables).", c.WarnIcon())
 			}
 		}
+		// Only worth saying when a token is actually stored: without one, the
+		// messages above already tell the user to log in again.
+		if tokenErr != nil || !api.IsTokenConfigured(token) {
+			continue
+		}
+		if msg, ok := incompleteOAuth2Warning(cfg, instance); ok {
+			addMsg("%s %s", c.WarnIcon(), msg)
+			addMsg("  To clear it, run %s.", c.Bold("glab auth login --hostname "+instance))
+		}
 	}
 
 	for _, instance := range instances {
@@ -292,6 +301,33 @@ func tokenStorageDescription(tokenSource string) string {
 	default:
 		return "configuration file (plaintext)"
 	}
+}
+
+// incompleteOAuth2Warning reports a host configured for OAuth with no refresh
+// token stored. Nothing else in status catches this: GitLab accepts a personal
+// access token sent as a Bearer credential, so the API call above succeeds and
+// the host looks healthy. An is_oauth2 from the environment is left alone —
+// that is a tool driving glab with its own access token, by design.
+func incompleteOAuth2Warning(cfg config.Config, instance string) (string, bool) {
+	isOAuth2, isOAuth2Source, err := cfg.GetWithSource(instance, "is_oauth2", true)
+	if err != nil {
+		dbg.Debugf("could not read is_oauth2 for %s, skipping the incomplete-OAuth check: %v", instance, err)
+		return "", false
+	}
+	if isOAuth2 != "true" || slices.Contains(config.EnvKeyEquivalence("is_oauth2"), isOAuth2Source) {
+		return "", false
+	}
+
+	refreshToken, err := cfg.Get(instance, "oauth2_refresh_token")
+	if err != nil {
+		dbg.Debugf("could not read oauth2_refresh_token for %s, skipping the incomplete-OAuth check: %v", instance, err)
+		return "", false
+	}
+	if refreshToken != "" {
+		return "", false
+	}
+
+	return fmt.Sprintf("%s is configured for OAuth, but no refresh token is stored, so the token cannot be renewed when it expires. This is left behind by switching to a personal access token without logging out.", instance), true
 }
 
 // isPlaintextTokenSource reports whether the token was read from the plaintext
