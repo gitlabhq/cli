@@ -6,16 +6,9 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
-	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
 const title = "GitLab Dependency Firewall"
-
-// maxPackageWidth caps the PACKAGE column so a single long, scoped package
-// name can't push the REASON column off-screen (or wrap in CI job logs).
-// Names longer than this are truncated with an ellipsis; REASON is never
-// truncated.
-const maxPackageWidth = 20
 
 // Render writes a summary of Dependency Firewall verdicts. Blocked and warned
 // packages are listed in a padded columnar table (via text/tabwriter) so the
@@ -54,17 +47,17 @@ func renderBody(io *iostreams.IOStreams, entries []verdict.Entry, blocked, warne
 	// alignment off. Compute widths ourselves so we can colour the
 	// STATUS cell after padding.
 	type row struct {
-		v                        verdict.Verdict
 		pkg, ver, status, reason string
+		verdict                  verdict.Verdict
 	}
 	rows := []row{{pkg: "PACKAGE", ver: "VERSION", status: "STATUS", reason: "REASON"}}
 	for _, e := range entries {
 		rows = append(rows, row{
-			v:      e.Verdict,
-			pkg:    e.Package,
-			ver:    e.Version,
-			status: statusLabel(e.Verdict),
-			reason: reasonOrDefault(e.Reason),
+			pkg:     e.Package,
+			ver:     e.Version,
+			status:  statusLabel(e.Verdict),
+			reason:  reasonOrDefault(e.Reason),
+			verdict: e.Verdict,
 		})
 	}
 
@@ -72,9 +65,6 @@ func renderBody(io *iostreams.IOStreams, entries []verdict.Entry, blocked, warne
 	for _, r := range rows {
 		if len(r.pkg) > wPkg {
 			wPkg = len(r.pkg)
-		}
-		if wPkg > maxPackageWidth {
-			wPkg = maxPackageWidth
 		}
 		if len(r.ver) > wVer {
 			wVer = len(r.ver)
@@ -92,10 +82,10 @@ func renderBody(io *iostreams.IOStreams, entries []verdict.Entry, blocked, warne
 		} else {
 			// Colour the label, then pad with plain spaces so column width
 			// (which is measured in visible characters) stays right.
-			status = colourStatus(c, r.v, r.status) + strings.Repeat(" ", wStatus-len(r.status))
+			status = colourStatus(c, r.verdict, r.status) + strings.Repeat(" ", wStatus-len(r.status))
 		}
 		fmt.Fprintf(&tbl, "%s  %s  %s  %s\n",
-			text.Truncate(r.pkg, wPkg),
+			padRight(r.pkg, wPkg),
 			padRight(r.ver, wVer),
 			status,
 			r.reason,
@@ -131,8 +121,8 @@ func statusLabel(v verdict.Verdict) string {
 	}
 }
 
-// colourStatus keys off the typed verdict rather than the rendered label, so
-// changing statusLabel's wording can't silently drop the colouring.
+// colourStatus keys off the typed verdict rather than the rendered label,
+// so changing statusLabel's wording can't silently drop the colouring.
 func colourStatus(c *iostreams.ColorPalette, v verdict.Verdict, label string) string {
 	switch v {
 	case verdict.Blocked:
