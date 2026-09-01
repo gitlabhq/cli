@@ -458,7 +458,7 @@ func Test_helperRun(t *testing.T) {
 				return
 			}
 
-			runErr := opts.run()
+			runErr := opts.run(t.Context())
 			if tt.wantErr {
 				require.Error(t, runErr)
 			} else {
@@ -479,6 +479,43 @@ func Test_helperRun(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_helperRun_OAuth2AccessTokenOnly(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GITLAB_ACCESS_TOKEN", "")
+	t.Setenv("OAUTH_TOKEN", "")
+
+	cfg := config.NewFromString(heredoc.Doc(`
+		_source: "/Users/monalisa/.config/glab/config.yml"
+		hosts:
+		  example.com:
+		    user: "monalisa"
+		    is_oauth2: "true"
+		    token: "some-access-token"
+		    oauth2_expiry_date: "2099-01-02T03:04:05Z"
+	`))
+	client, err := api.NewClientFromConfig("example.com", cfg, false, "test", api.WithoutTokenFromEnvironment())
+	require.NoError(t, err)
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmdCredential,
+		false,
+		cmdtest.WithStdin("protocol=https\nhost=example.com\n\n"),
+		cmdtest.WithConfig(cfg),
+		cmdtest.WithApiClient(client),
+	)
+
+	out, err := exec("get")
+	require.NoError(t, err)
+
+	stdout := out.String()
+	assert.True(t, strings.HasPrefix(stdout, "capability[]=authtype\n"), "first line of stdout must always be the capability preamble")
+	assert.Contains(t, stdout, "username=oauth2")
+	assert.Contains(t, stdout, "password=some-access-token")
+	assert.Contains(t, stdout, fmt.Sprintf("password_expiry_utc=%d", time.Date(2099, time.January, 2, 3, 4, 5, 0, time.UTC).Unix()))
+	assert.NotContains(t, stdout, "oauth_refresh_token", "there is no refresh token to report")
 }
 
 func Test_remoteNameScore(t *testing.T) {

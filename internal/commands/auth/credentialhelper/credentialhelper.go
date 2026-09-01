@@ -1,23 +1,20 @@
 package credentialhelper
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/oauth2"
-
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
-
-const tokenGracePeriod = 5 * time.Minute
 
 type responseType any
 
@@ -83,7 +80,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			mcpannotations.Exclude: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp := opts.run()
+			resp := opts.run(cmd.Context())
 
 			return writeResponse(resp)
 		},
@@ -106,7 +103,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	return cmd
 }
 
-func (o *options) run() responseType {
+func (o *options) run(ctx context.Context) responseType {
 	baseRepo, err := o.baseRepo()
 	host := "" // NOTE: an empty host is the default configured host
 	if err == nil {
@@ -121,42 +118,22 @@ func (o *options) run() responseType {
 	// NOTE: the API client ensures this suffix via glinstance.APIEndpoint().
 	instanceURL := strings.TrimSuffix(apiClient.BaseURL(), "/api/v4/")
 
-	switch as := apiClient.AuthSource().(type) {
-	case gitlab.OAuthTokenSource:
-		// Trying to refresh access token
-		tokenSource := oauth2.ReuseTokenSourceWithExpiry(nil, as.TokenSource, tokenGracePeriod)
-		oauth2Token, err := tokenSource.Token()
-		if err != nil {
-			return errorResponse{Message: fmt.Sprintf("failed to refresh token for %q: %v", host, err)}
-		}
-
-		return response{
-			InstanceURL: instanceURL,
-			Token: token{
-				Type:            "oauth2",
-				Token:           oauth2Token.AccessToken,
-				ExpiryTimestamp: oauth2Token.Expiry.UTC(),
-			},
-		}
-	case gitlab.JobTokenAuthSource:
-		return response{
-			InstanceURL: instanceURL,
-			Token: token{
-				Type:  "job-token",
-				Token: as.Token,
-			},
-		}
-	case gitlab.AccessTokenAuthSource:
-		return response{
-			InstanceURL: instanceURL,
-			Token: token{
-				Type:  "pat",
-				Token: as.Token,
-			},
-		}
-	case gitlab.Unauthenticated:
+	cred, err := apiClient.Credential(ctx)
+	switch {
+	case errors.Is(err, api.ErrUnauthenticated):
 		return errorResponse{Message: "glab is not authenticated. Use glab auth login to authenticate"}
-	default:
+	case errors.Is(err, api.ErrUnsupportedAuthSource):
 		return errorResponse{Message: "unable to determine token"}
+	case err != nil:
+		return errorResponse{Message: fmt.Sprintf("failed to read the credentials for %q: %v", host, err)}
+	}
+
+	return response{
+		InstanceURL: instanceURL,
+		Token: token{
+			Type:            string(cred.Kind),
+			Token:           cred.Token,
+			ExpiryTimestamp: cred.Expiry.UTC(),
+		},
 	}
 }

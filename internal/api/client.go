@@ -440,7 +440,7 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 			}
 
 			newAuthSource = func(client *http.Client) (gitlab.AuthSource, error) {
-				return oauth2AccessTokenOnlyAuthSource{token: token}, nil
+				return oauth2AccessTokenOnlyAuthSource{token: token, expiry: storedOAuth2Expiry(cfg, repoHost)}, nil
 			}
 			break
 		}
@@ -553,4 +553,23 @@ func Is404(err error) bool {
 	}
 
 	return false
+}
+
+// storedOAuth2Expiry reports the expiry recorded for the host, or the zero time
+// when there is nothing usable stored. There is no refresh token in this path,
+// so an unreadable date is not worth failing the client build over.
+func storedOAuth2Expiry(cfg config.Config, repoHost string) time.Time {
+	stored, err := cfg.Get(repoHost, "oauth2_expiry_date")
+	if err != nil || stored == "" {
+		dbg.Debugf("no usable oauth2_expiry_date for %q: %v", repoHost, err)
+		return time.Time{}
+	}
+
+	expiry, err := oauth2.ParseExpiryDate(stored)
+	if err != nil {
+		dbg.Debugf("could not parse oauth2_expiry_date for %q: %v", repoHost, err)
+		return time.Time{}
+	}
+
+	return expiry
 }

@@ -67,7 +67,10 @@ func (c *Client) Credential(ctx context.Context) (Credential, error) {
 		cred.Expiry = token.Expiry
 		cred.RefreshToken = token.RefreshToken
 	case oauth2AccessTokenOnlyAuthSource:
+		// The stored expiry is all there is: with no refresh token, nothing can
+		// renew this token, and a consumer still needs to know when it dies.
 		cred.Token = as.token
+		cred.Expiry = as.expiry
 	case gitlab.AccessTokenAuthSource:
 		cred.Token = as.Token
 	case gitlab.JobTokenAuthSource:

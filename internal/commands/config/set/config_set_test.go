@@ -112,6 +112,51 @@ func TestConfigSet(t *testing.T) {
 	}
 }
 
+func TestConfigSet_TokenClearsStaleOAuth2Config(t *testing.T) {
+	t.Parallel()
+
+	cfg := configStub{"gitlab.com:is_oauth2": "true", "gitlab.com:oauth2_refresh_token": "stale-refresh", "gitlab.com:oauth2_expiry_date": "2026-01-01T00:00:00Z"}
+	exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+	out, err := exec("token glpat-nOtARealToken --host gitlab.com")
+	require.NoError(t, err)
+
+	assert.Equal(t, "glpat-nOtARealToken", cfg["gitlab.com:token"])
+	assert.Empty(t, cfg["gitlab.com:is_oauth2"])
+	assert.Empty(t, cfg["gitlab.com:oauth2_refresh_token"])
+	assert.Empty(t, cfg["gitlab.com:oauth2_expiry_date"])
+	assert.Empty(t, out.String(), "the notice belongs on stderr, not in command output")
+	assert.Contains(t, out.Stderr(), "Cleared the OAuth configuration for gitlab.com")
+}
+
+func TestConfigSet_TokenLeavesNonOAuth2HostAlone(t *testing.T) {
+	t.Parallel()
+
+	cfg := configStub{"gitlab.com:is_oauth2": "false", "gitlab.com:job_token": "some-job-token"}
+	exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+	out, err := exec("token glpat-nOtARealToken --host gitlab.com")
+	require.NoError(t, err)
+
+	assert.Equal(t, "glpat-nOtARealToken", cfg["gitlab.com:token"])
+	assert.Equal(t, "some-job-token", cfg["gitlab.com:job_token"], "clearing is scoped to the OAuth fields")
+	assert.Empty(t, out.Stderr())
+}
+
+func TestConfigSet_NonTokenKeyLeavesOAuth2ConfigAlone(t *testing.T) {
+	t.Parallel()
+
+	cfg := configStub{"gitlab.com:is_oauth2": "true", "gitlab.com:oauth2_refresh_token": "live-refresh"}
+	exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+	out, err := exec("git_protocol ssh --host gitlab.com")
+	require.NoError(t, err)
+
+	assert.Equal(t, "true", cfg["gitlab.com:is_oauth2"])
+	assert.Equal(t, "live-refresh", cfg["gitlab.com:oauth2_refresh_token"])
+	assert.Empty(t, out.Stderr())
+}
+
 // failingSetConfig is a configStub whose Set always fails, so a test can
 // assert on the error `config set` reports.
 type failingSetConfig struct {
