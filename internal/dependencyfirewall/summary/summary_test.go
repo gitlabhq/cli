@@ -13,12 +13,14 @@ import (
 )
 
 func TestRenderEmptyPrintsNoActivity(t *testing.T) {
+	t.Parallel()
 	ios, _, out, _ := cmdtest.TestIOStreams()
 	Render(ios, nil)
 	assert.Contains(t, out.String(), "no Dependency Firewall activity recorded")
 }
 
 func TestRenderIncludesTitleAndTableHeaders(t *testing.T) {
+	t.Parallel()
 	ios, _, _, errOut := cmdtest.TestIOStreams()
 	entries := []verdict.Entry{
 		{Package: "lodash", Version: "4.17.21", Verdict: verdict.Blocked, Reason: "policy violation"},
@@ -34,6 +36,7 @@ func TestRenderIncludesTitleAndTableHeaders(t *testing.T) {
 }
 
 func TestRenderSingleBlockedGoesToStderr(t *testing.T) {
+	t.Parallel()
 	ios, _, _, errOut := cmdtest.TestIOStreams()
 	entries := []verdict.Entry{
 		{Package: "lodash", Version: "4.17.21", Verdict: verdict.Blocked, Reason: "policy violation"},
@@ -48,6 +51,7 @@ func TestRenderSingleBlockedGoesToStderr(t *testing.T) {
 }
 
 func TestRenderSingleWarningGoesToStdout(t *testing.T) {
+	t.Parallel()
 	ios, _, out, _ := cmdtest.TestIOStreams()
 	entries := []verdict.Entry{
 		{Package: "left-pad", Version: "1.3.0", Verdict: verdict.Warning, Reason: "Deprecated package"},
@@ -61,6 +65,7 @@ func TestRenderSingleWarningGoesToStdout(t *testing.T) {
 }
 
 func TestRenderMixedSummaryLine(t *testing.T) {
+	t.Parallel()
 	ios, _, _, errOut := cmdtest.TestIOStreams()
 	entries := []verdict.Entry{
 		{Package: "lodash", Version: "4.17.21", Verdict: verdict.Blocked, Reason: "policy violation"},
@@ -75,6 +80,7 @@ func TestRenderMixedSummaryLine(t *testing.T) {
 }
 
 func TestRenderStartsWithBlankLine(t *testing.T) {
+	t.Parallel()
 	ios, _, _, errOut := cmdtest.TestIOStreams()
 	entries := []verdict.Entry{
 		{Package: "lodash", Version: "4.17.21", Verdict: verdict.Blocked, Reason: "policy violation"},
@@ -84,31 +90,26 @@ func TestRenderStartsWithBlankLine(t *testing.T) {
 	assert.True(t, strings.HasPrefix(errOut.String(), "\n"), "expected a leading blank line before the summary")
 }
 
-func TestRenderTruncatesLongPackageName(t *testing.T) {
+func TestRenderLongPackageNameIsNotTruncated(t *testing.T) {
+	t.Parallel()
+	// The renderer no longer caps the PACKAGE column, so a long name must
+	// appear in full with no ellipsis. Pin that behavior with a fixture that
+	// would have been truncated by the removed cap.
 	ios, _, _, errOut := cmdtest.TestIOStreams()
-	longName := "@some-really-long-scope/a-package-with-a-long-name"
+	const longName = "@some-really-long-scope/a-package-with-a-long-name"
 	entries := []verdict.Entry{
-		{Package: longName, Version: "10.4.2", Verdict: verdict.Blocked, Reason: "policy violation with a fairly long reason that must not be truncated"},
+		{Package: longName, Version: "1.0.0", Verdict: verdict.Blocked, Reason: "policy violation"},
 	}
 	Render(ios, entries)
 
 	stderr := errOut.String()
-	assert.NotContains(t, stderr, longName, "package name longer than the cap should be truncated")
-	assert.Contains(t, stderr, "@some-really-long...", "truncated package name should end with an ellipsis")
-	assert.Contains(t, stderr, "policy violation with a fairly long reason that must not be truncated", "reason must never be truncated")
-}
-
-func TestRenderKeepsShortPackageNameIntact(t *testing.T) {
-	ios, _, _, errOut := cmdtest.TestIOStreams()
-	entries := []verdict.Entry{
-		{Package: "lodash", Version: "4.17.21", Verdict: verdict.Blocked, Reason: "policy violation"},
-	}
-	Render(ios, entries)
-
-	assert.Contains(t, errOut.String(), "lodash")
+	assert.Contains(t, stderr, longName, "long package name must render in full")
+	assert.NotContains(t, stderr, "…", "package name must not be truncated with an ellipsis")
+	assert.NotContains(t, stderr, "...", "package name must not be truncated with an ellipsis")
 }
 
 func TestRenderDoesNotDrawBespokeBox(t *testing.T) {
+	t.Parallel()
 	ios, _, _, errOut := cmdtest.TestIOStreams()
 	entries := []verdict.Entry{
 		{Package: "lodash", Version: "4.17.21", Verdict: verdict.Blocked, Reason: "policy violation"},
