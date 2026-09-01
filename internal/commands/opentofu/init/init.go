@@ -2,6 +2,7 @@ package init
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -15,6 +16,8 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
+
+var errUnsupportedAuth = errors.New("init command does not support this authentication method")
 
 type options struct {
 	io        *iostreams.IOStreams
@@ -104,31 +107,51 @@ func (o *options) run(ctx context.Context) error {
 		`-backend-config=retry_wait_min=5`,
 	}
 
-	switch ts := apiClient.AuthSource().(type) {
-	case gitlab.AccessTokenAuthSource:
-		args = append(args, fmt.Sprintf(`-backend-config=headers={"Authorization" = "Bearer %s"}`, ts.Token))
-	case gitlab.JobTokenAuthSource:
-		args = append(args, fmt.Sprintf(`-backend-config=headers={"%s" = "%s"}`, gitlab.JobTokenHeaderName, ts.Token))
-	case gitlab.OAuthTokenSource:
-		ot, err := ts.TokenSource.Token()
-		if err != nil {
-			return fmt.Errorf("unable to retrieve access token to authenticate OpenTofu")
-		}
-		args = append(args, fmt.Sprintf(`-backend-config=headers={"Authorization" = "Bearer %s"}`, ot.AccessToken))
-	case *gitlab.PasswordCredentialsAuthSource:
-		currentUser, _, err := client.Users.CurrentUser(gitlab.WithContext(ctx))
-		if err != nil {
-			return fmt.Errorf("unable to retrieve current user: %w", err)
-		}
-
-		args = append(args,
-			fmt.Sprintf(`-backend-config=username=%s`, currentUser.Username),
-			fmt.Sprintf(`-backend-config=password=%s`, ts.Password),
-		)
-	default:
-		return fmt.Errorf("init command does not support this authentication method: %T", ts)
+	authArgs, err := authBackendConfig(ctx, apiClient)
+	if err != nil {
+		return err
 	}
+	args = append(args, authArgs...)
 	args = append(args, o.initArgs...)
 
 	return o.exec.Exec(ctx, o.binary, args, nil)
+}
+
+// authBackendConfig renders the backend configuration OpenTofu needs to
+// authenticate against the state API.
+func authBackendConfig(ctx context.Context, apiClient *api.Client) ([]string, error) {
+	// Password auth carries no token and needs a username from the API, so it
+	// cannot come from Credential.
+	if as, ok := apiClient.AuthSource().(*gitlab.PasswordCredentialsAuthSource); ok {
+		currentUser, _, err := apiClient.Lab().Users.CurrentUser(gitlab.WithContext(ctx))
+		if err != nil {
+			return nil, fmt.Errorf("unable to retrieve current user: %w", err)
+		}
+
+		return []string{
+			fmt.Sprintf(`-backend-config=username=%s`, currentUser.Username),
+			fmt.Sprintf(`-backend-config=password=%s`, as.Password),
+		}, nil
+	}
+
+	cred, err := apiClient.Credential(ctx)
+	switch {
+	case errors.Is(err, api.ErrUnsupportedAuthSource):
+		// Name the requirement rather than passing on the wrapped Go type.
+		return nil, errUnsupportedAuth
+	case errors.Is(err, api.ErrUnauthenticated):
+		// Already actionable, and wrapping it reads as two errors.
+		return nil, err
+	case err != nil:
+		return nil, fmt.Errorf("unable to retrieve an access token to authenticate OpenTofu: %w", err)
+	}
+
+	switch cred.Kind {
+	case api.CredentialJobToken:
+		return []string{fmt.Sprintf(`-backend-config=headers={"%s" = "%s"}`, gitlab.JobTokenHeaderName, cred.Token)}, nil
+	case api.CredentialPAT, api.CredentialOAuth2:
+		return []string{fmt.Sprintf(`-backend-config=headers={"Authorization" = "Bearer %s"}`, cred.Token)}, nil
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnsupportedAuth, cred.Kind)
+	}
 }

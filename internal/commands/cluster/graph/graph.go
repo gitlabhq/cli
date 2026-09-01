@@ -22,6 +22,9 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
+// KAS accepts only the "pat:" authorization scheme this command builds below.
+var errUnsupportedToken = errors.New("cluster graph command supports authentication with only personal and project access tokens; requires at least the Developer role")
+
 type options struct {
 	io                    *iostreams.IOStreams
 	apiClient             func(repoHost string) (*api.Client, error)
@@ -194,10 +197,21 @@ func (o *options) run(ctx context.Context) error {
 		return err
 	}
 
-	// 2. Check token type
-	authSource, ok := client.AuthSource().(gitlab.AccessTokenAuthSource)
-	if !ok {
-		return errors.New("cluster graph command supports authentication with only personal and project access tokens; requires at least the Developer role")
+	// 2. Check token type, before reading the credential renews an OAuth2 token
+	// this command cannot use anyway.
+	kind, err := client.CredentialKind()
+	switch {
+	case errors.Is(err, api.ErrUnsupportedAuthSource):
+		return errUnsupportedToken
+	case err != nil:
+		return err
+	case kind != api.CredentialPAT:
+		return errUnsupportedToken
+	}
+
+	cred, err := client.Credential(ctx)
+	if err != nil {
+		return err
 	}
 
 	// 3. Read the watch request
@@ -229,7 +243,7 @@ func (o *options) run(ctx context.Context) error {
 		graphAPIURL:   graphAPIURL,
 		listenNet:     o.listenNet,
 		listenAddr:    o.listenAddr,
-		authorization: fmt.Sprintf("Bearer pat:%d:%s", o.agentID, authSource.Token),
+		authorization: fmt.Sprintf("Bearer pat:%d:%s", o.agentID, cred.Token),
 		watchRequest:  watchReq,
 	}
 	return srv.Run(ctx)
