@@ -29,9 +29,6 @@ GLab is an open source GitLab CLI tool. It brings GitLab to your terminal, next 
     - [Prerequisites for building from source](#prerequisites-for-building-from-source)
 - [Authentication](#authentication)
 - [Configuration](#configuration)
-  - [Configure `glab` to use your GitLab Self-Managed or GitLab Dedicated instance](#configure-glab-to-use-your-gitlab-self-managed-or-gitlab-dedicated-instance)
-  - [Configure `glab` to use mTLS certificates](#configure-glab-to-use-mtls-certificates)
-  - [Configure `glab` to use self-signed certificates](#configure-glab-to-use-self-signed-certificates)
   - [Configure `glab` to use custom HTTP headers](#configure-glab-to-use-custom-http-headers)
 - [Environment variables](#environment-variables)
   - [GitLab access variables](#gitlab-access-variables)
@@ -196,67 +193,9 @@ To authenticate `glab` with OAuth, a personal access token, or a CI job token, s
 For configuration levels, the configuration search order, and platform-specific file
 locations, see [Configure the CLI](https://docs.gitlab.com/cli/configuration/).
 
-### Configure `glab` to use your GitLab Self-Managed or GitLab Dedicated instance
-
-When outside a Git repository, `glab` uses `gitlab.com` by default. For `glab` to default
-to your GitLab Self-Managed or GitLab Dedicated instance when you are not in a Git repository, change the host
-configuration settings. Use this command, changing `gitlab.example.com` to the domain name
-of your instance:
-
-```shell
-glab config set -g host gitlab.example.com
-```
-
-Setting this configuration enables you to perform commands outside a Git repository while
-using your GitLab Self-Managed or GitLab Dedicated instance. For example:
-
-- `glab repo clone group/project`
-- `glab issue list -R group/project`
-
-If you don't set a default domain name, you can declare one for the current command with
-the `GITLAB_HOST` environment variable, like this:
-
-- `GITLAB_HOST=gitlab.example.com glab repo clone group/project`
-- `GITLAB_HOST=gitlab.example.com glab issue list -R group/project`
-
-When inside a Git repository `glab` will use that repository's GitLab host by default. For example `glab issue list`
-will list all issues of the current directory's Git repository.
-
-### Configure `glab` to use mTLS certificates
-
-To use a mutual TLS (Mutual Transport Layer Security) certificate with `glab`, edit your global
-configuration file (`~/.config/glab-cli/config.yml`) to provide connection information:
-
-```yaml
-hosts:
-    git.your-domain.com:
-        api_protocol: https
-        api_host: git.your-domain.com
-        token: xxxxxxxxxxxxxxxxxxxxxxxxx
-        client_cert: /path/to/client.crt
-        client_key: /path/to/client.key
-        ca_cert: /path/to/ca-chain.pem
-```
-
-- `ca_cert` is optional for mTLS support if you use a publicly signed server certificate.
-- `token` is not required if you use a different authentication method.
-
-### Configure `glab` to use self-signed certificates
-
-To configure the GitLab CLI to support GitLab Self-Managed and GitLab Dedicated instances with
-self-signed certificates, either:
-
-- Disable TLS verification with:
-
-  ```shell
-  glab config set skip_tls_verify true --host gitlab.example.com
-  ```
-
-- Add the path to the self signed CA:
-
-  ```shell
-  glab config set ca_cert /path/to/server.pem --host gitlab.example.com
-  ```
+For connecting to a GitLab Self-Managed or GitLab Dedicated instance, and for mTLS and
+self-signed certificates, see
+[Connect to your GitLab instance](https://docs.gitlab.com/cli/connection/).
 
 ### Configure `glab` to use custom HTTP headers
 
