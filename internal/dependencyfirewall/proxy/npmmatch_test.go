@@ -37,6 +37,30 @@ func TestNPMMatchScopedTarball(t *testing.T) {
 	assert.Equal(t, "7.24.0", m.Coordinate.Version)
 }
 
+func TestNPMMatchPathPrefixedRegistryTarball(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		path    string
+		name    string
+		version string
+	}{
+		"artifactory":            {"/artifactory/api/npm/npm/left-pad/-/left-pad-1.3.0.tgz", "left-pad", "1.3.0"},
+		"gitlab packages":        {"/api/v4/projects/1/packages/npm/left-pad/-/left-pad-1.3.0.tgz", "left-pad", "1.3.0"},
+		"scoped under prefix":    {"/artifactory/api/npm/npm/@babel/core/-/core-7.24.0.tgz", "@babel/core", "7.24.0"},
+		"gitlab scoped packages": {"/api/v4/projects/1/packages/npm/@scope/pkg/-/pkg-1.0.0.tgz", "@scope/pkg", "1.0.0"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			m := NPMMatcher{}.Match(get(c.path))
+			assert.True(t, m.Matched, "path-prefixed registry tarball must be inspected, not forwarded uninspected")
+			assert.True(t, m.Pass)
+			assert.Equal(t, policy.Coordinate{Ecosystem: "npm", Name: c.name, Version: c.version}, m.Coordinate)
+			assert.Equal(t, policy.Download, m.Operation)
+		})
+	}
+}
+
 func TestNPMMatchMetadataIsNoMatch(t *testing.T) {
 	t.Parallel()
 	m := NPMMatcher{}.Match(get("/left-pad"))

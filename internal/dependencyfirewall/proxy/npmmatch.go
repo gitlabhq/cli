@@ -40,10 +40,20 @@ func (m NPMMatcher) Match(req *http.Request) Match {
 }
 
 // npmTarballRegexp matches the npm registry tarball URL shape for both
-// unscoped and scoped packages:
+// unscoped and scoped packages, anchored on the "/<name>/-/<file>.tgz" suffix
+// so it also matches registries served under a path prefix:
 //
 //	/left-pad/-/left-pad-1.3.0.tgz
 //	/@babel/core/-/core-7.24.0.tgz
+//	/artifactory/api/npm/npm/left-pad/-/left-pad-1.3.0.tgz
+//	/api/v4/projects/1/packages/npm/@scope/pkg/-/pkg-1.0.0.tgz
+//
+// The tarball shape ("/-/" separator + ".tgz") is the reliable enforcement
+// signal; the leading path segments vary by registry (public npm, Artifactory,
+// GitLab's own package registry). Anchoring on "^/?<name>" instead would
+// silently skip every path-prefixed registry — those fetches would be
+// forwarded with no policy check and no verdict, uninspected but green — so
+// the leading "(?:^|/)" lets any prefix precede the coordinate.
 //
 // Named groups:
 //
@@ -55,7 +65,7 @@ func (m NPMMatcher) Match(req *http.Request) Match {
 // the filename repeats the short name; npmTarball verifies that "file"
 // starts with "short-" and derives the version from the remainder.
 var npmTarballRegexp = regexp.MustCompile(
-	`^/?(?P<name>(?:@[^/]+/)?(?P<short>[^/]+))/-/(?P<file>[^/]+)\.tgz$`,
+	`(?:^|/)(?P<name>(?:@[^/]+/)?(?P<short>[^/]+))/-/(?P<file>[^/]+)\.tgz$`,
 )
 
 // npmTarball parses "/<name>/-/<file>-<version>.tgz" (scoped:

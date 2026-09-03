@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 )
@@ -80,11 +81,23 @@ func TestRequestKey(t *testing.T) {
 }
 
 func TestNewSelectsFakeWhenConfigured(t *testing.T) {
+	t.Setenv("GITLAB_CI", "")
 	t.Setenv("GLAB_DF_FAKE_DEFAULT", "block")
 
-	c := New(nil)
+	c, err := New(nil)
+	require.NoError(t, err)
 	_, isFake := c.(fakeChecker)
 	assert.True(t, isFake, "expected the fake checker when GLAB_DF_FAKE_* is set")
+}
+
+func TestNewRefusesFakeInCI(t *testing.T) {
+	t.Setenv("GITLAB_CI", "true")
+	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+
+	c, err := New(nil)
+	require.Error(t, err, "fake mode must be refused under GITLAB_CI=true")
+	assert.Nil(t, c)
+	assert.Contains(t, err.Error(), fakeEnvPrefix)
 }
 
 func TestNewSelectsNonFakeWhenUnconfigured(t *testing.T) {
@@ -97,7 +110,8 @@ func TestNewSelectsNonFakeWhenUnconfigured(t *testing.T) {
 		}
 	}
 
-	c := New(nil)
+	c, err := New(nil)
+	require.NoError(t, err)
 	_, isFake := c.(fakeChecker)
 	assert.False(t, isFake, "expected the non-fake checker when no GLAB_DF_FAKE_* is set")
 	assert.NotNil(t, c)

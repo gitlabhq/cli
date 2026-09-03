@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -445,4 +446,55 @@ func TestProxyPolicyCheckHasDeadline(t *testing.T) {
 	default:
 		t.Fatal("policy checker was not invoked")
 	}
+}
+
+// slowChecker signals when a check starts, then delays before returning its
+// result, modeling a policy decision still in flight when the child exits.
+type slowChecker struct {
+	started chan struct{}
+	delay   time.Duration
+	result  policy.Result
+}
+
+func (s *slowChecker) Check(context.Context, policy.Request) (policy.Result, error) {
+	close(s.started)
+	time.Sleep(s.delay)
+	return s.result, nil
+}
+
+// TestProxyStopDrainsInflightTunnelBeforeVerdicts verifies Stop waits for an
+// in-flight MITM tunnel to finish recording before returning, so a verdict
+// produced after the child exits is not lost. http.Server.Shutdown does not
+// wait for hijacked connections, so without the tunnel drain the Verdicts()
+// snapshot taken right after Stop would miss a late Block.
+func TestProxyStopDrainsInflightTunnelBeforeVerdicts(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "TARBALL")
+	}))
+	defer upstream.Close()
+
+	checker := &slowChecker{
+		started: make(chan struct{}),
+		delay:   150 * time.Millisecond,
+		result:  policy.Result{Verdict: verdict.Blocked, Reason: "late block"},
+	}
+	p := startProxy(t, upstream, checker)
+	client := newClient(t, p)
+
+	go func() {
+		resp, err := client.Get(upstream.URL + "/left-pad/-/left-pad-1.3.0.tgz")
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
+
+	// Wait until the check is in flight, then stop the proxy. Stop must block
+	// until the tunnel finishes recording the verdict.
+	<-checker.started
+	p.Stop()
+
+	verdicts := p.Verdicts()
+	require.Len(t, verdicts, 1, "Stop must drain the in-flight tunnel so its verdict is not lost")
+	assert.Equal(t, verdict.Blocked, verdicts[0].Verdict)
 }
