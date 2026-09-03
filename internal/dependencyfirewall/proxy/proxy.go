@@ -127,10 +127,24 @@ type Proxy struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// tunnels tracks in-flight hijacked MITM tunnel goroutines. http.Server
+	// Shutdown does not wait for hijacked connections, so Stop drains this
+	// (bounded) before the caller reads Verdicts(): a policy check still in
+	// flight when the child exits would otherwise record its verdict after the
+	// snapshot and a late Block would never reach the CI log.
+	tunnels sync.WaitGroup
+
 	mu       sync.Mutex
 	verdicts []verdict.Entry
 	seen     map[string]struct{}
 }
+
+// tunnelDrainTimeout bounds how long Stop waits for in-flight MITM tunnels to
+// finish after the proxy context is cancelled. A hung upstream or a client
+// that will not close should not block shutdown forever; the cancelled context
+// already unblocks policy checks, so a well-behaved tunnel exits well within
+// this window.
+const tunnelDrainTimeout = 5 * time.Second
 
 // Option configures a Proxy at construction time.
 type Option func(*Proxy)
@@ -217,6 +231,21 @@ func (p *Proxy) Stop() {
 			dbg.Debugf("dependency firewall proxy shutdown: %v", err)
 		}
 	}
+	// Shutdown does not wait for hijacked MITM tunnels, so drain them here
+	// (bounded) before the caller reads Verdicts(). The cancelled context has
+	// already unblocked any in-flight policy check, so a well-behaved tunnel
+	// records its verdict and returns promptly; the timeout guards against a
+	// hung upstream holding shutdown open forever.
+	done := make(chan struct{})
+	go func() {
+		p.tunnels.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(tunnelDrainTimeout):
+		dbg.Debugf("dependency firewall proxy: timed out draining in-flight tunnels")
+	}
 }
 
 func (p *Proxy) Verdicts() []verdict.Entry {
@@ -281,6 +310,13 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// A hijacked MITM tunnel outlives the CONNECT request and serves many
 	// requests, so r.Context() (cancelled when handleConnect returns) is the
 	// wrong lifetime. Use the proxy-lifetime context, which Stop cancels.
+	//
+	// Track the tunnel so Stop can drain in-flight ones before the caller
+	// snapshots Verdicts(): http.Server.Shutdown does not wait for hijacked
+	// connections, so without this a policy check completing after the child
+	// exits could record a Block that never reaches the CI log.
+	p.tunnels.Add(1)
+	defer p.tunnels.Done()
 	p.serveTunnel(p.ctx, tlsConn, authority) //nolint:contextcheck // MITM tunnel is bounded by the proxy lifetime, not the CONNECT request
 }
 

@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -101,12 +102,27 @@ const fakeEnvPrefix = "GLAB_DF_FAKE_"
 // otherwise the REST checker backed by client. The REST checker evaluates
 // against each Request's ProjectID, so no project is bound here. Callers wrap
 // the result in a CachingChecker.
-func New(client *gitlab.Client) Checker {
+//
+// Fake mode is refused in CI. The fake checker is a test seam that can allow
+// everything (GLAB_DF_FAKE_DEFAULT=allow); honoring it under GITLAB_CI=true
+// would let a single pipeline variable silently disable the firewall on a
+// real job. In CI the only valid checker is the REST one, so New returns an
+// error instead of quietly serving verdicts from the environment.
+func New(client *gitlab.Client) (Checker, error) {
 	environ := os.Environ()
 	if fakeConfigured(environ) {
-		return newFakeChecker(environ)
+		if isCI(environ) {
+			return nil, fmt.Errorf("refusing to use the Dependency Firewall fake policy checker in CI: unset all %s* variables so real policy is enforced", fakeEnvPrefix)
+		}
+		return newFakeChecker(environ), nil
 	}
-	return newRESTChecker(client)
+	return newRESTChecker(client), nil
+}
+
+// isCI reports whether the process is running inside GitLab CI, which sets
+// GITLAB_CI=true for every job.
+func isCI(environ []string) bool {
+	return slices.Contains(environ, "GITLAB_CI=true")
 }
 
 func fakeConfigured(environ []string) bool {

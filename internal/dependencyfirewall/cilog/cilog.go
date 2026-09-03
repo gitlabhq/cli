@@ -27,6 +27,14 @@ func Path(baseDir string) string {
 	return filepath.Join(baseDir, ".gitlab", "df", "ci-log.json")
 }
 
+// LockPath is the sidecar advisory-lock file guarding the Load -> Append ->
+// Save sequence against concurrent "glab df run" invocations in one job. It is
+// kept separate from the log file so the lock never conflicts with Save's
+// whole-file atomic rename, which replaces the log's inode.
+func LockPath(baseDir string) string {
+	return filepath.Join(baseDir, ".gitlab", "df", "ci-log.lock")
+}
+
 func New(command string) *Log {
 	return &Log{
 		SchemaVersion: 1,

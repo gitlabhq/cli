@@ -3,11 +3,14 @@
 package fsx
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/google/renameio/v2"
 	"github.com/stretchr/testify/assert"
@@ -142,4 +145,55 @@ func TestWriteOwnerOnly_TargetNeverDisappearsDuringOverwrite(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestWithLock_SerializesConcurrentCriticalSections(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("WithLock is a no-op on Windows")
+	}
+	// Two goroutines contending for the same lock must never overlap inside
+	// the critical section. Without the flock this races and inflight peaks
+	// above 1; with it, the second caller blocks until the first releases.
+	lockPath := filepath.Join(t.TempDir(), "df", "ci-log.lock")
+
+	var (
+		mu       sync.Mutex
+		inflight int
+		maxSeen  int
+	)
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			err := WithLock(lockPath, func() error {
+				mu.Lock()
+				inflight++
+				if inflight > maxSeen {
+					maxSeen = inflight
+				}
+				mu.Unlock()
+
+				time.Sleep(20 * time.Millisecond) // widen the overlap window
+
+				mu.Lock()
+				inflight--
+				mu.Unlock()
+				return nil
+			})
+			assert.NoError(t, err)
+		})
+	}
+	wg.Wait()
+
+	assert.Equal(t, 1, maxSeen, "WithLock must serialize the critical section")
+}
+
+func TestWithLock_PropagatesError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("WithLock is a no-op on Windows")
+	}
+	lockPath := filepath.Join(t.TempDir(), "ci-log.lock")
+	sentinel := errors.New("boom")
+	err := WithLock(lockPath, func() error { return sentinel })
+	assert.ErrorIs(t, err, sentinel, "WithLock must return fn's error unchanged")
 }
