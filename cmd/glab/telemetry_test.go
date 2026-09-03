@@ -3,60 +3,110 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	retryablehttp "github.com/hashicorp/go-retryablehttp"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
-	gitlab_testing "gitlab.com/gitlab-org/api/client-go/v2/testing"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
+	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
+// telemetryServer wires the factory to a server that records the request the
+// hook actually puts on the wire. The send bypasses client-go's typed service
+// so it can carry project_path, which makes the wire format worth asserting.
+func telemetryServer(t *testing.T, opts ...cmdtest.FactoryOption) (cmdutils.Factory, func() []trackEventOptions) {
+	t.Helper()
+
+	// Recorded rather than asserted in the handler: it runs on the server's
+	// goroutine, where require must not be called.
+	type recorded struct {
+		method string
+		path   string
+		body   trackEventOptions
+		err    error
+	}
+
+	var mu sync.Mutex
+	var seen []recorded
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body trackEventOptions
+		err := json.NewDecoder(r.Body).Decode(&body)
+
+		mu.Lock()
+		seen = append(seen, recorded{method: r.Method, path: r.URL.Path, body: body, err: err})
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(true))
+	// The default base URL is https; the test server speaks http.
+	client := cmdtest.NewTestApiClient(t, srv.Client(), "token", host, api.WithBaseURL(srv.URL+"/api/v4"))
+
+	factoryOpts := append([]cmdtest.FactoryOption{cmdtest.WithGitLabClient(client.Lab())}, opts...)
+
+	return cmdtest.NewTestFactory(ios, factoryOpts...), func() []trackEventOptions {
+		t.Helper()
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		events := make([]trackEventOptions, 0, len(seen))
+		for _, rec := range seen {
+			require.NoError(t, rec.err, "telemetry body must be valid JSON")
+			require.Equal(t, http.MethodPost, rec.method)
+			require.Equal(t, "/api/v4/usage_data/track_event", rec.path)
+			events = append(events, rec.body)
+		}
+		return events
+	}
+}
+
 func Test_sendTelemetryData(t *testing.T) {
 	tests := []struct {
 		name        string
-		args        []string
 		cobraMocks  []*cobra.Command
 		command     string
 		subcommand  string
 		fullCommand string
 	}{
 		{
-			name: "command with subcommand",
-			cobraMocks: []*cobra.Command{
-				{Use: "glab"},
-				{Use: "mr"},
-				{Use: "view"},
-			},
+			name:        "command with subcommand",
+			cobraMocks:  []*cobra.Command{{Use: "glab"}, {Use: "mr"}, {Use: "view"}},
 			command:     "mr",
 			subcommand:  "view",
 			fullCommand: "mr view",
 		},
 		{
-			name: "command with multiple subcommands",
-			cobraMocks: []*cobra.Command{
-				{Use: "glab"},
-				{Use: "command"},
-				{Use: "subcommand1"},
-				{Use: "subcommand2"},
-			},
-			args:        []string{"glab", "command", "subcommand1", "subcommand2"},
+			name:        "command with multiple subcommands",
+			cobraMocks:  []*cobra.Command{{Use: "glab"}, {Use: "command"}, {Use: "subcommand1"}, {Use: "subcommand2"}},
 			command:     "command",
 			subcommand:  "subcommand1 subcommand2",
 			fullCommand: "command subcommand1 subcommand2",
 		},
 		{
-			name: "single command only",
-			cobraMocks: []*cobra.Command{
-				{Use: "glab"},
-				{Use: "version"},
-			},
+			name:        "single command only",
+			cobraMocks:  []*cobra.Command{{Use: "glab"}, {Use: "version"}},
 			command:     "version",
 			subcommand:  "",
 			fullCommand: "version",
@@ -65,49 +115,174 @@ func Test_sendTelemetryData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tc := gitlab_testing.NewTestClient(t)
-			ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(true))
-
-			f := cmdtest.NewTestFactory(ios,
-				cmdtest.WithGitLabClient(tc.Client),
-			)
-
-			project := gitlab.Project{
-				ID:        123,
-				Namespace: &gitlab.ProjectNamespace{ID: 123},
-			}
-
-			tc.MockProjects.EXPECT().
-				GetProject(gomock.Any(), gomock.Any(), gomock.Any()).
-				Return(&project, &gitlab.Response{}, nil)
-
-			tc.MockUsageData.EXPECT().
-				TrackEvent(&gitlab.TrackEventOptions{
-					Event:          "gitlab_cli_command_used",
-					NamespaceID:    new(project.Namespace.ID),
-					ProjectID:      new(project.ID),
-					SendToSnowplow: new(true),
-					AdditionalProperties: map[string]string{
-						"label":                  tt.command,
-						"property":               tt.subcommand,
-						"command_and_subcommand": tt.fullCommand,
-					},
-				})
+			f, sent := telemetryServer(t)
 
 			passedCommand := tt.cobraMocks[0]
-			numberOfCommands := len(tt.cobraMocks)
-
 			for i, cmd := range tt.cobraMocks {
-				if i < numberOfCommands && i > 0 {
+				if i > 0 {
 					tt.cobraMocks[i-1].AddCommand(cmd)
-
 					passedCommand = cmd
 				}
 			}
 
 			sendTelemetryData(f, passedCommand)
+
+			require.Equal(t, []trackEventOptions{{
+				Event:          "gitlab_cli_command_used",
+				ProjectPath:    "OWNER/REPO",
+				SendToSnowplow: new(true),
+				AdditionalProperties: map[string]string{
+					"label":                  tt.command,
+					"property":               tt.subcommand,
+					"command_and_subcommand": tt.fullCommand,
+				},
+			}}, sent())
 		})
 	}
+}
+
+func Test_addTelemetryHook_blocksUntilEventIsSent(t *testing.T) {
+	// The hook used to spawn an unjoined goroutine, so glab exited before the
+	// event was sent for every command that did not linger afterwards.
+	f, sent := telemetryServer(t)
+
+	root := &cobra.Command{Use: "glab"}
+	version := &cobra.Command{Use: "version"}
+	root.AddCommand(version)
+
+	addTelemetryHook(f, version)()
+
+	require.Len(t, sent(), 1, "hook returned before the telemetry event was sent")
+}
+
+func requestDeadline(t *testing.T, opts []gitlab.RequestOptionFunc) (time.Time, bool) {
+	t.Helper()
+
+	req, err := retryablehttp.NewRequest(http.MethodGet, "https://gitlab.example.com", nil)
+	require.NoError(t, err)
+	for _, opt := range opts {
+		require.NoError(t, opt(req))
+	}
+	return req.Context().Deadline()
+}
+
+func Test_telemetryRequestOptions_boundsTheRequest(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), telemetrySendTimeout)
+	defer cancel()
+
+	deadline, bounded := requestDeadline(t, telemetryRequestOptions(ctx))
+
+	require.True(t, bounded, "the request must carry a deadline so it cannot hold up exit")
+	require.False(t, deadline.After(time.Now().Add(telemetrySendTimeout)), "deadline exceeds telemetrySendTimeout")
+}
+
+func Test_sendTelemetryData_skipsMachineInvokedCommands(t *testing.T) {
+	// These run from shell startup files and from git. A blocking network call
+	// there is exactly what ShouldSkipUpdate already avoids.
+	for _, path := range []string{"completion", "auth git-credential", "auth credential-helper"} {
+		t.Run(path, func(t *testing.T) {
+			f, sent := telemetryServer(t)
+
+			cmd := &cobra.Command{Use: "glab"}
+			for name := range strings.SplitSeq(path, " ") {
+				child := &cobra.Command{Use: name}
+				cmd.AddCommand(child)
+				cmd = child
+			}
+
+			sendTelemetryData(f, cmd)
+
+			require.Empty(t, sent(), "no event may be sent for a machine-invoked command")
+		})
+	}
+}
+
+func Test_buildTelemetryEvent_sendsProjectPath(t *testing.T) {
+	t.Parallel()
+
+	// The instance resolves the path to project and namespace IDs, so glab
+	// never has to look them up.
+	t.Run("inside a repo", func(t *testing.T) {
+		t.Parallel()
+
+		f, _ := telemetryServer(t)
+
+		_, event, ok := buildTelemetryEvent(f, "version", "", "version")
+		require.True(t, ok)
+
+		require.Equal(t, "OWNER/REPO", event.ProjectPath)
+	})
+
+	t.Run("outside a repo", func(t *testing.T) {
+		t.Parallel()
+
+		f, _ := telemetryServer(t, cmdtest.WithBaseRepoError(errors.New("no remotes")))
+
+		_, event, ok := buildTelemetryEvent(f, "version", "", "version")
+		require.True(t, ok)
+
+		require.Empty(t, event.ProjectPath)
+	})
+}
+
+func Test_trackEventOptions_encoding(t *testing.T) {
+	t.Parallel()
+
+	// project_path and project_id are mutually exclusive on the endpoint, so an
+	// empty path must be omitted rather than sent as "".
+	body, err := json.Marshal(&trackEventOptions{
+		Event:          "gitlab_cli_command_used",
+		SendToSnowplow: new(true),
+		AdditionalProperties: map[string]string{
+			"label": "version",
+		},
+	})
+	require.NoError(t, err)
+	require.NotContains(t, string(body), "project_path")
+
+	body, err = json.Marshal(&trackEventOptions{
+		Event:       "gitlab_cli_command_used",
+		ProjectPath: "OWNER/REPO",
+	})
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"project_path":"OWNER/REPO"`)
+}
+
+func Test_noRetry(t *testing.T) {
+	t.Parallel()
+
+	// The client retries five times by default. For telemetry that turns an
+	// instant failure, such as a refused connection, into the full timeout on
+	// every command.
+	t.Run("never retries", func(t *testing.T) {
+		t.Parallel()
+
+		retry, err := noRetry(t.Context(), nil, errors.New("connection refused"))
+
+		require.False(t, retry)
+		require.NoError(t, err)
+	})
+
+	t.Run("surfaces context cancellation", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		retry, err := noRetry(ctx, nil, nil)
+
+		require.False(t, retry)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+func Test_telemetryRequestOptions_disablesRetries(t *testing.T) {
+	t.Parallel()
+
+	// Guards the pairing: a deadline alone still leaves retries burning it.
+	require.Len(t, telemetryRequestOptions(t.Context()), 2)
 }
 
 func Test_parseCommand(t *testing.T) {
