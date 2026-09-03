@@ -14,6 +14,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/git"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
@@ -817,4 +818,27 @@ func Test_FromURL_SSHSubfolderMatrix(t *testing.T) {
 			assert.Equal(t, tc.wantHost, repo.RepoHost())
 		})
 	}
+}
+
+func Test_glRepo_Project_cachesTheFetch(t *testing.T) {
+	// A value receiver on Project() made the cache write a no-op, so every
+	// caller re-fetched. Loops such as `glab ci cancel` refetched per item.
+	originalGetProject := api.GetProject
+	t.Cleanup(func() { api.GetProject = originalGetProject })
+
+	calls := 0
+	api.GetProject = func(_ *gitlab.Client, projectID any) (*gitlab.Project, error) {
+		calls++
+		return &gitlab.Project{ID: 42, PathWithNamespace: fmt.Sprint(projectID)}, nil
+	}
+
+	repo := NewWithHost("OWNER", "REPO", "gitlab.com")
+
+	first, err := repo.Project(nil)
+	require.NoError(t, err)
+	_, err = repo.Project(nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, calls)
+	assert.Equal(t, "OWNER/REPO", first.PathWithNamespace)
 }

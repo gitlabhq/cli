@@ -63,10 +63,10 @@ func TestCIJobCancelMultiple(t *testing.T) {
 	t.Parallel()
 
 	tc := gitlabtesting.NewTestClient(t)
+	// The project is looked up once and reused for every job in the batch.
 	gomock.InOrder(
 		tc.MockProjects.EXPECT().GetProject("OWNER/REPO", gomock.Any()).Return(&gitlab.Project{ID: 123}, nil, nil),
 		tc.MockJobs.EXPECT().CancelJob(int64(123), int64(11111111)).Return(nil, nil, nil),
-		tc.MockProjects.EXPECT().GetProject("OWNER/REPO", gomock.Any()).Return(&gitlab.Project{ID: 123}, nil, nil),
 		tc.MockJobs.EXPECT().CancelJob(int64(123), int64(22222222)).Return(nil, nil, nil),
 	)
 	exec := cmdtest.SetupCmdForTest(t, NewCmdCancel, false, cmdtest.WithGitLabClient(tc.Client))
@@ -133,12 +133,12 @@ func TestCIJobCancelWithForceMultiple(t *testing.T) {
 	t.Parallel()
 
 	tc := gitlabtesting.NewTestClient(t)
+	// The project is looked up once and reused for every job in the batch.
 	gomock.InOrder(
 		tc.MockProjects.EXPECT().GetProject("OWNER/REPO", gomock.Any()).Return(&gitlab.Project{ID: 123}, nil, nil),
 		tc.MockJobs.EXPECT().CancelJobWithOptions(int64(123), int64(11111111), &gitlab.CancelJobOptions{
 			Force: new(true),
 		}).Return(nil, nil, nil),
-		tc.MockProjects.EXPECT().GetProject("OWNER/REPO", gomock.Any()).Return(&gitlab.Project{ID: 123}, nil, nil),
 		tc.MockJobs.EXPECT().CancelJobWithOptions(int64(123), int64(22222222), &gitlab.CancelJobOptions{
 			Force: new(true),
 		}).Return(nil, nil, nil),

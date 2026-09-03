@@ -254,7 +254,8 @@ type Project struct {
 	hostname string
 }
 
-func (r glRepo) Project(client *gitlab.Client) (*gitlab.Project, error) {
+// Project caches the fetched project, so the receiver must be a pointer.
+func (r *glRepo) Project(client *gitlab.Client) (*gitlab.Project, error) {
 	if r.project != nil && r.project.fullname == r.fullname && r.project.hostname == r.hostname {
 		return r.project.Project, nil
 	}
