@@ -16,3 +16,5 @@
 /internal/dependencyfirewall/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
 /internal/commands/df/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
 /docs/source/dependency-firewall/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
+/internal/commands/govern/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @nrosandich @jeanvdw @andrew.jung
+/docs/source/govern/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @nrosandich @jeanvdw @andrew.jung
