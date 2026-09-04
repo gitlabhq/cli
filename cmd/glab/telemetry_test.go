@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -135,8 +136,45 @@ func Test_sendTelemetryData(t *testing.T) {
 					"label":                  tt.command,
 					"property":               tt.subcommand,
 					"command_and_subcommand": tt.fullCommand,
+					"cli_version":            "test",
+					"platform":               runtime.GOOS,
+					"architecture":           runtime.GOARCH,
 				},
 			}}, sent())
+		})
+	}
+}
+
+func Test_buildTelemetryEvent_codingAgent(t *testing.T) {
+	tests := []struct {
+		name        string
+		codingAgent string
+		want        string
+		wantPresent bool
+	}{
+		{name: "agent detected", codingAgent: "claude-code", want: "claude-code", wantPresent: true},
+		{name: "no agent detected", codingAgent: "", wantPresent: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, _ := telemetryServer(t, cmdtest.WithBuildInfo(api.BuildInfo{
+				Version:      "v1.2.3",
+				Platform:     "linux",
+				Architecture: "amd64",
+				CodingAgent:  tt.codingAgent,
+			}))
+
+			_, event, ok := buildTelemetryEvent(f, "version", "", "version")
+			require.True(t, ok)
+
+			agent, present := event.AdditionalProperties["coding_agent"]
+			require.Equal(t, tt.wantPresent, present)
+			require.Equal(t, tt.want, agent)
+
+			require.Equal(t, "v1.2.3", event.AdditionalProperties["cli_version"])
+			require.Equal(t, "linux", event.AdditionalProperties["platform"])
+			require.Equal(t, "amd64", event.AdditionalProperties["architecture"])
 		})
 	}
 }
