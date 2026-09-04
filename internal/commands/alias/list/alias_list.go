@@ -62,7 +62,7 @@ func (o *options) run() error {
 	}
 
 	table := tableprinter.NewTablePrinter()
-	table.MaxColWidth = 70
+	table.Wrap = true
 
 	aliasMap := aliasCfg.All()
 	var keys []string
