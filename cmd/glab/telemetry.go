@@ -156,14 +156,25 @@ func buildTelemetryEvent(f cmdutils.Factory, command, subcommand, fullCommand st
 		projectPath = repo.FullName()
 	}
 
+	buildInfo := f.BuildInfo()
+	properties := map[string]string{
+		"label":                  command,
+		"property":               subcommand,
+		"command_and_subcommand": fullCommand,
+		"cli_version":            buildInfo.Version,
+		"platform":               buildInfo.Platform,
+		"architecture":           buildInfo.Architecture,
+	}
+	// Absent rather than empty, so "no agent" and "client too old to report
+	// one" stay distinguishable via cli_version.
+	if buildInfo.CodingAgent != "" {
+		properties["coding_agent"] = buildInfo.CodingAgent
+	}
+
 	return client, &trackEventOptions{
-		Event:          "gitlab_cli_command_used",
-		ProjectPath:    projectPath,
-		SendToSnowplow: new(true),
-		AdditionalProperties: map[string]string{
-			"label":                  command,
-			"property":               subcommand,
-			"command_and_subcommand": fullCommand,
-		},
+		Event:                "gitlab_cli_command_used",
+		ProjectPath:          projectPath,
+		SendToSnowplow:       new(true),
+		AdditionalProperties: properties,
 	}, true
 }
