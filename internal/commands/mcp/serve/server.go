@@ -103,11 +103,15 @@ func (s *mcpServer) registerToolsFromCommands() {
 			description = fmt.Sprintf("Execute glab %s command", strings.Join(path, " "))
 		}
 
+		// Resolved once: cobra fills in inherited flags by mutating the command,
+		// which concurrent tool invocations must not do.
+		flags := commandFlags(cmd)
+
 		// Build the tool with dynamic schema
-		tool := s.buildToolFromCommand(toolName, description, cmd)
+		tool := s.buildToolFromCommand(toolName, description, cmd, flags)
 
 		// Create handler for this command
-		handler := s.createCommandHandler(path, cmd)
+		handler := s.createCommandHandler(path, flags)
 
 		s.server.AddTool(tool, handler)
 	}
@@ -186,41 +190,32 @@ func (s *mcpServer) addStandardGuidance(description string) string {
 	return description
 }
 
+// commandFlags collects every flag a command accepts. Cobra folds inherited
+// flags into cmd.Flags() only while a command executes, which never happens
+// here, so a flag a parent noun registers for its subtree (such as -R/--repo
+// from cmdutils.EnableRepoOverride) needs the explicit InheritedFlags() pass.
+func commandFlags(cmd *cobra.Command) *pflag.FlagSet {
+	flags := pflag.NewFlagSet(cmd.Name(), pflag.ContinueOnError)
+	flags.AddFlagSet(cmd.Flags())
+	flags.AddFlagSet(cmd.PersistentFlags())
+	flags.AddFlagSet(cmd.InheritedFlags())
+	return flags
+}
+
 // buildToolFromCommand creates a tool with dynamic schema
-func (s *mcpServer) buildToolFromCommand(toolName, description string, cmd *cobra.Command) *mcp.Tool {
+func (s *mcpServer) buildToolFromCommand(toolName, description string, cmd *cobra.Command, flags *pflag.FlagSet) *mcp.Tool {
 	// Create nested flags object schema with all available flags
 	flagsProperties := make(map[string]any)
 
-	// Add parameters for each flag to the flags object
-	cmd.Flags().VisitAll(func(flag *pflag.Flag) {
-		if !flag.Hidden && flag.Name != "help" {
-			flagName := strings.ReplaceAll(flag.Name, "-", "_")
-			flagSchema := s.buildFlagSchema(flag)
-			if flagSchema != nil {
-				flagsProperties[flagName] = flagSchema
-			}
+	flags.VisitAll(func(flag *pflag.Flag) {
+		// Hidden is how a command opts out of an inherited flag: the root-level
+		// --repo is hidden, and only subtrees that resolve a project unhide it.
+		if flag.Hidden || flag.Name == "help" {
+			return
 		}
-	})
-
-	// Add persistent flags from parent commands to the flags object
-	cmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
-		if !flag.Hidden && flag.Name != "help" {
-			flagName := strings.ReplaceAll(flag.Name, "-", "_")
-
-			// Check if we already added this flag from local flags
-			alreadyAdded := false
-			cmd.Flags().VisitAll(func(localFlag *pflag.Flag) {
-				if localFlag.Name == flag.Name {
-					alreadyAdded = true
-				}
-			})
-
-			if !alreadyAdded {
-				flagSchema := s.buildFlagSchema(flag)
-				if flagSchema != nil {
-					flagsProperties[flagName] = flagSchema
-				}
-			}
+		flagName := strings.ReplaceAll(flag.Name, "-", "_")
+		if flagSchema := s.buildFlagSchema(flag); flagSchema != nil {
+			flagsProperties[flagName] = flagSchema
 		}
 	})
 
@@ -336,7 +331,7 @@ func (s *mcpServer) buildFlagSchema(flag *pflag.Flag) map[string]any {
 }
 
 // createCommandHandler creates a handler function for a specific glab command
-func (s *mcpServer) createCommandHandler(cmdPath []string, cmd *cobra.Command) mcp.ToolHandler {
+func (s *mcpServer) createCommandHandler(cmdPath []string, flags *pflag.FlagSet) mcp.ToolHandler {
 	return func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Get parameters from the request - need to unmarshal json.RawMessage
 		var params map[string]any
@@ -354,7 +349,7 @@ func (s *mcpServer) createCommandHandler(cmdPath []string, cmd *cobra.Command) m
 		}
 
 		// Convert MCP parameters to command line arguments and extract response config
-		args, config := s.convertParamsToArgs(params, cmd)
+		args, config := s.convertParamsToArgs(params, flags)
 
 		// Execute the glab command
 		output, err := s.executeGlabCommand(cmdPath, args)
@@ -436,7 +431,7 @@ func (s *mcpServer) processOutput(output string, config responseConfig) string {
 }
 
 // convertParamsToArgs converts MCP JSON parameters to command line arguments and extracts response config
-func (s *mcpServer) convertParamsToArgs(params map[string]any, cmd *cobra.Command) ([]string, responseConfig) {
+func (s *mcpServer) convertParamsToArgs(params map[string]any, flags *pflag.FlagSet) ([]string, responseConfig) {
 	var args []string
 	var positionals []string
 	config := responseConfig{
@@ -481,10 +476,10 @@ func (s *mcpServer) convertParamsToArgs(params map[string]any, cmd *cobra.Comman
 				flagName := strings.ReplaceAll(key, "_", "-")
 
 				// Check if this is a known flag
-				flag := cmd.Flags().Lookup(flagName)
+				flag := flags.Lookup(flagName)
 				if flag == nil {
 					// Try original key name
-					flag = cmd.Flags().Lookup(key)
+					flag = flags.Lookup(key)
 				}
 
 				// Process the parameter value
@@ -537,7 +532,7 @@ func (s *mcpServer) convertParamsToArgs(params map[string]any, cmd *cobra.Comman
 
 	// Auto-enable JSON output for commands that support it (better for LLM parsing)
 	// Only add if user hasn't already specified an output format via MCP params
-	if outputFlag := cmd.Flags().Lookup("output"); outputFlag != nil {
+	if outputFlag := flags.Lookup("output"); outputFlag != nil {
 		// Check if output flag was already provided by user in their MCP parameters
 		// (which would have been processed into args above)
 		// Users could specify either long form ("output") or short form ("o")
