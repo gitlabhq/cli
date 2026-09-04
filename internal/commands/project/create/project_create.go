@@ -304,7 +304,11 @@ func runCreateProject(cmd *cobra.Command, args []string, f cmdutils.Factory) err
 					}
 				}
 			}
-		} else {
+		} else if isGitInitialized {
+			// Only when the directory really is a repository. Reached both with
+			// --skipGitInit and when the user declined `git init`, and in neither
+			// case is there anywhere for a remote to go: `git remote add` would
+			// print `fatal: not a git repository` while the command still exits 0.
 			if _, err := addRemote(remoteName, remote); err != nil {
 				f.IO().LogErrorf("Warning: Could not add remote: %v\n", err)
 			} else {
@@ -320,7 +324,7 @@ func runCreateProject(cmd *cobra.Command, args []string, f cmdutils.Factory) err
 	// In non-interactive mode, defaults to false (only creates remote project)
 	// to prevent unexpected directory creation for AI agents.
 	var doSetup bool
-	if f.IO().IsInteractive() {
+	if !skipGitInit && f.IO().IsInteractive() {
 		doSetup = true
 		if err := f.IO().Confirm(cmd.Context(), &doSetup, fmt.Sprintf("Create a local project directory for %s?", project.NameWithNamespace)); err != nil {
 			return err

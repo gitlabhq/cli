@@ -3,8 +3,10 @@
 package create
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/acarl005/stripansi"
@@ -525,4 +527,130 @@ func Test_projectCreateCmd_InCurrentDirectory(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --skipGitInit promises to skip "both 'git init' and cloning". Two paths did not
+// honour it, and they fail differently depending on whether a project name is given,
+// so both are covered here.
+func Test_projectCreateCmd_SkipGitInit(t *testing.T) {
+	// Cannot use t.Parallel(): these tests replace package-level mocks and chdir.
+	origCreateProject := createProject
+	origCurrentUser := currentUser
+	origAddRemote := addRemote
+	origGitInitializer := gitInitializer
+	origRepoCloner := repoCloner
+	origRepoInitializer := repoInitializer
+
+	t.Cleanup(func() {
+		createProject = origCreateProject
+		currentUser = origCurrentUser
+		addRemote = origAddRemote
+		gitInitializer = origGitInitializer
+		repoCloner = origRepoCloner
+		repoInitializer = origRepoInitializer
+	})
+
+	stubAPI := func() {
+		createProject = func(client *gitlab.Client, opts *gitlab.CreateProjectOptions) (*gitlab.Project, error) {
+			return &gitlab.Project{
+				ID:                1,
+				Name:              "test-project",
+				Path:              "test-project",
+				NameWithNamespace: "username/test-project",
+				WebURL:            "https://gitlab.com/username/test-project",
+			}, nil
+		}
+		currentUser = func(client *gitlab.Client) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "username", Name: "name"}, nil
+		}
+	}
+
+	t.Run("no project name, not a Git repository: does not touch the remote", func(t *testing.T) {
+		// An empty temp dir makes `git rev-parse --git-dir` fail, so isGitInitialized
+		// is false — the exact situation in which `git remote add` printed
+		// "fatal: not a git repository" while the command still exited 0.
+		t.Chdir(t.TempDir())
+
+		stubAPI()
+		addRemoteCalled := false
+		addRemote = func(name, url string) (*git.Remote, error) {
+			addRemoteCalled = true
+			return nil, errors.New("fatal: not a git repository")
+		}
+		gitInitCalled := false
+		gitInitializer = func() error {
+			gitInitCalled = true
+			return nil
+		}
+
+		io, _, stdout, stderr := cmdtest.TestIOStreams()
+		f := cmdtest.NewTestFactory(io, cmdtest.WithConfig(config.NewFromString(heredoc.Doc(`
+			hosts:
+			  gitlab.com:
+			    username: monalisa
+			    token: OTOKEN
+			no_prompt: true
+		`))))
+
+		cmd := NewCmdCreate(f)
+		cmdutils.EnableRepoOverride(cmd, f)
+		cmd.SetArgs([]string{"--skipGitInit"})
+
+		_, err := cmd.ExecuteC()
+		require.NoError(t, err)
+
+		assert.False(t, addRemoteCalled, "addRemote must not run outside a Git repository")
+		assert.False(t, gitInitCalled, "--skipGitInit must not run git init")
+		assert.Contains(t, stripansi.Strip(stdout.String()), "Created project on GitLab:")
+		assert.NotContains(t, stripansi.Strip(stderr.String()), "Could not add remote")
+	})
+
+	t.Run("with a project name: no prompt and no local setup", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+
+		stubAPI()
+		addRemote = func(name, url string) (*git.Remote, error) {
+			return nil, errors.New("addRemote should not be reached")
+		}
+		clonerCalled := false
+		repoCloner = func(cloneURL, target, remoteName string) error {
+			clonerCalled = true
+			return nil
+		}
+		initializerCalled := false
+		repoInitializer = func(projectPath, remote string) error {
+			initializerCalled = true
+			return nil
+		}
+
+		// A TTY with prompts enabled is what made the old code prompt and then run
+		// the local setup that --skipGitInit says it skips.
+		io, _, stdout, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(true))
+		f := cmdtest.NewTestFactory(io, cmdtest.WithConfig(config.NewFromString(heredoc.Doc(`
+			hosts:
+			  gitlab.com:
+			    username: monalisa
+			    token: OTOKEN
+		`))))
+
+		cmd := NewCmdCreate(f)
+		cmdutils.EnableRepoOverride(cmd, f)
+		cmd.SetArgs([]string{"test-project", "--skipGitInit"})
+
+		// The prompt reads from the command's context. With --skipGitInit honoured
+		// nothing blocks and this finishes in milliseconds; if the flag is ignored
+		// the confirm waits on a TTY nobody is typing into, so the deadline turns
+		// what would otherwise be a hung CI job into a plain failure here.
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+
+		_, err := cmd.ExecuteContextC(ctx)
+		require.NoError(t, err)
+		require.NoError(t, ctx.Err(), "--skipGitInit still prompted: the confirm blocked until the deadline")
+
+		assert.False(t, clonerCalled, "--skipGitInit must not clone")
+		assert.False(t, initializerCalled, "--skipGitInit must not initialize a local repository")
+		assert.Contains(t, stripansi.Strip(stdout.String()), "Created project on GitLab:")
+		assert.NotContains(t, stripansi.Strip(stdout.String()), "Initialized repository")
+	})
 }
