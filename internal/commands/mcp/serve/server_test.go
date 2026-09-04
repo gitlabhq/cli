@@ -451,7 +451,7 @@ func TestBuildToolFromCommand_ArgsDescription(t *testing.T) {
 				RunE:        func(cmd *cobra.Command, args []string) error { return nil },
 			}
 
-			tool := server.buildToolFromCommand("test_tool", "desc", cmd)
+			tool := server.buildToolFromCommand("test_tool", "desc", cmd, commandFlags(cmd))
 			require.NotNil(t, tool)
 
 			schema, ok := tool.InputSchema.(map[string]any)
@@ -550,7 +550,7 @@ func TestConvertParamsToArgs(t *testing.T) {
 	t.Parallel()
 
 	server := &mcpServer{}
-	cmd := createMockCommandWithFlags()
+	flags := commandFlags(createMockCommandWithFlags())
 
 	tests := []struct {
 		name     string
@@ -631,10 +631,103 @@ func TestConvertParamsToArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			args, _ := server.convertParamsToArgs(tt.params, cmd)
+			args, _ := server.convertParamsToArgs(tt.params, flags)
 			assert.ElementsMatch(t, tt.expected, args)
 		})
 	}
+}
+
+// newRepoOverrideTree mirrors how --repo reaches leaf commands: the root
+// registers it hidden (cmdutils.AddGlobalRepoOverride) and a noun unhides it
+// for its own subtree (cmdutils.EnableRepoOverride). Neither leaf declares it.
+func newRepoOverrideTree() (*cobra.Command, *cobra.Command) {
+	root := &cobra.Command{Use: "glab"}
+	root.PersistentFlags().StringP("repo", "R", "", "Select another repository.")
+	root.PersistentFlags().Lookup("repo").Hidden = true
+
+	issue := &cobra.Command{Use: "issue"}
+	issue.PersistentFlags().StringP("repo", "R", "", "Select another repository.")
+	root.AddCommand(issue)
+
+	repoAware := &cobra.Command{Use: "create", RunE: func(*cobra.Command, []string) error { return nil }}
+	repoAware.Flags().String("title", "", "Title.")
+	issue.AddCommand(repoAware)
+
+	auth := &cobra.Command{Use: "auth"}
+	root.AddCommand(auth)
+
+	plain := &cobra.Command{Use: "status", RunE: func(*cobra.Command, []string) error { return nil }}
+	auth.AddCommand(plain)
+
+	return repoAware, plain
+}
+
+func schemaFlags(t *testing.T, tool *mcp.Tool) map[string]any {
+	t.Helper()
+
+	schema, ok := tool.InputSchema.(map[string]any)
+	require.True(t, ok, "InputSchema should be a map")
+	properties, ok := schema["properties"].(map[string]any)
+	require.True(t, ok, "InputSchema should have properties")
+	flags, ok := properties[flagsParam].(map[string]any)
+	require.True(t, ok, "InputSchema should have a flags property")
+	flagProperties, ok := flags["properties"].(map[string]any)
+	require.True(t, ok, "flags should have properties")
+
+	return flagProperties
+}
+
+func TestBuildToolFromCommandIncludesInheritedFlags(t *testing.T) {
+	t.Parallel()
+
+	server := &mcpServer{}
+	repoAware, _ := newRepoOverrideTree()
+
+	tool := server.buildToolFromCommand("glab_issue_create", "Create an issue.", repoAware, commandFlags(repoAware))
+
+	flags := schemaFlags(t, tool)
+	assert.Contains(t, flags, "repo")
+	assert.Contains(t, flags, "title")
+}
+
+func TestBuildToolFromCommandExcludesHiddenInheritedFlags(t *testing.T) {
+	t.Parallel()
+
+	server := &mcpServer{}
+	_, plain := newRepoOverrideTree()
+
+	tool := server.buildToolFromCommand("glab_auth_status", "Show status.", plain, commandFlags(plain))
+
+	assert.NotContains(t, schemaFlags(t, tool), "repo")
+}
+
+func TestConvertParamsToArgsForwardsInheritedFlags(t *testing.T) {
+	t.Parallel()
+
+	server := &mcpServer{}
+	repoAware, _ := newRepoOverrideTree()
+
+	args, _ := server.convertParamsToArgs(map[string]any{
+		"flags": map[string]any{
+			"repo":  "gitlab-org/cli",
+			"title": "Some title",
+		},
+	}, commandFlags(repoAware))
+
+	assert.ElementsMatch(t, []string{"--repo", "gitlab-org/cli", "--title", "Some title"}, args)
+}
+
+func TestConvertParamsToArgsIgnoresUnknownFlags(t *testing.T) {
+	t.Parallel()
+
+	server := &mcpServer{}
+	repoAware, _ := newRepoOverrideTree()
+
+	args, _ := server.convertParamsToArgs(map[string]any{
+		"flags": map[string]any{"not-a-flag": "value"},
+	}, commandFlags(repoAware))
+
+	assert.Empty(t, args)
 }
 
 // Tests for processOutput
@@ -726,7 +819,7 @@ func TestBuildToolFromCommand(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tool := server.buildToolFromCommand(tt.toolName, tt.description, cmd)
+			tool := server.buildToolFromCommand(tt.toolName, tt.description, cmd, commandFlags(cmd))
 
 			// Verify basic tool fields
 			assert.Equal(t, tt.toolName, tool.Name)
@@ -792,7 +885,7 @@ func TestBuildToolFromCommandWithDestructiveAnnotation(t *testing.T) {
 			t.Parallel()
 
 			cmd := createMockCommandWithAnnotations("test", "Test", tt.annotations)
-			tool := server.buildToolFromCommand("test_tool", "description", cmd)
+			tool := server.buildToolFromCommand("test_tool", "description", cmd, commandFlags(cmd))
 
 			if tt.wantDestructive {
 				require.NotNil(t, tool.Annotations, "destructive tool should have annotations")
@@ -814,7 +907,7 @@ func TestToolHandlerJSONUnmarshal(t *testing.T) {
 	t.Parallel()
 
 	server := &mcpServer{}
-	cmd := createMockCommandWithFlags()
+	flags := commandFlags(createMockCommandWithFlags())
 
 	tests := []struct {
 		name        string
@@ -855,7 +948,7 @@ func TestToolHandlerJSONUnmarshal(t *testing.T) {
 
 				// If valid, try converting to args
 				if err == nil {
-					args, config := server.convertParamsToArgs(params, cmd)
+					args, config := server.convertParamsToArgs(params, flags)
 					// Verify conversion works without error
 					// args is a slice that can be nil or empty, both are valid
 					_ = args
