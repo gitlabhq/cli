@@ -156,6 +156,8 @@
   submenu:
     - title: glab dependency-firewall ci-summary
       url: 'cli/dependency-firewall/ci-summary/'
+    - title: glab dependency-firewall npm
+      url: 'cli/dependency-firewall/npm/'
 - title: glab deploy-key
   url: 'cli/deploy-key/'
   submenu:

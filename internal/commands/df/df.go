@@ -6,6 +6,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	cmdCISummary "gitlab.com/gitlab-org/cli/internal/commands/df/cisummary"
+	cmdNpm "gitlab.com/gitlab-org/cli/internal/commands/df/npm"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -21,6 +22,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		`) + text.ExperimentalString,
 	}
 
+	cmd.AddCommand(cmdNpm.NewCmd(f))
 	cmd.AddCommand(cmdCISummary.NewCmd(f))
 
 	return cmd
