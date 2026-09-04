@@ -261,7 +261,7 @@ func MilestonesPrompt(ctx context.Context, response *int64, apiClient *gitlab.Cl
 // GroupMemberLevel maps a number representing the access level to a string shown to the
 // user.
 // API docs:
-// https://docs.gitlab.com/ce/api/members.html#valid-access-levels
+// https://docs.gitlab.com/api/group_members/
 var GroupMemberLevel = map[int]string{
 	0:  "no access",
 	5:  "minimal access",

@@ -2,7 +2,7 @@
 
 ## Developer Certificate of Origin + License
 
-Contributions to this repository are subject to the [Developer Certificate of Origin](https://docs.gitlab.com/legal/developer_certificate_of_origin/#developer-certificate-of-origin-version-11).
+Contributions to this repository are subject to the [Developer Certificate of Origin](https://docs.gitlab.com/legal/developer_certificate_of_origin/).
 
 All Documentation content that resides under the [`docs/` directory](docs/README.md) of this
 repository is licensed under Creative Commons:
@@ -262,7 +262,7 @@ the code in this project. The linter configuration can be seen in the
 [.golangci.yml file for this project](https://gitlab.com/gitlab-org/cli/-/blob/main/.golangci.yml).
 
 Additional details about code style and format are in the
-[go guide](https://docs.gitlab.com/ee/development/go_guide/#code-style-and-format).
+[go guide](https://docs.gitlab.com/development/go_guide/#code-style-and-format).
 
 ### Documenting commands
 

@@ -103,7 +103,7 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, args []string) er
 	// for this step, move forward assuming MR approvals are not supported. See below.
 	//
 	// NOTE: the API documentation says that project details have `approvals_before_merge` for GitLab Premium
-	// https://docs.gitlab.com/api/projects/#get-a-single-project. Unfortunately, the API client used
+	// https://docs.gitlab.com/api/projects/#retrieve-a-project. Unfortunately, the API client used
 	// does not provide the necessary ability to determine if this value was present or not in the response JSON
 	// since Project.ApprovalsBeforeMerge is a non-pointer type. Because of this, this step will either succeed
 	// and show approval state or it will fail silently
