@@ -26,12 +26,15 @@ func TestNewCmdHasSubcommands(t *testing.T) {
 		subcommandNames = append(subcommandNames, subcmd.Name())
 	}
 
+	assert.Contains(t, subcommandNames, "npm")
 	assert.Contains(t, subcommandNames, "ci-summary")
 }
 
-// No command here resolves a GitLab project, so none of them should offer
-// --repo. Advertising a flag that cannot affect the outcome is worse than not
-// having it; the package-manager wrappers enable it themselves when they land.
+// None of the df subcommands should advertise --repo. ci-summary resolves no
+// GitLab project, and the package-manager wrappers forward every argument
+// verbatim to the underlying binary (DisableFlagParsing), resolving the
+// project from the git remote instead. Advertising a flag that cannot affect
+// the outcome is worse than not having it.
 func TestNoRepoOverrideAdvertised(t *testing.T) {
 	ios, _, _, _ := cmdtest.TestIOStreams()
 	cmd := NewCmd(cmdtest.NewTestFactory(ios))
