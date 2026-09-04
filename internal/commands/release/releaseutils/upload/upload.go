@@ -155,7 +155,7 @@ func (c *Context) uploadAsProjectMarkdownFile(projectID string, file *ReleaseFil
 	//
 	// Thus, we append it to the base URL to get a usable link.
 	//
-	// See for context [https://docs.gitlab.com/ee/api/projects.html#upload-a-file](https://docs.gitlab.com/api/project_markdown_uploads/)
+	// See for context https://docs.gitlab.com/api/project_markdown_uploads/
 	assetURL := c.Client.BaseURL()
 	assetURL.Path = projectFile.FullPath
 
@@ -195,7 +195,7 @@ func (c *Context) CreateReleaseAssetLinks(projectID string, tagName string) erro
 
 // aliasFilePathToDirectAssetPath ensures that the Asset Link uses the direct_asset_path and not the filepath.
 // The filepath is deprecated and will be fully removed in GitLab 17.0.
-// See https://docs.gitlab.com/ee/update/deprecations.html?removal_milestone=17.0#filepath-field-in-releases-and-release-links-apis
+// See https://gitlab.com/groups/gitlab-org/-/work_items/9661
 func aliasFilePathToDirectAssetPath(asset *ReleaseAsset) (bool /* aliased */, error) {
 	if asset.FilePath == nil || *asset.FilePath == "" {
 		// There is no deprecated filepath set, so we are good.

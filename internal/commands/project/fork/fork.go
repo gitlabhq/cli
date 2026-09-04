@@ -271,7 +271,7 @@ func (o *options) run(ctx context.Context) error {
 
 			// check import status of Fork
 			// Import status should be one of {none, failed, scheduled, started, finished}
-			// https://docs.gitlab.com/ee/api/project_import_export.html#import-status
+			// https://docs.gitlab.com/api/project_import_export/#retrieve-the-status-of-a-project-import
 			if forkedProject == nil {
 				o.io.LogErrorf("Error: Lost track of forked project during status check")
 				break loop

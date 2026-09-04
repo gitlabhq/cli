@@ -134,7 +134,7 @@ func (o *options) run(ctx context.Context) error {
 			return fmt.Errorf("%q is configured for OAuth, but its credential resolved as %s", host, cred.Kind)
 		}
 
-		// see https://docs.gitlab.com/ee/api/oauth2.html#access-git-over-https-with-access-token
+		// see https://docs.gitlab.com/api/oauth2/#access-git-over-https-with-access-token
 		output["username"] = "oauth2"
 		output["password"] = cred.Token
 		if !cred.Expiry.IsZero() {
