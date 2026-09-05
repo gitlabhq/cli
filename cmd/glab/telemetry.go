@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	apiCmd "gitlab.com/gitlab-org/cli/internal/commands/api"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/utils"
@@ -101,6 +103,7 @@ func sendTelemetryData(f cmdutils.Factory, cmd *cobra.Command) {
 	if !ok {
 		return
 	}
+	maps.Copy(event.AdditionalProperties, apiEventProperties(cmd))
 
 	// Not cmd.Context(): that is already cancelled if the command was interrupted.
 	ctx, cancel := context.WithTimeout(context.Background(), telemetrySendTimeout)
@@ -129,6 +132,46 @@ func trackEvent(client *gitlab.Client, event *trackEventOptions, options ...gitl
 
 	_, err = client.Do(req, nil)
 	return err
+}
+
+// Reported instead of the path when no route matches, so an unrecognised path
+// is discarded whole rather than partially redacted.
+const unmatchedEndpoint = "unmatched"
+
+func apiEventProperties(cmd *cobra.Command) map[string]string {
+	if cmd.Name() != "api" {
+		return nil
+	}
+
+	args := cmd.Flags().Args()
+	if len(args) == 0 {
+		return nil
+	}
+
+	return map[string]string{
+		"api_endpoint": templateEndpoint(args[0]),
+		"http_method":  apiCmd.EffectiveMethod(cmd),
+	}
+}
+
+// templateEndpoint reduces a request path to the matching route template.
+// Identifiers are not distinguishable from route nouns by shape, so the path is
+// matched rather than rewritten: "users/phikai/projects" must not keep the
+// username.
+func templateEndpoint(path string) string {
+	// Query strings and fragments carry identifiers and sometimes tokens.
+	path, _, _ = strings.Cut(path, "?")
+	path, _, _ = strings.Cut(path, "#")
+
+	// client-go reaches GraphQL through its own client, so it has no route.
+	if strings.Trim(path, "/") == "graphql" {
+		return "/graphql"
+	}
+
+	if route, ok := gitlab.MatchRoute(path); ok {
+		return route.String()
+	}
+	return unmatchedEndpoint
 }
 
 // buildTelemetryEvent assembles the event without making a request of its own.

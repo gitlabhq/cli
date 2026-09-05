@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,12 +19,14 @@ import (
 
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	apiCmd "gitlab.com/gitlab-org/cli/internal/commands/api"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -321,6 +324,111 @@ func Test_telemetryRequestOptions_disablesRetries(t *testing.T) {
 
 	// Guards the pairing: a deadline alone still leaves retries burning it.
 	require.Len(t, telemetryRequestOptions(t.Context()), 2)
+}
+
+func Test_templateEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "no parameters", path: "/user", want: "/user"},
+		{name: "leading slash optional", path: "user", want: "/user"},
+		{name: "numeric project id", path: "projects/278964/merge_requests", want: "/projects/:id/merge_requests"},
+		{name: "encoded project path", path: "projects/gitlab-org%2Fcli/issues", want: "/projects/:id/issues"},
+		{name: "glab placeholder", path: "projects/:fullpath/merge_requests", want: "/projects/:id/merge_requests"},
+		{name: "nested parameters", path: "projects/1/merge_requests/2/notes", want: "/projects/:id/merge_requests/:id/notes"},
+		{name: "trailing slash", path: "/projects/1/issues/", want: "/projects/:id/issues"},
+		{name: "uppercase segment", path: "/Projects/1/Issues", want: "/projects/:id/issues"},
+		{name: "graphql", path: "graphql", want: "/graphql"},
+
+		// Indistinguishable from route nouns by shape: a heuristic templater
+		// would keep these verbatim.
+		{name: "username", path: "users/phikai/projects", want: "/users/:id/projects"},
+		{name: "branch name", path: "projects/1/repository/branches/my-feature", want: "/projects/:id/repository/branches/:id"},
+		{name: "file path", path: "projects/1/repository/files/src%2Fmain.go/raw", want: "/projects/:id/repository/files/:id/raw"},
+
+		{name: "unknown endpoint", path: "projects/1/not_a_real_resource", want: unmatchedEndpoint},
+		{name: "empty", path: "", want: unmatchedEndpoint},
+		{name: "root", path: "/", want: unmatchedEndpoint},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, templateEndpoint(tt.path))
+		})
+	}
+}
+
+func Test_templateEndpoint_neverEmitsRequestData(t *testing.T) {
+	t.Parallel()
+
+	// Every value is either a route client-go knows or the sentinel, so no
+	// input can survive into the payload.
+	paths := []string{
+		"projects/1/issues?private_token=glpat-SECRET&search=confidential",
+		"projects/1/issues#fragment",
+		"users/phikai/projects",
+		"projects/1/repository/branches/release%2F17-0",
+		"projects/1/not_a_real_resource/glpat-SECRET",
+		"../../etc/passwd",
+	}
+
+	for _, path := range paths {
+		got := templateEndpoint(path)
+		assert.NotContains(t, got, "glpat", path)
+		assert.NotContains(t, got, "phikai", path)
+		assert.NotContains(t, got, "confidential", path)
+		assert.NotContains(t, got, "passwd", path)
+
+		if got != unmatchedEndpoint {
+			assert.True(t, slices.ContainsFunc(gitlab.Routes(), func(r gitlab.Route) bool {
+				return r.String() == got
+			}), "%q produced %q, which is not a route the client knows", path, got)
+		}
+	}
+}
+
+func Test_apiEventProperties(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reports endpoint and method", func(t *testing.T) {
+		t.Parallel()
+
+		cmd := parseAPICommand(t, []string{"projects/278964/merge_requests", "--field", "title=x"})
+
+		assert.Equal(t, map[string]string{
+			"api_endpoint": "/projects/:id/merge_requests",
+			"http_method":  "POST",
+		}, apiEventProperties(cmd))
+	})
+
+	t.Run("nil for other commands", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Nil(t, apiEventProperties(&cobra.Command{Use: "mr"}))
+	})
+
+	t.Run("nil when no endpoint was given", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Nil(t, apiEventProperties(parseAPICommand(t, nil)))
+	})
+}
+
+// parseAPICommand parses args into the real command, so a renamed flag fails
+// here rather than silently in production.
+func parseAPICommand(t *testing.T, args []string) *cobra.Command {
+	t.Helper()
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	cmd := apiCmd.NewCmdApi(cmdtest.NewTestFactory(ios), nil)
+
+	require.NoError(t, cmd.Flags().Parse(args))
+	return cmd
 }
 
 func Test_parseCommand(t *testing.T) {
