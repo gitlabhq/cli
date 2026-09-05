@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -284,6 +285,33 @@ func (o *options) validate(cmd *cobra.Command) error {
 	return nil
 }
 
+// EffectiveMethod reports the HTTP method an invocation of this command uses.
+func EffectiveMethod(cmd *cobra.Command) string {
+	fl := cmd.Flags()
+
+	bodyFlags := []string{"field", "raw-field", "form", "input"}
+	method := resolveMethod(
+		fl.Lookup("method").Value.String(),
+		fl.Changed("method"),
+		slices.ContainsFunc(bodyFlags, fl.Changed),
+	)
+
+	if method == "" {
+		return http.MethodGet
+	}
+	return strings.ToUpper(method)
+}
+
+// resolveMethod applies the documented default: the request is a GET unless
+// parameters, a form, or an input file are supplied, and an explicit --method
+// always wins. Shared with the telemetry hook so the two cannot drift.
+func resolveMethod(method string, methodPassed, hasBody bool) string {
+	if !methodPassed && hasBody {
+		return http.MethodPost
+	}
+	return method
+}
+
 func (o *options) run(ctx context.Context) error {
 	params, rawKeys, err := parseFields(o)
 	if err != nil {
@@ -294,13 +322,11 @@ func (o *options) run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to expand placeholder in path: %w", err)
 	}
-	method := o.requestMethod
 	requestHeaders := o.requestHeaders
 	var requestBody any = params
 
-	if !o.requestMethodPassed && (len(params) > 0 || o.requestInputFile != "") {
-		method = http.MethodPost
-	}
+	method := resolveMethod(o.requestMethod, o.requestMethodPassed,
+		len(params) > 0 || o.requestInputFile != "" || len(o.formFields) > 0)
 
 	o.warnOnLegacyRawArrays(method, params, rawKeys)
 
@@ -323,9 +349,6 @@ func (o *options) run(ctx context.Context) error {
 			requestHeaders = append([]string{fmt.Sprintf("Content-Length: %d", size)}, requestHeaders...)
 		}
 	} else if len(o.formFields) > 0 {
-		if !o.requestMethodPassed {
-			method = http.MethodPost
-		}
 		body, contentType := buildMultipartBody(o.formFields, o.io.In)
 		requestBody = body
 		requestHeaders = append([]string{fmt.Sprintf("Content-Type: %s", contentType)}, requestHeaders...)
