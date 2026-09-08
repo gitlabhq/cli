@@ -68,8 +68,41 @@ the literal string `"[api,read_api]"`. Earlier versions converted that shape
 into an array on request bodies, which `--raw-field` never documented. Use
 `-F 'scopes=["api","read_api"]'` for an array.
 
+Field names are never parsed. A bracketed name is only meaningful where the
+fields become URL query parameters. That means `GET` and `DELETE` requests,
+and any request where `--input` supplies the body. There the name is used
+literally and percent-encoded, so `-f 'position[base_sha]=abc'` arrives as
+the nested parameter it describes.
+
+A name ending in `[]` collects values instead of holding one, which is how
+the API reads an array. Repeating the name sends every value, in the order
+the flags were given: `-X GET -f 'ids[]=1' -f 'ids[]=2'` sends both.
+Because every value is sent, `--field` does not override `--raw-field` of
+the same name, as it does for other names.
+
+Any other name holds a single value. Among values from the same flag, the
+last one wins. When both flags name it, the `--field` value wins, whichever
+order the two were given in.
+
+The `-F 'ids=[1,2]'` spelling emits `ids[]` as well. Spelling one query
+parameter both ways is therefore an error. Passing `-f 'ids[]=1'` with
+`-F 'ids=[2,3]'` is rejected, because nothing says which order the three
+values belong in.
+
+In a JSON request body a field name containing a bracket is an error. Such
+a name would be sent as a single literal key, which the API ignores. The
+request would succeed without doing what the name asked. Pass the value as
+JSON instead, as in `-F 'position={"base_sha":"abc"}'` or `-F 'ids=[1,2]'`.
+Or use `--input`.
+
+With no `--method`, adding any field makes the request a `POST`. Sending
+bracketed names as query parameters therefore needs an explicit
+`--method GET`. `--form` is unaffected: its part names are always literal.
+
 For GraphQL requests, all fields other than `query` and `operationName` are
-interpreted as GraphQL variables.
+interpreted as GraphQL variables. The bracket rule applies to them
+unchanged: where the request sends a JSON body, a bracketed variable name
+is an error.
 
 To send data as `multipart/form-data` instead of JSON, use `--form`. This is
 required for API endpoints that accept file uploads, such as wiki attachments.
