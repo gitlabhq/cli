@@ -36,7 +36,7 @@ func httpRequest(ctx context.Context, client *api.Client, method, p string, para
 	var bodyIsJSON bool
 	switch pp := params.(type) {
 	case map[string]any:
-		if strings.EqualFold(method, http.MethodGet) || strings.EqualFold(method, http.MethodDelete) {
+		if isQueryMethod(method) {
 			baseURLStr, err = parseQuery(baseURLStr, pp)
 			if err != nil {
 				return nil, err
@@ -94,6 +94,12 @@ func groupGraphQLVariables(params map[string]any) map[string]any {
 		topLevel["variables"] = variables
 	}
 	return topLevel
+}
+
+// isQueryMethod reports whether fields for this method are sent as a query
+// string rather than a request body.
+func isQueryMethod(method string) bool {
+	return strings.EqualFold(method, http.MethodGet) || strings.EqualFold(method, http.MethodDelete)
 }
 
 func parseQuery(path string, params map[string]any) (string, error) {

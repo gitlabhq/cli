@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -117,6 +118,26 @@ func Test_NewCmdApi(t *testing.T) {
 				requestPath:         "projects/OWNER%2FREPO/issues",
 				requestInputFile:    "",
 				rawFields:           []string(nil),
+				magicFields:         []string(nil),
+				requestHeaders:      []string(nil),
+				showResponseHeaders: false,
+				paginate:            true,
+				silent:              false,
+			},
+			wantsErr: false,
+		},
+		{
+			// validate reads the --method default, so fields with no -X reach
+			// run() and are only then inferred to POST.
+			name: "pagination with fields",
+			cli:  "projects --paginate -f a=b",
+			wants: options{
+				hostname:            "",
+				requestMethod:       http.MethodGet,
+				requestMethodPassed: false,
+				requestPath:         "projects",
+				requestInputFile:    "",
+				rawFields:           []string{"a=b"},
 				magicFields:         []string(nil),
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
@@ -560,6 +581,204 @@ func Test_apiRun_paginationREST(t *testing.T) {
 	assert.Equal(t, "https://gitlab.com/api/v4/issues?per_page=100", responses[0].Request.URL.String())
 	assert.Equal(t, "https://gitlab.com/api/v4/projects/1227/issues?page=2", responses[1].Request.URL.String())
 	assert.Equal(t, "https://gitlab.com/api/v4/projects/1227/issues?page=3", responses[2].Request.URL.String())
+}
+
+// Test_apiRun_paginationREST_followsLinkURLVerbatim pins the Link header
+// contract for --paginate: every page after the first is requested at exactly
+// the URL the server advertised as rel="next". Re-applying the caller's fields
+// duplicates array values and can override the page the server asked for. A
+// method that carries its fields in the body instead of the query keeps sending
+// them, so the same loop must not drop that body.
+func Test_apiRun_paginationREST_followsLinkURLVerbatim(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		magicFields []string
+		rawFields   []string
+		// requestMethodPassed false leaves the --method default in place, which
+		// validate accepts and method inference then turns into a POST.
+		requestMethodPassed bool
+		outputFormat        string
+		// wantFirstQuery: each caller parameter exactly once, plus per_page.
+		wantFirstQuery url.Values
+		// nextPageURLs: rel="next" targets requests two and three must match.
+		nextPageURLs [2]string
+		// wantMethod, wantBody and wantContentType hold for all three requests,
+		// not only the first: whichever of the query or the body carries the
+		// caller's fields must carry them on every page.
+		wantMethod      string
+		wantBody        string
+		wantContentType string
+		// wantStdout: every page's payload, in the order the pages arrived.
+		wantStdout string
+	}{
+		{
+			name:                "array field",
+			magicFields:         []string{"ids=[1,2]"},
+			requestMethodPassed: true,
+			outputFormat:        "json",
+			wantFirstQuery:      url.Values{"ids[]": {"1", "2"}, "per_page": {"100"}},
+			nextPageURLs: [2]string{
+				"https://gitlab.com/api/v4/issues?ids%5B%5D=1&ids%5B%5D=2&page=2&per_page=100",
+				"https://gitlab.com/api/v4/issues?ids%5B%5D=1&ids%5B%5D=2&page=3&per_page=100",
+			},
+			wantMethod: http.MethodGet,
+			wantStdout: `[{"id":1}][{"id":2}][{"id":3}]`,
+		},
+		{
+			name:                "array field with ndjson output",
+			magicFields:         []string{"ids=[1,2]"},
+			requestMethodPassed: true,
+			outputFormat:        "ndjson",
+			wantFirstQuery:      url.Values{"ids[]": {"1", "2"}, "per_page": {"100"}},
+			nextPageURLs: [2]string{
+				"https://gitlab.com/api/v4/issues?ids%5B%5D=1&ids%5B%5D=2&page=2&per_page=100",
+				"https://gitlab.com/api/v4/issues?ids%5B%5D=1&ids%5B%5D=2&page=3&per_page=100",
+			},
+			wantMethod: http.MethodGet,
+			wantStdout: "{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n",
+		},
+		{
+			name:                "scalar field",
+			rawFields:           []string{"foo=bar"},
+			requestMethodPassed: true,
+			outputFormat:        "json",
+			wantFirstQuery:      url.Values{"foo": {"bar"}, "per_page": {"100"}},
+			nextPageURLs: [2]string{
+				"https://gitlab.com/api/v4/issues?foo=bar&page=2&per_page=100",
+				"https://gitlab.com/api/v4/issues?foo=bar&page=3&per_page=100",
+			},
+			wantMethod: http.MethodGet,
+			wantStdout: `[{"id":1}][{"id":2}][{"id":3}]`,
+		},
+		{
+			name:                "caller-supplied page",
+			rawFields:           []string{"page=1"},
+			requestMethodPassed: true,
+			outputFormat:        "json",
+			wantFirstQuery:      url.Values{"page": {"1"}, "per_page": {"100"}},
+			nextPageURLs: [2]string{
+				"https://gitlab.com/api/v4/issues?page=2&per_page=100",
+				"https://gitlab.com/api/v4/issues?page=3&per_page=100",
+			},
+			wantMethod: http.MethodGet,
+			wantStdout: `[{"id":1}][{"id":2}][{"id":3}]`,
+		},
+		{
+			// glab api --paginate -f a=b issues, an inferred POST: the field is
+			// in the body and never in the query, so every page has to re-send
+			// it. per_page is still appended to the path.
+			name:                "field with no method flag",
+			rawFields:           []string{"a=b"},
+			requestMethodPassed: false,
+			outputFormat:        "json",
+			wantFirstQuery:      url.Values{"per_page": {"100"}},
+			nextPageURLs: [2]string{
+				"https://gitlab.com/api/v4/issues?page=2&per_page=100",
+				"https://gitlab.com/api/v4/issues?page=3&per_page=100",
+			},
+			wantMethod:      http.MethodPost,
+			wantBody:        `{"a":"b"}`,
+			wantContentType: "application/json; charset=utf-8",
+			wantStdout:      `[{"id":1}][{"id":2}][{"id":3}]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ios, _, stdout, stderr := cmdtest.TestIOStreams()
+
+			responses := make([]*http.Response, len(tt.nextPageURLs)+1)
+			for i := range responses {
+				header := http.Header{"Content-Type": []string{`application/json`}}
+				if i < len(tt.nextPageURLs) {
+					header.Set("Link", fmt.Sprintf(`<%s>; rel="next"`, tt.nextPageURLs[i]))
+				}
+				responses[i] = &http.Response{
+					StatusCode: http.StatusOK,
+					// A distinct payload per page, so stdout pins order.
+					Body:   io.NopCloser(bytes.NewBufferString(fmt.Sprintf(`[{"id":%d}]`, i+1))),
+					Header: header,
+				}
+			}
+
+			requestCount := 0
+			var gotMethods, gotBodies, gotContentTypes []string
+			var tr roundTripFunc = func(req *http.Request) (*http.Response, error) {
+				// An unadvertised page errors, so a regression fails instead of hanging.
+				if requestCount >= len(responses) {
+					return nil, fmt.Errorf("unexpected request %d: %s", requestCount+1, req.URL)
+				}
+				// The transport is the last reader of the body, so draining it
+				// here records what the server would have received.
+				body := ""
+				if req.Body != nil {
+					b, err := io.ReadAll(req.Body)
+					if err != nil {
+						return nil, err
+					}
+					body = string(b)
+				}
+				gotMethods = append(gotMethods, req.Method)
+				gotBodies = append(gotBodies, body)
+				gotContentTypes = append(gotContentTypes, req.Header.Get("Content-Type"))
+				resp := responses[requestCount]
+				resp.Request = req
+				requestCount++
+				return resp, nil
+			}
+			a := cmdtest.NewTestApiClient(t, &http.Client{Transport: tr}, "OTOKEN", "gitlab.com")
+			options := options{
+				io: ios,
+				baseRepo: func() (glrepo.Interface, error) {
+					return nil, fmt.Errorf("not supposed to be called")
+				},
+				apiClient: func(repoHost string) (*api.Client, error) {
+					return a, nil
+				},
+
+				requestPath: "issues",
+				// "GET" is the --method default, held whether or not -X was passed.
+				requestMethod:       http.MethodGet,
+				requestMethodPassed: tt.requestMethodPassed,
+				magicFields:         tt.magicFields,
+				rawFields:           tt.rawFields,
+				paginate:            true,
+				outputFormat:        tt.outputFormat,
+			}
+
+			err := options.run(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, len(responses), requestCount, "number of requests")
+
+			firstQuery, err := url.ParseQuery(responses[0].Request.URL.RawQuery)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantFirstQuery, firstQuery, "query of the first request")
+
+			assert.Equal(t, tt.nextPageURLs[0], responses[1].Request.URL.String(),
+				`request 2 must be the rel="next" URL of response 1, unmodified`)
+			assert.Equal(t, tt.nextPageURLs[1], responses[2].Request.URL.String(),
+				`request 3 must be the rel="next" URL of response 2, unmodified`)
+
+			assert.Equal(t, tt.wantMethod, gotMethods[0], "method of request 1")
+			assert.Equal(t, tt.wantMethod, gotMethods[1], "method of request 2")
+			assert.Equal(t, tt.wantMethod, gotMethods[2], "method of request 3")
+
+			assert.Equal(t, tt.wantBody, gotBodies[0], "body of request 1")
+			assert.Equal(t, tt.wantBody, gotBodies[1], "body of request 2")
+			assert.Equal(t, tt.wantBody, gotBodies[2], "body of request 3")
+
+			assert.Equal(t, tt.wantContentType, gotContentTypes[0], "Content-Type of request 1")
+			assert.Equal(t, tt.wantContentType, gotContentTypes[1], "Content-Type of request 2")
+			assert.Equal(t, tt.wantContentType, gotContentTypes[2], "Content-Type of request 3")
+
+			assert.Equal(t, tt.wantStdout, stdout.String(), "stdout")
+			assert.Empty(t, stderr.String(), "stderr")
+		})
+	}
 }
 
 func Test_apiRun_paginationGraphQL(t *testing.T) {
