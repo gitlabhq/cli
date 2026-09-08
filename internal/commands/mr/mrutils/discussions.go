@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 )

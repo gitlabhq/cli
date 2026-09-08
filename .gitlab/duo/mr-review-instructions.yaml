@@ -456,7 +456,7 @@ instructions:
          do not introduce a package-level `var xxx = func(...)` shim in
          production code to be overridden by the test.
       4. For GitLab API mocking, use the client-go testing package:
-         `gitlabtesting "gitlab.com/gitlab-org/api/client-go/v2/testing"`.
+         `gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"`.
 
          ```go
          tc := gitlabtesting.NewTestClient(t)

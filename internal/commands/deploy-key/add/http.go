@@ -3,7 +3,7 @@ package add
 import (
 	"time"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 func UploadDeployKey(client *gitlab.Client, projectId string, title string, key string, canPush bool, expiresAt string) error {

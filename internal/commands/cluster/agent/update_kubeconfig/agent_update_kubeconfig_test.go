@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/commands/cluster/agent/agentutils"
 )

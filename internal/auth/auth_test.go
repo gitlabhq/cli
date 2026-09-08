@@ -9,8 +9,8 @@ import (
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/stretchr/testify/require"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
-	gitlab_testing "gitlab.com/gitlab-org/api/client-go/v2/testing"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	gitlab_testing "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"

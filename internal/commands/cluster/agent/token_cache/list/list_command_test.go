@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
-	gitlab_testing "gitlab.com/gitlab-org/api/client-go/v2/testing"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	gitlab_testing "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )

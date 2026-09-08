@@ -7,8 +7,8 @@ import (
 
 	"go.uber.org/mock/gomock"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
-	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v2/testing"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 )
 
 // mockMR1 sets up a GetMergeRequest mock for MR !1 in OWNER/REPO.

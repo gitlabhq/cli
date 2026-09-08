@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"gitlab.com/gitlab-org/api/client-go/v2/gitlaboauth2"
+	"gitlab.com/gitlab-org/api/client-go/v3/gitlaboauth2"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
