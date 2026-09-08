@@ -102,6 +102,10 @@ func isQueryMethod(method string) bool {
 	return strings.EqualFold(method, http.MethodGet) || strings.EqualFold(method, http.MethodDelete)
 }
 
+// queryList holds the values repeated flags gave one name ending in "[]". Unlike
+// a decoded JSON array, the name already carries its "[]", so none is appended.
+type queryList []any
+
 func parseQuery(path string, params map[string]any) (string, error) {
 	if len(params) == 0 {
 		return path, nil
@@ -109,30 +113,38 @@ func parseQuery(path string, params map[string]any) (string, error) {
 	q := url.Values{}
 	for key, value := range params {
 		switch v := value.(type) {
-		case string:
-			q.Add(key, v)
-		case []byte:
-			q.Add(key, string(v))
-		case nil:
-			q.Add(key, "")
-		case int:
-			q.Add(key, fmt.Sprintf("%d", v))
-		case bool:
-			q.Add(key, fmt.Sprintf("%v", v))
 		case []any:
 			// Encode JSON arrays as repeated key[]= parameters, the form the
-			// GitLab REST API expects for array query parameters.
+			// GitLab REST API expects for array query parameters. A name given
+			// with its own "[]" already spells that form, so appending a second
+			// pair would address key[][] instead.
+			arrayKey := key
+			if !strings.HasSuffix(key, "[]") {
+				arrayKey = key + "[]"
+			}
 			for _, item := range v {
 				s, err := queryScalarValue(item)
 				if err != nil {
 					return "", fmt.Errorf("query parameter %q: %w", key, err)
 				}
-				q.Add(key+"[]", s)
+				q.Add(arrayKey, s)
+			}
+		case queryList:
+			for _, item := range v {
+				s, err := queryLiteralValue(item)
+				if err != nil {
+					return "", fmt.Errorf("query parameter %q: %w", key, err)
+				}
+				q.Add(key, s)
 			}
 		case map[string]any:
 			return "", fmt.Errorf("query parameter %q: objects are not supported as query parameters; use --input or a POST, PUT, or PATCH request body", key)
 		default:
-			return "", fmt.Errorf("unknown type %v", v)
+			s, err := queryLiteralValue(v)
+			if err != nil {
+				return "", fmt.Errorf("query parameter %q: %w", key, err)
+			}
+			q.Add(key, s)
 		}
 	}
 
@@ -149,6 +161,27 @@ func parseQuery(path string, params map[string]any) (string, error) {
 		sep = "&"
 	}
 	return path + sep + q.Encode(), nil
+}
+
+// queryLiteralValue renders a value that occupies a query parameter by itself.
+func queryLiteralValue(v any) (string, error) {
+	switch t := v.(type) {
+	case string:
+		return t, nil
+	case []byte:
+		return string(t), nil
+	case nil:
+		return "", nil
+	case int:
+		return fmt.Sprintf("%d", t), nil
+	case bool:
+		return fmt.Sprintf("%v", t), nil
+	case []any, map[string]any:
+		// queryScalarValue owns the wording, so both paths report it identically.
+		return queryScalarValue(t)
+	default:
+		return "", fmt.Errorf("unknown type %v", t)
+	}
 }
 
 // queryScalarValue renders a single JSON-decoded array element as a query

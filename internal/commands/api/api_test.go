@@ -4,6 +4,7 @@ package api
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,6 +27,146 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
+
+// rawFields and magicFields build the ordered field list the flags produce;
+// slices.Concat of the two spells out an order they were interleaved in.
+func rawFields(specs ...string) []fieldFlag { return fieldFlags(specs, true) }
+
+func magicFields(specs ...string) []fieldFlag { return fieldFlags(specs, false) }
+
+func fieldFlags(specs []string, raw bool) []fieldFlag {
+	flags := make([]fieldFlag, len(specs))
+	for i, spec := range specs {
+		flags[i] = fieldFlag{spec: spec, raw: raw}
+	}
+	return flags
+}
+
+// flagLine spells a field list the way it was typed, so a table whose cases are
+// its flags can name its subtests with them.
+func flagLine(fields []fieldFlag) string {
+	parts := make([]string, len(fields))
+	for i, f := range fields {
+		flag := "-F"
+		if f.raw {
+			flag = "-f"
+		}
+		parts[i] = flag + " '" + f.spec + "'"
+	}
+	return strings.Join(parts, " ")
+}
+
+// sent is what one api run put on the wire.
+type sent struct {
+	req  *http.Request
+	body []byte
+}
+
+// parseFieldsAt runs a field list through the seam apiRun reaches parseFields
+// through: the method and --input together decide whether the fields become a
+// JSON body, which is what makes a name holding a bracket an error. An empty
+// method leaves --method unset, as apiRun sees it with no -X. The returned flag
+// is that decision, so a case can assert which path its fields took.
+func parseFieldsAt(t *testing.T, method, input string, fields []fieldFlag) (map[string]any, bool, error) {
+	t.Helper()
+
+	ios, stdin, _, _ := cmdtest.TestIOStreams()
+	_, _ = stdin.WriteString("RAW BODY")
+
+	opts := options{io: ios, requestMethod: http.MethodGet, requestInputFile: input, fields: fields}
+	if method != "" {
+		opts.requestMethod, opts.requestMethodPassed = method, true
+	}
+	jsonBody := opts.fieldsBecomeJSONBody(opts.methodForRequest())
+	params, _, err := parseFields(&opts, jsonBody)
+	return params, jsonBody, err
+}
+
+// runAPIArgv runs the command from an argv string, so cobra's flag parsing is
+// part of what the case exercises: the order two field flags interleave in, and
+// which of them overrides the other, are decided nowhere else. Stdin holds
+// "RAW BODY" so a case can pass --input -. tr answers the request.
+func runAPIArgv(t *testing.T, cli string, tr roundTripFunc) error {
+	t.Helper()
+
+	ios, stdin, _, _ := cmdtest.TestIOStreams()
+	_, _ = stdin.WriteString("RAW BODY")
+	a := cmdtest.NewTestApiClient(t, &http.Client{Transport: tr}, "OTOKEN", "gitlab.com")
+	cmd := NewCmdApi(cmdtest.NewTestFactory(ios, cmdtest.WithApiClient(a)), nil)
+
+	argv, err := shlex.Split(cli)
+	require.NoError(t, err)
+	cmd.SetArgs(argv)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	_, err = cmd.ExecuteC()
+	return err
+}
+
+// runAPIArgvRecording records the request and its body, and answers 204.
+func runAPIArgvRecording(t *testing.T, cli string) (sent, error) {
+	t.Helper()
+
+	var got sent
+	err := runAPIArgv(t, cli, func(req *http.Request) (*http.Response, error) {
+		if req.Body != nil {
+			var readErr error
+			if got.body, readErr = io.ReadAll(req.Body); readErr != nil {
+				return nil, readErr
+			}
+		}
+		got.req = req
+		return &http.Response{StatusCode: http.StatusNoContent, Request: req}, nil
+	})
+	return got, err
+}
+
+// runAPIArgvGuarded runs against a transport that fails the test if any request
+// is issued at all. That is the whole assertion for a case proving the error
+// fires before anything leaves; a canned response would hide it.
+func runAPIArgvGuarded(t *testing.T, cli string) error {
+	t.Helper()
+
+	return runAPIArgv(t, cli, func(req *http.Request) (*http.Response, error) {
+		t.Error("no request should be made")
+		return nil, fmt.Errorf("not supposed to be called")
+	})
+}
+
+func Test_fieldFlagValue_Set(t *testing.T) {
+	newPair := func(seed []fieldFlag) (*[]fieldFlag, *fieldFlagValue, *fieldFlagValue) {
+		fields := seed
+		list := &fieldFlagList{fields: &fields}
+		return &fields, &fieldFlagValue{list: list}, &fieldFlagValue{list: list, raw: true}
+	}
+
+	t.Run("the first value replaces a default and later values append", func(t *testing.T) {
+		fields, magic, raw := newPair(rawFields("default=1"))
+		require.NoError(t, magic.Set("a=1"))
+		require.NoError(t, raw.Set("b=2"))
+		require.NoError(t, magic.Set("c=3"))
+		assert.Equal(t, slices.Concat(magicFields("a=1"), rawFields("b=2"), magicFields("c=3")), *fields)
+	})
+
+	t.Run("either flag may be the one that replaces the default", func(t *testing.T) {
+		fields, magic, raw := newPair(magicFields("default=1"))
+		require.NoError(t, raw.Set("a=1"))
+		require.NoError(t, magic.Set("b=2"))
+		assert.Equal(t, slices.Concat(rawFields("a=1"), magicFields("b=2")), *fields)
+	})
+
+	t.Run("String reports only its own flag's values", func(t *testing.T) {
+		_, magic, raw := newPair(nil)
+		assert.Empty(t, magic.String())
+		assert.Empty(t, raw.String())
+		require.NoError(t, magic.Set("a=1"))
+		require.NoError(t, raw.Set("b=2"))
+		require.NoError(t, magic.Set("c=3"))
+		assert.Equal(t, "[a=1,c=3]", magic.String())
+		assert.Equal(t, "[b=2]", raw.String())
+		assert.Equal(t, "stringArray", magic.Type())
+	})
+}
 
 func Test_NewCmdApi(t *testing.T) {
 	ios, _, _, _ := cmdtest.TestIOStreams()
@@ -45,8 +187,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: false,
 				requestPath:         "graphql",
 				requestInputFile:    "",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            false,
@@ -63,8 +204,25 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: true,
 				requestPath:         "projects/octocat%2FSpoon-Knife",
 				requestInputFile:    "",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
+				requestHeaders:      []string(nil),
+				showResponseHeaders: false,
+				paginate:            false,
+				silent:              false,
+			},
+			wantsErr: false,
+		},
+		{
+			// Array element order depends on this reaching the parser intact.
+			name: "with fields interleaved between the two flags",
+			cli:  "graphql -F a=1 -f b=2 -F c=3",
+			wants: options{
+				hostname:            "",
+				requestMethod:       http.MethodGet,
+				requestMethodPassed: false,
+				requestPath:         "graphql",
+				requestInputFile:    "",
+				fields:              slices.Concat(magicFields("a=1"), rawFields("b=2"), magicFields("c=3")),
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            false,
@@ -81,8 +239,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: false,
 				requestPath:         "graphql",
 				requestInputFile:    "",
-				rawFields:           []string{"query=QUERY"},
-				magicFields:         []string{"body=@file.txt"},
+				fields:              slices.Concat(rawFields("query=QUERY"), magicFields("body=@file.txt")),
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            false,
@@ -99,8 +256,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: false,
 				requestPath:         "user",
 				requestInputFile:    "",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
 				requestHeaders:      []string{"accept: text/plain"},
 				showResponseHeaders: true,
 				paginate:            false,
@@ -117,8 +273,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: false,
 				requestPath:         "projects/OWNER%2FREPO/issues",
 				requestInputFile:    "",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            true,
@@ -137,8 +292,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: false,
 				requestPath:         "projects",
 				requestInputFile:    "",
-				rawFields:           []string{"a=b"},
-				magicFields:         []string(nil),
+				fields:              rawFields("a=b"),
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            true,
@@ -155,8 +309,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: false,
 				requestPath:         "projects/OWNER%2FREPO/issues",
 				requestInputFile:    "",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            false,
@@ -178,8 +331,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: true,
 				requestPath:         "graphql",
 				requestInputFile:    "",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            true,
@@ -201,8 +353,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: false,
 				requestPath:         "user",
 				requestInputFile:    "myfile",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            false,
@@ -224,8 +375,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: false,
 				requestPath:         "graphql",
 				requestInputFile:    "",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            false,
@@ -247,8 +397,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethodPassed: false,
 				requestPath:         "projects",
 				requestInputFile:    "",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
 				requestHeaders:      []string(nil),
 				showResponseHeaders: false,
 				paginate:            false,
@@ -264,8 +413,7 @@ func Test_NewCmdApi(t *testing.T) {
 				requestMethod:       http.MethodGet,
 				requestMethodPassed: false,
 				requestPath:         "projects/:fullpath/wikis/attachments",
-				rawFields:           []string(nil),
-				magicFields:         []string(nil),
+				fields:              nil,
 				formFields:          []string{"file=@image.png", "branch=main"},
 				requestHeaders:      []string(nil),
 			},
@@ -300,8 +448,7 @@ func Test_NewCmdApi(t *testing.T) {
 				assert.Equal(t, tt.wants.requestMethodPassed, o.requestMethodPassed)
 				assert.Equal(t, tt.wants.requestPath, o.requestPath)
 				assert.Equal(t, tt.wants.requestInputFile, o.requestInputFile)
-				assert.Equal(t, tt.wants.rawFields, o.rawFields)
-				assert.Equal(t, tt.wants.magicFields, o.magicFields)
+				assert.Equal(t, tt.wants.fields, o.fields)
 				assert.Equal(t, tt.wants.formFields, o.formFields)
 				assert.Equal(t, tt.wants.requestHeaders, o.requestHeaders)
 				assert.Equal(t, tt.wants.showResponseHeaders, o.showResponseHeaders)
@@ -593,9 +740,8 @@ func Test_apiRun_paginationREST_followsLinkURLVerbatim(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		magicFields []string
-		rawFields   []string
+		name   string
+		fields []fieldFlag
 		// requestMethodPassed false leaves the --method default in place, which
 		// validate accepts and method inference then turns into a POST.
 		requestMethodPassed bool
@@ -615,7 +761,7 @@ func Test_apiRun_paginationREST_followsLinkURLVerbatim(t *testing.T) {
 	}{
 		{
 			name:                "array field",
-			magicFields:         []string{"ids=[1,2]"},
+			fields:              magicFields("ids=[1,2]"),
 			requestMethodPassed: true,
 			outputFormat:        "json",
 			wantFirstQuery:      url.Values{"ids[]": {"1", "2"}, "per_page": {"100"}},
@@ -628,7 +774,7 @@ func Test_apiRun_paginationREST_followsLinkURLVerbatim(t *testing.T) {
 		},
 		{
 			name:                "array field with ndjson output",
-			magicFields:         []string{"ids=[1,2]"},
+			fields:              magicFields("ids=[1,2]"),
 			requestMethodPassed: true,
 			outputFormat:        "ndjson",
 			wantFirstQuery:      url.Values{"ids[]": {"1", "2"}, "per_page": {"100"}},
@@ -641,7 +787,7 @@ func Test_apiRun_paginationREST_followsLinkURLVerbatim(t *testing.T) {
 		},
 		{
 			name:                "scalar field",
-			rawFields:           []string{"foo=bar"},
+			fields:              rawFields("foo=bar"),
 			requestMethodPassed: true,
 			outputFormat:        "json",
 			wantFirstQuery:      url.Values{"foo": {"bar"}, "per_page": {"100"}},
@@ -654,7 +800,7 @@ func Test_apiRun_paginationREST_followsLinkURLVerbatim(t *testing.T) {
 		},
 		{
 			name:                "caller-supplied page",
-			rawFields:           []string{"page=1"},
+			fields:              rawFields("page=1"),
 			requestMethodPassed: true,
 			outputFormat:        "json",
 			wantFirstQuery:      url.Values{"page": {"1"}, "per_page": {"100"}},
@@ -670,7 +816,7 @@ func Test_apiRun_paginationREST_followsLinkURLVerbatim(t *testing.T) {
 			// in the body and never in the query, so every page has to re-send
 			// it. per_page is still appended to the path.
 			name:                "field with no method flag",
-			rawFields:           []string{"a=b"},
+			fields:              rawFields("a=b"),
 			requestMethodPassed: false,
 			outputFormat:        "json",
 			wantFirstQuery:      url.Values{"per_page": {"100"}},
@@ -744,8 +890,7 @@ func Test_apiRun_paginationREST_followsLinkURLVerbatim(t *testing.T) {
 				// "GET" is the --method default, held whether or not -X was passed.
 				requestMethod:       http.MethodGet,
 				requestMethodPassed: tt.requestMethodPassed,
-				magicFields:         tt.magicFields,
-				rawFields:           tt.rawFields,
+				fields:              tt.fields,
 				paginate:            true,
 				outputFormat:        tt.outputFormat,
 			}
@@ -1320,7 +1465,7 @@ func Test_apiRun_inputFile(t *testing.T) {
 			options := options{
 				requestPath:      "hello",
 				requestInputFile: inputFile,
-				rawFields:        []string{"a=b", "c=d"},
+				fields:           rawFields("a=b", "c=d"),
 
 				io: ios,
 				baseRepo: func() (glrepo.Interface, error) {
@@ -1345,26 +1490,360 @@ func Test_apiRun_inputFile(t *testing.T) {
 	}
 }
 
+// Test_options_methodForRequest pins the method the request is sent with. Only
+// a --method flag, a field, a --form field, or --input moves it off the flag's
+// GET default, and each of those four has to move it on its own: a request with
+// no fields must stay a GET, and --form and --input each have to reach POST
+// without help from a field.
+func Test_options_methodForRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		opts options
+		want string
+	}{
+		{name: "no fields and no --input stay GET", opts: options{requestMethod: http.MethodGet}, want: http.MethodGet},
+		{name: "a field alone becomes POST", opts: options{requestMethod: http.MethodGet, fields: rawFields("a=1")}, want: http.MethodPost},
+		{name: "a form field alone becomes POST", opts: options{requestMethod: http.MethodGet, formFields: []string{"a=1"}}, want: http.MethodPost},
+		{name: "--input alone becomes POST", opts: options{requestMethod: http.MethodGet, requestInputFile: "-"}, want: http.MethodPost},
+		{name: "an explicit --method wins over both", opts: options{requestMethod: http.MethodDelete, requestMethodPassed: true, fields: rawFields("a=1"), requestInputFile: "-"}, want: http.MethodDelete},
+		{name: "an explicit --method GET is kept", opts: options{requestMethod: http.MethodGet, requestMethodPassed: true, fields: rawFields("a=1")}, want: http.MethodGet},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.opts.methodForRequest())
+		})
+	}
+}
+
+// Test_parseFields_queryString pins the query strings bracketed names produce,
+// at the two seams apiRun builds one with: parseFields for the parameters and
+// parseQuery for the bytes. The path is the one apiRun would have reached, so a
+// case's expectation is the whole request URI.
+//
+// Reading brackets on GET and DELETE would alter commands that work now, so most
+// of these are regression guards. Every case also asserts its fields took the
+// query path rather than a body, which is what a method spelled "get" and an
+// --input alongside a POST are here to prove. An absent method means -X GET.
+func Test_parseFields_queryString(t *testing.T) {
+	// An @file value is the one non-scalar that reaches an accumulated array.
+	dir := t.TempDir()
+	first, second := dir+"/first.txt", dir+"/second.txt"
+	require.NoError(t, os.WriteFile(first, []byte("alpha"), 0o600))
+	require.NoError(t, os.WriteFile(second, []byte("beta"), 0o600))
+
+	tests := []struct {
+		method  string
+		input   string
+		fields  []fieldFlag
+		wantURI string
+		wantErr string
+	}{
+		// The issue's own repro, minus the body, as a GET.
+		{fields: rawFields("position[base_sha]=abc", "position[position_type]=text", "position[new_path]=file.kt"), wantURI: "/api/v4/hello?position%5Bbase_sha%5D=abc&position%5Bnew_path%5D=file.kt&position%5Bposition_type%5D=text"},
+		{fields: rawFields("position[base_sha]=abc"), wantURI: "/api/v4/hello?position%5Bbase_sha%5D=abc"},
+		{fields: rawFields("body=test", "position[base_sha]=abc"), wantURI: "/api/v4/hello?body=test&position%5Bbase_sha%5D=abc"},
+		{fields: rawFields("a[b][c]=1"), wantURI: "/api/v4/hello?a%5Bb%5D%5Bc%5D=1"},
+		// Also the single-value case the accumulating suffix leaves unchanged.
+		{fields: rawFields("ids[]=1"), wantURI: "/api/v4/hello?ids%5B%5D=1"},
+		// --field types the value, so this leaf is an int and renders as 42.
+		{fields: magicFields("position[new_line]=42"), wantURI: "/api/v4/hello?position%5Bnew_line%5D=42"},
+		{method: http.MethodDelete, fields: rawFields("position[base_sha]=abc", "position[new_path]=file.kt"), wantURI: "/api/v4/hello?position%5Bbase_sha%5D=abc&position%5Bnew_path%5D=file.kt"},
+		// A case-sensitive method comparison would send these as a body instead.
+		{method: "get", fields: rawFields("position[base_sha]=abc"), wantURI: "/api/v4/hello?position%5Bbase_sha%5D=abc"},
+		{method: "delete", fields: rawFields("position[base_sha]=abc"), wantURI: "/api/v4/hello?position%5Bbase_sha%5D=abc"},
+		// An empty array contributes no parameters, so no separator either.
+		{fields: magicFields("a[b]=[]"), wantURI: "/api/v4/hello"},
+		{fields: magicFields(`a[b]={"c":1}`), wantErr: `query parameter "a[b]": objects are not supported as query parameters; use --input or a POST, PUT, or PATCH request body`},
+
+		// Repeated names ending in "[]" send every value, in the order typed.
+		{fields: rawFields("ids[]=1", "ids[]=2"), wantURI: "/api/v4/hello?ids%5B%5D=1&ids%5B%5D=2"},
+		{fields: magicFields("ids[]=1", "ids[]=2"), wantURI: "/api/v4/hello?ids%5B%5D=1&ids%5B%5D=2"},
+		// Across the two flags as well: because the name collects, --field does
+		// not override a --raw-field of the same name the way it does for other
+		// names. This is the order that override would drop a value in.
+		{fields: slices.Concat(magicFields("ids[]=1"), rawFields("ids[]=2")), wantURI: "/api/v4/hello?ids%5B%5D=1&ids%5B%5D=2"},
+		{fields: rawFields("ids[]=3", "ids[]=1", "ids[]=2"), wantURI: "/api/v4/hello?ids%5B%5D=3&ids%5B%5D=1&ids%5B%5D=2"},
+		{method: http.MethodDelete, fields: rawFields("ids[]=1", "ids[]=2"), wantURI: "/api/v4/hello?ids%5B%5D=1&ids%5B%5D=2"},
+		{fields: rawFields("ids[]=1", "ids[]=1"), wantURI: "/api/v4/hello?ids%5B%5D=1&ids%5B%5D=1"},
+		{fields: rawFields("ids[]="), wantURI: "/api/v4/hello?ids%5B%5D="},
+		{fields: rawFields("ids[]=", "ids[]=2"), wantURI: "/api/v4/hello?ids%5B%5D=&ids%5B%5D=2"},
+		// null has no query representation, so it encodes as an empty value.
+		{fields: magicFields("ids[]=true", "ids[]=null", "ids[]=false"), wantURI: "/api/v4/hello?ids%5B%5D=true&ids%5B%5D=&ids%5B%5D=false"},
+		// A []byte is the one value the array-element renderer has no case for.
+		{fields: magicFields("ids[]=@"+first, "ids[]=@"+second), wantURI: "/api/v4/hello?ids%5B%5D=alpha&ids%5B%5D=beta"},
+		// --input puts the fields on the query path whatever the method is.
+		{method: http.MethodPost, input: "-", fields: rawFields("ids[]=1", "ids[]=2"), wantURI: "/api/v4/hello?ids%5B%5D=1&ids%5B%5D=2"},
+
+		// Only a trailing "[]" accumulates; every other name holds one value.
+		{fields: rawFields("position[base_sha]=first", "position[base_sha]=second"), wantURI: "/api/v4/hello?position%5Bbase_sha%5D=second"},
+		{fields: rawFields("search=first", "search=second"), wantURI: "/api/v4/hello?search=second"},
+		{fields: magicFields("search=first", "search=second"), wantURI: "/api/v4/hello?search=second"},
+		// "a[][b]" contains "[]" without ending in it, so it holds one value like
+		// any other name: the last raw value wins, and a --field still overrides.
+		// Reading the suffix test as a substring would accumulate both instead.
+		{fields: rawFields("a[][b]=1", "a[][b]=2"), wantURI: "/api/v4/hello?a%5B%5D%5Bb%5D=2"},
+		{fields: slices.Concat(rawFields("a[][b]=1"), magicFields("a[][b]=2")), wantURI: "/api/v4/hello?a%5B%5D%5Bb%5D=2"},
+		// A trailing "[]" after a segment does accumulate, which is the boundary
+		// the two names above sit on the other side of.
+		{fields: rawFields("a[b][]=1", "a[b][]=2"), wantURI: "/api/v4/hello?a%5Bb%5D%5B%5D=1&a%5Bb%5D%5B%5D=2"},
+		// Only the body path rejects this, where it has no shape to advise on.
+		{fields: rawFields("[]=1"), wantURI: "/api/v4/hello?%5B%5D=1"},
+		// No bracket character, so the body error misses it too. Not decoded,
+		// deliberately: decoding a key typed literally would be a guess. With no
+		// trailing bracket there is no accumulation either, so last wins.
+		{fields: rawFields("ids%5B%5D=1", "ids%5B%5D=2"), wantURI: "/api/v4/hello?ids%255B%255D=2"},
+
+		// One flag, a name carrying its own "[]", and a JSON array value: the
+		// name already spells the repetition the wire format has, so the values
+		// go under it as given. A single occurrence never becomes a queryList,
+		// so this reaches parseQuery as a bare array and is the one shape where
+		// both sites could append a second pair and send ids[][]=.
+		{fields: magicFields("ids[]=[1,2]"), wantURI: "/api/v4/hello?ids%5B%5D=1&ids%5B%5D=2"},
+		// The same request as the bare name with the same array, which is the
+		// point: the two spellings are one wire key, so they also collide below.
+		{fields: magicFields("ids=[1,2]"), wantURI: "/api/v4/hello?ids%5B%5D=1&ids%5B%5D=2"},
+		{fields: magicFields("a[b][]=[1,2]"), wantURI: "/api/v4/hello?a%5Bb%5D%5B%5D=1&a%5Bb%5D%5B%5D=2"},
+
+		// A query string cannot express an array of arrays.
+		{fields: magicFields("ids[]=[1]", "ids[]=[2]"), wantErr: `query parameter "ids[]": nested arrays and objects are not supported as query parameters; use --input or a POST, PUT, or PATCH request body`},
+		{fields: magicFields(`ids[]={"a":1}`, "ids[]=2"), wantErr: `query parameter "ids[]": nested arrays and objects are not supported as query parameters; use --input or a POST, PUT, or PATCH request body`},
+		// A second occurrence is what makes each occurrence one element, so the
+		// array the single-flag row above sends as a whole list becomes a nested
+		// element here and has no query representation. Adding a value to that
+		// row's request is --input's job, not a flattening this cannot tell from
+		// the array-of-arrays the two rows above reject.
+		{fields: slices.Concat(magicFields("ids[]=[1,2]"), rawFields("ids[]=3")), wantErr: `query parameter "ids[]": nested arrays and objects are not supported as query parameters; use --input or a POST, PUT, or PATCH request body`},
+		// Both emit ids[]=, and map order would interleave them unpredictably.
+		// The message is the same whichever flag came first.
+		{fields: slices.Concat(rawFields("ids[]=1"), magicFields("ids=[2,3]")), wantErr: `field names "ids" and "ids[]" both address query parameter "ids[]"; spell the array one way, or use --input`},
+		{fields: slices.Concat(magicFields("ids=[2,3]"), rawFields("ids[]=1")), wantErr: `field names "ids" and "ids[]" both address query parameter "ids[]"; spell the array one way, or use --input`},
+		// The same clash with the array one spelled with its own brackets, which
+		// only shows up once the wire key stops picking up a second pair. Before
+		// that it addressed ids[][] and this sent three values under two keys.
+		{fields: slices.Concat(magicFields("ids[]=[1,2]"), magicFields("ids=[3]")), wantErr: `field names "ids" and "ids[]" both address query parameter "ids[]"; spell the array one way, or use --input`},
+		{fields: slices.Concat(magicFields("ids[]=[1,2]"), rawFields("ids=3")), wantURI: "/api/v4/hello?ids=3&ids%5B%5D=1&ids%5B%5D=2"},
+	}
+
+	for _, tt := range tests {
+		method := cmp.Or(tt.method, http.MethodGet)
+		name := method
+		if tt.input != "" {
+			name += " --input " + tt.input
+		}
+		t.Run(name+" "+flagLine(tt.fields), func(t *testing.T) {
+			params, jsonBody, err := parseFieldsAt(t, method, tt.input, tt.fields)
+			assert.False(t, jsonBody, "these fields must take the query path")
+			got := ""
+			if err == nil {
+				got, err = parseQuery("/api/v4/hello", params)
+			}
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Equal(t, tt.wantErr, err.Error())
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURI, got)
+		})
+	}
+}
+
+// Test_parseFields_bracketedFieldNameError pins the advice each shape of name
+// earns where the fields become a JSON body, replacing a silent no-op. A name
+// whose brackets describe a shape is advised with its own segments, so the fix
+// is mechanical rather than an example to translate; a name that describes none
+// is advised with the forms that work and no invented key.
+//
+// A case is the name and the advice; the rest of the message is invariant, and
+// Test_apiRun_bracketNameWiring spells one whole message out. An absent method
+// means no -X, which the fields alone turn into a POST; an absent field list
+// means the name with a value of 1.
+func Test_parseFields_bracketedFieldNameError(t *testing.T) {
+	tests := []struct {
+		key    string
+		method string
+		fields []fieldFlag
+		advice string
+	}{
+		{key: "position[base_sha]", advice: `, for example -F 'position={"base_sha":"..."}'`},
+		{key: "ids[]", advice: `, for example -F 'ids=[...]'`},
+		// PUT and PATCH take a JSON body on the same terms POST does, and an
+		// explicit POST is no different from the one the fields default to.
+		{key: "position[base_sha]", method: http.MethodPut, advice: `, for example -F 'position={"base_sha":"..."}'`},
+		{key: "position[base_sha]", method: http.MethodPatch, advice: `, for example -F 'position={"base_sha":"..."}'`},
+		{key: "position[base_sha]", method: http.MethodPost, advice: `, for example -F 'position={"base_sha":"..."}'`},
+		// --field is rejected on the same terms --raw-field is.
+		{key: "position[new_line]", fields: magicFields("position[new_line]=42"), advice: `, for example -F 'position={"new_line":"..."}'`},
+		// The boundary the emit-every-value fix does not reach: with no -X these
+		// are a body, so they error rather than accumulating.
+		{key: "ids[]", fields: rawFields("ids[]=1", "ids[]=2"), advice: `, for example -F 'ids=[...]'`},
+
+		// Segments nest outermost first, and an empty one is an array.
+		{key: "a[b][c]", advice: `, for example -F 'a={"b":{"c":"..."}}'`},
+		{key: "a[b][]", advice: `, for example -F 'a={"b":[...]}'`},
+		{key: "a[][b]", advice: `, for example -F 'a=[{"b":"..."}]'`},
+		// A quote in a segment must not break the JSON the advice shows.
+		{key: `a[b"c]`, advice: `, for example -F 'a={"b\"c":"..."}'`},
+
+		// Not bracketed names, just names holding a bracket: no shape to read, so
+		// the advice names the forms and invents neither a root nor an inner key.
+		{key: "a[b", advice: " with -F"},
+		{key: "a]", advice: " with -F"},
+		{key: "[]", advice: " with -F"},
+		{key: "]x", advice: " with -F"},
+		{key: "[b]", advice: " with -F"},
+		{key: "a[b]c", advice: " with -F"},
+		{key: "a[[b]]", advice: " with -F"},
+
+		// The first bracketed name is the one reported.
+		{key: "first[x]", fields: rawFields("body=test", "first[x]=1", "second[y]=2"), advice: `, for example -F 'first={"x":"..."}'`},
+		// The GraphQL spec spells a variable name /[_A-Za-z][_0-9A-Za-z]*/, so no
+		// valid query can name one with a bracket: this removes no working use.
+		// GraphQL adds no branch of its own ahead of the check.
+		{key: "input[title]", fields: rawFields("query=query { currentUser { username } }", "input[title]=Hello"), advice: `, for example -F 'input={"title":"..."}'`},
+	}
+
+	for _, tt := range tests {
+		t.Run(cmp.Or(tt.method, "default POST")+" "+tt.key, func(t *testing.T) {
+			fields := tt.fields
+			if fields == nil {
+				fields = rawFields(tt.key + "=1")
+			}
+			_, jsonBody, err := parseFieldsAt(t, tt.method, "", fields)
+			assert.True(t, jsonBody, "these fields must become a JSON body")
+			require.Error(t, err)
+			want := fmt.Sprintf("field name %q: %s%s, or use --input", tt.key, bracketedNameProblem, tt.advice)
+			assert.Equal(t, want, err.Error())
+		})
+	}
+}
+
+// Test_parseFields_percentEncodedBracketsStayLiteral pins the silent no-op that
+// survives: -f 'ids%5B%5D=1' holds no bracket character, so the body error
+// misses it and the key reaches the body literally. Test_httpRequest pins the
+// bytes it becomes, and Test_parseFields_queryString the query half.
+func Test_parseFields_percentEncodedBracketsStayLiteral(t *testing.T) {
+	params, jsonBody, err := parseFieldsAt(t, http.MethodPost, "", rawFields("ids%5B%5D=1"))
+
+	assert.True(t, jsonBody)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"ids%5B%5D": "1"}, params)
+}
+
+// Test_apiRun_bracketNameWiring covers what only a whole run reaches: cobra's
+// flag parsing, which is the only thing that decides the order two field flags
+// interleave in and which of them overrides the other; run()'s choice of method,
+// which decides whether a bracketed name is an error at all; the method the
+// request leaves with; and the two paths that never reach the field parser,
+// --form and GraphQL. The bytes and the advice are pinned at the parseFields and
+// parseQuery seams, and the first case here is the one deliberate place the
+// whole error message is spelled out, so the shared clause cannot drift unseen.
+func Test_apiRun_bracketNameWiring(t *testing.T) {
+	tests := []struct {
+		cli              string
+		wantMethod       string
+		wantURI          string
+		wantBody         string
+		wantBodyContains []string
+		wantErr          string
+	}{
+		{
+			// No -X, so the field makes this a POST, where the name is an error.
+			cli:     `hello --silent -f 'position[base_sha]=abc'`,
+			wantErr: `field name "position[base_sha]": a field name containing a bracket is not supported in a JSON request body; pass the value as JSON, for example -F 'position={"base_sha":"..."}', or use --input`,
+		},
+		// An explicit GET or DELETE, in either case, sends the name as a parameter
+		// and reaches the wire with the method as typed.
+		{cli: `hello --silent -X GET -f 'position[base_sha]=abc'`, wantMethod: http.MethodGet, wantURI: "/api/v4/hello?position%5Bbase_sha%5D=abc"},
+		{cli: `hello --silent -X get -f 'position[base_sha]=abc'`, wantMethod: "get", wantURI: "/api/v4/hello?position%5Bbase_sha%5D=abc"},
+		{cli: `hello --silent -X DELETE -f 'position[base_sha]=abc' -f 'position[new_path]=file.kt'`, wantMethod: http.MethodDelete, wantURI: "/api/v4/hello?position%5Bbase_sha%5D=abc&position%5Bnew_path%5D=file.kt"},
+		{cli: `hello --silent -X delete -f 'position[base_sha]=abc'`, wantMethod: "delete", wantURI: "/api/v4/hello?position%5Bbase_sha%5D=abc"},
+		{
+			// The file supplies the body, so the fields are query parameters even
+			// though the method still defaults to POST. As query parameters, "a" and
+			// "a[b]" are two unrelated names.
+			cli:        `hello --silent --input - -f 'position[base_sha]=abc' -f a=1 -f 'a[b]=2'`,
+			wantMethod: http.MethodPost,
+			wantURI:    "/api/v4/hello?a=1&a%5Bb%5D=2&position%5Bbase_sha%5D=abc",
+			wantBody:   "RAW BODY",
+		},
+		// Read from a slice per flag, the interleave would come out 1, 3, 2.
+		{cli: `hello --silent -X GET -f 'ids[]=1' -F 'ids[]=2' -f 'ids[]=3'`, wantMethod: http.MethodGet, wantURI: "/api/v4/hello?ids%5B%5D=1&ids%5B%5D=2&ids%5B%5D=3"},
+		// --field overrides --raw-field of the same name, given in either order.
+		{cli: `hello --silent -X GET -f search=raw -F search=magic`, wantMethod: http.MethodGet, wantURI: "/api/v4/hello?search=magic"},
+		{cli: `hello --silent -X GET -F search=magic -f search=raw`, wantMethod: http.MethodGet, wantURI: "/api/v4/hello?search=magic"},
+		{
+			// --form never reaches the field parser, so a bracketed part name is sent
+			// as typed. This is the pin behind the help text's "--form is unaffected".
+			cli:              `hello --silent --form 'position[base_sha]=abc' --form branch=main`,
+			wantMethod:       http.MethodPost,
+			wantURI:          "/api/v4/hello",
+			wantBodyContains: []string{`name="position[base_sha]"`, "abc", `name="branch"`},
+		},
+		{
+			// GraphQL is the one path that rewrites the URL and wraps the fields:
+			// everything but query and operationName is nested under "variables".
+			cli:              `graphql --silent -f 'query=query { currentUser { username } }' -f fullPath=gitlab-org/cli`,
+			wantMethod:       http.MethodPost,
+			wantURI:          "/api/graphql",
+			wantBodyContains: []string{`"query":"query { currentUser { username } }"`, `"variables":{"fullPath":"gitlab-org/cli"}`},
+		},
+		{
+			// A bracketed variable name errors before groupGraphQLVariables would
+			// nest it under "variables", so the guard proves the check runs ahead of
+			// the GraphQL wrapping rather than after it. The GraphQL spec spells a
+			// variable name /[_A-Za-z][_0-9A-Za-z]*/, so no valid query names one
+			// with a bracket: rejecting it removes no working use.
+			cli:     `graphql --silent -f 'query=query { currentUser { username } }' -f 'input[title]=Hello'`,
+			wantErr: `field name "input[title]": ` + bracketedNameProblem + `, for example -F 'input={"title":"..."}', or use --input`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.cli, func(t *testing.T) {
+			if tt.wantErr != "" {
+				err := runAPIArgvGuarded(t, tt.cli)
+				require.Error(t, err)
+				assert.Equal(t, tt.wantErr, err.Error())
+				return
+			}
+			got, err := runAPIArgvRecording(t, tt.cli)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantMethod, got.req.Method)
+			assert.Equal(t, tt.wantURI, got.req.URL.RequestURI())
+			if tt.wantBody != "" {
+				assert.Equal(t, tt.wantBody, string(got.body))
+			}
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, string(got.body), want)
+			}
+		})
+	}
+}
+
 func Test_parseFields(t *testing.T) {
 	ios, stdin, _, _ := cmdtest.TestIOStreams()
 	fmt.Fprint(stdin, "pasted contents")
 
 	opts := options{
 		io: ios,
-		rawFields: []string{
-			"robot=Hubot",
-			"destroyer=false",
-			"helper=true",
-			"location=@work",
-		},
-		magicFields: []string{
-			"input=@-",
-			"enabled=true",
-			"victories=123",
-		},
+		fields: slices.Concat(
+			rawFields(
+				"robot=Hubot",
+				"destroyer=false",
+				"helper=true",
+				"location=@work",
+			),
+			magicFields(
+				"input=@-",
+				"enabled=true",
+				"victories=123",
+			),
+		),
 	}
 
-	params, _, err := parseFields(&opts)
+	params, _, err := parseFields(&opts, true)
 	if err != nil {
 		t.Fatalf("parseFields error: %v", err)
 	}
@@ -1393,17 +1872,19 @@ func Test_parseFields_bracketedValuesByFlag(t *testing.T) {
 
 	opts := options{
 		io: ios,
-		rawFields: []string{
-			"rawArray=[api,read_api]",
-			"rawEmpty=[]",
-		},
-		magicFields: []string{
-			`parsedArray=["api","read_api"]`,
-			"parsedEmpty=[]",
-		},
+		fields: slices.Concat(
+			rawFields(
+				"rawArray=[api,read_api]",
+				"rawEmpty=[]",
+			),
+			magicFields(
+				`parsedArray=["api","read_api"]`,
+				"parsedEmpty=[]",
+			),
+		),
 	}
 
-	params, _, err := parseFields(&opts)
+	params, _, err := parseFields(&opts, true)
 	require.NoError(t, err)
 
 	assert.Equal(t, map[string]any{
@@ -1416,66 +1897,92 @@ func Test_parseFields_bracketedValuesByFlag(t *testing.T) {
 
 func Test_warnOnLegacyRawArrays(t *testing.T) {
 	tests := []struct {
-		name        string
-		method      string
-		rawFields   []string
-		magicFields []string
-		wantHint    bool
+		name     string
+		method   string
+		fields   []fieldFlag
+		wantHint bool
 		// wantOrder, when set, pins the keys warned about and their order.
 		// Warnings follow flag order: reading them off the parameter map would
 		// leave the order to Go's map iteration, which is the same defect this
 		// change rejects in expandPlaceholdersIn.
 		wantOrder []string
+		// wantHintText, when set, is the whole line the hint prints.
+		wantHintText string
+		// wantErr, when set, is the error parseFields returns instead.
+		wantErr string
 	}{
 		{
-			name:      "warns on a write method for the old shorthand shape",
-			method:    http.MethodPost,
-			rawFields: []string{"scopes=[api,read_api]"},
-			wantHint:  true,
+			name:     "warns on a write method for the old shorthand shape",
+			method:   http.MethodPost,
+			fields:   rawFields("scopes=[api,read_api]"),
+			wantHint: true,
 		},
 		{
-			name:      "silent on GET, where values were never converted",
-			method:    http.MethodGet,
-			rawFields: []string{"scopes=[api,read_api]"},
-			wantHint:  false,
+			name:     "silent on GET, where values were never converted",
+			method:   http.MethodGet,
+			fields:   rawFields("scopes=[api,read_api]"),
+			wantHint: false,
 		},
 		{
-			name:      "silent for a value the old regex never matched",
-			method:    http.MethodPost,
-			rawFields: []string{"topics=[My-Topic]"},
-			wantHint:  false,
+			name:     "silent for a value the old regex never matched",
+			method:   http.MethodPost,
+			fields:   rawFields("topics=[My-Topic]"),
+			wantHint: false,
 		},
 		{
-			name:      "silent for an ordinary string",
-			method:    http.MethodPost,
-			rawFields: []string{"robot=Hubot"},
-			wantHint:  false,
+			name:     "silent for an ordinary string",
+			method:   http.MethodPost,
+			fields:   rawFields("robot=Hubot"),
+			wantHint: false,
 		},
 		{
 			name:      "warns in flag order, not map order",
 			method:    http.MethodPost,
-			rawFields: []string{"ccc=[three]", "aaa=[one]", "bbb=[two]"},
+			fields:    rawFields("ccc=[three]", "aaa=[one]", "bbb=[two]"),
 			wantHint:  true,
 			wantOrder: []string{"ccc", "aaa", "bbb"},
 		},
 		{
-			// A --field of the same name wins in parseFields, so the array is
-			// what gets sent and the literal string never leaves the process.
 			// Warning here would describe a request body that does not exist.
-			name:        "silent when a --field of the same name overrides the raw value",
-			method:      http.MethodPost,
-			rawFields:   []string{"scopes=[api,read_api]"},
-			magicFields: []string{`scopes=["api","read_api"]`},
-			wantHint:    false,
+			name:     "silent when a --field of the same name overrides the raw value",
+			method:   http.MethodPost,
+			fields:   slices.Concat(rawFields("scopes=[api,read_api]"), magicFields(`scopes=["api","read_api"]`)),
+			wantHint: false,
+		},
+		{
+			// The hint's own -F 's[scopes]=[...]' is a bracketed name too.
+			name:    "errors before warning for a nested name on a write method",
+			method:  http.MethodPost,
+			fields:  rawFields("s[scopes]=[api,read_api]"),
+			wantErr: `field name "s[scopes]": ` + bracketedNameProblem + `, for example -F 's={"scopes":"..."}', or use --input`,
+		},
+		{
+			// The case the hint used to advise on directly.
+			name:    "errors before warning for an array element on a write method",
+			method:  http.MethodPost,
+			fields:  rawFields("s[]=[api,read_api]"),
+			wantErr: `field name "s[]": ` + bracketedNameProblem + `, for example -F 's=[...]', or use --input`,
+		},
+		{
+			name:     "silent for a nested name on GET, where names stay literal",
+			method:   http.MethodGet,
+			fields:   rawFields("s[scopes]=[api,read_api]"),
+			wantHint: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ios, _, _, stderr := cmdtest.TestIOStreams()
-			opts := options{io: ios, rawFields: tt.rawFields, magicFields: tt.magicFields}
+			opts := options{io: ios, fields: tt.fields}
 
-			params, rawKeys, err := parseFields(&opts)
+			params, rawKeys, err := parseFields(&opts, opts.fieldsBecomeJSONBody(tt.method))
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Equal(t, tt.wantErr, err.Error())
+				assert.Empty(t, stderr.String())
+				return
+			}
 			require.NoError(t, err)
 
 			opts.warnOnLegacyRawArrays(tt.method, params, rawKeys)
@@ -1486,6 +1993,10 @@ func Test_warnOnLegacyRawArrays(t *testing.T) {
 					warned = append(warned, strings.SplitN(line, `"`, 3)[1])
 				}
 				assert.Equal(t, tt.wantOrder, warned)
+			}
+
+			if tt.wantHintText != "" {
+				assert.Equal(t, tt.wantHintText, stderr.String())
 			}
 
 			if tt.wantHint {

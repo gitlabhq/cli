@@ -328,6 +328,25 @@ func Test_httpRequest(t *testing.T) {
 			},
 		},
 		{
+			// A percent-encoded bracket is not a bracket, so parseFields lets the
+			// name through and it reaches the body as the literal key it was typed as.
+			name: "POST with a percent-encoded bracket in the field name",
+			args: args{
+				host:    "gitlab.com",
+				method:  http.MethodPost,
+				p:       "projects",
+				params:  map[string]any{"ids%5B%5D": "1"},
+				headers: []string{},
+			},
+			wantErr: false,
+			want: expects{
+				method:  http.MethodPost,
+				u:       "https://gitlab.com/api/v4/projects",
+				body:    `{"ids%5B%5D":"1"}`,
+				headers: "Content-Type: application/json; charset=utf-8\r\nPrivate-Token: OTOKEN\r\nUser-Agent: glab test client\r\n",
+			},
+		},
+		{
 			name: "POST with non-array string value unchanged",
 			args: args{
 				host:    "gitlab.com",
@@ -511,6 +530,42 @@ func Test_addQuery(t *testing.T) {
 			},
 			want: "?flags%5B%5D=true&flags%5B%5D=false",
 		},
+		{
+			// A second suffix would send ids[][]=, an array of arrays.
+			name: "repeated flag values keep the name they were given",
+			args: args{
+				path:   "",
+				params: map[string]any{"ids[]": queryList{"1", "2"}},
+			},
+			want: "?ids%5B%5D=1&ids%5B%5D=2",
+		},
+		{
+			name: "repeated flag values render by type, not as array elements",
+			args: args{
+				path:   "",
+				params: map[string]any{"ids[]": queryList{1, true, nil, []byte("file")}},
+			},
+			want: "?ids%5B%5D=1&ids%5B%5D=true&ids%5B%5D=&ids%5B%5D=file",
+		},
+		{
+			// A single flag holding a JSON array reaches this as a bare []any,
+			// so the suffix test belongs on both arms: appending here would send
+			// ids[][]= for a name the user already spelled with its brackets.
+			name: "JSON array under a name ending in [] keeps one bracket pair",
+			args: args{
+				path:   "",
+				params: map[string]any{"ids[]": []any{json.Number("1"), json.Number("2")}},
+			},
+			want: "?ids%5B%5D=1&ids%5B%5D=2",
+		},
+		{
+			name: "JSON array under a nested name ending in [] keeps one pair",
+			args: args{
+				path:   "",
+				params: map[string]any{"a[b][]": []any{json.Number("1")}},
+			},
+			want: "?a%5Bb%5D%5B%5D=1",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -544,7 +599,9 @@ func Test_buildMultipartBody(t *testing.T) {
 	t.Run("text fields only", func(t *testing.T) {
 		t.Parallel()
 		body, contentType := buildMultipartBody(
-			[]string{"branch=main", "message=hello world"},
+			// Part names are never parsed, bracket or no bracket: --form is
+			// unaffected by the field-name rule the JSON body path enforces.
+			[]string{"branch=main", "message=hello world", "position[base_sha]=abc"},
 			io.NopCloser(bytes.NewReader(nil)),
 		)
 
@@ -565,6 +622,12 @@ func Test_buildMultipartBody(t *testing.T) {
 		assert.Equal(t, "message", part.FormName())
 		val, _ = io.ReadAll(part)
 		assert.Equal(t, "hello world", string(val))
+
+		part, err = mr.NextPart()
+		require.NoError(t, err)
+		assert.Equal(t, "position[base_sha]", part.FormName())
+		val, _ = io.ReadAll(part)
+		assert.Equal(t, "abc", string(val))
 	})
 
 	t.Run("file field via @filepath", func(t *testing.T) {

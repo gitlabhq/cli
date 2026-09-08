@@ -40,14 +40,57 @@ type options struct {
 	requestMethodPassed bool
 	requestPath         string
 	requestInputFile    string
-	magicFields         []string
-	rawFields           []string
+	fields              []fieldFlag
 	formFields          []string
 	requestHeaders      []string
 	showResponseHeaders bool
 	paginate            bool
 	silent              bool
 	outputFormat        string
+}
+
+type fieldFlag struct {
+	spec string
+	raw  bool
+}
+
+// fieldFlagList is the one ordered list --field and --raw-field collect into.
+// pflag keeps a slice per flag, losing the interleave order, which is part of
+// the request: repeated names ending in [] send every value as typed. changed
+// is pflag's reset bit, shared so neither flag discards the other's values.
+type fieldFlagList struct {
+	fields  *[]fieldFlag
+	changed bool
+}
+
+type fieldFlagValue struct {
+	list *fieldFlagList
+	raw  bool
+}
+
+// Type keeps pflag's string-array name, so --help and the docs read as before.
+func (v *fieldFlagValue) Type() string { return "stringArray" }
+
+func (v *fieldFlagValue) Set(spec string) error {
+	if !v.list.changed {
+		*v.list.fields = nil
+		v.list.changed = true
+	}
+	*v.list.fields = append(*v.list.fields, fieldFlag{spec: spec, raw: v.raw})
+	return nil
+}
+
+func (v *fieldFlagValue) String() string {
+	var specs []string
+	for _, f := range *v.list.fields {
+		if f.raw == v.raw {
+			specs = append(specs, f.spec)
+		}
+	}
+	if len(specs) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(specs, ",") + "]"
 }
 
 func NewCmdApi(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
@@ -116,8 +159,41 @@ func NewCmdApi(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 		into an array on request bodies, which %[1]s--raw-field%[1]s never documented. Use
 		%[1]s-F 'scopes=["api","read_api"]'%[1]s for an array.
 
+		Field names are never parsed. A bracketed name is only meaningful where the
+		fields become URL query parameters. That means %[1]sGET%[1]s and %[1]sDELETE%[1]s requests,
+		and any request where %[1]s--input%[1]s supplies the body. There the name is used
+		literally and percent-encoded, so %[1]s-f 'position[base_sha]=abc'%[1]s arrives as
+		the nested parameter it describes.
+
+		A name ending in %[1]s[]%[1]s collects values instead of holding one, which is how
+		the API reads an array. Repeating the name sends every value, in the order
+		the flags were given: %[1]s-X GET -f 'ids[]=1' -f 'ids[]=2'%[1]s sends both.
+		Because every value is sent, %[1]s--field%[1]s does not override %[1]s--raw-field%[1]s of
+		the same name, as it does for other names.
+
+		Any other name holds a single value. Among values from the same flag, the
+		last one wins. When both flags name it, the %[1]s--field%[1]s value wins, whichever
+		order the two were given in.
+
+		The %[1]s-F 'ids=[1,2]'%[1]s spelling emits %[1]sids[]%[1]s as well. Spelling one query
+		parameter both ways is therefore an error. Passing %[1]s-f 'ids[]=1'%[1]s with
+		%[1]s-F 'ids=[2,3]'%[1]s is rejected, because nothing says which order the three
+		values belong in.
+
+		In a JSON request body a field name containing a bracket is an error. Such
+		a name would be sent as a single literal key, which the API ignores. The
+		request would succeed without doing what the name asked. Pass the value as
+		JSON instead, as in %[1]s-F 'position={"base_sha":"abc"}'%[1]s or %[1]s-F 'ids=[1,2]'%[1]s.
+		Or use %[1]s--input%[1]s.
+
+		With no %[1]s--method%[1]s, adding any field makes the request a %[1]sPOST%[1]s. Sending
+		bracketed names as query parameters therefore needs an explicit
+		%[1]s--method GET%[1]s. %[1]s--form%[1]s is unaffected: its part names are always literal.
+
 		For GraphQL requests, all fields other than %[1]squery%[1]s and %[1]soperationName%[1]s are
-		interpreted as GraphQL variables.
+		interpreted as GraphQL variables. The bracket rule applies to them
+		unchanged: where the request sends a JSON body, a bracketed variable name
+		is an error.
 
 		To send data as %[1]smultipart/form-data%[1]s instead of JSON, use %[1]s--form%[1]s. This is
 		required for API endpoints that accept file uploads, such as wiki attachments.
@@ -236,8 +312,9 @@ func NewCmdApi(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVar(&opts.hostname, "hostname", "", "The GitLab hostname for the request. Defaults to gitlab.com, or the authenticated host in the current Git directory.")
 	fl.StringVarP(&opts.requestMethod, "method", "X", "GET", "The HTTP method for the request.")
-	fl.StringArrayVarP(&opts.magicFields, "field", "F", nil, "Add a parameter of inferred type. Using this flag changes the default HTTP method to POST.")
-	fl.StringArrayVarP(&opts.rawFields, "raw-field", "f", nil, "Add a string parameter.")
+	fieldList := &fieldFlagList{fields: &opts.fields}
+	fl.VarP(&fieldFlagValue{list: fieldList}, "field", "F", "Add a parameter of inferred type. Using this flag changes the default HTTP method to POST.")
+	fl.VarP(&fieldFlagValue{list: fieldList, raw: true}, "raw-field", "f", "Add a string parameter.")
 	fl.StringArrayVar(&opts.formFields, "form", nil, "Add a multipart form field. To upload a file, prefix the value with @ followed by the file path. To read from standard input, use @- (at most once). Using this flag changes the default HTTP method to POST.")
 	fl.StringArrayVarP(&opts.requestHeaders, "header", "H", nil, "Add an additional HTTP request header.")
 	fl.BoolVarP(&opts.showResponseHeaders, "include", "i", false, "Include HTTP response headers in the output.")
@@ -313,7 +390,10 @@ func resolveMethod(method string, methodPassed, hasBody bool) string {
 }
 
 func (o *options) run(ctx context.Context) error {
-	params, rawKeys, err := parseFields(o)
+	// Parsing needs the method: it decides whether a bracketed name is an error.
+	method := o.methodForRequest()
+
+	params, rawKeys, err := parseFields(o, o.fieldsBecomeJSONBody(method))
 	if err != nil {
 		return err
 	}
@@ -324,9 +404,6 @@ func (o *options) run(ctx context.Context) error {
 	}
 	requestHeaders := o.requestHeaders
 	var requestBody any = params
-
-	method := resolveMethod(o.requestMethod, o.requestMethodPassed,
-		len(params) > 0 || o.requestInputFile != "" || len(o.formFields) > 0)
 
 	o.warnOnLegacyRawArrays(method, params, rawKeys)
 
@@ -678,34 +755,157 @@ func printHeaders(w io.Writer, headers http.Header, colorize bool) {
 	}
 }
 
+// methodForRequest is the method the request is sent with: absent --method, a
+// field, a form field, or --input makes it a POST rather than the flag's GET
+// default. resolveMethod is shared with the telemetry hook, so the two cannot
+// disagree about the rule; each site computes hasBody for itself.
+func (o *options) methodForRequest() string {
+	return resolveMethod(o.requestMethod, o.requestMethodPassed,
+		len(o.fields) > 0 || o.requestInputFile != "" || len(o.formFields) > 0)
+}
+
+// fieldsBecomeJSONBody reports whether the fields become a body, not a query.
+func (o *options) fieldsBecomeJSONBody(method string) bool {
+	if o.requestInputFile != "" {
+		// --input supplies the body, so the fields are query parameters.
+		return false
+	}
+	return !isQueryMethod(method)
+}
+
 // parseFields returns the request parameters, plus the keys that came from
 // --raw-field in the order they were given. The caller needs that provenance to
 // warn about legacy bracketed values without parsing the flags a second time,
 // and a map alone cannot supply it: --field overwrites a --raw-field of the same
-// name, and map iteration has no order.
-func parseFields(opts *options) (map[string]any, []string, error) {
+// name, and map iteration has no order. With jsonBody, a bracketed name errors.
+func parseFields(opts *options, jsonBody bool) (map[string]any, []string, error) {
 	params := make(map[string]any)
-	rawKeys := make([]string, 0, len(opts.rawFields))
-	for _, f := range opts.rawFields {
-		key, value, err := parseField(f)
+	rawKeys := make([]string, 0, len(opts.fields))
+	// A --raw-field never overrides a --field; the old two-pass read implied that.
+	magicOwned := make(map[string]struct{}, len(opts.fields))
+	for _, f := range opts.fields {
+		key, strValue, err := parseField(f.spec)
 		if err != nil {
 			return params, rawKeys, err
 		}
-		params[key] = value
-		rawKeys = append(rawKeys, key)
+		if jsonBody && strings.ContainsAny(key, "[]") {
+			return params, rawKeys, bracketedFieldNameError(key)
+		}
+		value := any(strValue)
+		if !f.raw {
+			if value, err = magicFieldValue(strValue, opts); err != nil {
+				return params, rawKeys, fmt.Errorf("error parsing %q value: %w", key, err)
+			}
+		}
+		// A name ending in "[]" collects rather than holds one value, so there is
+		// no override to apply: every value is sent.
+		accumulates := strings.HasSuffix(key, "[]")
+		if f.raw {
+			rawKeys = append(rawKeys, key)
+			if _, owned := magicOwned[key]; owned {
+				continue
+			}
+		} else if !accumulates {
+			magicOwned[key] = struct{}{}
+		}
+		addFieldParam(params, key, value)
 	}
-	for _, f := range opts.magicFields {
-		key, strValue, err := parseField(f)
-		if err != nil {
+	if !jsonBody {
+		if err := checkQueryKeyCollision(params); err != nil {
 			return params, rawKeys, err
 		}
-		value, err := magicFieldValue(strValue, opts)
-		if err != nil {
-			return params, rawKeys, fmt.Errorf("error parsing %q value: %w", key, err)
-		}
-		params[key] = value
 	}
 	return params, rawKeys, nil
+}
+
+// bracketedNameRE splits a name into its root and its bracketed segments. Root
+// and segments are both bracket-free, so a name the bracket syntax cannot
+// describe, such as "a[b", "a]" or "a[b]c", does not match. The guard in
+// parseFields is wider than this: it rejects any name holding a bracket at all.
+var bracketedNameRE = regexp.MustCompile(`^([^\[\]]+)((?:\[[^\[\]]*\])+)$`)
+
+// bracketedNameProblem is the clause every such error shares, whatever advice
+// follows it. Tests derive their expectations from it rather than respelling it.
+const bracketedNameProblem = "a field name containing a bracket is not supported in a JSON request body; pass the value as JSON"
+
+// bracketedFieldNameError reports a name a JSON body cannot carry. Where the
+// name has the shape its brackets describe, the advice is built from the user's
+// own segments, so it spells the request they were asking for rather than an
+// example they have to translate. A name that has no such shape gets the forms
+// that work and no invented key.
+func bracketedFieldNameError(key string) error {
+	m := bracketedNameRE.FindStringSubmatch(key)
+	if m == nil {
+		return fmt.Errorf("field name %q: %s with -F, or use --input", key, bracketedNameProblem)
+	}
+	segments := strings.Split(strings.TrimSuffix(strings.TrimPrefix(m[2], "["), "]"), "][")
+	return fmt.Errorf("field name %q: %s, for example -F '%s=%s', or use --input", key, bracketedNameProblem, m[1], jsonShapeOf(segments))
+}
+
+// jsonShapeOf renders the value a name's bracketed segments describe, outermost
+// first: an empty segment is an array, a named one an object key. The innermost
+// value is a placeholder, since the name says nothing about the value's type.
+func jsonShapeOf(segments []string) string {
+	if len(segments) == 0 {
+		return `"..."`
+	}
+	head, rest := segments[0], segments[1:]
+	if head == "" {
+		if len(rest) == 0 {
+			// An array of unknown element type, so no element is invented either.
+			return "[...]"
+		}
+		return "[" + jsonShapeOf(rest) + "]"
+	}
+	// strconv.Quote, not the bare name: a segment may hold a quote of its own.
+	return "{" + strconv.Quote(head) + ":" + jsonShapeOf(rest) + "}"
+}
+
+// addFieldParam stores one field's value. A name ending in "[]" accumulates in
+// flag order; any other, position[base_sha] included, stays last-wins.
+func addFieldParam(params map[string]any, key string, value any) {
+	existing, seen := params[key]
+	if !seen || !strings.HasSuffix(key, "[]") {
+		params[key] = value
+		return
+	}
+	if list, isList := existing.(queryList); isList {
+		params[key] = append(list, value)
+		return
+	}
+	params[key] = queryList{existing, value}
+}
+
+// queryWireKey is the query parameter a name addresses: a JSON array emits key[]=,
+// except where the name already carries those brackets, as parseQuery also reads
+// it. Computing "ids[][]" here would hide the clash between -F 'ids[]=[1,2]' and
+// -F 'ids=[3]', which both address ids[].
+func queryWireKey(name string, value any) string {
+	if _, isArray := value.([]any); isArray && !strings.HasSuffix(name, "[]") {
+		return name + "[]"
+	}
+	return name
+}
+
+// checkQueryKeyCollision rejects two field names that emit one query parameter,
+// as -f 'ids[]=1' -F 'ids=[2,3]' does: map order would shuffle their values.
+func checkQueryKeyCollision(params map[string]any) error {
+	owner := make(map[string]string, len(params))
+	for name, value := range params {
+		wire := queryWireKey(name, value)
+		prior, clash := owner[wire]
+		if !clash {
+			owner[wire] = name
+			continue
+		}
+		// Order the two names so the message does not depend on map order.
+		first, second := prior, name
+		if second < first {
+			first, second = second, first
+		}
+		return fmt.Errorf("field names %q and %q both address query parameter %q; spell the array one way, or use --input", first, second, wire)
+	}
+	return nil
 }
 
 // warnOnLegacyRawArrays prints a one-time hint per matching field when a
