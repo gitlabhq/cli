@@ -2,7 +2,7 @@
 package api
 
 import (
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // UpdateIssue updates an issue

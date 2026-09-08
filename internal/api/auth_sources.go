@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 var _ gitlab.AuthSource = (*oauth2AccessTokenOnlyAuthSource)(nil)

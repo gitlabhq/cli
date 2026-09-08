@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // IssueType enum values from GitLab GraphQL API

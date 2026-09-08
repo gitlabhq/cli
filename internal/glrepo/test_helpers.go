@@ -3,7 +3,7 @@ package glrepo
 import (
 	"fmt"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 func TestProject(owner, repo string) Interface {

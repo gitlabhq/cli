@@ -14,7 +14,7 @@ import (
 	"charm.land/glamour/v2"
 	"github.com/google/shlex"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/browser"
 	"gitlab.com/gitlab-org/cli/internal/run"

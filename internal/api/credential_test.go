@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	xoauth2 "golang.org/x/oauth2"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 type staticTokenSource struct {

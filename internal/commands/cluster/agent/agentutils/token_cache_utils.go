@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // CachedToken represents a cached agent token
