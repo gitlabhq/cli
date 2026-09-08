@@ -381,6 +381,13 @@ func (o *options) run(ctx context.Context) error {
 			}
 		} else {
 			requestPath, hasNextPage = findNextPage(resp)
+			// The Link URL already carries the previous request's parameters, so
+			// rebuilding the query duplicates them and can override page. Only a
+			// query method puts fields in the query; any other method carries
+			// them in the body and has to keep sending it.
+			if isQueryMethod(method) {
+				requestBody = nil
+			}
 		}
 
 		if hasNextPage && o.showResponseHeaders {
@@ -690,7 +697,7 @@ func parseFields(opts *options) (map[string]any, []string, error) {
 // honest: when a --field of the same name overrides a --raw-field, the literal
 // string is not what gets sent, so there is nothing to warn about.
 func (o *options) warnOnLegacyRawArrays(method string, params map[string]any, rawKeys []string) {
-	if strings.EqualFold(method, http.MethodGet) || strings.EqualFold(method, http.MethodDelete) {
+	if isQueryMethod(method) {
 		// Query parameters were never array-converted, so nothing changed here.
 		return
 	}

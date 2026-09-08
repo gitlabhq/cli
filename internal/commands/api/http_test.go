@@ -209,6 +209,27 @@ func Test_httpRequest(t *testing.T) {
 			},
 		},
 		{
+			// DELETE is a query method too, so its fields go on the URL and it
+			// sends no JSON body, which the absent Content-Type header shows.
+			name: "DELETE with params",
+			args: args{
+				host:   "gitlab.com",
+				method: http.MethodDelete,
+				p:      "projects/gitlab-com%2Fwww-gitlab-com",
+				params: map[string]any{
+					"a": "b",
+				},
+				headers: []string{},
+			},
+			wantErr: false,
+			want: expects{
+				method:  http.MethodDelete,
+				u:       "https://gitlab.com/api/v4/projects/gitlab-com%2Fwww-gitlab-com?a=b",
+				body:    "",
+				headers: "Private-Token: OTOKEN\r\nUser-Agent: glab test client\r\n",
+			},
+		},
+		{
 			name: "POST GraphQL",
 			args: args{
 				host:   "gitlab.com",
