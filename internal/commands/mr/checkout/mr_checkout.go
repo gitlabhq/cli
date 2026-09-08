@@ -96,6 +96,9 @@ func (o *options) complete(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if mr.SHA == "" {
+		return fmt.Errorf("merge request !%d has no head commit", mr.IID)
+	}
 	o.mr = mr
 	o.baseRepo = baseRepo
 
@@ -154,14 +157,25 @@ func (o *options) run(ctx context.Context) error {
 	}
 	repoURL := glrepo.RemoteURL(mrProject, gitProtocol)
 
-	fetchRefSpec := fmt.Sprintf("%s:%s", mrRef, o.branch)
-	if err := o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "fetch", repoURL, fetchRefSpec); err != nil {
-		// Remote diverged from local. Fall back to fetching just the ref (FETCH_HEAD only).
-		if err := o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "fetch", repoURL, mrRef); err != nil {
+	localSHA := o.localBranchSHA()
+	switch {
+	case localSHA == o.mr.SHA:
+		o.io.LogInfof("Branch %q already at merge request head, skipping fetch.\n", o.branch)
+	case localSHA == "" && o.mrHeadIsLocal():
+		if _, err := o.gr.Git("branch", o.branch, o.mr.SHA); err != nil {
 			return err
 		}
-		if err := o.resolveDivergence(ctx); err != nil {
-			return err
+		o.io.LogInfof("Created branch %q from local commit, skipping fetch.\n", o.branch)
+	default:
+		fetchRefSpec := fmt.Sprintf("%s:%s", mrRef, o.branch)
+		if err := o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "fetch", repoURL, fetchRefSpec); err != nil {
+			// Remote diverged from local. Fall back to fetching just the ref (FETCH_HEAD only).
+			if err := o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "fetch", repoURL, mrRef); err != nil {
+				return err
+			}
+			if err := o.resolveDivergence(ctx); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -190,6 +204,23 @@ func (o *options) run(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// localBranchSHA returns the commit refs/heads/<branch> points at, or "" when
+// the branch does not exist.
+func (o *options) localBranchSHA() string {
+	sha, err := o.gr.Git("rev-parse", "--verify", "refs/heads/"+o.branch)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(sha)
+}
+
+// mrHeadIsLocal reports whether the merge request head commit is already in
+// the object store, so a branch can be created from it without fetching.
+func (o *options) mrHeadIsLocal() bool {
+	_, err := o.gr.Git("rev-parse", "--verify", o.mr.SHA+"^{commit}")
+	return err == nil
 }
 
 // resolveDivergence is called after the fallback fetch wrote FETCH_HEAD but the
@@ -229,15 +260,15 @@ func (o *options) resolveDivergence(ctx context.Context) error {
 // different commit than FETCH_HEAD. A missing local branch is treated as "no
 // divergence" so downstream code surfaces any error.
 func (o *options) localDivergesFromFetchHead() (bool, error) {
-	localSHA, err := o.gr.Git("rev-parse", "--verify", "refs/heads/"+o.branch)
-	if err != nil {
-		return false, nil //nolint:nilerr // missing local ref means branch not yet checked out
+	localSHA := o.localBranchSHA()
+	if localSHA == "" {
+		return false, nil
 	}
 	fetchSHA, err := o.gr.Git("rev-parse", "FETCH_HEAD^{commit}")
 	if err != nil {
 		return false, err
 	}
-	return strings.TrimSpace(localSHA) != strings.TrimSpace(fetchSHA), nil
+	return localSHA != strings.TrimSpace(fetchSHA), nil
 }
 
 // guardReset checks whether `git reset --hard FETCH_HEAD` is safe to run for
