@@ -154,8 +154,12 @@
 - title: glab dependency-firewall
   url: 'cli/dependency-firewall/'
   submenu:
+    - title: glab dependency-firewall bundle
+      url: 'cli/dependency-firewall/bundle/'
     - title: glab dependency-firewall ci-summary
       url: 'cli/dependency-firewall/ci-summary/'
+    - title: glab dependency-firewall gem
+      url: 'cli/dependency-firewall/gem/'
     - title: glab dependency-firewall npm
       url: 'cli/dependency-firewall/npm/'
     - title: glab dependency-firewall pip
