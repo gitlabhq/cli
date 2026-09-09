@@ -26,8 +26,9 @@ func TestNewCmdHasSubcommands(t *testing.T) {
 		subcommandNames = append(subcommandNames, subcmd.Name())
 	}
 
-	assert.Contains(t, subcommandNames, "npm")
-	assert.Contains(t, subcommandNames, "ci-summary")
+	for _, name := range []string{"npm", "pip", "uv", "twine", "pipenv", "poetry", "ci-summary"} {
+		assert.Contains(t, subcommandNames, name)
+	}
 }
 
 // None of the df subcommands should advertise --repo. ci-summary resolves no
