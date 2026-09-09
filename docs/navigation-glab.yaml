@@ -158,6 +158,16 @@
       url: 'cli/dependency-firewall/ci-summary/'
     - title: glab dependency-firewall npm
       url: 'cli/dependency-firewall/npm/'
+    - title: glab dependency-firewall pip
+      url: 'cli/dependency-firewall/pip/'
+    - title: glab dependency-firewall pipenv
+      url: 'cli/dependency-firewall/pipenv/'
+    - title: glab dependency-firewall poetry
+      url: 'cli/dependency-firewall/poetry/'
+    - title: glab dependency-firewall twine
+      url: 'cli/dependency-firewall/twine/'
+    - title: glab dependency-firewall uv
+      url: 'cli/dependency-firewall/uv/'
 - title: glab deploy-key
   url: 'cli/deploy-key/'
   submenu:
