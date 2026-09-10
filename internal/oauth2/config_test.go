@@ -17,6 +17,9 @@ import (
 type stubConfig struct {
 	hosts  map[string]map[string]string
 	getErr error
+	// writes counts calls to Write, when non-nil, so tests can assert that a
+	// persisted value was actually flushed rather than only held in memory.
+	writes *int
 }
 
 func (s stubConfig) Get(host string, key string) (string, error) {
@@ -45,9 +48,14 @@ func (s stubConfig) Set(host string, key string, value string) error {
 func (s stubConfig) Hosts() ([]string, error)              { return nil, nil }
 func (s stubConfig) Aliases() (*config.AliasConfig, error) { return nil, nil }
 func (s stubConfig) Local() (*config.LocalConfig, error)   { return nil, nil }
-func (s stubConfig) Write() error                          { return nil }
-func (s stubConfig) WriteAll() error                       { return nil }
-func (s stubConfig) Reload() (config.Config, error)        { return s, nil }
+func (s stubConfig) Write() error {
+	if s.writes != nil {
+		*s.writes++
+	}
+	return nil
+}
+func (s stubConfig) WriteAll() error                { return nil }
+func (s stubConfig) Reload() (config.Config, error) { return s, nil }
 
 func TestConfig_unmarshal(t *testing.T) {
 	tests := []struct {

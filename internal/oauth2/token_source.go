@@ -53,9 +53,13 @@ type configTokenSource struct {
 // environment, such as the Docker credential helper, so a stray environment
 // variable cannot substitute a different identity's access token.
 func NewConfigTokenSource(cfg config.Config, httpClient *http.Client, protocol, hostname string, searchEnvForIdentity bool) (oauth2.TokenSource, error) {
+	// Background token refresh, not an interactive login flow: never prompt.
 	clientID, err := oauthClientID(cfg, hostname)
 	if err != nil {
 		return nil, err
+	}
+	if clientID == "" {
+		return nil, nonInteractiveClientIDErr(hostname)
 	}
 
 	oauth2Config := gitlaboauth2.NewOAuth2Config(fmt.Sprintf("%s://%s", protocol, hostname), clientID, redirectURL, scopes)

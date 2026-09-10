@@ -2,8 +2,6 @@ package oauth2
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"net/http"
 
 	"golang.org/x/oauth2"
@@ -12,11 +10,15 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
+	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/utils"
 )
 
-func StartFlow(ctx context.Context, cfg config.Config, out io.Writer, httpClient *http.Client, hostname string) (string, error) {
-	clientID, err := oauthClientID(cfg, hostname)
+// StartFlow performs the OAuth 2.0 Authorization Code flow: it opens a
+// browser (or prints the URL if that fails) and waits for the local
+// callback.
+func StartFlow(ctx context.Context, cfg config.Config, io *iostreams.IOStreams, httpClient *http.Client, hostname string) (string, error) {
+	clientID, persistClientID, err := resolveClientID(ctx, cfg, io, hostname)
 	if err != nil {
 		return "", err
 	}
@@ -30,14 +32,20 @@ func StartFlow(ctx context.Context, cfg config.Config, out io.Writer, httpClient
 	token, err := gitlaboauth2.AuthorizationFlow(ctx, baseURL, clientID, redirectURL, scopes, callbackServerListenAddr, func(url string) error {
 		browser, _ := cfg.Get(hostname, "browser")
 		if err := utils.OpenInBrowser(url, browser); err != nil {
-			fmt.Fprintf(out, "Failed opening a browser at %s\n", url)
-			fmt.Fprintf(out, "Encountered error: %s\n", err)
-			fmt.Fprint(out, "Try entering the URL in your browser manually.\n")
+			io.LogErrorf("Failed opening a browser at %s\n", url)
+			io.LogErrorf("Encountered error: %s\n", err)
+			io.LogError("Try entering the URL in your browser manually.")
 		}
 
 		return nil
 	})
 	if err != nil {
+		return "", err
+	}
+
+	// clientID just completed a real OAuth round trip, so it's proven now:
+	// only commit it to config at this point, not on the paste itself.
+	if err := persistClientID(); err != nil {
 		return "", err
 	}
 
