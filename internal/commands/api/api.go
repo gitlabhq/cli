@@ -618,7 +618,27 @@ func streamNDJSON(body io.Reader, out io.Writer) error {
 	return err
 }
 
-var placeholderRE = regexp.MustCompile(`:(group/:namespace/:repo|namespace/:repo|fullpath|id|user|username|group|namespace|repo|branch)\b`)
+// Placeholders are the tokens `glab api` expands in a request path or field
+// value, without their leading colon. Exported so documentation and the bundled
+// skills can be checked against the real set rather than a copy of it: a token
+// that is not here is not a placeholder, and is sent to the API verbatim.
+//
+// Order matters. The regexp alternation below tries these in sequence, so a
+// longer token must precede any token that prefixes it.
+var Placeholders = []string{
+	"group/:namespace/:repo",
+	"namespace/:repo",
+	"fullpath",
+	"id",
+	"user",
+	"username",
+	"group",
+	"namespace",
+	"repo",
+	"branch",
+}
+
+var placeholderRE = regexp.MustCompile(`:(` + strings.Join(Placeholders, "|") + `)\b`)
 
 // jsonFieldHint is shared by both --field JSON failures so the guidance cannot
 // drift between them.

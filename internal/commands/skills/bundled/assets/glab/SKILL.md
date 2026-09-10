@@ -165,29 +165,46 @@ glab api projects/:id/merge_requests
 glab api projects/:id/issues | jq '.[0]'
 ```
 
+### Placeholders
+
+`glab api` expands exactly these tokens in a path, a field value, or inline JSON:
+
+`:branch` `:fullpath` `:group` `:id` `:namespace` `:repo` `:user` `:username`
+
+`:user` and `:username` work anywhere. The rest are read from the current
+repository, so they need a git checkout with a GitLab remote. Outside one, or to
+target a different project, supply the value instead:
+
+```shell
+glab api projects/:id/issues                    # inside a checkout
+glab api projects/:id/issues -R group/project   # any project; placeholder still expands
+glab api projects/group%2Fproject/issues        # literal path -- %2F is required
+glab api projects/1234/issues                   # numeric project ID
+```
+
+Anything else beginning with a colon is **not** a placeholder. glab sends it to
+the API verbatim, so the request fails at the server rather than in glab.
+
+### Content-type guidance
+
 When using `-f` for PUT/POST, pass simple `key=value` pairs. Array bracket
 syntax like `ids[]=1` is not supported:
 
 ```shell
-glab api projects/:id/merge_requests/:iid -X PUT -f "assignee_id=1"
-```
-
-### Content-type guidance
-
-```shell
 # -f / --raw-field — literal string value
-glab api projects/:id/issues/:iid/notes -f body="comment text"
+glab api projects/:id/merge_requests/42 -X PUT -f "assignee_id=1"
+glab api projects/:id/issues/42/notes -f body="comment text"
 
 # -F / --field — reads @file as a string. The leading @ means "read this
 # file", so only pass a real path here. A literal body that starts with @
 # (e.g. "@user thanks") must NOT go through -F — it would be read as a
 # filename. Use -f for literal inline text, or write the body to a file and
 # point -F at the file (recommended for rich/markdown bodies).
-glab api projects/:id/issues/:iid/notes -F body=@/tmp/comment.md
+glab api projects/:id/issues/42/notes -F body=@/tmp/comment.md
 
 # --input — raw request body from a file (or '-' for stdin). Does NOT set
 # Content-Type. Without the header, JSON endpoints return HTTP 415.
-glab api projects/:id/issues/:iid/notes \
+glab api projects/:id/issues/42/notes \
   --input /tmp/body.json \
   -H "Content-Type: application/json"
 
@@ -216,7 +233,7 @@ the JSON. Invalid JSON returns an error rather than being sent as a string.
 glab api -X PUT projects/:id -F 'topics=["my-topic","GitLab"]'
 
 # Nested object, with a placeholder expanded inside it
-glab api projects/:id/merge_requests/:iid/discussions -X POST \
+glab api projects/:id/merge_requests/42/discussions -X POST \
   -F body="looks good" \
   -F 'position={"position_type":"text","new_path":"main.go","new_line":42}'
 
