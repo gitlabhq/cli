@@ -3,7 +3,6 @@
 package oauth2
 
 import (
-	"io"
 	"net/http"
 	"testing"
 
@@ -17,7 +16,11 @@ func TestStartDeviceFlow_missingSelfHostedClientID(t *testing.T) {
 		},
 	}
 
-	token, err := StartDeviceFlow(t.Context(), cfg, io.Discard, http.DefaultClient, "salsa.debian.org")
+	// Non-interactive: must fail with the config-set pointer rather than
+	// attempt to open a prompt. io must still be non-nil per StartDeviceFlow's
+	// contract; newNonInteractiveIOStreams (prompt_test.go) reports itself as
+	// non-interactive so no prompt is attempted.
+	token, err := StartDeviceFlow(t.Context(), cfg, newNonInteractiveIOStreams(), http.DefaultClient, "salsa.debian.org")
 
 	assert.Empty(t, token)
 	assert.ErrorContains(t, err, "set 'client_id' first")

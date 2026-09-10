@@ -618,9 +618,9 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 		// owns, and is_oauth2=true ensures the OAuth auth source wins over any
 		// residual job_token.
 		if strings.EqualFold(loginType, promptLoginTypeDevice) {
-			token, err = oauth2.StartDeviceFlow(ctx, cfg, opts.IO.StdErr, client.HTTPClient(), hostname)
+			token, err = oauth2.StartDeviceFlow(ctx, cfg, opts.IO, client.HTTPClient(), hostname)
 		} else {
-			token, err = oauth2.StartFlow(ctx, cfg, opts.IO.StdErr, client.HTTPClient(), hostname)
+			token, err = oauth2.StartFlow(ctx, cfg, opts.IO, client.HTTPClient(), hostname)
 		}
 		if err != nil {
 			return err

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 )
 
@@ -48,16 +49,39 @@ func TestClientID(t *testing.T) {
 		})
 	}
 
-	t.Run("invalid self-managed config", func(t *testing.T) {
+	t.Run("self-managed with no client_id configured resolves to empty, not an error", func(t *testing.T) {
+		// oauthClientID only looks up what's already configured; deciding what
+		// to do about an empty result (prompt vs. fail) is resolveClientID's
+		// job, tested separately in prompt_test.go.
 		cfg := stubConfig{
 			hosts: map[string]map[string]string{
 				"salsa.debian.org": {},
 			},
 		}
 		clientID, err := oauthClientID(cfg, "salsa.debian.org")
-		require.Error(t, err)
+		require.NoError(t, err)
 		assert.Empty(t, clientID)
 	})
+}
+
+// A client_id supplied via GITLAB_CLIENT_ID must resolve like a configured
+// value and never reach the interactive prompt. Uses the real config package
+// rather than stubConfig because the env short-circuit lives in
+// fileConfig.Get, not in this package.
+func TestClientID_GITLAB_CLIENT_ID_ShortCircuitsInteractivePrompt(t *testing.T) {
+	t.Setenv("GITLAB_CLIENT_ID", "from-env-123")
+	cfg := config.NewBlankConfig()
+
+	clientID, err := oauthClientID(cfg, "salsa.debian.org")
+	require.NoError(t, err)
+	assert.Equal(t, "from-env-123", clientID)
+
+	// A non-interactive io would surface the non-interactive error instead
+	// of the env value if resolveClientID ever reached the prompt.
+	clientID, persist, err := resolveClientID(t.Context(), cfg, newNonInteractiveIOStreams(), "salsa.debian.org")
+	require.NoError(t, err)
+	assert.Equal(t, "from-env-123", clientID)
+	assert.NoError(t, persist(), "an already-resolved value's persist func must be a no-op")
 }
 
 func TestOAuthBaseURL(t *testing.T) {
