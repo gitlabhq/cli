@@ -86,7 +86,7 @@ func TestJVMTrustOpts(t *testing.T) {
 	caFile := filepath.Join(t.TempDir(), "ca.pem")
 	require.NoError(t, os.WriteFile(caFile, caPEM(t, ca), 0o600))
 
-	opts := jvmTrustOpts(caFile, "MAVEN_OPTS")
+	opts := jvmTrustOpts(caFile)
 	require.NotEmpty(t, opts)
 	assert.Contains(t, opts, "-Djavax.net.ssl.trustStore="+caFile+".p12")
 	assert.Contains(t, opts, "-Djavax.net.ssl.trustStoreType=PKCS12")
@@ -112,7 +112,7 @@ func TestJVMTrustOptsPrependsExisting(t *testing.T) {
 	require.NoError(t, os.WriteFile(caFile, caPEM(t, ca), 0o600))
 
 	t.Setenv("MAVEN_OPTS", "-Xmx512m")
-	opts := jvmTrustOpts(caFile, "MAVEN_OPTS")
+	opts := jvmTrustOpts(caFile)
 	assert.True(t, strings.HasPrefix(opts, "-Xmx512m "),
 		"existing MAVEN_OPTS must be preserved ahead of the truststore flags")
 }
@@ -122,7 +122,7 @@ func TestJVMTrustOptsEmptyOnNoCerts(t *testing.T) {
 	caFile := filepath.Join(t.TempDir(), "empty.pem")
 	require.NoError(t, os.WriteFile(caFile, []byte("not a certificate"), 0o600))
 
-	assert.Empty(t, jvmTrustOpts(caFile, "MAVEN_OPTS"),
+	assert.Empty(t, jvmTrustOpts(caFile),
 		"a bundle with no parsable certificates yields no JVM flags")
 }
 

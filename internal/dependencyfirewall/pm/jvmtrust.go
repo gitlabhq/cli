@@ -74,10 +74,9 @@ func jvmTrustArgs(path, password string) []string {
 
 // jvmTrustOpts reads the PEM CA bundle at caPath, writes a PKCS#12 truststore
 // at caPath+".p12" (which Run cleans up), and returns the JVM truststore flags
-// as a single space-joined string, prepending any value already in the
-// environment variable named by envVar (MAVEN_OPTS or GRADLE_OPTS). It returns
-// "" when the CA bundle has no parsable certificates.
-func jvmTrustOpts(caPath, envVar string) string {
+// as a single space-joined string, prepending any value already in MAVEN_OPTS.
+// It returns "" when the CA bundle has no parsable certificates.
+func jvmTrustOpts(caPath string) string {
 	raw, err := os.ReadFile(caPath)
 	if err != nil {
 		dbg.Debugf("dependency firewall: failed to read CA bundle %s for JVM truststore: %v", caPath, err)
@@ -95,7 +94,7 @@ func jvmTrustOpts(caPath, envVar string) string {
 		return ""
 	}
 	opts := strings.Join(jvmTrustArgs(tsPath, password), " ")
-	if existing := os.Getenv(envVar); existing != "" {
+	if existing := os.Getenv("MAVEN_OPTS"); existing != "" {
 		opts = existing + " " + opts
 	}
 	return opts

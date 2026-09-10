@@ -8,6 +8,7 @@ import (
 	cmdBundle "gitlab.com/gitlab-org/cli/internal/commands/df/bundle"
 	cmdCISummary "gitlab.com/gitlab-org/cli/internal/commands/df/cisummary"
 	cmdGem "gitlab.com/gitlab-org/cli/internal/commands/df/gem"
+	cmdMaven "gitlab.com/gitlab-org/cli/internal/commands/df/maven"
 	cmdNpm "gitlab.com/gitlab-org/cli/internal/commands/df/npm"
 	cmdPip "gitlab.com/gitlab-org/cli/internal/commands/df/pip"
 	cmdPipenv "gitlab.com/gitlab-org/cli/internal/commands/df/pipenv"
@@ -35,6 +36,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmd.AddCommand(cmdTwine.NewCmd(f))
 	cmd.AddCommand(cmdPipenv.NewCmd(f))
 	cmd.AddCommand(cmdPoetry.NewCmd(f))
+	cmd.AddCommand(cmdMaven.NewCmd(f))
 	cmd.AddCommand(cmdGem.NewCmd(f))
 	cmd.AddCommand(cmdBundle.NewCmd(f))
 	cmd.AddCommand(cmdCISummary.NewCmd(f))

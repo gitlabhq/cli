@@ -49,6 +49,7 @@ func TestManagerMetadata(t *testing.T) {
 		{Twine(), "twine", "twine"},
 		{Gem(), "gem", "gem"},
 		{Bundle(), "bundle", "bundle"},
+		{Maven(), "maven", "mvn"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -179,6 +180,8 @@ func TestMatcherTypes(t *testing.T) {
 	assert.True(t, ok, "gem")
 	_, ok = Bundle().Matcher().(proxy.GemMatcher)
 	assert.True(t, ok, "bundle")
+	_, ok = Maven().Matcher().(proxy.MavenMatcher)
+	assert.True(t, ok, "maven")
 }
 
 // fakeExecutor records the env it was invoked with and returns execErr.
