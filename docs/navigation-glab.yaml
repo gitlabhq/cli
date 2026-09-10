@@ -160,6 +160,8 @@
       url: 'cli/dependency-firewall/ci-summary/'
     - title: glab dependency-firewall gem
       url: 'cli/dependency-firewall/gem/'
+    - title: glab dependency-firewall maven
+      url: 'cli/dependency-firewall/maven/'
     - title: glab dependency-firewall npm
       url: 'cli/dependency-firewall/npm/'
     - title: glab dependency-firewall pip

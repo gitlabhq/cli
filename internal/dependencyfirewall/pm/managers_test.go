@@ -108,6 +108,9 @@ func TestManagerExistingBundleVars(t *testing.T) {
 		{Twine(), []string{"TWINE_CERT", "REQUESTS_CA_BUNDLE"}},
 		{Gem(), []string{"SSL_CERT_FILE"}},
 		{Bundle(), []string{"SSL_CERT_FILE", "BUNDLE_SSL_CA_CERT"}},
+		// Maven preserves no CA bundle var: it trusts the proxy through a
+		// generated JVM truststore, not an env-named CA file.
+		{Maven(), nil},
 	}
 	for _, c := range cases {
 		t.Run(c.m.Name(), func(t *testing.T) {
