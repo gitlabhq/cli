@@ -84,12 +84,6 @@ For more information, see
 
 | Variable | Configuration key | Default | Description |
 |----------|-------------------|---------|-------------|
-| `API_PROTOCOL` | `api_protocol` | `https` | What protocol to use to access the API endpoint. Supported values: `http`, `https`. |
-| `ARTIFACT_REGISTRY_DOMAINS` | `artifact_registry_domains` | - | The domains of associated Artifact Registries. These are used to configure the Docker credential helper. Only list a domain here if it is actually backed by GitLab Artifact Registry: the credential helper tries this key first, and a successful token exchange is used as-is, with no fallback to container_registry_domains. A container-registry domain listed here by mistake gets an artifact-registry token the registry rejects, and `docker pull` hard-fails. |
-| `CA_CERT` | `ca_cert` | - | Path to a CA certificate (PEM) used to verify the GitLab server's TLS certificate. Useful for self-signed or private certificate authorities. |
-| `CLIENT_CERT` | `client_cert` | - | Path to a client certificate (PEM) used for mutual TLS authentication. |
-| `CLIENT_KEY` | `client_key` | - | Path to the private key (PEM) that matches client_cert. |
-| `CONTAINER_REGISTRY_DOMAINS` | `container_registry_domains` | `gitlab.com,gitlab.com:443,registry.gitlab.com` | The domains of associated container registries. These are used to configure the Docker credential helper. |
 | `GITLAB_API_HOST` | `api_host` | `gitlab.com` | Configure host for API endpoint. Defaults to the host itself. |
 | `GITLAB_CLIENT_ID` | `client_id` | - | OAuth application client ID. Required when authenticating with OAuth against a self-managed GitLab instance. |
 | `GITLAB_GROUP` | - | - | Default group for commands that list merge requests, issues, and variables. Used only when `--group` is not given. |
@@ -103,54 +97,78 @@ For more information, see
 | `GITLAB_TOKEN` | `token` | - | Your GitLab access token. To get one, read <https://docs.gitlab.com/user/profile/personal_access_tokens/>. |
 | `GITLAB_ACCESS_TOKEN` | `token` | - | Alternative name for `GITLAB_TOKEN`, checked after it. |
 | `OAUTH_TOKEN` | `token` | - | Alternative name for `GITLAB_TOKEN`, checked after it. |
+| `GLAB_API_PROTOCOL` | `api_protocol` | `https` | What protocol to use to access the API endpoint. Supported values: `http`, `https`. |
+| `API_PROTOCOL` | `api_protocol` | `https` | Alternative name for `GLAB_API_PROTOCOL`, checked after it. |
+| `GLAB_ARTIFACT_REGISTRY_DOMAINS` | `artifact_registry_domains` | - | The domains of associated Artifact Registries. These are used to configure the Docker credential helper. Only list a domain here if it is actually backed by GitLab Artifact Registry: the credential helper tries this key first, and a successful token exchange is used as-is, with no fallback to container_registry_domains. A container-registry domain listed here by mistake gets an artifact-registry token the registry rejects, and `docker pull` hard-fails. |
+| `ARTIFACT_REGISTRY_DOMAINS` | `artifact_registry_domains` | - | Alternative name for `GLAB_ARTIFACT_REGISTRY_DOMAINS`, checked after it. |
+| `GLAB_CA_CERT` | `ca_cert` | - | Path to a CA certificate (PEM) used to verify the GitLab server's TLS certificate. Useful for self-signed or private certificate authorities. |
+| `CA_CERT` | `ca_cert` | - | Alternative name for `GLAB_CA_CERT`, checked after it. |
+| `GLAB_CLIENT_CERT` | `client_cert` | - | Path to a client certificate (PEM) used for mutual TLS authentication. |
+| `CLIENT_CERT` | `client_cert` | - | Alternative name for `GLAB_CLIENT_CERT`, checked after it. |
+| `GLAB_CLIENT_KEY` | `client_key` | - | Path to the private key (PEM) that matches client_cert. |
+| `CLIENT_KEY` | `client_key` | - | Alternative name for `GLAB_CLIENT_KEY`, checked after it. |
+| `GLAB_CONTAINER_REGISTRY_DOMAINS` | `container_registry_domains` | `gitlab.com,gitlab.com:443,registry.gitlab.com` | The domains of associated container registries. These are used to configure the Docker credential helper. |
+| `CONTAINER_REGISTRY_DOMAINS` | `container_registry_domains` | `gitlab.com,gitlab.com:443,registry.gitlab.com` | Alternative name for `GLAB_CONTAINER_REGISTRY_DOMAINS`, checked after it. |
 | `GLAB_ENABLE_CI_AUTOLOGIN` | - | `false` | Set to true to enable auto-login in GitLab CI. Together with `GITLAB_CI=true`, glab signs in using predefined CI/CD variables such as `CI_SERVER_FQDN` and `CI_JOB_TOKEN`, and ignores host variables such as `GITLAB_HOST`. |
-| `PROXY` | `proxy` | - | Custom proxy for this host. Overrides environment proxy settings when set. |
-| `SKIP_TLS_VERIFY` | `skip_tls_verify` | - | Skip TLS certificate verification when talking to this host (true/false). Empty is treated as false. Use only for development; do not enable in production. |
-| `USE_KEYRING` | `use_keyring` | - | Store the host's credentials in the operating system's keyring (true/false). Set automatically by `glab auth login`, which defaults to `true` when a keyring backend is available. Empty is treated as false (plaintext file storage). |
+| `GLAB_PROXY` | `proxy` | - | Custom proxy for this host. Overrides environment proxy settings when set. |
+| `PROXY` | `proxy` | - | Alternative name for `GLAB_PROXY`, checked after it. |
+| `GLAB_SKIP_TLS_VERIFY` | `skip_tls_verify` | - | Skip TLS certificate verification when talking to this host (true/false). Empty is treated as false. Use only for development; do not enable in production. |
+| `SKIP_TLS_VERIFY` | `skip_tls_verify` | - | Alternative name for `GLAB_SKIP_TLS_VERIFY`, checked after it. |
+| `GLAB_USE_KEYRING` | `use_keyring` | - | Store the host's credentials in the operating system's keyring (true/false). Set automatically by `glab auth login`, which defaults to `true` when a keyring backend is available. Empty is treated as false (plaintext file storage). |
+| `USE_KEYRING` | `use_keyring` | - | Alternative name for `GLAB_USE_KEYRING`, checked after it. |
 
 ### `glab` configuration variables
 
 | Variable | Configuration key | Default | Description |
 |----------|-------------------|---------|-------------|
-| `BRANCH_PREFIX` | `branch_prefix` | - | Prefix used by `glab stack` when naming generated branches. Defaults to the current user's username (from `os/user.Current`), falling back to `glab-stack` if unavailable. |
-| `BROWSER` | `browser` | - | What browser glab should run when opening links. This global config cannot be overridden by hostname. |
-| `DISPLAY_HYPERLINKS` | `display_hyperlinks` | `true` | Whether or not to display hyperlinks in terminal output. Defaults to true (enabled for TTYs). Set to false to disable. Force hyperlinks in non-TTY environments by setting FORCE_HYPERLINKS=1. |
-| `DUO_CLI_AUTO_DOWNLOAD` | `duo_cli_auto_download` | - | Automatically download Duo CLI binary without prompting (true/false). |
-| `DUO_CLI_AUTO_RUN` | `duo_cli_auto_run` | - | Automatically run GitLab Duo CLI without prompting (true/false). Set to true to skip the confirmation prompt. |
 | `FORCE_HYPERLINKS` | `display_hyperlinks` | - | Set to 1 to force terminal hyperlinks when not writing to a TTY. A falsy value falls through to `display_hyperlinks`. |
 | `GITLAB_RELEASE_ASSETS_USE_PACKAGE_REGISTRY` | - | - | Set to true or 1 to upload release assets to the generic package registry of the project. The `--use-package-registry` flag takes precedence. |
-| `GIT_PROTOCOL` | `git_protocol` | `ssh` | What protocol to use when performing Git operations. Supported values: `ssh`, `https`. |
+| `GLAB_BRANCH_PREFIX` | `branch_prefix` | - | Prefix used by `glab stack` when naming generated branches. Defaults to the current user's username (from `os/user.Current`), falling back to `glab-stack` if unavailable. |
+| `BRANCH_PREFIX` | `branch_prefix` | - | Alternative name for `GLAB_BRANCH_PREFIX`, checked after it. |
+| `GLAB_BROWSER` | `browser` | - | What browser glab should run when opening links. This global config cannot be overridden by hostname. |
+| `BROWSER` | `browser` | - | Alternative name for `GLAB_BROWSER`, checked after it. |
 | `GLAB_CHECK_UPDATE` | `check_update` | `true` | Allow glab to automatically check for updates and notify you when there are new updates. Setting the environment variable to true also forces a check, bypassing the once-a-day interval. |
 | `CHECK_UPDATE` | `check_update` | `true` | Alternative name for `GLAB_CHECK_UPDATE`, checked after it. |
 | `GLAB_CONFIG_DIR` | - | `~/.config/glab-cli` | Directory holding the global configuration file. Takes priority over the XDG locations. |
 | `GLAB_DEBUG` | `debug` | `false` | Output more logging information, including underlying Git commands, expanded aliases, and DNS error details. |
 | `GLAB_DEBUG_HTTP` | - | `false` | Set to true to output HTTP transport information (request and response). |
+| `GLAB_DISPLAY_HYPERLINKS` | `display_hyperlinks` | `true` | Whether or not to display hyperlinks in terminal output. Defaults to true (enabled for TTYs). Set to false to disable. Force hyperlinks in non-TTY environments by setting FORCE_HYPERLINKS=1. |
+| `DISPLAY_HYPERLINKS` | `display_hyperlinks` | `true` | Alternative name for `GLAB_DISPLAY_HYPERLINKS`, checked after it. |
+| `GLAB_DUO_CLI_AUTO_DOWNLOAD` | `duo_cli_auto_download` | - | Automatically download Duo CLI binary without prompting (true/false). |
+| `DUO_CLI_AUTO_DOWNLOAD` | `duo_cli_auto_download` | - | Alternative name for `GLAB_DUO_CLI_AUTO_DOWNLOAD`, checked after it. |
+| `GLAB_DUO_CLI_AUTO_RUN` | `duo_cli_auto_run` | - | Automatically run GitLab Duo CLI without prompting (true/false). Set to true to skip the confirmation prompt. |
+| `DUO_CLI_AUTO_RUN` | `duo_cli_auto_run` | - | Alternative name for `GLAB_DUO_CLI_AUTO_RUN`, checked after it. |
 | `GLAB_EDITOR` | `editor` | - | What editor glab should run when creating issues, merge requests, etc. This global config cannot be overridden by hostname. |
 | `VISUAL` | `editor` | - | Alternative name for `GLAB_EDITOR`, checked after it. |
 | `EDITOR` | `editor` | - | Alternative name for `GLAB_EDITOR`, checked after it. |
 | `GLAB_FORCE_HYPERLINKS` | `display_hyperlinks` | - | Set to true to force terminal hyperlinks when not writing to a TTY. |
+| `GLAB_GIT_PROTOCOL` | `git_protocol` | `ssh` | What protocol to use when performing Git operations. Supported values: `ssh`, `https`. |
+| `GIT_PROTOCOL` | `git_protocol` | `ssh` | Alternative name for `GLAB_GIT_PROTOCOL`, checked after it. |
 | `GLAB_GLAMOUR_STYLE` | `glamour_style` | `dark` | Set your desired Markdown renderer style. Available options are [dark, light, notty]. To set a custom style, refer to <https://github.com/charmbracelet/glamour#styles>. |
 | `GLAMOUR_STYLE` | `glamour_style` | `dark` | Alternative name for `GLAB_GLAMOUR_STYLE`, checked after it. |
 | `GLAB_NOTIFY_SKILL_UPDATES` | `notify_skill_updates` | `true` | Show a notice when an installed agent skill (bundled or remote) has updates available. |
 | `GLAB_NO_PROMPT` | `no_prompt` | `false` | Set to true (1) to disable prompts, or false (0) to enable them. |
 | `NO_PROMPT` | `no_prompt` | `false` | Alternative name for `GLAB_NO_PROMPT`, checked after it. |
 | `PROMPT_DISABLED` | `no_prompt` | `false` | Alternative name for `GLAB_NO_PROMPT`, checked after it. |
+| `GLAB_ORBIT_LOCAL_AUTO_DOWNLOAD` | `orbit_local_auto_download` | - | Automatically download Orbit local CLI binary without prompting (true/false). |
+| `ORBIT_LOCAL_AUTO_DOWNLOAD` | `orbit_local_auto_download` | - | Alternative name for `GLAB_ORBIT_LOCAL_AUTO_DOWNLOAD`, checked after it. |
+| `GLAB_ORBIT_LOCAL_AUTO_RUN` | `orbit_local_auto_run` | - | Automatically run Orbit local CLI without prompting (true/false). Set to true to skip the confirmation prompt. |
+| `ORBIT_LOCAL_AUTO_RUN` | `orbit_local_auto_run` | - | Alternative name for `GLAB_ORBIT_LOCAL_AUTO_RUN`, checked after it. |
 | `GLAB_PAGER` | `glab_pager` | - | Your desired pager command to use, such as `less -R`. Takes precedence over the PAGER environment variable. GLAB_PAGER takes precedence over both. |
 | `GLAB_SEND_TELEMETRY` | `telemetry` | `true` | Set to false (0) to disable sending usage data to your GitLab instance or true (1) to enable. See <https://docs.gitlab.com/administration/settings/usage_statistics/> for more information. |
 | `GLAB_SHOW_WHATS_NEW` | `show_whats_new` | `true` | Show a one-time post-upgrade banner pointing at `glab whatsnew` when a new version is detected. |
 | `NO_COLOR` | - | - | Set to any value to avoid printing ANSI escape sequences for color output. |
-| `ORBIT_LOCAL_AUTO_DOWNLOAD` | `orbit_local_auto_download` | - | Automatically download Orbit local CLI binary without prompting (true/false). |
-| `ORBIT_LOCAL_AUTO_RUN` | `orbit_local_auto_run` | - | Automatically run Orbit local CLI without prompting (true/false). Set to true to skip the confirmation prompt. |
 
 ### Other variables
 
 | Variable | Configuration key | Default | Description |
 |----------|-------------------|---------|-------------|
-| `GIT_REMOTE_URL_VAR` | `remote_alias` | - | Name of the `git remote` that points at the GitLab repository. Used to resolve which remote to operate against when multiple are configured. |
-| `GIT_REMOTE_ALIAS` | `remote_alias` | - | Alternative name for `GIT_REMOTE_URL_VAR`, checked after it. |
-| `REMOTE_ALIAS` | `remote_alias` | - | Alternative name for `GIT_REMOTE_URL_VAR`, checked after it. |
-| `REMOTE_NICKNAME` | `remote_alias` | - | Alternative name for `GIT_REMOTE_URL_VAR`, checked after it. |
-| `GIT_REMOTE_NICKNAME` | `remote_alias` | - | Alternative name for `GIT_REMOTE_URL_VAR`, checked after it. |
+| `GLAB_REMOTE_ALIAS` | `remote_alias` | - | Name of the `git remote` that points at the GitLab repository. Used to resolve which remote to operate against when multiple are configured. |
+| `GIT_REMOTE_URL_VAR` | `remote_alias` | - | Alternative name for `GLAB_REMOTE_ALIAS`, checked after it. |
+| `GIT_REMOTE_ALIAS` | `remote_alias` | - | Alternative name for `GLAB_REMOTE_ALIAS`, checked after it. |
+| `REMOTE_ALIAS` | `remote_alias` | - | Alternative name for `GLAB_REMOTE_ALIAS`, checked after it. |
+| `REMOTE_NICKNAME` | `remote_alias` | - | Alternative name for `GLAB_REMOTE_ALIAS`, checked after it. |
+| `GIT_REMOTE_NICKNAME` | `remote_alias` | - | Alternative name for `GLAB_REMOTE_ALIAS`, checked after it. |
 
 <!-- markdownlint-enable MD044 MD034 -->
 <!-- env-vars-end -->

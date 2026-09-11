@@ -57,18 +57,20 @@ var KeySchema = []KeyDef{
 	{
 		Name: "git_protocol", Scope: ScopeGlobal, Type: TypeString,
 		Default: "ssh", UserSettable: true, Fallback: true,
+		EnvVars:     []string{"GLAB_GIT_PROTOCOL", "GIT_PROTOCOL"},
 		Description: "What protocol to use when performing Git operations. Supported values: 'ssh', 'https'.",
 	},
 	{
 		Name: "branch_prefix", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_BRANCH_PREFIX", "BRANCH_PREFIX"},
 		Description:  "Prefix used by 'glab stack' when naming generated branches. Defaults to the\ncurrent user's username (from 'os/user.Current'), falling back to 'glab-stack' if unavailable.",
 	},
 	{
 		Name: "remote_alias", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
 		Aliases:      []string{"git_remote_url_var", "git_remote_alias", "remote_nickname", "git_remote_nickname"},
-		EnvVars:      []string{"GIT_REMOTE_URL_VAR", "GIT_REMOTE_ALIAS", "REMOTE_ALIAS", "REMOTE_NICKNAME", "GIT_REMOTE_NICKNAME"},
+		EnvVars:      []string{"GLAB_REMOTE_ALIAS", "GIT_REMOTE_URL_VAR", "GIT_REMOTE_ALIAS", "REMOTE_ALIAS", "REMOTE_NICKNAME", "GIT_REMOTE_NICKNAME"},
 		Description:  "Name of the 'git remote' that points at the GitLab repository. Used to\nresolve which remote to operate against when multiple are configured.",
 	},
 	{
@@ -81,6 +83,7 @@ var KeySchema = []KeyDef{
 	{
 		Name: "browser", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_BROWSER", "BROWSER"},
 		Description:  "What browser glab should run when opening links. This global config cannot be overridden by hostname.",
 	},
 	{
@@ -141,6 +144,7 @@ var KeySchema = []KeyDef{
 	{
 		Name: "display_hyperlinks", Scope: ScopeGlobal, Type: TypeBool,
 		Default: "true", UserSettable: true,
+		EnvVars:     []string{"GLAB_DISPLAY_HYPERLINKS", "DISPLAY_HYPERLINKS"},
 		Description: "Whether or not to display hyperlinks in terminal output. Defaults to true (enabled for TTYs). Set to false to disable. Force hyperlinks in non-TTY environments by setting FORCE_HYPERLINKS=1.",
 	},
 	{
@@ -167,11 +171,13 @@ var KeySchema = []KeyDef{
 	{
 		Name: "duo_cli_auto_run", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_DUO_CLI_AUTO_RUN", "DUO_CLI_AUTO_RUN"},
 		Description:  "Automatically run GitLab Duo CLI without prompting (true/false). Set to true to skip the confirmation prompt.",
 	},
 	{
 		Name: "duo_cli_auto_download", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_DUO_CLI_AUTO_DOWNLOAD", "DUO_CLI_AUTO_DOWNLOAD"},
 		Description:  "Automatically download Duo CLI binary without prompting (true/false).",
 	},
 	{
@@ -199,11 +205,13 @@ var KeySchema = []KeyDef{
 	{
 		Name: "orbit_local_auto_run", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_ORBIT_LOCAL_AUTO_RUN", "ORBIT_LOCAL_AUTO_RUN"},
 		Description:  "Automatically run Orbit local CLI without prompting (true/false). Set to true to skip the confirmation prompt.",
 	},
 	{
 		Name: "orbit_local_auto_download", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_ORBIT_LOCAL_AUTO_DOWNLOAD", "ORBIT_LOCAL_AUTO_DOWNLOAD"},
 		Description:  "Automatically download Orbit local CLI binary without prompting (true/false).",
 	},
 	{
@@ -232,6 +240,7 @@ var KeySchema = []KeyDef{
 	{
 		Name: "api_protocol", Scope: ScopePerHost, Type: TypeString,
 		Default: "https", UserSettable: true, Fallback: true,
+		EnvVars:     []string{"GLAB_API_PROTOCOL", "API_PROTOCOL"},
 		Description: "What protocol to use to access the API endpoint. Supported values: 'http', 'https'.",
 	},
 	{
@@ -282,41 +291,49 @@ var KeySchema = []KeyDef{
 	{
 		Name: "use_keyring", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_USE_KEYRING", "USE_KEYRING"},
 		Description:  "Store the host's credentials in the operating system's keyring (true/false).\nSet automatically by 'glab auth login', which defaults to 'true' when a keyring\nbackend is available. Empty is treated as false (plaintext file storage).",
 	},
 	{
 		Name: "proxy", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_PROXY", "PROXY"},
 		Description:  "Custom proxy for this host. Overrides environment proxy settings when set.",
 	},
 	{
 		Name: "ca_cert", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_CA_CERT", "CA_CERT"},
 		Description:  "Path to a CA certificate (PEM) used to verify the GitLab server's\nTLS certificate. Useful for self-signed or private certificate authorities.",
 	},
 	{
 		Name: "client_cert", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_CLIENT_CERT", "CLIENT_CERT"},
 		Description:  "Path to a client certificate (PEM) used for mutual TLS authentication.",
 	},
 	{
 		Name: "client_key", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_CLIENT_KEY", "CLIENT_KEY"},
 		Description:  "Path to the private key (PEM) that matches client_cert.",
 	},
 	{
 		Name: "skip_tls_verify", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_SKIP_TLS_VERIFY", "SKIP_TLS_VERIFY"},
 		Description:  "Skip TLS certificate verification when talking to this host (true/false).\nEmpty is treated as false. Use only for development; do not enable in production.",
 	},
 	{
 		Name: "container_registry_domains", Scope: ScopePerHost, Type: TypeString,
 		Default: "gitlab.com,gitlab.com:443,registry.gitlab.com", UserSettable: true,
+		EnvVars:     []string{"GLAB_CONTAINER_REGISTRY_DOMAINS", "CONTAINER_REGISTRY_DOMAINS"},
 		Description: "The domains of associated container registries. These are used to configure the\nDocker credential helper.",
 	},
 	{
 		Name: "artifact_registry_domains", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
+		EnvVars:      []string{"GLAB_ARTIFACT_REGISTRY_DOMAINS", "ARTIFACT_REGISTRY_DOMAINS"},
 		Description: "The domains of associated Artifact Registries. These are used to configure the\n" +
 			"Docker credential helper. Only list a domain here if it is actually backed by\n" +
 			"GitLab Artifact Registry: the credential helper tries this key first, and a\n" +
