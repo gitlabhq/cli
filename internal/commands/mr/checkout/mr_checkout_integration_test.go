@@ -46,6 +46,7 @@ func Test_MRCheckout_RealGitOutput_Integration(t *testing.T) {
 	runGit(t, seedDir, "add", "hello.txt")
 	runGit(t, seedDir, "commit", "-m", "seed commit")
 	runGit(t, seedDir, "push", originDir, "feat-new-mr")
+	remoteSHA := gitOutput(t, seedDir, "rev-parse", "HEAD")
 
 	// Work dir: a normal (non-bare) repo with one commit on main. This is
 	// where the command will fetch/checkout. cwd must point here for git
@@ -70,6 +71,7 @@ func Test_MRCheckout_RealGitOutput_Integration(t *testing.T) {
 				SourceProjectID: 3,
 				SourceBranch:    "feat-new-mr",
 				State:           "opened",
+				SHA:             remoteSHA,
 			},
 		}, nil, nil)
 	testClient.MockProjects.EXPECT().
@@ -169,6 +171,7 @@ func setupDivergedRepo(t *testing.T) (originDir, workDir, remoteSHA, localSHA st
 
 func mockCheckoutMR(t *testing.T, originDir string) *gitlabtesting.TestClient {
 	t.Helper()
+	remoteSHA := gitOutput(t, originDir, "rev-parse", "refs/heads/feat-new-mr")
 	testClient := gitlabtesting.NewTestClient(t)
 	testClient.MockMergeRequests.EXPECT().
 		GetMergeRequest("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
@@ -180,6 +183,7 @@ func mockCheckoutMR(t *testing.T, originDir string) *gitlabtesting.TestClient {
 				SourceProjectID: 3,
 				SourceBranch:    "feat-new-mr",
 				State:           "opened",
+				SHA:             remoteSHA,
 			},
 		}, nil, nil)
 	testClient.MockProjects.EXPECT().
