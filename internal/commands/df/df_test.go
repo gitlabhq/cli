@@ -26,7 +26,7 @@ func TestNewCmdHasSubcommands(t *testing.T) {
 		subcommandNames = append(subcommandNames, subcmd.Name())
 	}
 
-	for _, name := range []string{"npm", "pnpm", "pip", "uv", "twine", "pipenv", "poetry", "maven", "gradle", "gem", "bundle", "ci-summary"} {
+	for _, name := range []string{"npm", "pnpm", "yarn", "pip", "uv", "twine", "pipenv", "poetry", "maven", "gradle", "gem", "bundle", "ci-summary"} {
 		assert.Contains(t, subcommandNames, name)
 	}
 }

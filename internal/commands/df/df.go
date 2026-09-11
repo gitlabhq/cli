@@ -17,6 +17,7 @@ import (
 	cmdPoetry "gitlab.com/gitlab-org/cli/internal/commands/df/poetry"
 	cmdTwine "gitlab.com/gitlab-org/cli/internal/commands/df/twine"
 	cmdUv "gitlab.com/gitlab-org/cli/internal/commands/df/uv"
+	cmdYarn "gitlab.com/gitlab-org/cli/internal/commands/df/yarn"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -34,6 +35,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	cmd.AddCommand(cmdNpm.NewCmd(f))
 	cmd.AddCommand(cmdPnpm.NewCmd(f))
+	cmd.AddCommand(cmdYarn.NewCmd(f))
 	cmd.AddCommand(cmdPip.NewCmd(f))
 	cmd.AddCommand(cmdUv.NewCmd(f))
 	cmd.AddCommand(cmdTwine.NewCmd(f))
