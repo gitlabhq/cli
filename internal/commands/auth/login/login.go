@@ -394,6 +394,14 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 
 	isSelfHosted := false
 
+	// GITLAB_HOST already answers "which instance", so skip the menu.
+	if hostname == "" {
+		if envHost := config.GetFromEnv("host"); envHost != "" {
+			hostname, _ = splitHostnameAndSubfolder(envHost)
+			apiHostname = initialAPIHostname(cfg, hostname, opts.ApiHost)
+		}
+	}
+
 	if hostname == "" {
 		// Try to detect GitLab hosts from git remotes
 		detectedHosts, detectErr := detectGitLabHosts(cfg)
@@ -468,7 +476,11 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 		isSelfHosted = glinstance.IsSelfHosted(hostname)
 
 		if opts.Interactive && isSelfHosted {
-			if opts.ApiHost == "" {
+			if envSSHHost := config.GetFromEnv("ssh_host"); opts.SSHHostname == "" && envSSHHost != "" {
+				opts.SSHHostname = envSSHHost
+			}
+
+			if opts.ApiHost == "" && config.GetFromEnv("api_host") == "" {
 				// Pre-filled by initialAPIHostname above.
 				apiHostnameInput := huh.NewInput().
 					Title("API hostname:").
@@ -561,7 +573,7 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 			}
 		}
 
-		if opts.ContainerRegistryDomains == "" {
+		if opts.ContainerRegistryDomains == "" && config.GetFromEnv("container_registry_domains") == "" {
 			containerRegistryInput := huh.NewInput().
 				Title("What domains does this host use for the container registry and image dependency proxy?").
 				Value(&containerRegistryDomains).
@@ -681,6 +693,8 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 	if opts.Interactive {
 		if opts.GitProtocol != "" {
 			gitProtocol = strings.ToLower(opts.GitProtocol)
+		} else if envGitProtocol := config.GetFromEnv("git_protocol"); envGitProtocol != "" {
+			gitProtocol = strings.ToLower(envGitProtocol)
 		} else {
 			gitProtocolOptions := []string{promptProtocolSSH, promptProtocolHTTPS, promptProtocolHTTP}
 			// Use smart default based on SSH hostname configuration
@@ -706,6 +720,8 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 		if isSelfHosted {
 			if opts.ApiProtocol != "" {
 				apiProtocol = strings.ToLower(opts.ApiProtocol)
+			} else if envApiProtocol := config.GetFromEnv("api_protocol"); envApiProtocol != "" {
+				apiProtocol = strings.ToLower(envApiProtocol)
 			} else {
 				apiProtocolOptions := []string{promptProtocolHTTPS, promptProtocolHTTP}
 				apiProtocol = promptProtocolHTTPS // Set default
