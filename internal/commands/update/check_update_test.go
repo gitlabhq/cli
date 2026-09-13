@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -166,6 +167,41 @@ func TestNewCheckUpdateCmd_error(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, `failed checking for glab updates: 404 Not Found`, err.Error())
+	assert.Empty(t, output.String())
+	assert.Empty(t, output.Stderr())
+}
+
+func TestCheckUpdate_GitLabDown(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+
+	// gitlab.com answers with its HTML maintenance page during an incident, which the
+	// API client hands back verbatim inside the error.
+	htmlPage := "<!DOCTYPE html>\n<html>\n<head><title>503 Server Unavailable</title></head><body>...</body></html>"
+	errResp := &gitlab.ErrorResponse{
+		StatusCode: http.StatusServiceUnavailable,
+		Message:    "failed to parse unknown error format: " + htmlPage,
+		Response: &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Request: &http.Request{
+				Method: http.MethodGet,
+				URL:    &url.URL{Scheme: "https", Host: "gitlab.com", Path: "/api/v4/projects/gitlab-org/cli/releases"},
+			},
+		},
+	}
+	testClient.MockReleases.EXPECT().
+		ListReleases("gitlab-org/cli", gomock.Any()).
+		Return(nil, &gitlab.Response{Response: errResp.Response}, errResp)
+
+	mockClientCreator(t, testClient)
+
+	exec := cmdtest.SetupCmdForTest(t, NewCheckUpdateCmd, true,
+		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.11.0"}),
+	)
+	output, err := exec("")
+
+	require.Error(t, err)
+	assert.Equal(t, "failed checking for glab updates: gitlab.com responded with HTTP 503", err.Error())
+	assert.NotContains(t, err.Error(), "<html>")
 	assert.Empty(t, output.String())
 	assert.Empty(t, output.Stderr())
 }
