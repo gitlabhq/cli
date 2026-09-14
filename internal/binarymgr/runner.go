@@ -215,19 +215,58 @@ func (r *Runner) ShouldForceUpdateCheck() bool {
 	return os.Getenv(r.Spec.envVar("CHECK_UPDATE")) == "true"
 }
 
+// InstallStatus describes the binary Run would exec without a download.
+type InstallStatus struct {
+	Path      string
+	Version   string
+	Installed bool
+}
+
+// InstalledBinary resolves the binary the way Run does, but never prompts, downloads, or logs.
+// Config read errors are returned together with a best-effort status so the caller picks the fallback.
+func InstalledBinary(cfg config.Config, spec Spec) (InstallStatus, error) {
+	var errs []error
+	read := func(suffix string) string {
+		value, err := cfg.Get("", spec.configKey(suffix))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("reading %s: %w", spec.configKey(suffix), err))
+		}
+		return value
+	}
+	path := read("binary_path")
+	version := read("binary_version")
+	managedPath, managedErr := ManagedBinaryPath(spec)
+
+	status := InstallStatus{Path: path, Version: version}
+	if status.Version == "" {
+		status.Version = "unknown version"
+	}
+	if path != "" && path != managedPath {
+		status.Installed = validateBinaryPath(path, spec) == nil
+		return status, errors.Join(errs...)
+	}
+	status.Path = managedPath
+	status.Installed = version != "" && !spec.belowFloor(version) && isBinaryValid(managedPath)
+	return status, errors.Join(append(errs, managedErr)...)
+}
+
+func (s Spec) belowFloor(installedVersion string) bool {
+	if s.MinVersion == "" || installedVersion == "" {
+		return false
+	}
+	floor, err := version.NewVersion(s.MinVersion)
+	if err != nil {
+		return false
+	}
+	installed, err := version.NewVersion(installedVersion)
+	return err == nil && installed.LessThan(floor)
+}
+
 func (r *Runner) versionAfterFloor(installedVersion, installedPath, managedPath string) string {
 	if installedPath != "" && installedPath != managedPath {
 		return installedVersion
 	}
-	if r.Spec.MinVersion == "" || installedVersion == "" {
-		return installedVersion
-	}
-	floor, err := version.NewVersion(r.Spec.MinVersion)
-	if err != nil {
-		return installedVersion
-	}
-	installed, err := version.NewVersion(installedVersion)
-	if err != nil || !installed.LessThan(floor) {
+	if !r.Spec.belowFloor(installedVersion) {
 		return installedVersion
 	}
 	color := r.IO.Color()

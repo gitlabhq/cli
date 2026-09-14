@@ -85,7 +85,7 @@ func (m *Manager) EnsureInstalled(ctx context.Context, installedVersion, install
 		}, nil
 	}
 
-	if installedVersion != "" && m.isBinaryValid(managedPath) {
+	if installedVersion != "" && isBinaryValid(managedPath) {
 		return &EnsureResult{
 			Info: &BinaryInfo{Path: managedPath, Version: installedVersion},
 		}, nil
@@ -191,7 +191,7 @@ func validateBinaryPath(path string, spec Spec) error {
 	return nil
 }
 
-func (m *Manager) isBinaryValid(path string) bool {
+func isBinaryValid(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false

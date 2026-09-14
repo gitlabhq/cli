@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"os"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -127,33 +126,12 @@ func AppendBinaryStatusFooter(cmd *cobra.Command, f cmdutils.Factory) {
 	})
 }
 
-// binaryStatus resolves the Duo CLI binary that would be used, and reports
-// whether it is present on disk. Path resolution mirrors binarymgr.Runner.
-// Errors are logged via dbg (not returned) so a real failure is diagnosable
-// under GLAB_DEBUG instead of silently rendering as "not installed".
 func binaryStatus(cfg config.Config) (string, string, bool) {
-	path, err := cfg.Get("", "duo_cli_binary_path")
+	status, err := binarymgr.InstalledBinary(cfg, Spec())
 	if err != nil {
-		dbg.Debugf("binaryStatus: reading duo_cli_binary_path from config: %v", err)
+		dbg.Debugf("binaryStatus: %v", err)
 	}
-	if path == "" {
-		var mbpErr error
-		path, mbpErr = binarymgr.ManagedBinaryPath(Spec())
-		if mbpErr != nil {
-			dbg.Debugf("binaryStatus: resolving managed Duo CLI binary path: %v", mbpErr)
-		}
-	}
-	version, err := cfg.Get("", "duo_cli_binary_version")
-	if err != nil {
-		dbg.Debugf("binaryStatus: reading duo_cli_binary_version from config: %v", err)
-	}
-	if version == "" {
-		version = "unknown version"
-	}
-	if _, err := os.Stat(path); err != nil {
-		return path, version, false
-	}
-	return path, version, true
+	return status.Path, status.Version, status.Installed
 }
 
 // NewCmd creates the `glab duo cli` command.
