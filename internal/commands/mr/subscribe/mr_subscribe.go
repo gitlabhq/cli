@@ -55,7 +55,7 @@ func NewCmdSubscribe(f cmdutils.Factory) *cobra.Command {
 			}
 
 			for _, mr := range mrs {
-				if err = mrutils.MRCheckErrors(mr, mrutils.MRCheckErrOptions{
+				if err := mrutils.MRCheckErrors(mr, mrutils.MRCheckErrOptions{
 					Subscribed: true,
 				}); err != nil {
 					return err

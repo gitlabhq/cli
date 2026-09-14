@@ -182,8 +182,8 @@ func (o *options) run(ctx context.Context) error {
 					}
 				}
 
-				if remoteDesired {
-					// Get the existing project details
+				switch {
+				case remoteDesired:
 					// First search for the project name (user-namespace only)
 					forkedProject, searchErr := searchProject(o, labClient)
 
@@ -223,11 +223,11 @@ func (o *options) run(ctx context.Context) error {
 					}
 					// Return early since we've successfully handled the existing repository case
 					return nil
-				} else if !o.currentDirIsParent {
+				case !o.currentDirIsParent:
 					o.io.LogErrorf("- You can clone the existing repository with:")
 					o.io.LogErrorf("  %s\n", c.Gray(fmt.Sprintf("glab repo clone %s/%s", namespace, o.repoToFork.RepoName())))
 					return nil
-				} else {
+				default:
 					return nil
 				}
 			}
@@ -292,7 +292,7 @@ func (o *options) run(ctx context.Context) error {
 				o.io.LogError("- " + forkedProject.ImportStatus)
 				break loop
 			case "failed": // import failed
-				importError = errors.New(forkedProject.ImportError) // return the import error
+				importError = errors.New(forkedProject.ImportError)
 				break loop
 			default:
 				break loop

@@ -25,6 +25,20 @@ pre-commit:
         fi
       stage_fixed: true
 
+    # Flag comments whose wording is already carried by the code beside them.
+    # Gated at full token coverage, where the comment adds nothing a reader
+    # cannot get from the line itself; lower thresholds are for reporting, not
+    # gating, because they need human judgement.
+    comment-overlap:
+      tags: backend lint style
+      glob: "*.go"
+      run: |
+        if ! command -v go > /dev/null 2>&1; then
+          echo "⚠️  go not found. Skipping comment overlap check..."
+          exit 0
+        fi
+        go run ./scripts/comment-overlap -threshold 1.0 -max-findings 0 {staged_files}
+
     # Lint shell scripts
     shellcheck:
       tags: shell lint
@@ -138,6 +152,19 @@ pre-push:
     go-test:
       tags: backend test
       run: make test-changed
+
+    # Report how much of the push is comment rather than code. Advisory: the
+    # repo distribution has no natural cutoff, so the number is context for
+    # the author rather than a pass/fail line.
+    comment-ratio:
+      tags: backend lint style
+      glob: "*.go"
+      run: |
+        if ! command -v go > /dev/null 2>&1; then
+          echo "⚠️  go not found. Skipping comment ratio report..."
+          exit 0
+        fi
+        go run ./scripts/comment-ratio -base origin/main
 
     # Forbid //go:embed of .md files as help text; use heredoc.Doc instead
     check-embed:

@@ -48,7 +48,7 @@ func readZip(artifact *bytes.Reader, path string, listPaths bool, zipReadLimit i
 	}
 
 	if !strings.HasSuffix(path, "/") {
-		path = path + "/"
+		path += "/"
 	}
 
 	var written int64 = 0
@@ -74,48 +74,57 @@ func readZip(artifact *bytes.Reader, path string, listPaths bool, zipReadLimit i
 			if err := os.MkdirAll(destPath, v.Mode()); err != nil {
 				return err
 			}
-		} else {
-			srcFile, err := zipReader.Open(v.Name)
-			if err != nil {
-				return err
-			}
-			defer srcFile.Close()
+			continue
+		}
 
-			limitedReader := io.LimitReader(srcFile, zipReadLimit)
+		writtenPerFile, err := extractZipEntry(zipReader, v, destPath, zipReadLimit, listPaths, out)
+		if err != nil {
+			return err
+		}
 
-			err = ensurePathIsCreated(destPath)
-			if err != nil {
-				return err
-			}
-
-			symlinkCheck, _ := os.Lstat(destPath)
-
-			if symlinkCheck != nil && symlinkCheck.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("can't extract: a file in the artifact would overwrite a symbolic link")
-			}
-
-			dstFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, v.Mode())
-			if err != nil {
-				return err
-			}
-			defer dstFile.Close()
-
-			var writtenPerFile int64
-			if writtenPerFile, err = io.Copy(dstFile, limitedReader); err != nil {
-				return err
-			}
-
-			if listPaths {
-				fmt.Fprintln(out, friendlyPath(destPath)) //nolint:forbidigo // out is a generic io.Writer; production caller passes os.Stdout directly, not IOStreams
-			}
-
-			written += writtenPerFile
-			if written >= zipReadLimit {
-				return fmt.Errorf("extracted zip too large: limit is %d bytes", zipReadLimit)
-			}
+		written += writtenPerFile
+		if written >= zipReadLimit {
+			return fmt.Errorf("extracted zip too large: limit is %d bytes", zipReadLimit)
 		}
 	}
 	return nil
+}
+
+// extractZipEntry is split out of readZip's loop so that both file handles are
+// released per entry. Deferring them inside the loop held every handle open
+// until the whole archive finished, up to the file-count limit.
+func extractZipEntry(zipReader *zip.Reader, v *zip.File, destPath string, zipReadLimit int64, listPaths bool, out io.Writer) (int64, error) {
+	srcFile, err := zipReader.Open(v.Name)
+	if err != nil {
+		return 0, err
+	}
+	defer srcFile.Close()
+
+	if err := ensurePathIsCreated(destPath); err != nil {
+		return 0, err
+	}
+
+	symlinkCheck, _ := os.Lstat(destPath)
+	if symlinkCheck != nil && symlinkCheck.Mode()&os.ModeSymlink != 0 {
+		return 0, fmt.Errorf("can't extract: a file in the artifact would overwrite a symbolic link")
+	}
+
+	dstFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, v.Mode())
+	if err != nil {
+		return 0, err
+	}
+	defer dstFile.Close()
+
+	written, err := io.Copy(dstFile, io.LimitReader(srcFile, zipReadLimit))
+	if err != nil {
+		return 0, err
+	}
+
+	if listPaths {
+		fmt.Fprintln(out, friendlyPath(destPath)) //nolint:forbidigo // out is a generic io.Writer; production caller passes os.Stdout directly, not IOStreams
+	}
+
+	return written, nil
 }
 
 func friendlyPath(path string) string {

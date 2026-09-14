@@ -7,6 +7,7 @@ import (
 	"iter"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -110,7 +111,6 @@ func (s *mcpServer) registerToolsFromCommands() {
 		// Build the tool with dynamic schema
 		tool := s.buildToolFromCommand(toolName, description, cmd, flags)
 
-		// Create handler for this command
 		handler := s.createCommandHandler(path, flags)
 
 		s.server.AddTool(tool, handler)
@@ -127,7 +127,7 @@ func (s *mcpServer) iterCommands(cmd *cobra.Command, path []string) iter.Seq2[*c
 			// This is the root command, start with empty path
 			currentPath = []string{}
 		} else {
-			currentPath = append(path, cmdName)
+			currentPath = append(slices.Clone(path), cmdName)
 		}
 
 		// Process current command
@@ -351,7 +351,6 @@ func (s *mcpServer) createCommandHandler(cmdPath []string, flags *pflag.FlagSet)
 		// Convert MCP parameters to command line arguments and extract response config
 		args, config := s.convertParamsToArgs(params, flags)
 
-		// Execute the glab command
 		output, err := s.executeGlabCommand(cmdPath, args)
 		if err != nil {
 			// Return the error as content so the user can see what went wrong
@@ -570,7 +569,7 @@ func (s *mcpServer) executeGlabCommand(cmdPath []string, args []string) (string,
 	}
 
 	// Build full command arguments
-	fullArgs := append(cmdPath, args...)
+	fullArgs := slices.Concat(cmdPath, args)
 
 	// Execute subprocess
 	cmd := exec.Command(currentBinary, fullArgs...)

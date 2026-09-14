@@ -509,7 +509,6 @@ func GenerateMRTitleAndBody(commits []*git.Commit, sourceBranch string, fillComm
 		// Multiple commits: use humanized branch name as fallback title
 		title := utils.Humanize(sourceBranch)
 
-		// Generate body from commit list
 		body, err := GenerateMRCommitListBody(commits, fillCommitBody)
 		if err != nil {
 			return "", "", err

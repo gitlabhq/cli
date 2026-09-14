@@ -132,7 +132,6 @@ func (o *options) run(ctx context.Context) error {
 		}
 	}
 
-	// Clear tokens from cache
 	o.io.LogInfo("Clearing tokens from cache...")
 	clearErrors := o.clearTokens(tokens)
 	for _, err := range clearErrors {

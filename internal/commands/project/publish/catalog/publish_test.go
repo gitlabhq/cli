@@ -156,9 +156,9 @@ func Test_fetchTemplates(t *testing.T) {
 	wd := filepath.Join("testdata", "test-repo")
 
 	want := map[string]string{
-		"component-1": filepath.Join(wd, "templates/component-1.yml"),
-		"component-2": filepath.Join(wd, "templates/component-2.yml"),
-		"component-3": filepath.Join(wd, "templates/component-3", "template.yml"),
+		"component-1": filepath.Join(wd, "templates", "component-1.yml"),
+		"component-2": filepath.Join(wd, "templates", "component-2.yml"),
+		"component-3": filepath.Join(wd, "templates", "component-3", "template.yml"),
 	}
 	got, err := fetchTemplates(wd)
 	require.NoError(t, err)
@@ -178,17 +178,17 @@ func Test_extractComponentName(t *testing.T) {
 	}{
 		{
 			name:     "valid component path",
-			path:     filepath.Join(wd, "templates/component-1.yml"),
+			path:     filepath.Join(wd, "templates", "component-1.yml"),
 			expected: "component-1",
 		},
 		{
 			name:     "valid component path in sub directory",
-			path:     filepath.Join(wd, "templates/component-2", "template.yml"),
+			path:     filepath.Join(wd, "templates", "component-2", "template.yml"),
 			expected: "component-2",
 		},
 		{
 			name:     "invalid component path",
-			path:     filepath.Join(wd, "abc_templates/component-3.yml"),
+			path:     filepath.Join(wd, "abc_templates", "component-3.yml"),
 			expected: "",
 		},
 	}

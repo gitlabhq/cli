@@ -124,7 +124,7 @@ func TestCustomHeadersTransport(t *testing.T) {
 			if requestURL == "" {
 				requestURL = "https://example.com"
 			}
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, requestURL, nil)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, requestURL, http.NoBody)
 			require.NoError(t, err)
 			if tc.requestHeader != "" {
 				req.Header.Set("X-Custom-Header", tc.requestHeader)

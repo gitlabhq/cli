@@ -602,7 +602,7 @@ func (c *curlingExecutor) ExecWithIO(ctx context.Context, _ string, _ []string, 
 	}
 	// A blocked coordinate is refused before the upstream round trip, so the
 	// registry host is never actually dialed; any resolvable-looking host works.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://registry.npmjs.org"+c.path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://registry.npmjs.org"+c.path, http.NoBody)
 	if err != nil {
 		return err
 	}

@@ -155,7 +155,6 @@ func (f *DefaultFactory) BaseRepo() (glrepo.Interface, error) {
 		return nil, err
 	}
 
-	// cache base repo
 	f.cachedBaseRepo = baseRepo
 	return f.cachedBaseRepo, nil
 }

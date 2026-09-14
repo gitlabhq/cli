@@ -102,7 +102,8 @@ func (o *options) run() error {
 
 	table := tableprinter.NewTablePrinter()
 
-	if o.group != "" {
+	switch {
+	case o.group != "":
 		if o.outputFormat != "json" {
 			o.io.LogInfof("Listing variables for the %s group:\n\n", color.Bold(o.group))
 		}
@@ -126,7 +127,7 @@ func (o *options) run() error {
 				table.AddRow(variable.Key, variable.Protected, variable.Masked, variable.Hidden, !variable.Raw, variable.EnvironmentScope, variable.Description)
 			}
 		}
-	} else if o.instance {
+	case o.instance:
 		if o.outputFormat != "json" {
 			o.io.LogInfo("Listing variables for the instance\n\n")
 		}
@@ -150,7 +151,7 @@ func (o *options) run() error {
 				table.AddRow(variable.Key, variable.Protected, variable.Masked, !variable.Raw, "", variable.Description)
 			}
 		}
-	} else {
+	default:
 		repo, err := o.baseRepo()
 		if err != nil {
 			return err

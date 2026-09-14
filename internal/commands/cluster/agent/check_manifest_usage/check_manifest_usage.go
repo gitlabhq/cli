@@ -182,7 +182,6 @@ func agentUsesManifestProjects(apiClient *gitlab.Client, opts *options, agent *g
 	opts.io.StartSpinner(fmt.Sprintf("Checking manifests of agent %s.\n", agent.Name))
 	defer opts.io.StopSpinner("")
 
-	// GetRawFile
 	file, _, err := apiClient.RepositoryFiles.GetRawFile(agent.ConfigProject.ID, ".gitlab/agents/"+agent.Name+"/config.yaml", &gitlab.GetRawFileOptions{})
 	if err != nil {
 		if errors.Is(err, gitlab.ErrNotFound) {

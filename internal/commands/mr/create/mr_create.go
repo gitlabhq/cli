@@ -518,7 +518,7 @@ func (o *options) run(ctx context.Context) error {
 		o.Description += fmt.Sprintf("\n\nCloses #%d", issue.IID)
 
 		if o.Title == "" {
-			o.Title = fmt.Sprintf("Resolve \"%s\"", issue.Title)
+			o.Title = fmt.Sprintf("Resolve %q", issue.Title)
 		}
 
 		// MRs created with a related issue will always be created as a draft, same as the UI
@@ -573,7 +573,7 @@ func (o *options) run(ctx context.Context) error {
 				return err
 			}
 			o.TargetTrackingBranch = fmt.Sprintf("%s/%s", baseRepoRemote.Name, o.TargetBranch)
-			if err = mrBodyAndTitle(o); err != nil {
+			if err := mrBodyAndTitle(o); err != nil {
 				return err
 			}
 			_, _, err = client.Commits.GetCommit(baseRepo.FullName(), o.TargetBranch, nil)

@@ -16,6 +16,17 @@ infer from reading the tree.
   test discipline) and is what GitLab Duo Code Review grades MRs
   against. Blocks are scoped by `fileFilters`, so only the ones that
   match the file you are editing apply.
+- **Writing a comment** — default to not writing one. Document only what a
+  competent Go reader cannot infer from the code; a comment that restates
+  the line below it is noise, and rewording it does not help. Two gates run
+  in lefthook pre-commit and the `lint:comments` CI job:
+  `go run ./scripts/comment-overlap` rejects comments whose words are already
+  carried by the adjacent code, and `gocritic`'s `commentedOutCode` rejects
+  commented-out code. `go run ./scripts/comment-ratio -base origin/main`
+  reports comment volume on a change and is advisory. Godoc on exported
+  symbols is exempt from the overlap gate by position, so it is not flagged
+  for repeating its own symbol name. Full rules: the `Comments` block of
+  [`.gitlab/duo/mr-review-instructions.yaml`](.gitlab/duo/mr-review-instructions.yaml).
 - **Looking for a helper before writing a new one** — the most common
   feedback on this project is "use the existing helper":
   - `internal/cmdutils/` — flag wiring (`EnableRepoOverride`,

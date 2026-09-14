@@ -97,7 +97,7 @@ func NewCmdFor(f cmdutils.Factory) *cobra.Command {
 			}
 
 			var mergeTitle string
-			mergeTitle = fmt.Sprintf("Resolve \"%s\"", issue.Title)
+			mergeTitle = fmt.Sprintf("Resolve %q", issue.Title)
 
 			isDraft, _ := cmd.Flags().GetBool("draft")
 			isWIP, _ := cmd.Flags().GetBool("wip")

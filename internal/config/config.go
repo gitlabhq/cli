@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -723,7 +724,7 @@ func (c *fileConfig) Local() (*LocalConfig, error) {
 	if len(toInsert) > 0 {
 		var newContent []*yaml.Node
 		if notFound {
-			newContent = append(c.Root().Content, keyNode, valueNode)
+			newContent = slices.Concat(c.Root().Content, []*yaml.Node{keyNode, valueNode})
 		} else {
 			for i := 0; i < len(c.Root().Content); i++ {
 				if i == entry.Index {
@@ -776,7 +777,7 @@ func (c *fileConfig) Aliases() (*AliasConfig, error) {
 	if len(toInsert) > 0 {
 		var newContent []*yaml.Node
 		if notFound {
-			newContent = append(c.Root().Content, keyNode, valueNode)
+			newContent = slices.Concat(c.Root().Content, []*yaml.Node{keyNode, valueNode})
 		} else {
 			for i := 0; i < len(c.Root().Content); i++ {
 				if i == entry.Index {
@@ -859,7 +860,7 @@ func (c *fileConfig) makeConfigForHost(hostname string) *HostConfig {
 func (c *fileConfig) parseHosts(hostsEntry *yaml.Node) ([]*HostConfig, error) {
 	var hostConfigs []*HostConfig
 
-	for i := 0; i < len(hostsEntry.Content)-1; i = i + 2 {
+	for i := 0; i < len(hostsEntry.Content)-1; i += 2 {
 		hostname := hostsEntry.Content[i].Value
 		hostRoot := hostsEntry.Content[i+1]
 
@@ -926,7 +927,6 @@ func GetFromEnvWithSource(key string) (string, string) {
 // extractSubfolderFromURL parses a URL and extracts the path component (subfolder).
 // Returns empty string if URL has no path or only "/".
 func extractSubfolderFromURL(urlStr string) string {
-	// Parse the URL
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return ""

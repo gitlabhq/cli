@@ -30,31 +30,36 @@ func Truncate(s string, length int) string {
 		// hyperlinkMatches[0] and can avoid nil checks
 		hyperlinkMatches = append(hyperlinkMatches, []int{len(s), len(s)})
 
+		// Labelled because the switches below turn a bare break into a break of
+		// the switch rather than of this loop.
+	truncate:
 		for i, r := range s {
 			startPos := hyperlinkMatches[0][0]
 			endPos := hyperlinkMatches[0][1]
 
-			if i >= startPos && i < endPos {
+			switch {
+			case i >= startPos && i < endPos:
 				// write runes inside hyperlink OSC sequences - this doesn't count
 				// against our grapheme total
 				buf.WriteRune(r)
-			} else if w == 0 {
+			case w == 0:
 				// always write the first character
 				buf.WriteRune(r)
 				w += RuneWidth(r)
-			} else {
+			default:
 				rw := RuneWidth(r)
 
-				if w+rw <= n-3 {
+				switch {
+				case w+rw <= n-3:
 					// if we have room before the ellipsis, go ahead and write it
 					buf.WriteRune(r)
 					w += rw
-				} else if dotsWritten < 3 {
+				case dotsWritten < 3:
 					buf.WriteRune('.')
 					w++
 					dotsWritten++
-				} else {
-					break
+				default:
+					break truncate
 				}
 			}
 

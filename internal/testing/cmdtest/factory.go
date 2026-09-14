@@ -69,9 +69,7 @@ func NewTestFactory(ios *iostreams.IOStreams, opts ...FactoryOption) *Factory {
 		GitLabClientStub: func() (*gitlab.Client, error) {
 			return &gitlab.Client{}, nil
 		},
-		ConfigStub: func() config.Config {
-			return config.NewBlankConfig()
-		},
+		ConfigStub: config.NewBlankConfig,
 		BaseRepoStub: func() (glrepo.Interface, error) {
 			return glrepo.New("OWNER", "REPO", glinstance.DefaultHostname), nil
 		},

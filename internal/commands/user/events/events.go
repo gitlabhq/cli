@@ -61,7 +61,7 @@ func NewCmdEvents(f cmdutils.Factory) *cobra.Command {
 				return err
 			}
 
-			if err = f.IO().StartPager(); err != nil {
+			if err := f.IO().StartPager(); err != nil {
 				return err
 			}
 			defer f.IO().StopPager()

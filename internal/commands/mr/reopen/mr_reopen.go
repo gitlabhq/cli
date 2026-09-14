@@ -49,7 +49,7 @@ func NewCmdReopen(f cmdutils.Factory) *cobra.Command {
 			l := &gitlab.UpdateMergeRequestOptions{}
 			l.StateEvent = new("reopen")
 			for _, mr := range mrs {
-				if err = mrutils.MRCheckErrors(mr, mrutils.MRCheckErrOptions{
+				if err := mrutils.MRCheckErrors(mr, mrutils.MRCheckErrOptions{
 					Opened: true,
 					Merged: true,
 				}); err != nil {

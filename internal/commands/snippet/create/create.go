@@ -109,10 +109,9 @@ func (o *options) complete(args []string) error {
 	if len(args) == 0 {
 		if o.displayFilename == "" {
 			return &cmdutils.FlagError{Err: errors.New("if 'path' is not provided, 'filename' and stdin are required")}
-		} else {
-			if !o.io.IsInTTY && !hasStdIn() {
-				return errors.New("stdin required if no 'path' is provided")
-			}
+		}
+		if !o.io.IsInTTY && !hasStdIn() {
+			return errors.New("stdin required if no 'path' is provided")
 		}
 		o.io.LogInfo("reading from stdin (Ctrl+D to finish, Ctrl+C to abort):")
 		content, err := readFromSTDIN(o.io)

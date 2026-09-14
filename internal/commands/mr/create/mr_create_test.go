@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -837,7 +838,7 @@ func Test_MRCreate_With_Recover_Integration(t *testing.T) {
 	require.Contains(t, outErr, "Failed to create merge request. Created recovery file: ")
 
 	// Run create issue with recover
-	newCliStr := append(cliStr, "--recover")
+	newCliStr := append(slices.Clone(cliStr), "--recover")
 
 	newCli := strings.Join(newCliStr, " ")
 
@@ -1073,7 +1074,6 @@ func TestMRCreate_SquashBeforeMergeFlag(t *testing.T) {
 
 			cmd.SetArgs(args)
 
-			// Parse flags
 			err := cmd.ParseFlags(args)
 			require.NoError(t, err)
 
@@ -1190,7 +1190,6 @@ func TestMRCreate_BooleanFlags(t *testing.T) {
 
 			cmd.SetArgs(args)
 
-			// Parse flags
 			err := cmd.ParseFlags(args)
 			require.NoError(t, err)
 

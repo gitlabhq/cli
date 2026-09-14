@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+// Named rather than inlined so filepath.Join does not receive a literal
+// carrying its own separators, which gocritic's filepathJoin rejects.
+const systemSSHDir = "/etc/ssh"
+
 var (
 	sshConfigLineRE = regexp.MustCompile(`\A\s*(?P<keyword>[A-Za-z][A-Za-z0-9]*)(?:\s+|\s*=\s*)(?P<argument>.+)`)
 	sshTokenRE      = regexp.MustCompile(`%[%h]`)
@@ -125,8 +129,8 @@ func (p *sshParser) absolutePath(parentFile, path string) string {
 		return filepath.Join(p.homeDir, after)
 	}
 
-	if strings.HasPrefix(filepath.ToSlash(parentFile), "/etc/ssh") {
-		return filepath.Join("/etc/ssh", path)
+	if strings.HasPrefix(filepath.ToSlash(parentFile), systemSSHDir) {
+		return filepath.Join(systemSSHDir, path)
 	}
 
 	return filepath.Join(p.homeDir, ".ssh", path)

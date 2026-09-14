@@ -572,7 +572,8 @@ func (b *bracketEscaper) Write(p []byte) (int, error) {
 	i := 0
 	for i < len(p) {
 		// Check if this is the start of an ANSI escape sequence: ESC [
-		if i < len(p)-1 && p[i] == '\x1b' && p[i+1] == '[' {
+		switch {
+		case i < len(p)-1 && p[i] == '\x1b' && p[i+1] == '[':
 			// Find the end of the ANSI sequence (ends with a letter)
 			result.WriteByte(p[i])   // ESC
 			result.WriteByte(p[i+1]) // [
@@ -586,11 +587,11 @@ func (b *bracketEscaper) Write(p []byte) (int, error) {
 				result.WriteByte(p[i]) // Final letter
 				i++
 			}
-		} else if p[i] == ']' {
+		case p[i] == ']':
 			// Literal closing bracket - escape it for tview by replacing with []
 			result.WriteString("[]")
 			i++
-		} else {
+		default:
 			result.WriteByte(p[i])
 			i++
 		}
@@ -870,7 +871,6 @@ func jobsView(
 		case string(gitlab.Skipped):
 			statChar = '»'
 		}
-		// retryChar := '⟳'
 		title := fmt.Sprintf("%c %s", statChar, j.Name)
 		// trim the suffix if it matches the stage, I've seen
 		// the pattern in 2 different places to handle
@@ -950,6 +950,7 @@ func updateJobs(
 		pipeline, err := curPipeline()
 		if err != nil {
 			app.Stop()
+			//nolint:gocritic // app.Stop() restores the terminal; the deferred recover only handles panics
 			log.Fatalf("%v", err)
 		}
 		jobs, bridges, err = api.PipelineJobsWithID(

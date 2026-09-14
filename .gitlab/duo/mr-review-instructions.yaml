@@ -52,14 +52,17 @@ instructions:
       - '**/*.go'
     instructions: |
       The project is on Go 1.26+. The `modernize` linter enforces `any`,
-      `slices.*`, `strings.Cut*`, and similar Go 1.21+ idioms. The
-      remaining project-specific judgments:
+      `slices.*`, `strings.Cut*`, and similar Go 1.21+ idioms, and `gocritic`
+      (diagnostic + style tags) enforces many of the rest. The remaining
+      project-specific judgments:
       1. Prefer `new(literalValue)` over `gitlab.Ptr(literalValue)` or
          intermediate variables for pointer-to-literal. For example, write
          `new(true)` rather than `gitlab.Ptr(true)`. Background: client-go 3.0
          deprecates `gitlab.Ptr`.
       2. Replace long `if / else if / else if` chains over the same value with
-         a `switch` statement.
+         a `switch` statement. Enforced by `gocritic`'s `ifElseChain`; prefer
+         `switch` here over the inverted-guard style, which applies to a long
+         block gated by one condition.
       3. Use `map[K]struct{}` (not `map[K]bool`) for set-membership data
          structures — less allocation, clearer intent.
       4. Prefer `iter.Seq` / `iter.Seq2` range-over-func iterators (Go 1.23+)
@@ -126,6 +129,29 @@ instructions:
       7. For ANSI-color stripping in tests, use `github.com/acarl005/stripansi`
          (already a project dep) — see `internal/commands/schedule/list/list_test.go`.
          Don't hand-roll regex stripping.
+
+  - name: Comments
+    fileFilters:
+      - '**/*.go'
+    instructions: |
+      `scripts/comment-overlap` rejects comments whose every word is already
+      carried by the adjacent code, and `gocritic`'s `commentedOutCode`
+      rejects commented-out code. Do not re-flag either. Those gates are
+      deliberately conservative and leave two gaps worth reviewing:
+      1. Partial restatement passes the gate. A comment only has to add one
+         word the code lacks to survive it, so `// Trim whitespace from the
+         line first` above `line = strings.TrimSpace(line)` still ships.
+         Document only what a competent Go reader cannot infer from the code,
+         and delete a restating comment rather than rewording it.
+      2. Godoc length is unenforced. `staticcheck` ST1020-ST1022 check the
+         form of a doc comment, nothing checks whether it earns its lines,
+         and doc comments are the larger share of comment volume in this
+         repo. Keep godoc to what the name and signature do not convey.
+
+      In both cases the test is whether the comment carries *why* — a
+      non-obvious constraint, an ordering requirement, an upstream bug being
+      worked around, a rejected alternative. Prose narrating *what* the code
+      does is the common failure.
 
   - name: Control flow
     fileFilters:

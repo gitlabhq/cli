@@ -176,7 +176,7 @@ func (f *fetcher) httpGet(u string, headers http.Header) ([]byte, http.Header, e
 		defer cancel()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -43,7 +43,7 @@ func Parse(diffText string) []Line {
 		if strings.HasPrefix(raw, "\\ No newline") {
 			continue
 		}
-		if len(raw) == 0 {
+		if raw == "" {
 			if inHunk {
 				// Empty line inside a hunk = blank context line
 				// (trailing whitespace may have been stripped from " ")

@@ -51,7 +51,6 @@ func gitLabColorScheme(lightDarkFunc lipgloss.LightDarkFunc) fang.ColorScheme {
 }
 
 func main() {
-	// Initialize configuration
 	cfg, err := config.Init()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read configuration:  %s\n", err)

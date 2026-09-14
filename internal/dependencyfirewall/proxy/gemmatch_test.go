@@ -13,7 +13,7 @@ import (
 )
 
 func rubygem(method, path string) *http.Request {
-	return httptest.NewRequest(method, "https://rubygems.org"+path, nil)
+	return httptest.NewRequest(method, "https://rubygems.org"+path, http.NoBody)
 }
 
 func TestGemMatchDownload(t *testing.T) {

@@ -64,7 +64,7 @@ type IOStreams struct {
 	outputFormat string
 }
 
-var controlCharRegEx = regexp.MustCompile(`(\x1b\[)((?:(\d*)(;*))*)([A-Z,a-l,n-z])`)
+var controlCharRegEx = regexp.MustCompile(`(\x1b\[)((?:(\d*)(;*))*)([A-Za-l,n-z])`)
 
 // IOStreamsOption represents a function that configures io streams
 type IOStreamsOption func(*IOStreams)
@@ -145,7 +145,7 @@ func writePagerOutput(dst io.Writer, src io.Reader) error {
 
 	for {
 		line, readErr := reader.ReadString('\n')
-		if len(line) > 0 {
+		if line != "" {
 			line = strings.TrimSuffix(line, "\n")
 			line = strings.TrimSuffix(line, "\r")
 			if _, err := fmt.Fprintln(dst, stripControlCharacters(line)); err != nil {

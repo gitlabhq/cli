@@ -18,6 +18,8 @@ import (
 
 const DefaultRemote = "origin"
 
+var headBranchRe = regexp.MustCompile(`(HEAD branch:)\s+`)
+
 func GetRemoteURL(remoteAlias string) (string, error) {
 	return Config("remote." + remoteAlias + ".url")
 }
@@ -48,11 +50,7 @@ func ParseDefaultBranch(output []byte) (string, error) {
 
 	for o := range strings.SplitSeq(string(output), "\n") {
 		o = strings.TrimSpace(o)
-		r, err := regexp.Compile(`(HEAD branch:)\s+`)
-		if err != nil {
-			return DefaultBranchName, err
-		}
-		if r.MatchString(o) {
+		if headBranchRe.MatchString(o) {
 			headBranch = strings.TrimPrefix(o, "HEAD branch: ")
 			break
 		}
@@ -307,7 +305,7 @@ func CheckoutNewBranch(branch string) error {
 }
 
 func RunClone(cloneURL string, target string, args []string) (string, error) {
-	cloneArgs := append(args, cloneURL)
+	cloneArgs := append(slices.Clone(args), cloneURL)
 
 	// If the args contain an explicit target, pass it to clone
 	//    otherwise, parse the URL to determine where git cloned it to so we can return it

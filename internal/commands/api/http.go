@@ -23,13 +23,14 @@ func httpRequest(ctx context.Context, client *api.Client, method, p string, para
 
 	baseURL := client.Lab().BaseURL()
 	baseURLStr := baseURL.String()
-	if strings.Contains(p, "://") {
+	switch {
+	case strings.Contains(p, "://"):
 		baseURLStr = p
-	} else if isGraphQL {
+	case isGraphQL:
 		baseURL.Path = strings.TrimSuffix(strings.TrimSuffix(baseURL.Path, "/"), "/api/v4") + "/api/graphql"
 		baseURLStr = baseURL.String()
-	} else {
-		baseURLStr = baseURLStr + strings.TrimPrefix(p, "/")
+	default:
+		baseURLStr += strings.TrimPrefix(p, "/")
 	}
 
 	var body io.Reader

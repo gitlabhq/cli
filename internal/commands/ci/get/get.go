@@ -81,9 +81,10 @@ func NewCmdGet(f cmdutils.Factory) *cobra.Command {
 			}
 
 			var msgNotFound string
-			if pipelineId != 0 {
+			switch {
+			case pipelineId != 0:
 				msgNotFound = fmt.Sprintf("No pipeline with the given ID: %d", pipelineId)
-			} else if mrIID != 0 {
+			case mrIID != 0:
 				mr, _, err := client.MergeRequests.GetMergeRequest(repo.FullName(), int64(mrIID), nil)
 				if err != nil {
 					return fmt.Errorf("failed to get merge request !%d: %w", mrIID, err)
@@ -93,13 +94,11 @@ func NewCmdGet(f cmdutils.Factory) *cobra.Command {
 				}
 				pipelineId = int(mr.HeadPipeline.ID)
 				msgNotFound = fmt.Sprintf("No pipeline found for merge request !%d", mrIID)
-			} else {
-				// Use enhanced branch resolution that supports API fallback
+			default:
 				branch = ciutils.GetBranch(branch, func() (string, error) {
 					return f.Branch()
 				}, repo, client)
 
-				// Use GetPipelineWithFallback for robust pipeline lookup with MR fallback
 				pipeline, err := ciutils.GetPipelineWithFallback(cmd.Context(), client, repo.FullName(), branch, f.IO())
 				if err != nil {
 					return err

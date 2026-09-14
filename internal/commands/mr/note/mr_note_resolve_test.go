@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -14,7 +13,6 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
-	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -55,9 +53,7 @@ func Test_resolve_subcommand(t *testing.T) {
 			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), "abc12345deadbeef1234567890abcdef12345678", gomock.Any(), gomock.Any()).
 			Return(&gitlab.Discussion{ID: "abc12345deadbeef1234567890abcdef12345678"}, nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -83,9 +79,7 @@ func Test_resolve_subcommand(t *testing.T) {
 			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), fullID, gomock.Any(), gomock.Any()).
 			Return(&gitlab.Discussion{ID: fullID}, nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -109,9 +103,7 @@ func Test_resolve_subcommand(t *testing.T) {
 			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), "abc12345deadbeef1234567890abcdef12345678", gomock.Any(), gomock.Any()).
 			Return(&gitlab.Discussion{ID: "abc12345deadbeef1234567890abcdef12345678"}, nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -131,9 +123,7 @@ func Test_resolve_subcommand(t *testing.T) {
 			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
 			Return(makeDiscussions(), nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -149,9 +139,7 @@ func Test_resolve_subcommand(t *testing.T) {
 		testClient := gitlabtesting.NewTestClient(t)
 		makeMRMock(t, testClient)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -171,9 +159,7 @@ func Test_resolve_subcommand(t *testing.T) {
 			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
 			Return(makeDiscussions(), nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -203,9 +189,7 @@ func Test_resolve_subcommand(t *testing.T) {
 			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
 			Return(ambiguous, nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -233,9 +217,7 @@ func Test_reopen_subcommand(t *testing.T) {
 			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), "def67890cafebabe1234567890abcdef12345678", gomock.Any(), gomock.Any()).
 			Return(&gitlab.Discussion{ID: "def67890cafebabe1234567890abcdef12345678"}, nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -259,9 +241,7 @@ func Test_reopen_subcommand(t *testing.T) {
 			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), "abc12345deadbeef1234567890abcdef12345678", gomock.Any(), gomock.Any()).
 			Return(nil, nil, fmt.Errorf("403 Forbidden"))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -276,9 +256,7 @@ func Test_reopen_subcommand(t *testing.T) {
 
 		testClient := gitlabtesting.NewTestClient(t)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -293,9 +271,7 @@ func Test_reopen_subcommand(t *testing.T) {
 
 		testClient := gitlabtesting.NewTestClient(t)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"git.sr.ht/~timofurrer/ugh"
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -16,7 +15,6 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
-	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -57,9 +55,7 @@ func Test_NewCmdNote(t *testing.T) {
 				}, nil, nil
 			})
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -84,9 +80,7 @@ func Test_NewCmdNote(t *testing.T) {
 			GetMergeRequest("OWNER/REPO", int64(122), gomock.Any()).
 			Return(nil, notFoundResp, gitlab.ErrNotFound)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -125,9 +119,7 @@ func Test_NewCmdNote_error(t *testing.T) {
 			CreateMergeRequestNote("OWNER/REPO", int64(1), gomock.Any()).
 			Return(nil, unauthorizedResp, errors.New("401 Unauthorized"))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -173,9 +165,7 @@ func Test_mrNoteCreate_prompt(t *testing.T) {
 		c.Expect(ugh.Input("Note message:")).
 			Do(ugh.Type("some note message"))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -206,9 +196,7 @@ func Test_mrNoteCreate_prompt(t *testing.T) {
 		c.Expect(ugh.Input("Note message:")).
 			Do(ugh.Type(""))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -253,9 +241,7 @@ func Test_mrNoteCreate_no_duplicate(t *testing.T) {
 		c.Expect(ugh.Input("Note message:")).
 			Do(ugh.Type("some note message"))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -312,9 +298,7 @@ func Test_mrNote_resolve(t *testing.T) {
 			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), "def456", gomock.Any(), gomock.Any()).
 			Return(&gitlab.Discussion{ID: "def456"}, nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -354,9 +338,7 @@ func Test_mrNote_resolve(t *testing.T) {
 				},
 			}, nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -410,9 +392,7 @@ func Test_mrNote_unresolve(t *testing.T) {
 			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), "ghi789", gomock.Any(), gomock.Any()).
 			Return(&gitlab.Discussion{ID: "ghi789"}, nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),

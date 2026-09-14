@@ -442,7 +442,6 @@ func (c *bootstrapCmd) registerAgent() (*gitlab.Agent, error) {
 			return nil, err
 		}
 
-		// register agent
 		agent, err = c.api.RegisterAgent(c.agentName)
 		if err != nil {
 			return nil, err

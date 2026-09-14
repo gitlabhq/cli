@@ -157,7 +157,6 @@ func matchBranchesToStack(stack git.Stack, branches []string) (git.Stack, error)
 
 		newStack.Refs[newRef.SHA] = newRef
 
-		// update the stack file
 		err = git.UpdateStackRefFile(newStack.Title, newRef)
 		if err != nil {
 			return git.Stack{}, err
@@ -181,43 +180,43 @@ func matchBranchesToStack(stack git.Stack, branches []string) (git.Stack, error)
 
 func updateMRs(ctx context.Context, f cmdutils.Factory, newStack git.Stack, oldStack git.Stack) error {
 	for _, ref := range newStack.Iter2() {
-		// if there is already an MR and the order has been adjusted
-		if ref.MR != "" &&
-			(ref.Next != oldStack.Refs[ref.SHA].Next ||
-				ref.Prev != oldStack.Refs[ref.SHA].Prev) {
+		if ref.MR == "" ||
+			(ref.Next == oldStack.Refs[ref.SHA].Next &&
+				ref.Prev == oldStack.Refs[ref.SHA].Prev) {
+			continue
+		}
 
-			client, err := f.GitLabClient()
+		client, err := f.GitLabClient()
+		if err != nil {
+			return fmt.Errorf("error connecting to GitLab: %w", err)
+		}
+
+		mr, _, err := mrutils.MRFromArgsWithOpts(ctx, f, []string{ref.Branch}, nil, "opened")
+		if err != nil {
+			return fmt.Errorf("error getting merge request from GitLab: %w", err)
+		}
+
+		var previousBranch string
+
+		if ref.Prev == "" {
+			baseRepo, err := f.BaseRepo()
 			if err != nil {
-				return fmt.Errorf("error connecting to GitLab: %w", err)
+				return fmt.Errorf("error getting base repo: %w", err)
 			}
-
-			mr, _, err := mrutils.MRFromArgsWithOpts(ctx, f, []string{ref.Branch}, nil, "opened")
+			project, err := api.GetProject(client, baseRepo.FullName())
 			if err != nil {
-				return fmt.Errorf("error getting merge request from GitLab: %w", err)
+				return fmt.Errorf("error getting project details: %w", err)
 			}
+			previousBranch = project.DefaultBranch
+		} else {
+			previousBranch = newStack.Refs[ref.Prev].Branch
+		}
 
-			var previousBranch string
+		opts := gitlab.UpdateMergeRequestOptions{TargetBranch: &previousBranch}
 
-			if ref.Prev == "" {
-				baseRepo, err := f.BaseRepo()
-				if err != nil {
-					return fmt.Errorf("error getting base repo: %w", err)
-				}
-				project, err := api.GetProject(client, baseRepo.FullName())
-				if err != nil {
-					return fmt.Errorf("error getting project details: %w", err)
-				}
-				previousBranch = project.DefaultBranch
-			} else {
-				previousBranch = newStack.Refs[ref.Prev].Branch
-			}
-
-			opts := gitlab.UpdateMergeRequestOptions{TargetBranch: &previousBranch}
-
-			_, err = api.UpdateMR(client, mr.ProjectID, mr.IID, &opts)
-			if err != nil {
-				return fmt.Errorf("error updating merge request on GitLab: %w", err)
-			}
+		_, err = api.UpdateMR(client, mr.ProjectID, mr.IID, &opts)
+		if err != nil {
+			return fmt.Errorf("error updating merge request on GitLab: %w", err)
 		}
 	}
 

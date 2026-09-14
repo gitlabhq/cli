@@ -318,6 +318,23 @@ check_args:
   script:
     - make check-args
 
+# Lefthook runs these too, but it can be skipped with LEFTHOOK=0, so the
+# enforcement point is here. The overlap gate blocks; the ratio is a number
+# for the author to weigh and never fails the job.
+lint:comments:
+  extends:
+    - .go-cache
+    - .test
+  needs: []
+  image: ${GITLAB_DEPENDENCY_PROXY}golang:${GO_VERSION}
+  script:
+    - go run ./scripts/comment-overlap -threshold 1.0 -max-findings 0 ./cmd/... ./internal/...
+    - |
+      if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
+        git fetch --quiet origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+        go run ./scripts/comment-ratio -base "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
+      fi
+
 lint:
   extends:
     - .go-cache

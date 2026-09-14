@@ -106,7 +106,7 @@ func LoadGitLabTemplate(tmplType, tmplName string) (string, error) {
 	}
 
 	if !strings.HasSuffix(tmplName, ".md") {
-		tmplName = tmplName + ".md"
+		tmplName += ".md"
 	}
 
 	tmplFile := filepath.Join(wdir, ".gitlab", tmplType, tmplName)

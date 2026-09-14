@@ -38,7 +38,7 @@ func TestPipelineCmd(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			wantedErr := ""
-			if len(test.expectedErr) > 0 {
+			if test.expectedErr != "" {
 				wantedErr = test.expectedErr
 			}
 

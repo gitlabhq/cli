@@ -243,7 +243,7 @@ func genCommandDocs(cmd *cobra.Command, basePath string, parentPath []string) er
 	}
 
 	// Build the current command path
-	currentPath := append(parentPath, cmd.Name())
+	currentPath := append(slices.Clone(parentPath), cmd.Name())
 	fullPath := filepath.Join(append([]string{basePath}, currentPath...)...)
 
 	fmt.Println("Generating docs for " + strings.Join(currentPath, " "))
@@ -598,7 +598,7 @@ func GenMarkdownCustom(cmd *cobra.Command, w io.Writer) error {
 	shortDesc := urlwrapper.MDWrap(cmd.Short)
 	buf.WriteString(shortDesc + "\n")
 
-	if len(cmd.Long) > 0 {
+	if cmd.Long != "" {
 		// Skipping `help` commands until Long description can be revised
 		if cmd.Name() != "help" {
 			buf.WriteString("\n## Synopsis\n\n")
@@ -617,7 +617,7 @@ func GenMarkdownCustom(cmd *cobra.Command, w io.Writer) error {
 		fmt.Fprintf(buf, "```plaintext\n%s\n```\n", strings.Join(cmd.Aliases, "\n"))
 	}
 
-	if len(cmd.Example) > 0 {
+	if cmd.Example != "" {
 		buf.WriteString("\n## Examples\n\n")
 		fmt.Fprintf(buf, "```console\n%s\n```\n", cmd.Example)
 	}

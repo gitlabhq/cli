@@ -359,7 +359,7 @@ func Test_addFiles(t *testing.T) {
 				normalizedFiles = append(normalizedFiles, file)
 			}
 
-			formattedOutput := strings.Replace(string(output), "\n", "", -1)
+			formattedOutput := strings.ReplaceAll(string(output), "\n", "")
 			require.Equal(t, formattedOutput, strings.Join(normalizedFiles, ""))
 		})
 	}

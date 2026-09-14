@@ -92,11 +92,9 @@ func TestMembersRemove(t *testing.T) {
 			if tc.expectedError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectedError)
-			} else {
-				if assert.NoErrorf(t, err, "error running command `members remove %s`: %v", tc.cli, err) {
-					assert.Equal(t, tc.expectedOutput, out.OutBuf.String())
-					assert.Empty(t, out.Stderr())
-				}
+			} else if assert.NoErrorf(t, err, "error running command `members remove %s`: %v", tc.cli, err) {
+				assert.Equal(t, tc.expectedOutput, out.OutBuf.String())
+				assert.Empty(t, out.Stderr())
 			}
 		})
 	}

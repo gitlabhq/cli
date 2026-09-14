@@ -42,7 +42,6 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	// Dump response
 	respDump, err := httputil.DumpResponse(resp, true)
 	if err != nil {
 		return nil, err
@@ -87,7 +86,7 @@ func drainBody(b io.ReadCloser) (r1, r2 io.ReadCloser, err error) { //nolint:non
 	if _, err = buf.ReadFrom(b); err != nil {
 		return nil, b, err
 	}
-	if err = b.Close(); err != nil {
+	if err := b.Close(); err != nil {
 		return nil, b, err
 	}
 	return io.NopCloser(&buf), io.NopCloser(bytes.NewReader(buf.Bytes())), nil

@@ -35,9 +35,10 @@ func NewCmdCreateStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var titleString string
 
-			if len(args) == 1 {
+			switch len(args) {
+			case 1:
 				titleString = args[0]
-			} else if len(args) == 0 {
+			case 0:
 				err := f.IO().Input(cmd.Context(), &titleString, "New stack title?", "", func(s string) error {
 					if s == "" {
 						return fmt.Errorf("title is required")
@@ -47,8 +48,8 @@ func NewCmdCreateStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("error prompting for title: %w", err)
 				}
-			} else {
-				titleString = strings.Join(args[:], "-")
+			default:
+				titleString = strings.Join(args, "-")
 			}
 
 			s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)

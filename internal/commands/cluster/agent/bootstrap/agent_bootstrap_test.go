@@ -934,7 +934,8 @@ func TestAgentBootstrap_HappyPath_WithoutFlux(t *testing.T) {
 
 type execFunc func(cli string) error
 
-func setupCmdExec(t *testing.T) (execFunc, *MockAPI, *MockWriter, *MockWriter, *MockKubectlWrapper, *MockFluxWrapper) { //nolint:unparam
+//nolint:unparam,gocritic // returns the mocks it wires; a struct would churn 19 call sites for a result count
+func setupCmdExec(t *testing.T) (execFunc, *MockAPI, *MockWriter, *MockWriter, *MockKubectlWrapper, *MockFluxWrapper) {
 	t.Helper()
 
 	ctrl := gomock.NewController(t)

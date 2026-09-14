@@ -34,15 +34,16 @@ func WikiRemoteURL(project *gitlab.Project, protocol string) string {
 func FullNameFromURL(remoteURL string) (string, error) {
 	parts := strings.Split(remoteURL, "//")
 
-	if len(parts) == 1 {
+	switch len(parts) {
+	case 1:
 		// scp-like short syntax (e.g. git@gitlab.com...)
 		part := parts[0]
 		parts = strings.Split(part, ":")
-	} else if len(parts) == 2 {
+	case 2:
 		// other protocols (e.g. ssh://, http://, git://)
 		part := parts[1]
 		parts = strings.SplitN(part, "/", 2)
-	} else {
+	default:
 		return "", errors.New("cannot parse remote: " + remoteURL)
 	}
 

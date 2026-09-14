@@ -18,7 +18,7 @@ func TestProxyFromConfig(t *testing.T) {
 
 	proxy, err := ProxyFromConfig(cfg, "gitlab.example.com")
 	require.NoError(t, err)
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://gitlab.example.com/api/v4", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://gitlab.example.com/api/v4", http.NoBody)
 	require.NoError(t, err)
 
 	proxyURL, err := proxy(req)
@@ -40,7 +40,7 @@ func TestProxyFromConfigFallbacks(t *testing.T) {
 		proxy, err := ProxyFromConfig(cfg, "missing.example.com")
 		require.NoError(t, err)
 		require.NotNil(t, proxy)
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://missing.example.com", nil)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://missing.example.com", http.NoBody)
 		require.NoError(t, err)
 		got, err := proxy(req)
 		require.NoError(t, err)

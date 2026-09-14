@@ -36,17 +36,11 @@ var createProject = func(client *gitlab.Client, opts *gitlab.CreateProjectOption
 	return project, nil
 }
 
-var addRemote = func(name, url string) (*git.Remote, error) {
-	return git.AddRemote(name, url)
-}
+var addRemote = git.AddRemote
 
-var gitInitializer = func() error {
-	return initGit()
-}
+var gitInitializer = initGit
 
-var repoInitializer = func(projectPath, remoteURL string) error {
-	return initializeRepo(projectPath, remoteURL)
-}
+var repoInitializer = initializeRepo
 
 var repoCloner = func(cloneURL, target, remoteName string) error {
 	_, err := git.RunClone(cloneURL, target, []string{"--origin", remoteName})

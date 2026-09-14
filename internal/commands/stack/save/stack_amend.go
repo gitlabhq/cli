@@ -81,7 +81,6 @@ func amendFunc(ctx context.Context, f cmdutils.Factory, args []string, getText c
 		}
 	}
 
-	// get stack title
 	title, err := git.GetCurrentStackTitle()
 	if err != nil {
 		return "", fmt.Errorf("error running Git command: %w", err)

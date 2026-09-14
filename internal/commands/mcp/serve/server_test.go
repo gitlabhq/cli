@@ -71,8 +71,6 @@ func createMockCommandWithFlags() *cobra.Command {
 	return cmd
 }
 
-// Tests for server capabilities
-
 func TestServerCapabilities(t *testing.T) {
 	t.Parallel()
 
@@ -168,8 +166,6 @@ func TestRegisterToolsFromCommands_RequiresMCPAnnotation(t *testing.T) {
 	assert.Len(t, registeredTools, 1, "only one tool should be registered")
 }
 
-// Tests for buildEnhancedDescription
-
 func TestBuildEnhancedDescription(t *testing.T) {
 	t.Parallel()
 
@@ -224,8 +220,6 @@ func TestBuildEnhancedDescriptionWithHierarchy(t *testing.T) {
 	expected := "Child command"
 	assert.Equal(t, expected, result)
 }
-
-// Tests for truncateAtWordBoundary
 
 func TestTruncateAtWordBoundary(t *testing.T) {
 	t.Parallel()
@@ -286,8 +280,6 @@ func TestTruncateAtWordBoundary(t *testing.T) {
 	}
 }
 
-// Tests for addStandardGuidance
-
 func TestAddStandardGuidance(t *testing.T) {
 	t.Parallel()
 
@@ -319,8 +311,6 @@ func TestAddStandardGuidance(t *testing.T) {
 		})
 	}
 }
-
-// Tests for buildFlagSchema
 
 func TestBuildFlagSchema(t *testing.T) {
 	t.Parallel()
@@ -494,8 +484,6 @@ func TestBuildFlagSchema_AllArraysHaveItems(t *testing.T) {
 	})
 }
 
-// Tests for isDestructiveCommand
-
 func TestIsDestructiveCommand(t *testing.T) {
 	t.Parallel()
 
@@ -543,8 +531,6 @@ func TestIsDestructiveCommand(t *testing.T) {
 		})
 	}
 }
-
-// Tests for convertParamsToArgs
 
 func TestConvertParamsToArgs(t *testing.T) {
 	t.Parallel()
@@ -730,8 +716,6 @@ func TestConvertParamsToArgsIgnoresUnknownFlags(t *testing.T) {
 	assert.Empty(t, args)
 }
 
-// Tests for processOutput
-
 func TestProcessOutput(t *testing.T) {
 	t.Parallel()
 
@@ -792,8 +776,6 @@ func TestProcessOutput(t *testing.T) {
 		})
 	}
 }
-
-// Tests for buildToolFromCommand
 
 func TestBuildToolFromCommand(t *testing.T) {
 	t.Parallel()
@@ -891,11 +873,8 @@ func TestBuildToolFromCommandWithDestructiveAnnotation(t *testing.T) {
 				require.NotNil(t, tool.Annotations, "destructive tool should have annotations")
 				require.NotNil(t, tool.Annotations.DestructiveHint, "should have destructive hint")
 				assert.True(t, *tool.Annotations.DestructiveHint, "destructive hint should be true")
-			} else {
-				// Safe commands might not have annotations set, or DestructiveHint might be nil
-				if tool.Annotations != nil && tool.Annotations.DestructiveHint != nil {
-					assert.False(t, *tool.Annotations.DestructiveHint, "safe command should not be marked destructive")
-				}
+			} else if tool.Annotations != nil && tool.Annotations.DestructiveHint != nil {
+				assert.False(t, *tool.Annotations.DestructiveHint, "safe command should not be marked destructive")
 			}
 		})
 	}
@@ -959,8 +938,6 @@ func TestToolHandlerJSONUnmarshal(t *testing.T) {
 		})
 	}
 }
-
-// Tests for tool result structure
 
 func TestToolResultStructure(t *testing.T) {
 	t.Parallel()

@@ -296,12 +296,12 @@ func printTTYMRPreview(opts *options, mr *gitlab.MergeRequest, mrApprovals *gitl
 				ShowSingleNoteDiscussionPrefix: false,
 			})
 		} else {
-			// Provide specific message based on filter flags
-			if opts.showResolved && !opts.showUnresolved {
+			switch {
+			case opts.showResolved && !opts.showUnresolved:
 				opts.io.LogInfo("This merge request has no resolved threads.")
-			} else if opts.showUnresolved && !opts.showResolved {
+			case opts.showUnresolved && !opts.showResolved:
 				opts.io.LogInfo("This merge request has no unresolved threads.")
-			} else {
+			default:
 				opts.io.LogInfo("This merge request has no comments.")
 			}
 		}

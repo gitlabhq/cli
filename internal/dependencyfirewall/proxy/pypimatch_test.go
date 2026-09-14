@@ -17,8 +17,7 @@ import (
 
 func TestPyPIMatchWheelDownload(t *testing.T) {
 	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet,
-		"https://files.pythonhosted.org/packages/ab/cd/requests-2.31.0-py3-none-any.whl", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://files.pythonhosted.org/packages/ab/cd/requests-2.31.0-py3-none-any.whl", http.NoBody)
 	m := PyPIMatcher{}.Match(req)
 	assert.True(t, m.Matched)
 	assert.True(t, m.Pass)
@@ -28,8 +27,7 @@ func TestPyPIMatchWheelDownload(t *testing.T) {
 
 func TestPyPIMatchWheelMetadataDownload(t *testing.T) {
 	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet,
-		"https://files.pythonhosted.org/packages/ab/cd/requests-2.31.0-py3-none-any.whl.metadata", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://files.pythonhosted.org/packages/ab/cd/requests-2.31.0-py3-none-any.whl.metadata", http.NoBody)
 	m := PyPIMatcher{}.Match(req)
 	assert.True(t, m.Matched)
 	assert.True(t, m.Pass)
@@ -45,8 +43,7 @@ func TestPyPIMatchSdistDownload(t *testing.T) {
 	for _, ext := range []string{".tar.gz", ".zip", ".tar.bz2", ".tgz"} {
 		t.Run(ext, func(t *testing.T) {
 			t.Parallel()
-			req := httptest.NewRequest(http.MethodGet,
-				"https://files.pythonhosted.org/packages/ab/cd/Flask-3.0.2"+ext, nil)
+			req := httptest.NewRequest(http.MethodGet, "https://files.pythonhosted.org/packages/ab/cd/Flask-3.0.2"+ext, http.NoBody)
 			m := PyPIMatcher{}.Match(req)
 			assert.True(t, m.Matched)
 			assert.True(t, m.Pass)
@@ -58,7 +55,7 @@ func TestPyPIMatchSdistDownload(t *testing.T) {
 
 func TestPyPISimpleIndexIsNoMatch(t *testing.T) {
 	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "https://pypi.org/simple/requests/", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://pypi.org/simple/requests/", http.NoBody)
 	m := PyPIMatcher{}.Match(req)
 	assert.False(t, m.Matched)
 }
