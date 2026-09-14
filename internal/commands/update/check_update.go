@@ -112,8 +112,7 @@ func checkUpdate(f cmdutils.Factory, silentSuccess bool, forceCheck bool) error 
 	if err != nil {
 		// When GitLab is down it answers with an HTML maintenance page, and the API
 		// client's error carries the whole page. The status code says enough.
-		var errResp *gitlab.ErrorResponse
-		if errors.As(err, &errResp) && errResp.Response != nil && errResp.Response.Request != nil {
+		if errResp, ok := errors.AsType[*gitlab.ErrorResponse](err); ok && errResp.Response != nil && errResp.Response.Request != nil {
 			return fmt.Errorf("failed checking for glab updates: %s responded with HTTP %d", errResp.Response.Request.URL.Host, errResp.StatusCode)
 		}
 		return fmt.Errorf("failed checking for glab updates: %s", err.Error())
