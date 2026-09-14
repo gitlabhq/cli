@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -180,13 +179,7 @@ func TestCheckUpdate_GitLabDown(t *testing.T) {
 	errResp := &gitlab.ErrorResponse{
 		StatusCode: http.StatusServiceUnavailable,
 		Message:    "failed to parse unknown error format: " + htmlPage,
-		Response: &http.Response{
-			StatusCode: http.StatusServiceUnavailable,
-			Request: &http.Request{
-				Method: http.MethodGet,
-				URL:    &url.URL{Scheme: "https", Host: "gitlab.com", Path: "/api/v4/projects/gitlab-org/cli/releases"},
-			},
-		},
+		Response:   &http.Response{StatusCode: http.StatusServiceUnavailable},
 	}
 	testClient.MockReleases.EXPECT().
 		ListReleases("gitlab-org/cli", gomock.Any()).
