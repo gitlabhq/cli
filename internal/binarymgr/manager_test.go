@@ -93,9 +93,7 @@ func TestManager_isBinaryValid(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
-			m := NewManager(ios, testSpec())
-			assert.Equal(t, tc.want, m.isBinaryValid(tc.setupFile(t)))
+			assert.Equal(t, tc.want, isBinaryValid(tc.setupFile(t)))
 		})
 	}
 }

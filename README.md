@@ -89,7 +89,7 @@ Run `glab --help` to view a list of core commands in your terminal.
 - [`glab milestone`](docs/source/milestone): Manage group or project milestones.
 - [`glab mr`](docs/source/mr): Create, view, and manage merge requests.
 - [`glab opentofu`](docs/source/opentofu): Work with the OpenTofu or Terraform integration.
-- [`glab orbit`](docs/source/orbit): GitLab Knowledge Graph commands. (EXPERIMENTAL)
+- [`glab orbit`](docs/source/orbit): Run the Orbit CLI. (EXPERIMENTAL)
 - [`glab packages`](docs/source/packages): Manage packages in the GitLab package registry.
 - [`glab release`](docs/source/release): Manage GitLab releases.
 - [`glab repo`](docs/source/repo): Work with GitLab repositories and projects.
