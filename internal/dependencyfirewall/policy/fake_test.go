@@ -118,3 +118,16 @@ func TestFakeParseListSkipsMalformedEntries(t *testing.T) {
 	allowed, _ := c.Check(t.Context(), req("npm", "x", "1.0.0"))
 	assert.Equal(t, verdict.Verdict(""), allowed.Verdict)
 }
+
+// TestFakeDuplicateEnvKeyUsesLastOccurrence pins the POSIX last-occurrence-wins
+// semantics for duplicate keys, matching os.Environ and the map-based lookup
+// that lookupEnv replaced. A raw environ slice is passed directly since a map
+// cannot represent duplicate keys.
+func TestFakeDuplicateEnvKeyUsesLastOccurrence(t *testing.T) {
+	c := newFakeChecker([]string{
+		"GLAB_DF_FAKE_DEFAULT=allow",
+		"GLAB_DF_FAKE_DEFAULT=block",
+	})
+	r, _ := c.Check(t.Context(), req("npm", "anything", "1.0.0"))
+	assert.Equal(t, verdict.Blocked, r.Verdict, "the last duplicate GLAB_DF_FAKE_DEFAULT must win")
+}
