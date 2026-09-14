@@ -56,9 +56,9 @@ func constructGlobals() map[string]any {
 		},
 	}
 	gl := map[string]any{
-		//"cluster-scoped": map[string]any{
+		// "cluster-scoped": map[string]any{
 		//	"direction": "down",
-		//},
+		// },
 		// TODO vars to set layout, legend, etc, etc
 	}
 

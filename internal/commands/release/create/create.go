@@ -569,18 +569,15 @@ func createRun(opts *options) error {
 
 	if opts.noCloseMilestone {
 		opts.io.LogInfof("%s Skipping closing milestones\n", color.GreenCheck())
-	} else {
-		if len(opts.milestone) > 0 {
-			// close all associated milestones
-			for _, milestone := range opts.milestone {
-				opts.io.StartSpinner("Closing milestone %q", milestone)
-				err := closeMilestone(opts, milestone)
-				opts.io.StopSpinner("")
-				if err != nil {
-					opts.io.LogError(color.FailedIcon(), err.Error())
-				} else {
-					opts.io.LogInfof("%s Closed milestone %q\n", color.GreenCheck(), milestone)
-				}
+	} else if len(opts.milestone) > 0 {
+		for _, milestone := range opts.milestone {
+			opts.io.StartSpinner("Closing milestone %q", milestone)
+			err := closeMilestone(opts, milestone)
+			opts.io.StopSpinner("")
+			if err != nil {
+				opts.io.LogError(color.FailedIcon(), err.Error())
+			} else {
+				opts.io.LogInfof("%s Closed milestone %q\n", color.GreenCheck(), milestone)
 			}
 		}
 	}

@@ -80,9 +80,9 @@ func (o *options) run() error {
 	if o.outputFormat == "json" {
 		return o.io.PrintJSON(projects)
 	}
-	title := fmt.Sprintf("Showing results for \"%s\"\n", o.search)
+	title := fmt.Sprintf("Showing results for %q\n", o.search)
 	if len(projects) == 0 {
-		title = fmt.Sprintf("No results found for \"%s\"", o.search)
+		title = fmt.Sprintf("No results found for %q", o.search)
 	}
 
 	table := tableprinter.NewTablePrinter()

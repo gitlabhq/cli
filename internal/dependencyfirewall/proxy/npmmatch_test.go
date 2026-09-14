@@ -16,7 +16,7 @@ import (
 )
 
 func get(path string) *http.Request {
-	return httptest.NewRequest(http.MethodGet, "https://registry.npmjs.org"+path, nil)
+	return httptest.NewRequest(http.MethodGet, "https://registry.npmjs.org"+path, http.NoBody)
 }
 
 func TestNPMMatchTarballDownload(t *testing.T) {

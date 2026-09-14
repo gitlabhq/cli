@@ -120,12 +120,12 @@ func Test_sshParser_absolutePath(t *testing.T) {
 		"system relative path": {
 			parentFile: "/etc/ssh/config",
 			arg:        "configs/*.conf",
-			want:       filepath.Join("/etc", "ssh", "configs", "*.conf"),
+			want:       filepath.Join(systemSSHDir, "configs", "*.conf"),
 		},
 		"user relative path": {
 			parentFile: filepath.Join(dir, ".ssh", "ssh_config"),
 			arg:        "configs/*.conf",
-			want:       filepath.Join(dir, ".ssh", "configs/*.conf"),
+			want:       filepath.Join(dir, ".ssh", "configs", "*.conf"),
 		},
 		"shell-like ~ rerefence": {
 			parentFile: filepath.Join(dir, ".ssh", "ssh_config"),

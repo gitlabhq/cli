@@ -479,7 +479,6 @@ test readme
 		t.Run(tc.name, func(t *testing.T) {
 			testClient := gitlabtesting.NewTestClient(t)
 
-			// Setup mocks
 			tc.setupMocks(t, testClient)
 
 			// Create api.Client that wraps the mock gitlab.Client

@@ -191,7 +191,6 @@ func TestReleaseCreateWithFiles(t *testing.T) {
 			// Release doesn't exist
 			testClient.MockReleases.EXPECT().GetRelease("OWNER/REPO", "0.0.1", gomock.Any()).Return(nil, notFoundResponse, errors.New("not found"))
 
-			// Create release
 			testClient.MockReleases.EXPECT().CreateRelease("OWNER/REPO", gomock.Any()).
 				DoAndReturn(func(pid any, opts *gitlab.CreateReleaseOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Release, *gitlab.Response, error) {
 					assert.Equal(t, "0.0.1", *opts.TagName)
@@ -296,7 +295,6 @@ func TestReleaseCreate_WithAssetsLinksJSON(t *testing.T) {
 			// Release doesn't exist
 			testClient.MockReleases.EXPECT().GetRelease("OWNER/REPO", "0.0.1", gomock.Any()).Return(nil, notFoundResponse, errors.New("not found"))
 
-			// Create release
 			testClient.MockReleases.EXPECT().CreateRelease("OWNER/REPO", gomock.Any()).
 				DoAndReturn(func(pid any, opts *gitlab.CreateReleaseOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Release, *gitlab.Response, error) {
 					return &gitlab.Release{
@@ -554,7 +552,6 @@ func TestReleaseCreate_MilestoneClosing(t *testing.T) {
 		// Release doesn't exist
 		testClient.MockReleases.EXPECT().GetRelease("OWNER/REPO", "0.0.1", gomock.Any()).Return(nil, notFoundResponse, errors.New("not found"))
 
-		// Create release
 		testClient.MockReleases.EXPECT().CreateRelease("OWNER/REPO", gomock.Any()).Return(&gitlab.Release{
 			Name:        "0.0.1",
 			TagName:     "0.0.1",
@@ -608,7 +605,6 @@ func TestReleaseCreate_MilestoneClosing(t *testing.T) {
 		// Release doesn't exist
 		testClient.MockReleases.EXPECT().GetRelease("OWNER/REPO", "0.0.1", gomock.Any()).Return(nil, notFoundResponse, errors.New("not found"))
 
-		// Create release
 		testClient.MockReleases.EXPECT().CreateRelease("OWNER/REPO", gomock.Any()).Return(&gitlab.Release{
 			Name:        "0.0.1",
 			TagName:     "0.0.1",

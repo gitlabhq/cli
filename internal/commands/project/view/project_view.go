@@ -155,7 +155,8 @@ func (o *options) run() error {
 		return cmdutils.WrapError(err, "Failed to retrieve project information.")
 	}
 
-	if o.web {
+	switch {
+	case o.web:
 		projectURL := project.WebURL
 
 		if o.io.IsaTTY {
@@ -169,9 +170,9 @@ func (o *options) run() error {
 			generateProjectOpenURL(projectURL, project.DefaultBranch, o.branch),
 			o.browser,
 		)
-	} else if o.outputFormat == "json" {
+	case o.outputFormat == "json":
 		return printProjectContentJSON(o, project)
-	} else {
+	default:
 		readmeFile, err := getReadmeFile(o, project)
 		if err != nil {
 			return err

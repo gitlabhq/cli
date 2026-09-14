@@ -273,7 +273,7 @@ func keyForVertex(v vertex) string {
 	if v.Namespace == "" {
 		return `"` + k + `"`
 	}
-	return fmt.Sprintf(`"%s"."%s"`, bareKey("", "namespaces", v.Namespace), k)
+	return fmt.Sprintf(`%q.%q`, bareKey("", "namespaces", v.Namespace), k)
 }
 
 func bareKey(group, resource, name string) string {

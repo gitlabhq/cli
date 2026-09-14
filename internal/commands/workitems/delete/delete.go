@@ -122,16 +122,17 @@ func (opts *options) run() error {
 		return err
 	}
 
-	if opts.outputFormat == "json" {
+	switch {
+	case opts.outputFormat == "json":
 		err := opts.io.PrintJSON(struct {
 			DeletedWorkItemID int64 `json:"deleted_work_item_id"`
 		}{DeletedWorkItemID: opts.iid})
 		if err != nil {
 			return err
 		}
-	} else if opts.io.IsaTTY {
+	case opts.io.IsaTTY:
 		opts.io.LogInfof("Successfully deleted %d\n", opts.iid)
-	} else {
+	default:
 		opts.io.LogInfo(opts.iid)
 	}
 

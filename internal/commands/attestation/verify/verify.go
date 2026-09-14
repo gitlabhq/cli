@@ -162,16 +162,12 @@ func (o *options) downloadBundle(client *gitlab.Client, attestationIID int64) ([
 
 func (o *options) bundleTempFile(bundleBytes []byte) (filename string, err error) { //nolint:nonamedreturns
 	f, err := os.CreateTemp("", tempFilePrefix)
-	filename = f.Name()
-
 	if err != nil {
 		return
 	}
+	filename = f.Name()
 
-	if _, err = f.Write(bundleBytes); err != nil {
-		return
-	}
-
+	// Registered before the write so a failed write still closes the handle.
 	defer func() {
 		cerr := f.Close()
 		if err == nil {
@@ -179,6 +175,7 @@ func (o *options) bundleTempFile(bundleBytes []byte) (filename string, err error
 		}
 	}()
 
+	_, err = f.Write(bundleBytes)
 	return
 }
 

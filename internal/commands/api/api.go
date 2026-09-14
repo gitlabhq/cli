@@ -529,17 +529,17 @@ func processResponse(resp *http.Response, opts *options, headersOutputStream io.
 	}
 
 	var err error
-	// Handle NDJSON output format
-	if opts.outputFormat == "ndjson" && isJSON && resp.StatusCode == http.StatusOK {
+	switch {
+	case opts.outputFormat == "ndjson" && isJSON && resp.StatusCode == http.StatusOK:
 		err = streamNDJSON(responseBody, opts.io.StdOut)
-	} else if isJSON && opts.io.ColorEnabled() {
+	case isJSON && opts.io.ColorEnabled():
 		out := &bytes.Buffer{}
 		_, err = io.Copy(out, responseBody)
 		if err == nil {
 			result := jsonPretty.Color(jsonPretty.Pretty(out.Bytes()), nil)
 			_, err = fmt.Fprintln(opts.io.StdOut, string(result)) //nolint:forbidigo // write error must propagate to the caller
 		}
-	} else {
+	default:
 		_, err = io.Copy(opts.io.StdOut, responseBody)
 	}
 	if err != nil {

@@ -103,7 +103,7 @@ func (o *options) run(ctx context.Context) error {
 	var stdout bytes.Buffer
 
 	if git.IsValidURL(o.path) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.path, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.path, http.NoBody)
 		if err != nil {
 			return err
 		}

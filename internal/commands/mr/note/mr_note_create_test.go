@@ -184,9 +184,7 @@ func Test_cmdCreate_prompt(t *testing.T) {
 		c.Expect(ugh.Input("Note message:")).
 			Do(ugh.Type("some note message"))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdCreate(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -206,9 +204,7 @@ func Test_cmdCreate_prompt(t *testing.T) {
 		c.Expect(ugh.Input("Note message:")).
 			Do(ugh.Type(""))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdCreate(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -241,9 +237,7 @@ func Test_cmdCreate_unique_prompt(t *testing.T) {
 		c.Expect(ugh.Input("Note message:")).
 			Do(ugh.Type("some note message"))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdCreate(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -564,9 +558,7 @@ func Test_cmdCreate_reply_prompt(t *testing.T) {
 		c.Expect(ugh.Input("Note message:")).
 			Do(ugh.Type("prompted reply"))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdCreate(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 			cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -621,9 +613,7 @@ func Test_cmdCreate_stdin(t *testing.T) {
 					})
 			}
 
-			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-				return NewCmdCreate(f)
-			}, false,
+			exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, false,
 				cmdtest.WithGitLabClient(testClient.Client),
 				cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 				cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -859,9 +849,7 @@ func setupMRNotFound(t *testing.T) *gitlabtesting.TestClient {
 
 func setupCreateExec(t *testing.T, testClient *gitlabtesting.TestClient) cmdtest.CmdExecFunc {
 	t.Helper()
-	return cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-		return NewCmdCreate(f)
-	}, true,
+	return cmdtest.SetupCmdForTest(t, NewCmdCreate, true,
 		cmdtest.WithGitLabClient(testClient.Client),
 		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		cmdtest.WithConfig(config.NewFromString("editor: vi")),

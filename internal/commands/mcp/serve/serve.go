@@ -58,7 +58,6 @@ func NewCmdServe(_ cmdutils.Factory) *cobra.Command {
 			// Initialize the MCP server
 			server := newMCPServer(rootCmd)
 
-			// Run the server with context
 			if err := server.Run(cmd.Context()); err != nil {
 				return fmt.Errorf("MCP server error: %w", err)
 			}

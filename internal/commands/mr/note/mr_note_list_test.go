@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/acarl005/stripansi"
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -17,7 +16,6 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
-	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -26,9 +24,7 @@ var makeMRForList = mockMR1
 
 func setupListCmd(t *testing.T, tc *gitlabtesting.TestClient) cmdtest.CmdExecFunc {
 	t.Helper()
-	return cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-		return NewCmdNote(f)
-	}, true,
+	return cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 		cmdtest.WithGitLabClient(tc.Client),
 		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 	)

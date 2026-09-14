@@ -97,11 +97,12 @@ func (o *options) run() error {
 
 	var projects []*gitlab.Project
 	var resp *gitlab.Response
-	if len(o.group) > 0 {
+	switch {
+	case o.group != "":
 		projects, resp, err = listAllProjectsForGroup(gitlabClient, *o)
-	} else if o.user != "" {
+	case o.user != "":
 		projects, resp, err = listAllProjectsForUser(gitlabClient, *o)
-	} else {
+	default:
 		projects, resp, err = listAllProjects(gitlabClient, *o)
 	}
 

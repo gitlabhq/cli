@@ -263,9 +263,7 @@ func TestProjectForkExistingRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Initialize git repository for testing
 			git.InitGitRepo(t)
-			// tempDir := cmdtest.InitGitRepo(t, "gitlab.com", "OWNER", "REPO")
 
 			cs, csTeardown := test.InitCmdStubber()
 			defer csTeardown()
@@ -380,19 +378,15 @@ func TestProjectForkExistingRepo(t *testing.T) {
 				if tt.expectNamespaceMessage {
 					assert.Contains(t, out.ErrBuf.String(), "Only user namespaces")
 				}
-			} else {
-				if assert.NoErrorf(t, err, "error running command `project fork %s`: %v", tt.commandArgs, err) {
-					// On success, ensure namespace error message is absent unless we expect it
-					if !tt.expectNamespaceMessage {
-						assert.NotContains(t, out.ErrBuf.String(), "Only user namespaces")
-					}
+			} else if assert.NoErrorf(t, err, "error running command `project fork %s`: %v", tt.commandArgs, err) {
+				if !tt.expectNamespaceMessage {
+					assert.NotContains(t, out.ErrBuf.String(), "Only user namespaces")
+				}
 
-					// Check success related messages
-					if tt.addRemoteFlag || tt.promptResponse {
-						assert.Contains(t, out.ErrBuf.String(), "Using existing repository")
-						if len(tt.expectedShellouts) > 0 {
-							assert.Contains(t, out.ErrBuf.String(), "Added remote")
-						}
+				if tt.addRemoteFlag || tt.promptResponse {
+					assert.Contains(t, out.ErrBuf.String(), "Using existing repository")
+					if len(tt.expectedShellouts) > 0 {
+						assert.Contains(t, out.ErrBuf.String(), "Added remote")
 					}
 				}
 			}

@@ -76,7 +76,7 @@ const snapshotSuffix = "-SNAPSHOT"
 // segment Maven substitutes for "SNAPSHOT" in a deployed snapshot artifact's
 // filename, for example "20240101.123456-1" in
 // "slf4j-api-1.0-20240101.123456-1.jar".
-var mavenSnapshotTimestamp = regexp.MustCompile(`^[0-9]{8}\.[0-9]{6}-[0-9]+`)
+var mavenSnapshotTimestamp = regexp.MustCompile(`^\d{8}\.\d{6}-\d+`)
 
 // mavenFileMatchesCoordinate reports whether file names the artifact at
 // version. The direct case requires "<artifact>-<version>" as the filename

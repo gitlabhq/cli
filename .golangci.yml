@@ -22,6 +22,7 @@ linters:
         - forcetypeassert
         - gocheckcompilerdirectives
         - gochecksumtype
+        - gocritic
         - gomoddirectives
         - govet
         - ineffassign
@@ -77,6 +78,19 @@ linters:
             msg: "Use IOStreams.PrintJSON for stdout output. For non-stdout serialization (request bodies, disk, protocols), add //nolint:forbidigo with a reason."
           - pattern: ^fmt\.F(print|printf|println|scan|scanf|scanln)$
             msg: "Use IOStreams LogInfo, LogInfof, Error, and Errorf for stdout and stderr output."
+      gocritic:
+        enabled-tags:
+          - diagnostic
+          - style
+        disabled-checks:
+          # Wants named results, which nonamedreturns forbids.
+          - unnamedResult
+          # Narrower restatement of govet's shadow check, disabled below.
+          - importShadow
+          # Duplicates nolintlint's require-explanation.
+          - whyNoLint
+          # Purely cosmetic parameter grouping.
+          - paramTypeCombine
       govet:
         enable-all: true
         disable:

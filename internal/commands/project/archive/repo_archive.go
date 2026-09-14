@@ -85,7 +85,6 @@ func NewCmdArchive(f cmdutils.Factory) *cobra.Command {
 
 			format, _ := cmd.Flags().GetString("format")
 
-			// tar.gz, tar.bz2, tbz, tbz2, tb2, bz2, tar, and zip
 			extensions := []string{"tar.gz", "tar.bz2", "tbz", "tbz2", "tb2", "bz2", "tar", "zip"}
 			if b := contains(extensions, format); !b {
 				return errors.New("format must be one of " + strings.Join(extensions, ","))

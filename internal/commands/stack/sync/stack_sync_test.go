@@ -185,7 +185,6 @@ func Test_stackSync(t *testing.T) {
 					CurrentUser(gomock.Any()).
 					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
 
-				// MockListStackMRsByBranch("Branch1", "25")
 				testClient.MockMergeRequests.EXPECT().
 					ListProjectMergeRequests("stack_guy/stackproject", gomock.Any()).
 					DoAndReturn(func(pid any, opts *gitlab.ListProjectMergeRequestsOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.BasicMergeRequest, *gitlab.Response, error) {
@@ -205,7 +204,6 @@ func Test_stackSync(t *testing.T) {
 						}, nil, nil
 					})
 
-				// MockGetStackMR("Branch1", "25")
 				testClient.MockMergeRequests.EXPECT().
 					GetMergeRequest("stack_guy/stackproject", int64(25), gomock.Any()).
 					Return(&gitlab.MergeRequest{
@@ -345,7 +343,6 @@ func Test_stackSync(t *testing.T) {
 					CurrentUser(gomock.Any()).
 					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
 
-				// MockListStackMRsByBranch("Branch1", "25")
 				testClient.MockMergeRequests.EXPECT().
 					ListProjectMergeRequests("stack_guy/stackproject", gomock.Any()).
 					DoAndReturn(func(pid any, opts *gitlab.ListProjectMergeRequestsOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.BasicMergeRequest, *gitlab.Response, error) {
@@ -361,7 +358,6 @@ func Test_stackSync(t *testing.T) {
 						}, nil, nil
 					})
 
-				// MockGetStackMR("Branch1", "25")
 				testClient.MockMergeRequests.EXPECT().
 					GetMergeRequest("stack_guy/stackproject", int64(25), gomock.Any()).
 					Return(&gitlab.MergeRequest{
@@ -533,7 +529,6 @@ func Test_stackSync(t *testing.T) {
 					CurrentUser(gomock.Any()).
 					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
 
-				// MockListStackMRsByBranch("Branch1", "25")
 				testClient.MockMergeRequests.EXPECT().
 					ListProjectMergeRequests("stack_guy/stackproject", gomock.Any()).
 					DoAndReturn(func(pid any, opts *gitlab.ListProjectMergeRequestsOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.BasicMergeRequest, *gitlab.Response, error) {
@@ -553,7 +548,6 @@ func Test_stackSync(t *testing.T) {
 						}, nil, nil
 					})
 
-				// MockGetStackMR("Branch1", "25")
 				testClient.MockMergeRequests.EXPECT().
 					GetMergeRequest("stack_guy/stackproject", int64(25), gomock.Any()).
 					Return(&gitlab.MergeRequest{

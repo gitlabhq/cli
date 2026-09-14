@@ -163,15 +163,16 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *options) error) *cobra.Comma
 }
 
 func (o *options) complete(cmd *cobra.Command) error {
-	if o.all {
+	switch {
+	case o.all:
 		o.state = "all"
-	} else if o.closed {
+	case o.closed:
 		o.state = "closed"
 		o.titleQualifier = o.state
-	} else if o.merged {
+	case o.merged:
 		o.state = "merged"
 		o.titleQualifier = o.state
-	} else {
+	default:
 		o.state = "opened"
 		o.titleQualifier = "open"
 	}
@@ -358,7 +359,7 @@ func (o *options) run() error {
 	if jsonOutput {
 		return o.io.PrintJSON(mergeRequests)
 	} else {
-		if err = o.io.StartPager(); err != nil {
+		if err := o.io.StartPager(); err != nil {
 			return err
 		}
 		defer o.io.StopPager()

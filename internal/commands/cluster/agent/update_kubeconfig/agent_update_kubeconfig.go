@@ -49,7 +49,7 @@ type options struct {
 
 func NewCmdAgentUpdateKubeconfig(f cmdutils.Factory) *cobra.Command {
 	pathOptions := clientcmd.NewDefaultPathOptions()
-	if len(pathOptions.ExplicitFileFlag) == 0 {
+	if pathOptions.ExplicitFileFlag == "" {
 		pathOptions.ExplicitFileFlag = clientcmd.RecommendedConfigPathFlag
 	}
 

@@ -75,7 +75,7 @@ func TestNewCmdCompletion(t *testing.T) {
 			if !strings.Contains(stdout.String(), tt.wantOut) {
 				t.Errorf("completion output did not match:\n%s", stdout.String())
 			}
-			if len(stderr.String()) > 0 {
+			if stderr.String() != "" {
 				t.Errorf("expected nothing on stderr, got %q", stderr.String())
 			}
 		})

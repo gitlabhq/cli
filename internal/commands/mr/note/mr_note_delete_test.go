@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -14,7 +13,6 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
-	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -70,9 +68,7 @@ func Test_delete_subcommand(t *testing.T) {
 			).
 			Return(nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -102,9 +98,7 @@ func Test_delete_subcommand(t *testing.T) {
 			).
 			Return(nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, false,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, false,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -124,9 +118,7 @@ func Test_delete_subcommand(t *testing.T) {
 			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
 			Return(makeDiscussionsWithAuthor(), nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, false,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, false,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -141,9 +133,7 @@ func Test_delete_subcommand(t *testing.T) {
 
 		testClient := gitlabtesting.NewTestClient(t)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -164,9 +154,7 @@ func Test_delete_subcommand(t *testing.T) {
 			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
 			Return(makeDiscussionsWithAuthor(), nil, nil)
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
@@ -196,9 +184,7 @@ func Test_delete_subcommand(t *testing.T) {
 			).
 			Return(nil, fmt.Errorf("403 Forbidden"))
 
-		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-			return NewCmdNote(f)
-		}, true,
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)

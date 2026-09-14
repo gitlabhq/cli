@@ -13,7 +13,7 @@ import (
 )
 
 func mvn(method, path string) *http.Request {
-	return httptest.NewRequest(method, "https://repo.maven.apache.org"+path, nil)
+	return httptest.NewRequest(method, "https://repo.maven.apache.org"+path, http.NoBody)
 }
 
 func TestMavenMatchJarDownload(t *testing.T) {

@@ -20,7 +20,7 @@ func parseReorderFile(input string) ([]string, error) {
 			continue
 		}
 
-		if len(line) == 0 {
+		if line == "" {
 			continue
 		}
 

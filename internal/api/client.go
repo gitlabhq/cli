@@ -393,7 +393,6 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 		WithProxy(proxy),
 	}
 
-	// Resolve custom headers from config
 	headers, err := config.ResolveCustomHeaders(cfg, repoHost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve custom headers: %w", err)

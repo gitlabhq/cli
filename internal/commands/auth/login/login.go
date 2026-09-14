@@ -268,7 +268,6 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 			return errors.New("empty hostname would leak `oauth_token`")
 		}
 
-		// Split hostname and subfolder
 		hostname, subfolder := splitHostnameAndSubfolder(opts.Hostname)
 
 		if err := authutils.ClearAuthFields(cfg, hostname); err != nil {
@@ -336,7 +335,6 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 			return errors.New("empty hostname would leak `oauth_token`")
 		}
 
-		// Split hostname and subfolder
 		hostname, subfolder := splitHostnameAndSubfolder(opts.Hostname)
 
 		if err := authutils.ClearAuthFields(cfg, hostname); err != nil {
@@ -559,7 +557,8 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 	// prompt keeps the host's existing domains instead of clearing them.
 	containerRegistryDomains := initialContainerRegistryDomains(cfg, hostname, opts.ContainerRegistryDomains)
 
-	if opts.Interactive {
+	switch {
+	case opts.Interactive:
 		switch {
 		case opts.WebLogin:
 			loginType = promptLoginTypeWeb
@@ -583,10 +582,10 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 				return fmt.Errorf("could not get container registry domains: %w", err)
 			}
 		}
-	} else if opts.WebLogin {
+	case opts.WebLogin:
 		// Non-interactive web login: go straight to OAuth
 		loginType = promptLoginTypeWeb
-	} else if opts.DeviceLogin {
+	case opts.DeviceLogin:
 		// Non-interactive device flow login
 		loginType = promptLoginTypeDevice
 	}
@@ -942,11 +941,7 @@ func defaultContainerRegistryDomainsString(hostname string) string {
 			}, ",")
 	}
 
-	return strings.Join(
-		[]string{
-			hostname,
-			"registry." + hostname,
-		}, ",")
+	return hostname + "," + "registry." + hostname
 }
 
 func setContainerRegistryDomains(cfg config.Config, hostname string, domains string) error {
@@ -1024,7 +1019,6 @@ func splitHostnameAndSubfolder(input string) (string, string) {
 		input = "https://" + input
 	}
 
-	// Parse the URL
 	u, err := url.Parse(input)
 	if err != nil {
 		// Fallback to string manipulation if parsing fails

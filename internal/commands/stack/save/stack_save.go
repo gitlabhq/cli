@@ -71,7 +71,6 @@ func NewCmdSaveStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.GetT
 				return fmt.Errorf("error adding files: %w", err)
 			}
 
-			// get stack title
 			title, err := git.GetCurrentStackTitle()
 			if err != nil {
 				return fmt.Errorf("error running Git command: %w", err)

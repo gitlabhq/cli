@@ -132,7 +132,6 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 				}
 			}
 
-			// create variables
 			for _, v := range variablePairsToCreate {
 				_, _, err := client.PipelineSchedules.CreatePipelineScheduleVariable(repo.FullName(), scheduleId, &gitlab.CreatePipelineScheduleVariableOptions{
 					Key:   &v[0],
@@ -143,7 +142,6 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 				}
 			}
 
-			// update variables
 			for _, v := range variablePairsToUpdate {
 				_, _, err := client.PipelineSchedules.EditPipelineScheduleVariable(repo.FullName(), scheduleId, v[0], &gitlab.EditPipelineScheduleVariableOptions{
 					Value: &v[1],
@@ -153,7 +151,6 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 				}
 			}
 
-			// delete variables
 			for _, v := range variablesToDelete {
 				_, _, err := client.PipelineSchedules.DeletePipelineScheduleVariable(repo.FullName(), scheduleId, v)
 				if err != nil {

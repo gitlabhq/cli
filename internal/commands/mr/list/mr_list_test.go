@@ -857,7 +857,6 @@ func TestMergeRequestList_GroupWithAssigneeAndReviewer(t *testing.T) {
 			if opts.ReviewerID != nil {
 				return []*gitlab.BasicMergeRequest{reviewerMR}, nil, nil
 			}
-			// Assignee request
 			return []*gitlab.BasicMergeRequest{assigneeMR}, nil, nil
 		}).Times(2)
 

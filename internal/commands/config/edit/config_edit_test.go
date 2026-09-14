@@ -75,7 +75,6 @@ func TestConfigEdit_Options(t *testing.T) {
 
 		cmd := NewCmdEdit(f)
 
-		// Parse flags
 		err := cmd.ParseFlags([]string{"--local"})
 		require.NoError(t, err)
 

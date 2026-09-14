@@ -45,7 +45,7 @@ func NewCmdApprove(f cmdutils.Factory) *cobra.Command {
 			}
 
 			for _, mr := range mrs {
-				if err = mrutils.MRCheckErrors(mr, mrutils.MRCheckErrOptions{
+				if err := mrutils.MRCheckErrors(mr, mrutils.MRCheckErrOptions{
 					Closed: true,
 					Merged: true,
 				}); err != nil {
@@ -69,7 +69,6 @@ func NewCmdApprove(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	// mrApproveCmd.Flags().StringP("password", "p", "", "Current user’s password. Required if 'Require user password to approve' is enabled in the project settings.")
 	mrApproveCmd.Flags().StringP("sha", "s", "", "SHA, which must match the SHA of the HEAD commit of the merge request.")
 	return mrApproveCmd
 }

@@ -212,8 +212,8 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 					}
 				}
 
-				if inProgress && live {
-					// Use fallback logic for live updates
+				switch {
+				case inProgress && live:
 					updatedPipeline, err := ciutils.GetPipelineWithFallback(ctx, client, repoName, branch, opts.io)
 					if err != nil {
 						// Final fallback: refresh current pipeline by ID
@@ -233,7 +233,7 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 						break loop
 					case <-ticker.C:
 					}
-				} else if opts.io.IsInteractive() {
+				case opts.io.IsInteractive():
 					var answer string
 					selector := huh.NewSelect[string]().
 						Title("Choose an action:").
@@ -245,7 +245,7 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 						Value(&answer)
 					if err := opts.io.Run(ctx, selector); err != nil {
 						if ctx.Err() != nil {
-							break
+							break loop
 						}
 						return err
 					}
@@ -282,8 +282,8 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 					default:
 						break loop
 					}
-				} else {
-					break
+				default:
+					break loop
 				}
 			}
 			// Only show "Exiting..." message if cancelled via Ctrl+C

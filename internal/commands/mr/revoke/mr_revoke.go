@@ -46,7 +46,7 @@ func NewCmdRevoke(f cmdutils.Factory) *cobra.Command {
 			}
 
 			for _, mr := range mrs {
-				if err = mrutils.MRCheckErrors(mr, mrutils.MRCheckErrOptions{
+				if err := mrutils.MRCheckErrors(mr, mrutils.MRCheckErrOptions{
 					Closed: true,
 					Merged: true,
 				}); err != nil {

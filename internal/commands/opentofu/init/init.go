@@ -148,7 +148,7 @@ func authBackendConfig(ctx context.Context, apiClient *api.Client) ([]string, er
 
 	switch cred.Kind {
 	case api.CredentialJobToken:
-		return []string{fmt.Sprintf(`-backend-config=headers={"%s" = "%s"}`, gitlab.JobTokenHeaderName, cred.Token)}, nil
+		return []string{fmt.Sprintf(`-backend-config=headers={%q = %q}`, gitlab.JobTokenHeaderName, cred.Token)}, nil
 	case api.CredentialPAT, api.CredentialOAuth2:
 		return []string{fmt.Sprintf(`-backend-config=headers={"Authorization" = "Bearer %s"}`, cred.Token)}, nil
 	default:

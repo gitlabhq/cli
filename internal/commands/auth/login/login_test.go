@@ -227,7 +227,7 @@ func Test_NewCmdLogin(t *testing.T) {
 		//		Interactive: true,
 		//	},
 		//	stdinTTY: true,
-		//},
+		// },
 		//{
 		//	name:     "tty",
 		//	cli:      "",
@@ -237,7 +237,7 @@ func Test_NewCmdLogin(t *testing.T) {
 		//		Interactive: true,
 		//	},
 		//	stdinTTY: true,
-		//},
+		// },
 		{
 			name:     "token and stdin",
 			cli:      "--token xxxx --stdin",

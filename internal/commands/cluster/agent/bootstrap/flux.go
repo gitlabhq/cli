@@ -119,7 +119,7 @@ func (f *localFluxWrapper) createHelmReleaseManifest(kasAddress string) (file, e
 	}
 
 	enc := yaml.NewEncoder(valuesFile)
-	if err = enc.Encode(cfg); err != nil {
+	if err := enc.Encode(cfg); err != nil {
 		return file{}, err
 	}
 

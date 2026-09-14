@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -15,7 +14,6 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
-	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -111,9 +109,7 @@ func TestNoteUpdate_AttachAppendsToTheExistingNoteBody(t *testing.T) {
 			return &gitlab.Note{ID: 12345}, nil, nil
 		})
 
-	exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-		return NewCmdUpdate(f)
-	}, true,
+	exec := cmdtest.SetupCmdForTest(t, NewCmdUpdate, true,
 		cmdtest.WithGitLabClient(tc.Client),
 		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		cmdtest.WithConfig(config.NewFromString("editor: vi")),
@@ -144,9 +140,7 @@ func TestNoteUpdate_AttachWithMessageReplacesTheNoteBody(t *testing.T) {
 			return &gitlab.Note{ID: 12345}, nil, nil
 		})
 
-	exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-		return NewCmdUpdate(f)
-	}, true,
+	exec := cmdtest.SetupCmdForTest(t, NewCmdUpdate, true,
 		cmdtest.WithGitLabClient(tc.Client),
 		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		cmdtest.WithConfig(config.NewFromString("editor: vi")),

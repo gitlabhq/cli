@@ -208,7 +208,6 @@ func (s *server) renderAndWrite(ctx context.Context, w http.ResponseWriter, srcC
 				return
 			}
 
-			// Render to SVG
 			svgData, err := d2svg.Render(diagram, renderOpts)
 			if err != nil {
 				s.reportError(w, fmt.Errorf("d2svg.Render: %w", err), part != nil)

@@ -138,9 +138,7 @@ func (c *cache) get() (*gitlab.PersonalAccessToken, error) {
 	switch {
 	case err == nil:
 		return token, nil
-	case errors.Is(err, errNotFound):
-		fallthrough
-	case errors.Is(err, errTokenExpired), errors.Is(err, errTokenRevoked):
+	case errors.Is(err, errNotFound), errors.Is(err, errTokenExpired), errors.Is(err, errTokenRevoked):
 		return c.createAndCacheToken()
 	default:
 		return nil, err

@@ -93,24 +93,25 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *ListOptions) error, issueTyp
 			mcpannotations.Safe: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if opts.Author != "" && len(opts.NotAuthor) != 0 {
+			if opts.Author != "" && opts.NotAuthor != "" {
 				return cmdutils.FlagError{
 					Err: errors.New("flags --author and --not-author are mutually exclusive"),
 				}
 			}
 
-			if opts.Assignee != "" && len(opts.NotAssignee) != 0 {
+			if opts.Assignee != "" && opts.NotAssignee != "" {
 				return cmdutils.FlagError{
 					Err: errors.New("flags --assignee and --not-assignee are mutually exclusive"),
 				}
 			}
 
-			if opts.All {
+			switch {
+			case opts.All:
 				opts.State = "all"
-			} else if opts.Closed {
+			case opts.Closed:
 				opts.State = "closed"
 				opts.TitleQualifier = "closed"
-			} else {
+			default:
 				opts.State = "opened"
 				opts.TitleQualifier = "open"
 			}

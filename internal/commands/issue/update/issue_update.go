@@ -180,7 +180,6 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 					actions = append(actions, fmt.Sprintf("added milestone %q", m))
 					l.MilestoneID = new(mID)
 				} else {
-					// Unassign the Milestone
 					actions = append(actions, "unassigned milestone")
 					l.MilestoneID = new(int64(0))
 				}

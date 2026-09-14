@@ -23,7 +23,7 @@ const sbtCredentialRealm = "artifact-registry"
 
 // sbtCredentialLine renders the line loginSbt writes for host.
 func sbtCredentialLine(realm, host, token string) string {
-	return fmt.Sprintf(`credentials += Credentials("%s", "%s", "__token__", "%s")`, realm, host, token)
+	return fmt.Sprintf(`credentials += Credentials(%q, %q, "__token__", %q)`, realm, host, token)
 }
 
 // sbtCredentialLineRegexp builds the pattern that finds a line previously
@@ -150,7 +150,7 @@ func loginSbt(registry *url.URL, token string) error {
 				continue
 			}
 			m := sbtCredentialLineRe.FindStringSubmatch(l)
-			if m == nil || m[1] != host {
+			if len(m) < 3 || m[1] != host {
 				continue
 			}
 			// The entry keeps the indentation and the trailing comment it had:

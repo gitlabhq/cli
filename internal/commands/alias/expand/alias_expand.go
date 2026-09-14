@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/google/shlex"
@@ -74,7 +75,7 @@ func ExpandAlias(cfg config.Config, args []string, findShFunc func() (string, er
 		return nil, false, err
 	}
 
-	expanded = append(newArgs, extraArgs...)
+	expanded = slices.Concat(newArgs, extraArgs)
 	return expanded, false, nil
 }
 
