@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"gitlab.com/gitlab-org/cli/internal/dbg"
@@ -12,9 +13,9 @@ import (
 // environment variables. It is selected when any such variable is set and
 // is used for testing. It never returns an error.
 type fakeChecker struct {
-	block []matcher
-	warn  []matcher
-	deflt verdict.Verdict // "" (allow), verdict.Blocked, or verdict.Warning
+	block          []matcher
+	warn           []matcher
+	defaultVerdict verdict.Verdict // verdict.Allowed, verdict.Blocked, or verdict.Warning
 }
 
 // matcher is one parsed GLAB_DF_FAKE_* list entry: ecosystem + name, with
@@ -33,23 +34,26 @@ func (m matcher) matches(c Coordinate) bool {
 }
 
 func newFakeChecker(environ []string) Checker {
-	env := envMap(environ)
 	return fakeChecker{
-		block: parseList(env["GLAB_DF_FAKE_BLOCK"]),
-		warn:  parseList(env["GLAB_DF_FAKE_WARN"]),
-		deflt: parseDefault(env["GLAB_DF_FAKE_DEFAULT"]),
+		block:          parseList(lookupEnv(environ, "GLAB_DF_FAKE_BLOCK")),
+		warn:           parseList(lookupEnv(environ, "GLAB_DF_FAKE_WARN")),
+		defaultVerdict: parseDefault(lookupEnv(environ, "GLAB_DF_FAKE_DEFAULT")),
 	}
 }
 
-func envMap(environ []string) map[string]string {
-	m := make(map[string]string, len(environ))
-	for _, e := range environ {
-		k, v, ok := strings.Cut(e, "=")
-		if ok {
-			m[k] = v
+// lookupEnv returns the value of key in environ ("KEY=value" entries), or ""
+// if absent. It reads only the keys the fake checker needs rather than
+// materializing the whole environment into a map. It scans from the end so a
+// duplicate key resolves to its last occurrence, matching os.Environ and the
+// map-based lookup this replaced (last occurrence wins).
+func lookupEnv(environ []string, key string) string {
+	prefix := key + "="
+	for _, e := range slices.Backward(environ) {
+		if v, ok := strings.CutPrefix(e, prefix); ok {
+			return v
 		}
 	}
-	return m
+	return ""
 }
 
 // parseList turns "eco:name@version,eco:name" into matchers. Malformed
@@ -87,14 +91,14 @@ func parseList(raw string) []matcher {
 func parseDefault(raw string) verdict.Verdict {
 	switch strings.TrimSpace(strings.ToLower(raw)) {
 	case "", "allow":
-		return ""
+		return verdict.Allowed
 	case "block":
 		return verdict.Blocked
 	case "warn":
 		return verdict.Warning
 	default:
 		dbg.Debugf("policy: unrecognized GLAB_DF_FAKE_DEFAULT value %q, treating as allow", raw)
-		return ""
+		return verdict.Allowed
 	}
 }
 
@@ -117,7 +121,7 @@ func (f fakeChecker) bestMatch(c Coordinate) (verdict.Verdict, bool) {
 	if hasAny(f.warn, c) {
 		return verdict.Warning, true
 	}
-	return "", false
+	return verdict.Allowed, false
 }
 
 func hasExact(ms []matcher, c Coordinate) bool {
@@ -142,7 +146,7 @@ func (f fakeChecker) Check(_ context.Context, r Request) (Result, error) {
 	v, matched := f.bestMatch(r.Coordinate)
 	source := "GLAB_DF_FAKE_BLOCK/WARN"
 	if !matched {
-		v = f.deflt
+		v = f.defaultVerdict
 		source = "GLAB_DF_FAKE_DEFAULT"
 	}
 	switch v {
