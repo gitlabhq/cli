@@ -110,6 +110,11 @@ func checkUpdate(f cmdutils.Factory, silentSuccess bool, forceCheck bool) error 
 	releases, _, err := gitlabClient.Releases.ListReleases(
 		"gitlab-org/cli", &gitlab.ListReleasesOptions{ListOptions: gitlab.ListOptions{Page: 1, PerPage: 1}})
 	if err != nil {
+		// When GitLab is down it answers with an HTML maintenance page, and the API
+		// client's error carries the whole page. The status code says enough.
+		if errResp, ok := errors.AsType[*gitlab.ErrorResponse](err); ok {
+			return fmt.Errorf("failed checking for glab updates: %s responded with HTTP %d", glinstance.DefaultHostname, errResp.StatusCode)
+		}
 		return fmt.Errorf("failed checking for glab updates: %s", err.Error())
 	}
 	if len(releases) < 1 {

@@ -170,6 +170,35 @@ func TestNewCheckUpdateCmd_error(t *testing.T) {
 	assert.Empty(t, output.Stderr())
 }
 
+func TestCheckUpdate_GitLabDown(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+
+	// gitlab.com answers with its HTML maintenance page during an incident, which the
+	// API client hands back verbatim inside the error.
+	htmlPage := "<!DOCTYPE html>\n<html>\n<head><title>503 Server Unavailable</title></head><body>...</body></html>"
+	errResp := &gitlab.ErrorResponse{
+		StatusCode: http.StatusServiceUnavailable,
+		Message:    "failed to parse unknown error format: " + htmlPage,
+		Response:   &http.Response{StatusCode: http.StatusServiceUnavailable},
+	}
+	testClient.MockReleases.EXPECT().
+		ListReleases("gitlab-org/cli", gomock.Any()).
+		Return(nil, &gitlab.Response{Response: errResp.Response}, errResp)
+
+	mockClientCreator(t, testClient)
+
+	exec := cmdtest.SetupCmdForTest(t, NewCheckUpdateCmd, true,
+		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.11.0"}),
+	)
+	output, err := exec("")
+
+	require.Error(t, err)
+	assert.Equal(t, "failed checking for glab updates: gitlab.com responded with HTTP 503", err.Error())
+	assert.NotContains(t, err.Error(), "<html>")
+	assert.Empty(t, output.String())
+	assert.Empty(t, output.Stderr())
+}
+
 func TestNewCheckUpdateCmd_no_release(t *testing.T) {
 	testClient := gitlabtesting.NewTestClient(t)
 
