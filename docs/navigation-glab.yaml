@@ -170,6 +170,8 @@
       url: 'cli/dependency-firewall/pip/'
     - title: glab dependency-firewall pipenv
       url: 'cli/dependency-firewall/pipenv/'
+    - title: glab dependency-firewall pnpm
+      url: 'cli/dependency-firewall/pnpm/'
     - title: glab dependency-firewall poetry
       url: 'cli/dependency-firewall/poetry/'
     - title: glab dependency-firewall twine
