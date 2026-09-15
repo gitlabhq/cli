@@ -252,6 +252,8 @@ func TestRunExitErrorPropagates(t *testing.T) {
 	require.ErrorAs(t, err, &ee)
 	// A generic (non-*exec.ExitError) failure maps to the generic exit code 1.
 	assert.Equal(t, 1, ee.Code)
+	// The child never actually ran, so callers must not silence this error.
+	assert.False(t, ee.ChildExited, "a generic run failure means the child never exited")
 }
 
 // exitExecutor returns an *exec.ExitError carrying a specific exit code, so we
@@ -282,6 +284,9 @@ func TestRunPropagatesChildExitCode(t *testing.T) {
 	var ee *ExitError
 	require.ErrorAs(t, err, &ee)
 	assert.Equal(t, 42, ee.Code, "engine must surface the child's exit code, not a generic 1")
+	// The child actually ran and exited non-zero, so this error is safe to
+	// silence in favor of the rendered summary.
+	assert.True(t, ee.ChildExited, "a real child exit must be marked ChildExited")
 }
 
 func TestRunInterruptReturnsExitCode130(t *testing.T) {

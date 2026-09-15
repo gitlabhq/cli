@@ -49,6 +49,58 @@ func Test_isColorEnabled(t *testing.T) {
 	})
 }
 
+func TestColorEnabledForCILogs(t *testing.T) {
+	tests := []struct {
+		name        string
+		colorField  bool // value of s.isColorEnabled (TTY-based)
+		inCI        bool
+		setNoColor  bool
+		colorEnable string // COLOR_ENABLED value; "" means unset
+		want        bool
+	}{
+		{name: "TTY color already enabled", colorField: true, want: true},
+		{name: "not a TTY and not CI", colorField: false, want: false},
+		{name: "not a TTY but in GitLab CI", colorField: false, inCI: true, want: true},
+		{name: "in CI but NO_COLOR set", colorField: false, inCI: true, setNoColor: true, want: false},
+		{name: "in CI, NO_COLOR set, COLOR_ENABLED override", colorField: false, inCI: true, setNoColor: true, colorEnable: "1", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Start from a clean slate: unset the vars this decision reads so
+			// a case that doesn't set one isn't affected by ambient values.
+			// The cases below set what they need via t.Setenv, which already
+			// registers its own restore cleanup.
+			unsetEnvForTest(t, "NO_COLOR", "COLOR_ENABLED", "GITLAB_CI")
+			if tt.inCI {
+				t.Setenv("GITLAB_CI", "true")
+			}
+			if tt.setNoColor {
+				t.Setenv("NO_COLOR", "")
+			}
+			if tt.colorEnable != "" {
+				t.Setenv("COLOR_ENABLED", tt.colorEnable)
+			}
+
+			s := &IOStreams{isColorEnabled: tt.colorField}
+			assert.Equal(t, tt.want, s.ColorEnabledForCILogs())
+		})
+	}
+}
+
+// unsetEnvForTest unsets env vars for the duration of the test and restores
+// their original values on cleanup. The testing package has no t.Unsetenv, and
+// t.Setenv can only set (not remove) a var, so the restore uses os.Setenv.
+func unsetEnvForTest(t *testing.T, keys ...string) {
+	t.Helper()
+	for _, key := range keys {
+		if val, ok := os.LookupEnv(key); ok {
+			os.Unsetenv(key)
+			t.Cleanup(func() { os.Setenv(key, val) }) //nolint:usetesting // restoring an unset var; t.Setenv can't remove/restore-absent
+		}
+	}
+}
+
 func Test_makeColorFunc(t *testing.T) {
 	tests := []struct {
 		name          string

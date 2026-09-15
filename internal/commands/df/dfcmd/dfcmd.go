@@ -113,6 +113,16 @@ func (o *options) run(ctx context.Context) error {
 		Args:      o.args,
 	}); err != nil {
 		if ee, ok := errors.AsType[*pm.ExitError](err); ok {
+			if ee.ChildExited {
+				// The child actually ran, so the Dependency Firewall summary
+				// already tells the user what happened (including any blocked
+				// packages that made it exit non-zero). Wrap SilentError to
+				// preserve the exit code without letting fang render a
+				// duplicate ERROR block after the summary.
+				return cmdutils.WrapErrorWithCode(cmdutils.SilentError, ee.Code, ee.Error())
+			}
+			// The child never ran (e.g. fork/exec failure), so no summary was
+			// rendered. Surface a visible error instead of exiting silently.
 			return cmdutils.WrapErrorWithCode(ee.Unwrap(), ee.Code, ee.Error())
 		}
 		return cmdutils.WrapError(err, fmt.Sprintf("failed to run %s through the Dependency Firewall.", o.name))

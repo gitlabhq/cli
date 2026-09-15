@@ -35,7 +35,17 @@ type ColorPalette struct {
 }
 
 func (s *IOStreams) Color() *ColorPalette {
-	isColorfulOutput := s.ColorEnabled() && s.IsaTTY
+	return s.colorPalette(s.ColorEnabled() && s.IsaTTY)
+}
+
+// ColorForCILogs returns a palette that stays colored in GitLab CI job logs
+// (which are not a TTY) while honoring NO_COLOR, unlike Color which gates on
+// the TTY. Callers that need color in CI output should use this.
+func (s *IOStreams) ColorForCILogs() *ColorPalette {
+	return s.colorPalette(s.ColorEnabledForCILogs())
+}
+
+func (s *IOStreams) colorPalette(isColorfulOutput bool) *ColorPalette {
 	var isDark bool
 	switch s.BackgroundColor() { // could be simplified if commands like `ci list` called `ResolveBackgroundColor()`
 	case "dark":
@@ -105,6 +115,24 @@ func makeColorFunc(isColorfulOutput bool, brandColor color.Color, ansiName strin
 //
 // This allows users to disable color globally with NO_COLOR while still providing an escape hatch
 // via COLOR_ENABLED for specific use cases.
+// ColorEnabledForCILogs reports whether color should be emitted, treating a
+// GitLab CI job log as color-capable even though it is not a TTY. It still
+// honors the NO_COLOR contract (via detectIsColorEnabled): a CI job that sets
+// NO_COLOR gets no color unless COLOR_ENABLED overrides it. Use this for output
+// that is meant to stay colored in CI logs; everything else should keep using
+// ColorEnabled/Color, which gate on the TTY.
+func (s *IOStreams) ColorEnabledForCILogs() bool {
+	if s.ColorEnabled() {
+		return true
+	}
+	return detectIsColorEnabled() && inGitLabCI()
+}
+
+// inGitLabCI reports whether we're running inside a GitLab CI job.
+func inGitLabCI() bool {
+	return os.Getenv("GITLAB_CI") != ""
+}
+
 func detectIsColorEnabled() bool {
 	// Check if NO_COLOR environment variable exists (any value disables color)
 	_, noColorVarExists := os.LookupEnv("NO_COLOR")

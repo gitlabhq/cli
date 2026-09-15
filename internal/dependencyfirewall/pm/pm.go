@@ -225,6 +225,13 @@ const interruptExitCode = 130
 type ExitError struct {
 	Code int
 	Err  error
+	// ChildExited is true only when the package-manager child process
+	// actually ran and exited non-zero (an *exec.ExitError). It is false
+	// when the child never ran (e.g. not found on PATH, fork/exec failure)
+	// or when the run was interrupted. Callers use this to decide whether a
+	// rendered summary already explains the failure: only a real child exit
+	// may be silenced.
+	ChildExited bool
 }
 
 func (e *ExitError) Error() string { return e.Err.Error() }
@@ -404,7 +411,7 @@ func exitError(binary string, err error) error {
 		return nil
 	}
 	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
-		return &ExitError{Code: ee.ExitCode(), Err: fmt.Errorf("%s exited with a non-zero status: %w", binary, err)}
+		return &ExitError{Code: ee.ExitCode(), Err: fmt.Errorf("%s exited with a non-zero status: %w", binary, err), ChildExited: true}
 	}
 	return &ExitError{Code: 1, Err: fmt.Errorf("failed to run %s: %w", binary, err)}
 }

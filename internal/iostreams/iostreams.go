@@ -51,6 +51,12 @@ type IOStreams struct {
 
 	isColorEnabled bool
 
+	// colorEnabledOverride, when non-nil, forces isColorEnabled to the given
+	// value instead of deriving it from the environment and TTY state. It is
+	// intended for tests that need a deterministic color state without
+	// mutating process-wide env (see WithColorEnabled).
+	colorEnabledOverride *bool
+
 	programOptions []tea.ProgramOption
 
 	// JQ is the filter applied to JSON output by PrintJSON. It is always
@@ -97,6 +103,15 @@ func WithStderr(stderr io.Writer, isTTY bool) IOStreamsOption {
 	}
 }
 
+// WithColorEnabled forces color on or off, overriding the environment- and
+// TTY-based detection. It lets tests fix a deterministic color state without
+// mutating process-wide env such as NO_COLOR.
+func WithColorEnabled(enabled bool) IOStreamsOption {
+	return func(i *IOStreams) {
+		i.colorEnabledOverride = &enabled
+	}
+}
+
 func WithProgramOptions(opts ...tea.ProgramOption) IOStreamsOption {
 	return func(i *IOStreams) {
 		i.programOptions = append(i.programOptions, opts...)
@@ -132,6 +147,9 @@ func New(options ...IOStreamsOption) *IOStreams {
 
 	// configure static fields that rely on option functions
 	iostreams.isColorEnabled = detectIsColorEnabled() && iostreams.IsaTTY && iostreams.IsErrTTY
+	if iostreams.colorEnabledOverride != nil {
+		iostreams.isColorEnabled = *iostreams.colorEnabledOverride
+	}
 
 	return iostreams
 }
