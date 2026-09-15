@@ -32,6 +32,7 @@ type createOptions struct {
 	line       string
 	oldLine    int
 	resolvable bool
+	draft      bool
 
 	// Populated in complete.
 	client   *gitlab.Client
@@ -75,6 +76,15 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			%[1]s--old-line%[1]s (old/removed side) to target a specific line. Omit
 			both flags for a file-level comment.
 
+			Use %[1]s--draft%[1]s to add the comment to a pending review instead of publishing it
+			immediately:
+
+			- Pending comments are visible only to you until you submit the review from the merge request page.
+			- Combine with %[1]s--file%[1]s or %[1]s--reply%[1]s to add the pending comment to the
+			diff or as a reply to a comment thread.
+			- Attachments added with %[1]s--attach%[1]s are uploaded to the project immediately,
+			even while the comment is pending.
+
 			The flag rules are:
 
 			- %[1]s--line%[1]s and %[1]s--old-line%[1]s require %[1]s--file%[1]s, and
@@ -84,6 +94,8 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			- %[1]s--resolvable=false%[1]s cannot be combined with %[1]s--reply%[1]s
 			or %[1]s--file%[1]s (and by extension %[1]s--line%[1]s or
 			%[1]s--old-line%[1]s).
+			- %[1]s--draft%[1]s cannot be combined with %[1]s--unique%[1]s or
+			%[1]s--resolvable=false%[1]s.
 			- %[1]s--attach%[1]s and %[1]s--unique%[1]s are mutually exclusive,
 			because every upload gets a fresh URL and so an attached comment can
 			never match an existing one.
@@ -115,8 +127,14 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			# Reply to an existing discussion thread
 			glab mr note create 123 --reply abc12345 -m "I agree!"
 
+			# Add a comment to a pending review instead of publishing immediately
+			glab mr note create 123 --draft -m "Consider renaming this."
+
 			# Add a diff comment on line 42 of main.go
 			glab mr note create 123 --file main.go --line 42 -m "Needs refactoring"
+
+			# Add a pending diff comment on line 42 of main.go
+			glab mr note create 123 --draft --file main.go --line 42 -m "Off-by-one?"
 
 			# Add a diff comment on lines 10-15 (multiline range)
 			glab mr note create 123 --file main.go --line 10:15 -m "Extract this block"
@@ -159,6 +177,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	fl.StringVar(&opts.line, "line", "", "Line in the new version. A single line number, like 42, or a range, like 10:15.")
 	fl.IntVar(&opts.oldLine, "old-line", 0, "Line in the old version, for commenting on a removed line.")
 	fl.BoolVar(&opts.resolvable, "resolvable", true, "Create the note as a resolvable discussion thread. Set to false to create a non-resolvable note.")
+	fl.BoolVar(&opts.draft, "draft", false, "Create the comment as a pending review comment.")
 	cmdutils.AddAttachFlag(cmd, &opts.attach, "comment")
 
 	// Each upload gets a fresh URL, so an attached note never matches an
@@ -168,6 +187,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	cmd.MarkFlagsMutuallyExclusive("reply", "file")
 	cmd.MarkFlagsMutuallyExclusive("unique", "file")
 	cmd.MarkFlagsMutuallyExclusive("line", "old-line")
+	cmd.MarkFlagsMutuallyExclusive("draft", "unique")
 
 	return cmd
 }
@@ -226,6 +246,9 @@ func (o *createOptions) complete(cmd *cobra.Command, args []string) error {
 
 func (o *createOptions) validateFlags() error {
 	if !o.resolvable {
+		if o.draft {
+			return fmt.Errorf("--resolvable=false cannot be used with --draft")
+		}
 		if o.reply != "" {
 			return fmt.Errorf("--resolvable=false cannot be used with --reply")
 		}
@@ -257,6 +280,10 @@ func (o *createOptions) run(ctx context.Context) error {
 	o.body = body
 
 	switch {
+	// --draft handles --reply itself (draft notes take in_reply_to_discussion_id),
+	// so it must be matched before the reply case.
+	case o.draft:
+		return o.runCreateDraftNote(ctx)
 	case o.reply != "":
 		return o.runReply(ctx)
 	case o.unique:
@@ -332,5 +359,32 @@ func (o *createOptions) runReply(ctx context.Context) error {
 	}
 
 	o.io.LogInfof("%s#note_%d\n", o.mr.WebURL, note.ID)
+	return nil
+}
+
+func (o *createOptions) runCreateDraftNote(ctx context.Context) error {
+	createOpts := &gitlab.CreateDraftNoteOptions{Note: &o.body}
+	if o.position != nil {
+		createOpts.Position = o.position
+	}
+	if o.reply != "" {
+		discussionID, err := mrutils.ResolveDiscussionID(ctx, o.client, o.repo.FullName(), o.mr.IID, o.reply)
+		if err != nil {
+			return err
+		}
+		createOpts.InReplyToDiscussionID = &discussionID
+	}
+
+	draft, _, err := o.client.DraftNotes.CreateDraftNote(
+		o.repo.FullName(),
+		o.mr.IID,
+		createOpts,
+		gitlab.WithContext(ctx),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create pending review comment: %w", err)
+	}
+
+	o.io.LogInfof("%d\n", draft.ID)
 	return nil
 }
