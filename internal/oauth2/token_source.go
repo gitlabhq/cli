@@ -27,6 +27,22 @@ const adoptAttempts = 3
 // so tests can set it to zero and stay fast.
 var adoptBackoff = 50 * time.Millisecond
 
+// tokenGracePeriod is how much earlier a token is treated as expired, so a
+// git push doesn't outlive it.
+const tokenGracePeriod = 5 * time.Minute
+
+// validWithGrace reports whether token is usable and will remain so for at
+// least tokenGracePeriod. Token.Valid's own margin is not configurable.
+func validWithGrace(token *oauth2.Token) bool {
+	if !token.Valid() {
+		return false
+	}
+	if token.Expiry.IsZero() {
+		return true
+	}
+	return time.Now().Add(tokenGracePeriod).Before(token.Expiry)
+}
+
 type configTokenSource struct {
 	cfg        config.Config
 	httpClient *http.Client
@@ -82,7 +98,7 @@ func NewConfigTokenSource(cfg config.Config, httpClient *http.Client, protocol, 
 		searchEnvForIdentity: searchEnvForIdentity,
 	}
 
-	return oauth2.ReuseTokenSource(token, src), nil
+	return oauth2.ReuseTokenSourceWithExpiry(token, src, tokenGracePeriod), nil
 }
 
 func (c *configTokenSource) Token() (*oauth2.Token, error) {
@@ -132,7 +148,13 @@ func (c *configTokenSource) refreshLocked() (*oauth2.Token, error) {
 	// Another process may have rotated the token while we were reading it. If the
 	// freshest copy is already valid, use it and skip the network refresh (and the
 	// redundant credential write that would follow).
-	if token.Valid() {
+	if validWithGrace(token) {
+		return token, nil
+	}
+
+	// An access-token-only session has nothing to renew with, so hand the token
+	// back while it is still usable rather than fail five minutes early.
+	if token.RefreshToken == "" && token.Valid() {
 		return token, nil
 	}
 
@@ -141,11 +163,20 @@ func (c *configTokenSource) refreshLocked() (*oauth2.Token, error) {
 	// session, and the invalid_grant that follows surfaces on a later command
 	// with nothing pointing back at the write.
 	if err := config.CredentialWriteProbe(src, c.hostname); err != nil {
+		// The refreshed token could not be saved, but this one is still usable.
+		if token.Valid() {
+			dbg.Debugf("oauth2: not refreshing early for %q, the refreshed credentials could not be saved: %v", c.hostname, err)
+			return token, nil
+		}
 		return nil, fmt.Errorf("not refreshing the OAuth token for %q, because the refreshed credentials could not be saved: %w", c.hostname, err)
 	}
 
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, c.httpClient)
-	refreshedToken, err := c.oauth2Config.TokenSource(ctx, token).Token()
+
+	// Refresh using the stored refresh token. Passing the whole token instead
+	// would skip the refresh: x/oauth2 treats it as valid until 10 seconds
+	// before expiry and returns it as is.
+	refreshedToken, err := c.oauth2Config.TokenSource(ctx, &oauth2.Token{RefreshToken: token.RefreshToken}).Token()
 	if err != nil {
 		return nil, err
 	}
