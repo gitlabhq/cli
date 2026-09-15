@@ -37,6 +37,15 @@ merge request diff version. Combine with `--line` (new side) or
 `--old-line` (old/removed side) to target a specific line. Omit
 both flags for a file-level comment.
 
+Use `--draft` to add the comment to a pending review instead of publishing it
+immediately:
+
+- Pending comments are visible only to you until you submit the review from the merge request page.
+- Combine with `--file` or `--reply` to add the pending comment to the
+diff or as a reply to a comment thread.
+- Attachments added with `--attach` are uploaded to the project immediately,
+even while the comment is pending.
+
 The flag rules are:
 
 - `--line` and `--old-line` require `--file`, and
@@ -46,6 +55,8 @@ exclusive.
 - `--resolvable=false` cannot be combined with `--reply`
 or `--file` (and by extension `--line` or
 `--old-line`).
+- `--draft` cannot be combined with `--unique` or
+`--resolvable=false`.
 - `--attach` and `--unique` are mutually exclusive,
 because every upload gets a fresh URL and so an attached comment can
 never match an existing one.
@@ -88,8 +99,14 @@ glab mr note create 123 -m "Build status: green" --resolvable=false
 # Reply to an existing discussion thread
 glab mr note create 123 --reply abc12345 -m "I agree!"
 
+# Add a comment to a pending review instead of publishing immediately
+glab mr note create 123 --draft -m "Consider renaming this."
+
 # Add a diff comment on line 42 of main.go
 glab mr note create 123 --file main.go --line 42 -m "Needs refactoring"
+
+# Add a pending diff comment on line 42 of main.go
+glab mr note create 123 --draft --file main.go --line 42 -m "Off-by-one?"
 
 # Add a diff comment on lines 10-15 (multiline range)
 glab mr note create 123 --file main.go --line 10:15 -m "Extract this block"
@@ -112,6 +129,7 @@ pngpaste - | glab mr note create 123 --attach -
 
 ```plaintext
       --attach stringArray   (EXPERIMENTAL) Upload a file and reference it at the end of the comment. Use "-" to read the file from standard input. Repeat the flag to attach multiple files.
+      --draft                Create the comment as a pending review comment.
       --file string          File path for a diff comment, like <path/to/file>. Targets the latest merge request diff version.
       --line string          Line in the new version. A single line number, like 42, or a range, like 10:15.
   -m, --message string       Comment or note message.
