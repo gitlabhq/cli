@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -151,6 +153,122 @@ func TestToken_AdoptsConcurrentlyRotatedTokenOnInvalidGrant(t *testing.T) {
 	assert.Equal(t, "access-winner", token.AccessToken, "should adopt the token the winning process rotated")
 }
 
+func TestToken_RefreshesInsideGracePeriod(t *testing.T) {
+	// 4 minutes left: valid by x/oauth2's 10s default, stale under the grace.
+	cfg := newKeyringConfig(t, "access-4min", "refresh-old", time.Now().Add(4*time.Minute))
+
+	var refreshes atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		refreshes.Add(1)
+		if !assert.NoError(t, r.ParseForm()) {
+			return
+		}
+		assert.Equal(t, "refresh_token", r.Form.Get("grant_type"))
+		assert.Equal(t, "refresh-old", r.Form.Get("refresh_token"))
+		writeTokenResponse(t, w, "access-refreshed", "refresh-refreshed", 7200)
+	}))
+	defer srv.Close()
+
+	ts := tokenSourceForServer(cfg, srv)
+	token, err := ts.Token()
+	require.NoError(t, err)
+	assert.Equal(t, "access-refreshed", token.AccessToken, "a token inside the grace period must be refreshed, not returned as-is")
+	assert.EqualValues(t, 1, refreshes.Load(), "the token endpoint must be called exactly once")
+}
+
+func TestToken_ReturnsCurrentTokenWhenProbeFailsInsideGracePeriod(t *testing.T) {
+	// File-mode config (no keyring) whose directory cannot be written, so
+	// CredentialWriteProbe fails on the directory check. Set in memory only:
+	// nothing can be written here, and freshest() falls back to the in-memory
+	// copy when the re-read fails.
+	cfg := config.NewBlankConfigInDir(unwritableDir(t))
+	require.NoError(t, cfg.Set(testHost, "is_oauth2", "true"))
+	require.NoError(t, cfg.Set(testHost, "oauth2_refresh_token", "refresh-old"))
+	require.NoError(t, cfg.Set(testHost, "token", "access-4min"))
+	require.NoError(t, cfg.Set(testHost, "oauth2_expiry_date", time.Now().Add(4*time.Minute).Format(time.RFC3339)))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("token endpoint must not be called when the refreshed credentials could not be saved; got %s", r.URL.Path)
+		writeInvalidGrant(t, w)
+	}))
+	defer srv.Close()
+
+	ts := tokenSourceForServer(cfg, srv)
+	token, err := ts.Token()
+	require.NoError(t, err, "a token that still passes the plain check must be returned, not turned into a failure")
+	assert.Equal(t, "access-4min", token.AccessToken)
+}
+
+func TestToken_ReturnsProbeErrorWhenTokenIsExpired(t *testing.T) {
+	// Same unwritable setup as the fallback test, but the token is already
+	// dead. The fallback only applies to a token that still passes the plain
+	// check; an expired one must surface the probe error, not be handed back.
+	cfg := config.NewBlankConfigInDir(unwritableDir(t))
+	require.NoError(t, cfg.Set(testHost, "is_oauth2", "true"))
+	require.NoError(t, cfg.Set(testHost, "oauth2_refresh_token", "refresh-old"))
+	require.NoError(t, cfg.Set(testHost, "token", "access-expired"))
+	require.NoError(t, cfg.Set(testHost, "oauth2_expiry_date", time.Now().Add(-time.Hour).Format(time.RFC3339)))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("token endpoint must not be called when the refreshed credentials could not be saved; got %s", r.URL.Path)
+		writeInvalidGrant(t, w)
+	}))
+	defer srv.Close()
+
+	ts := tokenSourceForServer(cfg, srv)
+	_, err := ts.Token()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "could not be saved")
+}
+
+func TestToken_ReturnsAccessTokenOnlyTokenInsideGracePeriod(t *testing.T) {
+	// is_oauth2 with an access token and no refresh token, as the Docker
+	// credential helper builds it. Nothing can renew it, so inside the grace
+	// window it must be returned while it is still usable, not refreshed.
+	cfg := newKeyringConfig(t, "access-4min", "", time.Now().Add(4*time.Minute))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("token endpoint must not be called with no refresh token; got %s", r.URL.Path)
+		writeInvalidGrant(t, w)
+	}))
+	defer srv.Close()
+
+	ts := tokenSourceForServer(cfg, srv)
+	token, err := ts.Token()
+	require.NoError(t, err)
+	assert.Equal(t, "access-4min", token.AccessToken)
+}
+
+func TestToken_AdoptsWinnerTokenInsideGracePeriod(t *testing.T) {
+	withoutAdoptBackoff(t)
+	dir := t.TempDir()
+	cfg := newKeyringConfigInDir(t, dir, "access-old", "refresh-old", time.Now().Add(-time.Hour))
+
+	// The winning process committed a token with 4 minutes left, then our
+	// refresh fails with invalid_grant. adopt must accept that token: the
+	// refresh token is spent, so there is nothing to renew with, and a
+	// usable token in the config must not force a re-login.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		winner, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+		if !assert.NoError(t, err) {
+			writeInvalidGrant(t, w)
+			return
+		}
+		assert.NoError(t, winner.Set(testHost, "token", "access-winner-4min"))
+		assert.NoError(t, winner.Set(testHost, "oauth2_refresh_token", "refresh-winner"))
+		assert.NoError(t, winner.Set(testHost, "oauth2_expiry_date", time.Now().Add(4*time.Minute).Format(time.RFC3339)))
+		assert.NoError(t, winner.Write())
+
+		writeInvalidGrant(t, w)
+	}))
+	defer srv.Close()
+
+	ts := tokenSourceForServer(cfg, srv)
+	token, err := ts.Token()
+	require.NoError(t, err)
+	assert.Equal(t, "access-winner-4min", token.AccessToken, "adopt must keep the plain 10s check and accept the winner's token")
+}
+
 func TestToken_ReturnsErrorWhenInvalidGrantWithoutRecovery(t *testing.T) {
 	withoutAdoptBackoff(t)
 	cfg := newKeyringConfig(t, "access-old", "refresh-old", time.Now().Add(-time.Hour))
@@ -173,6 +291,27 @@ func TestIsInvalidGrant(t *testing.T) {
 	assert.False(t, isInvalidGrant(&oauth2.RetrieveError{ErrorCode: "invalid_client"}))
 	assert.False(t, isInvalidGrant(&url.Error{Op: "Post", Err: assert.AnError}))
 	assert.False(t, isInvalidGrant(nil))
+}
+
+func TestValidWithGrace(t *testing.T) {
+	tests := []struct {
+		name  string
+		token *oauth2.Token
+		want  bool
+	}{
+		{name: "nil token", token: nil, want: false},
+		{name: "empty access token", token: &oauth2.Token{Expiry: time.Now().Add(time.Hour)}, want: false},
+		{name: "no expiry recorded", token: &oauth2.Token{AccessToken: "a"}, want: true},
+		{name: "one hour left", token: &oauth2.Token{AccessToken: "a", Expiry: time.Now().Add(time.Hour)}, want: true},
+		{name: "four minutes left", token: &oauth2.Token{AccessToken: "a", Expiry: time.Now().Add(4 * time.Minute)}, want: false},
+		{name: "expired", token: &oauth2.Token{AccessToken: "a", Expiry: time.Now().Add(-time.Minute)}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, validWithGrace(tt.token))
+		})
+	}
 }
 
 // TestToken_ActsOnFreshestStateNotStartupCopy verifies that a token source
@@ -308,6 +447,37 @@ hosts:
 	}
 }
 
+// TestNewConfigTokenSource_RefreshesInsideGracePeriod goes through
+// NewConfigTokenSource; the other grace tests build configTokenSource directly.
+func TestNewConfigTokenSource_RefreshesInsideGracePeriod(t *testing.T) {
+	var refreshes atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		refreshes.Add(1)
+		writeTokenResponse(t, w, "access-renewed", "refresh-renewed", 3600)
+	}))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+
+	cfg := config.NewFromString(`
+---
+hosts:
+  ` + host + `:
+    is_oauth2: "true"
+    client_id: abc
+    token: access-4min
+    oauth2_refresh_token: refresh-old
+    oauth2_expiry_date: ` + time.Now().Add(4*time.Minute).Format(time.RFC3339) + `
+`)
+
+	ts, err := NewConfigTokenSource(cfg, srv.Client(), "http", host, false)
+	require.NoError(t, err)
+
+	token, err := ts.Token()
+	require.NoError(t, err)
+	assert.Equal(t, "access-renewed", token.AccessToken)
+	assert.EqualValues(t, 1, refreshes.Load())
+}
+
 // newKeyringConfigInDir is newKeyringConfig with a caller-provided directory, so
 // a test can also open a second config pointing at the same files.
 func newKeyringConfigInDir(t *testing.T, dir, accessToken, refreshToken string, expiry time.Time) config.Config {
@@ -391,4 +561,15 @@ hosts:
 			assert.Equal(t, tc.wantPath, gotPath, "refresh must go to the configured subfolder")
 		})
 	}
+}
+
+// unwritableDir returns a path whose parent is a regular file, so MkdirAll
+// fails with ENOTDIR. Chmod would not do: root ignores the permission bits,
+// and CI runs as root.
+func unwritableDir(t *testing.T) string {
+	t.Helper()
+
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, nil, 0o600))
+	return filepath.Join(blocker, "glab-cli")
 }
