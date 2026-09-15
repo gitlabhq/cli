@@ -4,6 +4,7 @@ package dfcmd
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os/exec"
 	"strings"
@@ -110,4 +111,35 @@ func TestExitErrorPropagates(t *testing.T) {
 	var cmdErr *cmdutils.ExitError
 	require.ErrorAs(t, err, &cmdErr)
 	assert.Equal(t, 3, cmdErr.Code)
+
+	// The Dependency Firewall summary already explains the failure, so the
+	// wrapper must not also trigger fang's ERROR block. Wrapping SilentError
+	// preserves the exit code while suppressing that duplicate output.
+	assert.ErrorIs(t, err, cmdutils.SilentError, "wrapper failure must be silent so no ERROR block prints after the summary")
+}
+
+// TestChildNeverRanErrorIsNotSilenced covers the path where the package
+// manager never actually executed (e.g. fork/exec failure). No summary box is
+// rendered in that case, so the error must stay visible — silencing it would
+// exit non-zero with nothing printed.
+func TestChildNeverRanErrorIsNotSilenced(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	// A plain error (not an *exec.ExitError) models the child never running.
+	fe := &fakeExecutor{exitErr: errors.New("fork/exec /usr/bin/npm: permission denied")}
+	run := cmdtest.SetupCmdForTest(
+		t,
+		newTestCmd,
+		false,
+		cmdtest.WithExecutor(fe),
+		cmdtest.WithBaseRepo("g", "p", "gitlab.com"),
+	)
+
+	_, err := run("install --save-dev left-pad")
+	require.Error(t, err)
+
+	var cmdErr *cmdutils.ExitError
+	require.ErrorAs(t, err, &cmdErr)
+	assert.Equal(t, 1, cmdErr.Code, "a generic run failure maps to exit code 1")
+	assert.NotErrorIs(t, err, cmdutils.SilentError, "a child that never ran must surface a visible error, not be silenced")
 }
