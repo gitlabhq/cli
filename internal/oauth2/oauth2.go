@@ -24,7 +24,7 @@ func StartFlow(ctx context.Context, cfg config.Config, io *iostreams.IOStreams, 
 	}
 
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
-	baseURL, err := oauthBaseURL(cfg, hostname)
+	baseURL, err := oauthBaseURL(cfg, hostname, glinstance.DefaultProtocol)
 	if err != nil {
 		return "", err
 	}
@@ -57,11 +57,15 @@ func StartFlow(ctx context.Context, cfg config.Config, io *iostreams.IOStreams, 
 	return token.AccessToken, nil
 }
 
-func oauthBaseURL(cfg config.Config, hostname string) (string, error) {
+// oauthBaseURL is the single place an OAuth base URL is built, so every flow that
+// talks to the instance -- authorization, device, and token refresh -- picks up a
+// configured subfolder. AuthEndpoint falls back to the default protocol when
+// protocol is empty.
+func oauthBaseURL(cfg config.Config, hostname, protocol string) (string, error) {
 	subfolder, err := cfg.Get(hostname, "subfolder")
 	if err != nil {
 		return "", err
 	}
 
-	return glinstance.AuthEndpoint(hostname, glinstance.DefaultProtocol, subfolder), nil
+	return glinstance.AuthEndpoint(hostname, protocol, subfolder), nil
 }

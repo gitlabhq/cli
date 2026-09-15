@@ -120,7 +120,7 @@ func TestOAuthBaseURL(t *testing.T) {
 				},
 			}
 
-			baseURL, err := oauthBaseURL(cfg, "gitlab.example.com")
+			baseURL, err := oauthBaseURL(cfg, "gitlab.example.com", glinstance.DefaultProtocol)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedURL, baseURL)
@@ -134,7 +134,7 @@ func TestOAuthBaseURLReturnsConfigError(t *testing.T) {
 	expectedErr := errors.New("read config")
 	cfg := stubConfig{getErr: expectedErr}
 
-	baseURL, err := oauthBaseURL(cfg, "gitlab.example.com")
+	baseURL, err := oauthBaseURL(cfg, "gitlab.example.com", glinstance.DefaultProtocol)
 
 	require.ErrorIs(t, err, expectedErr)
 	assert.Empty(t, baseURL)

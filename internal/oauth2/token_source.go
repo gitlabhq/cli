@@ -62,7 +62,12 @@ func NewConfigTokenSource(cfg config.Config, httpClient *http.Client, protocol, 
 		return nil, nonInteractiveClientIDErr(hostname)
 	}
 
-	oauth2Config := gitlaboauth2.NewOAuth2Config(fmt.Sprintf("%s://%s", protocol, hostname), clientID, redirectURL, scopes)
+	baseURL, err := oauthBaseURL(cfg, hostname, protocol)
+	if err != nil {
+		return nil, err
+	}
+
+	oauth2Config := gitlaboauth2.NewOAuth2Config(baseURL, clientID, redirectURL, scopes)
 
 	token, err := unmarshal(hostname, cfg, searchEnvForIdentity)
 	if err != nil {
