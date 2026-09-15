@@ -10,6 +10,7 @@ import (
 	"gitlab.com/gitlab-org/api/client-go/v3/gitlaboauth2"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 )
 
@@ -24,7 +25,7 @@ func StartDeviceFlow(ctx context.Context, cfg config.Config, io *iostreams.IOStr
 	}
 
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
-	baseURL, err := oauthBaseURL(cfg, hostname)
+	baseURL, err := oauthBaseURL(cfg, hostname, glinstance.DefaultProtocol)
 	if err != nil {
 		return "", err
 	}

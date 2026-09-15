@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -343,4 +344,51 @@ func writeOAuthConfig(t *testing.T, dir string, useKeyring bool, accessToken, re
 	require.NoError(t, seed.Set(testHost, "token", accessToken))
 	require.NoError(t, seed.Set(testHost, "oauth2_expiry_date", expiry.Format(time.RFC3339)))
 	require.NoError(t, seed.Write())
+}
+
+// The refresh endpoint is built from the host config, so a self-managed instance
+// installed under a subfolder must have that subfolder in the token URL. #8399
+// fixed this for the authorization URL; the refresh path still went to the host
+// root, so refreshing on such an instance hit the wrong endpoint and failed.
+func TestNewConfigTokenSource_RefreshUsesConfiguredSubfolder(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		subfolder string
+		wantPath  string
+	}{
+		{"subfolder configured", "gitlab", "/gitlab/oauth/token"},
+		{"surrounding slashes are trimmed", "/gitlab/", "/gitlab/oauth/token"},
+		{"no subfolder", "", "/oauth/token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				writeTokenResponse(t, w, "new-access-token", "new-refresh-token", 3600)
+			}))
+			defer srv.Close()
+
+			host := strings.TrimPrefix(srv.URL, "http://")
+			expired := time.Now().Add(-time.Hour).Format(time.RFC3339)
+			cfg := config.NewFromString(`
+---
+hosts:
+  "` + host + `":
+    is_oauth2: "true"
+    client_id: abc
+    token: expired-token
+    oauth2_refresh_token: refresh-token
+    oauth2_expiry_date: ` + expired + `
+    subfolder: ` + `"` + tc.subfolder + `"` + `
+`)
+
+			ts, err := NewConfigTokenSource(cfg, srv.Client(), "http", host, false)
+			require.NoError(t, err)
+
+			token, err := ts.Token()
+			require.NoError(t, err)
+			assert.Equal(t, "new-access-token", token.AccessToken)
+			assert.Equal(t, tc.wantPath, gotPath, "refresh must go to the configured subfolder")
+		})
+	}
 }
