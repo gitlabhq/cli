@@ -1,6 +1,7 @@
 package rotate
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -28,6 +29,7 @@ type options struct {
 
 	user         string
 	group        string
+	self         bool
 	name         any
 	duration     tokenduration.TokenDuration
 	expireAt     expirationdate.ExpirationDate
@@ -43,10 +45,10 @@ func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:     "rotate <token-name|token-id>",
+		Use:     "rotate [<token-name|token-id>]",
 		Short:   "Rotate user, group, or project access tokens.",
 		Aliases: []string{"rot"},
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.MaximumNArgs(1),
 		Long: heredoc.Docf(`
 			Rotating a token revokes the existing token and creates a new one
 			with a new secret value and expiration date.
@@ -61,6 +63,8 @@ func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 			The %[1]s--duration%[1]s and %[1]s--expires-at%[1]s flags are mutually exclusive.
 
 			Administrators can rotate personal access tokens that belong to other users.
+
+			Use %[1]s--self%[1]s to rotate the token currently used for authentication. This command requires GitLab 17.9 or later.
 		`, "`"),
 		Example: heredoc.Doc(`
 		# Rotate project access token of current project (default 30 days)
@@ -76,7 +80,10 @@ func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 		glab token rotate --user @me my-personal-token --duration 2w
 
 		# Rotate a personal access token of another user (administrator only)
-		glab token rotate --user johndoe johns-personal-token --duration 90d`),
+		glab token rotate --user johndoe johns-personal-token --duration 90d
+
+		# Rotate the current authentication token
+		glab token rotate --self --duration 90d`),
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},
@@ -89,7 +96,7 @@ func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 				return err
 			}
 
-			return opts.run()
+			return opts.run(cmd.Context())
 		},
 	}
 
@@ -97,18 +104,23 @@ func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVarP(&opts.group, "group", "g", "", "Rotate group access token. Ignored if a user or repository argument is set.")
 	fl.StringVarP(&opts.user, "user", "U", "", "Rotate personal access token. Use @me for the current user.")
+	fl.BoolVar(&opts.self, "self", false, "Rotate the access token currently used for authentication.")
 	fl.VarP(&opts.duration, "duration", "D", "Sets the token lifetime in days. Accepts: days (30d), weeks (4w), or hours in multiples of 24 (24h, 168h, 720h). Maximum: 365d. The token expires at 00:00 UTC on the calculated date.")
 	fl.VarP(&opts.expireAt, "expires-at", "E", "Sets the token's expiration date and time, in YYYY-MM-DD format. If not specified, --duration is used.")
 	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat, "Format output as: text, json. 'text' provides the new token value; 'json' outputs the token with metadata.")
 	cmd.MarkFlagsMutuallyExclusive("duration", "expires-at")
+	cmd.MarkFlagsMutuallyExclusive("self", "user")
+	cmd.MarkFlagsMutuallyExclusive("self", "group")
 	return cmd
 }
 
 func (o *options) complete(cmd *cobra.Command, args []string) error {
-	if name, err := strconv.ParseInt(args[0], 10, 64); err != nil {
-		o.name = args[0]
-	} else {
-		o.name = name
+	if len(args) > 0 {
+		if name, err := strconv.ParseInt(args[0], 10, 64); err != nil {
+			o.name = args[0]
+		} else {
+			o.name = name
+		}
 	}
 
 	if group, err := cmdutils.GroupOverride(cmd); err != nil {
@@ -136,10 +148,18 @@ func (o *options) validate() error {
 		return cmdutils.FlagError{Err: errors.New("'--group' and '--user' are mutually exclusive")}
 	}
 
+	if o.self && o.name != nil {
+		return cmdutils.FlagError{Err: errors.New("'--self' does not accept a positional argument")}
+	}
+
+	if !o.self && o.name == nil {
+		return cmdutils.FlagError{Err: errors.New("requires either '--self' or a token name/ID argument")}
+	}
+
 	return nil
 }
 
-func (o *options) run() error {
+func (o *options) run(ctx context.Context) error {
 	// NOTE: this command can not only be used for projects,
 	// so we have to manually check for the base repo, if it doesn't exist,
 	// we bootstrap the client with the default hostname.
@@ -158,7 +178,18 @@ func (o *options) run() error {
 	var outputToken any
 	var outputTokenValue string
 
-	if o.user != "" {
+	switch {
+	case o.self:
+		rotateOptions := &gitlab.RotatePersonalAccessTokenOptions{
+			ExpiresAt: &expirationDate,
+		}
+		token, _, err := client.PersonalAccessTokens.RotatePersonalAccessTokenSelf(rotateOptions, gitlab.WithContext(ctx))
+		if err != nil {
+			return err
+		}
+		outputToken = token
+		outputTokenValue = token.Token
+	case o.user != "":
 		user, err := api.UserByName(client, o.user)
 		if err != nil {
 			return cmdutils.FlagError{Err: err}
@@ -169,7 +200,7 @@ func (o *options) run() error {
 			UserID:      &user.ID,
 		}
 		tokens, err := gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.PersonalAccessToken, *gitlab.Response, error) {
-			return client.PersonalAccessTokens.ListPersonalAccessTokens(options, p)
+			return client.PersonalAccessTokens.ListPersonalAccessTokens(options, p, gitlab.WithContext(ctx))
 		})
 		if err != nil {
 			return err
@@ -189,75 +220,76 @@ func (o *options) run() error {
 		rotateOptions := &gitlab.RotatePersonalAccessTokenOptions{
 			ExpiresAt: &expirationDate,
 		}
-		if token, _, err = client.PersonalAccessTokens.RotatePersonalAccessToken(token.ID, rotateOptions); err != nil {
+		token, _, err = client.PersonalAccessTokens.RotatePersonalAccessToken(token.ID, rotateOptions, gitlab.WithContext(ctx))
+		if err != nil {
 			return err
 		}
 		outputToken = token
 		outputTokenValue = token.Token
-	} else {
-		if o.group != "" {
-			options := &gitlab.ListGroupAccessTokensOptions{ListOptions: gitlab.ListOptions{PerPage: 100}}
-			tokens, err := gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.GroupAccessToken, *gitlab.Response, error) {
-				return client.GroupAccessTokens.ListGroupAccessTokens(o.group, options, p)
-			})
-			if err != nil {
-				return err
-			}
-			var token *gitlab.GroupAccessToken
-			tokens = filter.Filter(tokens, func(t *gitlab.GroupAccessToken) bool {
-				return t.Active && (t.Name == o.name || t.ID == o.name)
-			})
-			switch len(tokens) {
-			case 1:
-				token = tokens[0]
-			case 0:
-				return cmdutils.FlagError{Err: fmt.Errorf("no active token found with the %s '%v'", o.nameKind(), o.name)}
-			default:
-				return cmdutils.FlagError{Err: fmt.Errorf("multiple tokens found with the name '%v', use the ID instead", o.name)}
-			}
-
-			rotateOptions := &gitlab.RotateGroupAccessTokenOptions{
-				ExpiresAt: &expirationDate,
-			}
-			if token, _, err = client.GroupAccessTokens.RotateGroupAccessToken(o.group, token.ID, rotateOptions); err != nil {
-				return err
-			}
-			outputToken = token
-			outputTokenValue = token.Token
-		} else {
-			repo, err := o.baseRepo()
-			if err != nil {
-				return err
-			}
-			options := &gitlab.ListProjectAccessTokensOptions{ListOptions: gitlab.ListOptions{PerPage: 100}}
-			tokens, err := gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.ProjectAccessToken, *gitlab.Response, error) {
-				return client.ProjectAccessTokens.ListProjectAccessTokens(repo.FullName(), options, p)
-			})
-			if err != nil {
-				return err
-			}
-			tokens = filter.Filter(tokens, func(t *gitlab.ProjectAccessToken) bool {
-				return t.Active && (t.Name == o.name || t.ID == o.name)
-			})
-			var token *gitlab.ProjectAccessToken
-			switch len(tokens) {
-			case 1:
-				token = tokens[0]
-			case 0:
-				return cmdutils.FlagError{Err: fmt.Errorf("no active token found with the %s '%v'", o.nameKind(), o.name)}
-			default:
-				return cmdutils.FlagError{Err: fmt.Errorf("multiple tokens found with the name '%v', use the ID instead", o.name)}
-			}
-
-			rotateOptions := &gitlab.RotateProjectAccessTokenOptions{
-				ExpiresAt: &expirationDate,
-			}
-			if token, _, err = client.ProjectAccessTokens.RotateProjectAccessToken(repo.FullName(), token.ID, rotateOptions); err != nil {
-				return err
-			}
-			outputToken = token
-			outputTokenValue = token.Token
+	case o.group != "":
+		options := &gitlab.ListGroupAccessTokensOptions{ListOptions: gitlab.ListOptions{PerPage: 100}}
+		tokens, err := gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.GroupAccessToken, *gitlab.Response, error) {
+			return client.GroupAccessTokens.ListGroupAccessTokens(o.group, options, p, gitlab.WithContext(ctx))
+		})
+		if err != nil {
+			return err
 		}
+		var token *gitlab.GroupAccessToken
+		tokens = filter.Filter(tokens, func(t *gitlab.GroupAccessToken) bool {
+			return t.Active && (t.Name == o.name || t.ID == o.name)
+		})
+		switch len(tokens) {
+		case 1:
+			token = tokens[0]
+		case 0:
+			return cmdutils.FlagError{Err: fmt.Errorf("no active token found with the %s '%v'", o.nameKind(), o.name)}
+		default:
+			return cmdutils.FlagError{Err: fmt.Errorf("multiple tokens found with the name '%v', use the ID instead", o.name)}
+		}
+
+		rotateOptions := &gitlab.RotateGroupAccessTokenOptions{
+			ExpiresAt: &expirationDate,
+		}
+		token, _, err = client.GroupAccessTokens.RotateGroupAccessToken(o.group, token.ID, rotateOptions, gitlab.WithContext(ctx))
+		if err != nil {
+			return err
+		}
+		outputToken = token
+		outputTokenValue = token.Token
+	default:
+		repo, err := o.baseRepo()
+		if err != nil {
+			return err
+		}
+		options := &gitlab.ListProjectAccessTokensOptions{ListOptions: gitlab.ListOptions{PerPage: 100}}
+		tokens, err := gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.ProjectAccessToken, *gitlab.Response, error) {
+			return client.ProjectAccessTokens.ListProjectAccessTokens(repo.FullName(), options, p, gitlab.WithContext(ctx))
+		})
+		if err != nil {
+			return err
+		}
+		tokens = filter.Filter(tokens, func(t *gitlab.ProjectAccessToken) bool {
+			return t.Active && (t.Name == o.name || t.ID == o.name)
+		})
+		var token *gitlab.ProjectAccessToken
+		switch len(tokens) {
+		case 1:
+			token = tokens[0]
+		case 0:
+			return cmdutils.FlagError{Err: fmt.Errorf("no active token found with the %s '%v'", o.nameKind(), o.name)}
+		default:
+			return cmdutils.FlagError{Err: fmt.Errorf("multiple tokens found with the name '%v', use the ID instead", o.name)}
+		}
+
+		rotateOptions := &gitlab.RotateProjectAccessTokenOptions{
+			ExpiresAt: &expirationDate,
+		}
+		token, _, err = client.ProjectAccessTokens.RotateProjectAccessToken(repo.FullName(), token.ID, rotateOptions, gitlab.WithContext(ctx))
+		if err != nil {
+			return err
+		}
+		outputToken = token
+		outputTokenValue = token.Token
 	}
 
 	if o.outputFormat == "json" {

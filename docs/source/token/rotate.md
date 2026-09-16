@@ -28,8 +28,10 @@ The `--duration` and `--expires-at` flags are mutually exclusive.
 
 Administrators can rotate personal access tokens that belong to other users.
 
+Use `--self` to rotate the token currently used for authentication. This command requires GitLab 17.9 or later.
+
 ```plaintext
-glab token rotate <token-name|token-id> [flags]
+glab token rotate [<token-name|token-id>] [flags]
 ```
 
 ## Aliases
@@ -55,6 +57,9 @@ glab token rotate --user @me my-personal-token --duration 2w
 
 # Rotate a personal access token of another user (administrator only)
 glab token rotate --user johndoe johns-personal-token --duration 90d
+
+# Rotate the current authentication token
+glab token rotate --self --duration 90d
 ```
 
 ## Options
@@ -66,6 +71,7 @@ glab token rotate --user johndoe johns-personal-token --duration 90d
       --jq string           Filter JSON output with a jq expression.
   -F, --output string       Format output as: text, json. 'text' provides the new token value; 'json' outputs the token with metadata. (default "text")
   -R, --repo string         Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
+      --self                Rotate the access token currently used for authentication.
   -U, --user string         Rotate personal access token. Use @me for the current user.
 ```
 
