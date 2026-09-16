@@ -35,6 +35,7 @@ subcommands, options, and examples.
 - [`glab dependency-firewall`](dependency-firewall/_index.md)
 - [`glab deploy-key`](deploy-key/_index.md)
 - [`glab duo`](duo/_index.md)
+- [`glab govern`](govern/_index.md)
 - [`glab gpg-key`](gpg-key/_index.md)
 - [`glab incident`](incident/_index.md)
 - [`glab issue`](issue/_index.md)

@@ -79,6 +79,7 @@ Run `glab --help` to view a list of core commands in your terminal.
 - [`glab dependency-firewall`](docs/source/dependency-firewall): Configure and monitor GitLab Dependency Firewall for local package managers. (EXPERIMENTAL)
 - [`glab deploy-key`](docs/source/deploy-key): Manage deploy keys.
 - [`glab duo`](docs/source/duo): Work with GitLab Duo.
+- [`glab govern`](docs/source/govern): Manage AI agent governance. (EXPERIMENTAL)
 - [`glab gpg-key`](docs/source/gpg-key): Manage GPG keys registered with your GitLab account.
 - [`glab incident`](docs/source/incident): Work with GitLab incidents.
 - [`glab issue`](docs/source/issue): Work with GitLab issues.
