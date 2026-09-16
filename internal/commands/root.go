@@ -22,6 +22,7 @@ import (
 	deployKeyCmd "gitlab.com/gitlab-org/cli/internal/commands/deploy-key"
 	dfCmd "gitlab.com/gitlab-org/cli/internal/commands/df"
 	duoCmd "gitlab.com/gitlab-org/cli/internal/commands/duo"
+	governCmd "gitlab.com/gitlab-org/cli/internal/commands/govern"
 	gpgCmd "gitlab.com/gitlab-org/cli/internal/commands/gpg-key"
 	"gitlab.com/gitlab-org/cli/internal/commands/help"
 	incidentCmd "gitlab.com/gitlab-org/cli/internal/commands/incident"
@@ -121,6 +122,7 @@ func NewCmdRoot(f cmdutils.Factory) *cobra.Command {
 	rootCmd.AddCommand(deployKeyCmd.NewCmdDeployKey(f))
 	rootCmd.AddCommand(dfCmd.NewCmd(f))
 	rootCmd.AddCommand(duoCmd.NewCmd(f))
+	rootCmd.AddCommand(governCmd.NewCmd(f))
 	rootCmd.AddCommand(gpgCmd.NewCmdGPGKey(f))
 	rootCmd.AddCommand(incidentCmd.NewCmdIncident(f))
 	rootCmd.AddCommand(issueCmd.NewCmdIssue(f))

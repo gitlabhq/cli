@@ -194,6 +194,18 @@
   submenu:
     - title: glab duo cli
       url: 'cli/duo/cli/'
+- title: glab govern
+  url: 'cli/govern/'
+  submenu:
+    - title: glab govern audit
+      url: 'cli/govern/audit/'
+      submenu:
+        - title: glab govern audit sync
+          url: 'cli/govern/audit/sync/'
+    - title: glab govern doctor
+      url: 'cli/govern/doctor/'
+    - title: glab govern setup
+      url: 'cli/govern/setup/'
 - title: glab gpg-key
   url: 'cli/gpg-key/'
   submenu:
