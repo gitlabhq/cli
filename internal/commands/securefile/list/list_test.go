@@ -42,7 +42,7 @@ func Test_SecurefileList(t *testing.T) {
 		{
 			name:        "List securefiles",
 			cli:         "",
-			expectedMsg: []string{`[{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null}]`},
+			expectedMsg: []string{`[{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null,"file_extension":""}]`},
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockSecureFiles.EXPECT().
 					ListProjectSecureFiles("OWNER/REPO", gomock.Any()).
@@ -52,7 +52,7 @@ func Test_SecurefileList(t *testing.T) {
 		{
 			name:        "Get a securefile with custom pagination values",
 			cli:         "--page 2 --per-page 10",
-			expectedMsg: []string{`[{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null}]`},
+			expectedMsg: []string{`[{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null,"file_extension":""}]`},
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockSecureFiles.EXPECT().
 					ListProjectSecureFiles("OWNER/REPO", gomock.Any()).
@@ -62,7 +62,7 @@ func Test_SecurefileList(t *testing.T) {
 		{
 			name:        "Get a securefile with page defaults per page number",
 			cli:         "--page 2",
-			expectedMsg: []string{`[{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null}]`},
+			expectedMsg: []string{`[{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null,"file_extension":""}]`},
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockSecureFiles.EXPECT().
 					ListProjectSecureFiles("OWNER/REPO", gomock.Any()).
@@ -72,7 +72,7 @@ func Test_SecurefileList(t *testing.T) {
 		{
 			name:        "Get a securefile with per page defaults page number",
 			cli:         "--per-page 10",
-			expectedMsg: []string{`[{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null}]`},
+			expectedMsg: []string{`[{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null,"file_extension":""}]`},
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockSecureFiles.EXPECT().
 					ListProjectSecureFiles("OWNER/REPO", gomock.Any()).
