@@ -17,9 +17,14 @@ CLI architecture or dependencies,
 
 ## Who reviews the changes?
 
-The CLI project has [reviewer roulette](https://gitlab.com/gitlab-org/cli/-/merge_requests/1093).
-Each merge request receives a comment including a suggested reviewer and maintainer.
-Assign the reviewer first.
+The CLI project uses the
+[Recommend Reviewers flow](https://docs.gitlab.com/user/project/merge_requests/reviews/automatic_reviewer_assignment/#assign-reviewers-with-the-recommend-reviewers-flow).
+When you mark a merge request as ready, the flow assigns the minimum number of
+reviewers needed to satisfy each approval rule, accounting for their availability,
+workload, and time zone. The assignments are attributed to the flow's service
+account.
+
+To pick someone else, edit the **Reviewers** list in the merge request sidebar.
 
 The rules for merging:
 
