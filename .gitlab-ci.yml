@@ -335,6 +335,50 @@ lint:comments:
         go run ./scripts/comment-ratio -base "$CI_MERGE_REQUEST_DIFF_BASE_SHA"
       fi
 
+# Reachability scanning, which the other security jobs do not do: this fails
+# only when our code has a call path into a vulnerable function, not merely
+# when a vulnerable version is somewhere in the module graph.
+#
+# Blocking on the default branch and manual on merge requests. The result
+# depends on the vulnerability database as much as on the code, so a new
+# upstream advisory can turn it red with no change on our side. That belongs to
+# whoever owns the default branch, not to whichever author pushed next. Anyone
+# can still run it on their own merge request from the pipeline view. Modelled
+# on the `vulnerability` job in gitlab-org/gitaly.
+govulncheck:
+  extends: .go-cache
+  stage: test
+  needs: []
+  interruptible: true
+  image: ${GITLAB_DEPENDENCY_PROXY}golang:${GO_VERSION}
+  variables:
+    # Pinned rather than @latest so a scanner release cannot change the
+    # pipeline's verdict on its own. Renovate does not manage this.
+    GOVULNCHECK_VERSION: "v1.8.0"
+  rules:
+    - *skip-on-release-schedule
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    # Invoked by path: .go-cache points GOPATH at the project directory so the
+    # cache can pick it up, and $GOPATH/bin is not on PATH in this image.
+    - go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+    # Built rather than `go run`, which collapses every non-zero status to 1
+    # and would erase the difference between findings and a broken scanner.
+    - go build -o bin/govulncheck-to-gitlab ./scripts/govulncheck-to-gitlab
+    - $GOPATH/bin/govulncheck -format json ./... > govulncheck.json
+    - ./bin/govulncheck-to-gitlab < govulncheck.json > gl-dependency-scanning-report.json
+  artifacts:
+    when: always
+    access: "developer"
+    expire_in: 7 days
+    paths:
+      - govulncheck.json
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+
 lint:
   extends:
     - .go-cache
