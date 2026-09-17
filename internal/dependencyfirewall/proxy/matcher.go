@@ -27,6 +27,22 @@ type Match struct {
 	Reason     string
 }
 
+// unparseableMatch is the fail-closed result for a request a matcher has
+// structurally recognized as in-scope for its ecosystem (right endpoint,
+// right filename shape) but whose coordinate it cannot extract — a malformed
+// upload frame, an unparseable filename, corrupt metadata. It leaves Pass
+// false so the proxy blocks rather than forwarding an un-inspectable in-scope
+// request, matching the over-limit upload behavior. It carries only the
+// ecosystem, since the name/version are exactly what could not be parsed.
+func unparseableMatch(ecosystem string, op policy.Operation, reason string) Match {
+	return Match{
+		Matched:    true,
+		Operation:  op,
+		Coordinate: policy.Coordinate{Ecosystem: ecosystem},
+		Reason:     reason,
+	}
+}
+
 // Matcher inspects an intercepted request and reports whether it carries an
 // exact package coordinate (an artifact download or an upload). Each
 // ecosystem implements one, keyed off the public-upstream URL/body shape.
