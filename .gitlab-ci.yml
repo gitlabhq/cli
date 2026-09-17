@@ -705,4 +705,10 @@ snapcraft_release_edge:
     - snapcraft logout
 
 secret_detection:
+  variables:
+    # Fixture keypairs, generated for tests and not credentials for anything.
+    # Twelve of them were reported as Critical before being dismissed, and
+    # every new fixture raises another. Scoped to testdata rather than to all
+    # test files, so a credential committed to a _test.go is still caught.
+    SECRET_DETECTION_EXCLUDED_PATHS: "**/testdata/**"
   dependencies: [] # Don't download artifacts, especially `./public/`
