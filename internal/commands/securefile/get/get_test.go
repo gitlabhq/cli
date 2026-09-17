@@ -31,7 +31,7 @@ func Test_SecurefileGet(t *testing.T) {
 		{
 			name:        "Get securefile",
 			cli:         "1",
-			expectedMsg: []string{`{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null}`},
+			expectedMsg: []string{`{"id":1,"name":"myfile.jks","checksum":"16630b189ab34b2e3504f4758e1054d2e478deda510b2b08cc0ef38d12e80aac","checksum_algorithm":"sha256","created_at":"2022-02-22T22:22:22Z","expires_at":null,"metadata":null,"file_extension":""}`},
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockSecureFiles.EXPECT().
 					ShowSecureFileDetails("OWNER/REPO", int64(1)).
