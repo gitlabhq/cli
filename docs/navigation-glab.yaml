@@ -549,6 +549,8 @@
 - title: glab skills
   url: 'cli/skills/'
   submenu:
+    - title: glab skills get
+      url: 'cli/skills/get/'
     - title: glab skills install
       url: 'cli/skills/install/'
     - title: glab skills list
