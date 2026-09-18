@@ -64,7 +64,8 @@ Most configuration keys can also be set with an environment variable, which take
 precedence over the value stored in the configuration file. Keys that take a list
 value, such as `custom_headers`, can be set only in the configuration file.
 Environment variables are a good fit for deploying a standard setup across an
-organization: set them centrally, and each user only authenticates.
+organization: set them centrally, and each user only authenticates. For more information, see
+[standardize setup across an organization](authentication.md#standardize-setup-across-an-organization).
 
 Environment variables are not scoped per host. A variable such as `GITLAB_API_HOST`
 applies to every host, so if you work with more than one GitLab instance, use the

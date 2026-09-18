@@ -90,6 +90,73 @@ To authenticate your installation of `glab` with a personal access token:
    - Credentials are stored in the global
      [configuration file](configuration.md#configuration-file-locations).
 
+## Standardize setup across an organization
+
+If you deploy `glab` to many users, you can set the instance details centrally as
+[environment variables](configuration.md#environment-variables) instead of asking
+each user to run `glab config set`. Environment variables take precedence over the
+configuration file, so users cannot drift from your settings, and `glab auth login`
+skips the prompt for any value the environment variables supply.
+
+Each user then authenticates with a single command and only has to complete the browser authentication step.
+
+Prerequisites:
+
+- An OAuth application for your instance, as described in
+  [OAuth (GitLab Self-Managed, GitLab Dedicated)](#oauth-gitlab-self-managed-gitlab-dedicated).
+
+Set these variables on each machine, for example through your configuration
+management tool or a login script:
+
+| Variable | Example | Purpose |
+|----------|---------|---------|
+| `GITLAB_HOST` | `gitlab.example.com` | The instance to sign in to. Without it, `glab` prompts users to select one of the repository's Git remotes, or `gitlab.com`. |
+| `GITLAB_CLIENT_ID` | `<application ID>` | Your OAuth application ID. Required for GitLab Self-Managed and GitLab Dedicated. |
+| `GITLAB_API_HOST` | `gitlab.example.com` | Skips the API hostname prompt. Set it even when it matches `GITLAB_HOST`. |
+| `GITLAB_SSH_HOST` | `gitlab.example.com` | Skips the SSH hostname prompt. Set it even when it matches `GITLAB_HOST`. |
+| `GLAB_API_PROTOCOL` | `https` | Skips the API protocol prompt. |
+| `GLAB_GIT_PROTOCOL` | `ssh` | Skips the Git protocol prompt. |
+| `GLAB_CONTAINER_REGISTRY_DOMAINS` | `registry.gitlab.example.com` | Skips the container registry prompt. Use `none` if your instance has no container registry. |
+
+> [!note]
+> The instance is set with `GITLAB_HOST`.
+> When you set `GITLAB_API_HOST` and `GITLAB_SSH_HOST`, they suppress the related prompts but `glab`
+> does not use those values to set the instance.
+
+Users then run:
+
+```shell
+glab auth login --web
+```
+
+For headless environments without a local browser, users run this command instead:
+
+```shell
+glab auth login --device
+```
+
+This approach has the following constraints:
+
+- Environment variables are not scoped per host, so this approach suits organizations
+  with a single instance. If your users also work against other instances, have them
+  run `glab auth login --hostname <HOSTNAME>` for each one, which stores per-host
+  settings in the configuration file.
+- On a machine that already has credentials for the host, `glab auth login` asks the user
+  to confirm re-authentication. No variable or flag suppresses that prompt.
+
+### Use personal access tokens
+
+To use personal access tokens instead of OAuth, set `GITLAB_HOST`, `GITLAB_API_HOST`, `GITLAB_SSH_HOST`, `GLAB_API_PROTOCOL`, `GLAB_GIT_PROTOCOL`, and `GLAB_CONTAINER_REGISTRY_DOMAINS` on each machine. Don't set `GITLAB_CLIENT_ID` because it applies only to OAuth.
+
+Then, each user provides their token in one of two ways:
+
+- In the environment, as `GITLAB_TOKEN`. No `glab auth login` step is needed.
+- Through `glab` by running `glab auth login --stdin < token.txt`. `glab` stores the
+  token in the operating system keyring or in the configuration file.
+
+If a user does both, the environment variable takes precedence and the stored token
+is ignored. For more information, see [token precedence](#token-precedence).
+
 ## CI job token
 
 To authenticate your installation of `glab` with a CI job token, the `glab` command must be run in a GitLab CI job.
