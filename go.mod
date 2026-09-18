@@ -16,7 +16,7 @@ require (
 	github.com/briandowns/spinner v1.23.2
 	github.com/coder/websocket v1.8.15
 	github.com/denisbrodbeck/machineid v1.0.1
-	github.com/docker/cli v29.7.1+incompatible
+	github.com/docker/cli v29.8.0+incompatible
 	github.com/docker/docker-credential-helpers v0.9.9
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gdamore/tcell/v2 v2.13.10
