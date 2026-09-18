@@ -28,6 +28,7 @@ func NewCmdCI(f cmdutils.Factory) *cobra.Command {
 		Use:   "ci <command> [flags]",
 		Short: `Work with GitLab CI/CD pipelines and jobs.`,
 		Long: heredoc.Docf(`
+		TEST DO NOT MERGE
 		Manages CI/CD pipelines and jobs in your GitLab project.
 
 		Use these commands to manage CI/CD pipelines and jobs. You can also
