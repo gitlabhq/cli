@@ -178,6 +178,8 @@
       url: 'cli/dependency-firewall/twine/'
     - title: glab dependency-firewall uv
       url: 'cli/dependency-firewall/uv/'
+    - title: glab dependency-firewall yarn
+      url: 'cli/dependency-firewall/yarn/'
 - title: glab deploy-key
   url: 'cli/deploy-key/'
   submenu:
