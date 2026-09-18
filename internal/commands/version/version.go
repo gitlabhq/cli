@@ -24,7 +24,7 @@ func NewCmdVersion(f cmdutils.Factory) *cobra.Command {
 		Aliases: []string{"v"},
 		Args:    cobra.NoArgs,
 		Annotations: map[string]string{
-			mcpannotations.Safe: "true",
+			mcpannotations.Exclude: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			buildInfo := f.BuildInfo()

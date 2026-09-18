@@ -46,7 +46,7 @@ func NewCmdServe(_ cmdutils.Factory) *cobra.Command {
 			glab mcp serve`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
-			mcpannotations.Safe: "true",
+			mcpannotations.Exclude: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Get the root command by traversing up the parent chain

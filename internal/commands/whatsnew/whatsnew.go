@@ -78,7 +78,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		`),
 		Args: cobra.MaximumNArgs(1),
 		Annotations: map[string]string{
-			mcpannotations.Safe: "true",
+			mcpannotations.Exclude: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.complete(cmd, args)

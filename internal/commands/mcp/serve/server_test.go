@@ -4,6 +4,7 @@ package serve
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -91,6 +92,15 @@ func TestServerCapabilities(t *testing.T) {
 	// This is verified by the server creation not panicking and being able
 	// to register tools successfully
 	assert.NotNil(t, server.rootCmd)
+}
+
+// TestServerInstructionsQuoteTheRealCap guards the instructions and
+// defaultResponseLimit against drifting apart, which would silently tell every
+// connecting agent a cap that nothing enforces.
+func TestServerInstructionsQuoteTheRealCap(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, serverInstructions(), fmt.Sprintf("capped at %d characters", defaultResponseLimit))
 }
 
 func TestRegisterToolsFromCommands_RequiresMCPAnnotation(t *testing.T) {
@@ -422,11 +432,11 @@ func TestBuildToolFromCommand_ArgsDescription(t *testing.T) {
 		},
 		{
 			use:          "list",
-			expectedDesc: "Positional arguments",
+			expectedDesc: "",
 		},
 		{
 			use:          "run [flags]",
-			expectedDesc: "Positional arguments",
+			expectedDesc: "",
 		},
 	}
 
@@ -451,6 +461,10 @@ func TestBuildToolFromCommand_ArgsDescription(t *testing.T) {
 			argsSchema, ok := properties["args"].(map[string]any)
 			require.True(t, ok)
 
+			if tt.expectedDesc == "" {
+				assert.NotContains(t, argsSchema, "description", "a command naming no arguments should not carry filler text")
+				return
+			}
 			assert.Equal(t, tt.expectedDesc, argsSchema["description"])
 		})
 	}
@@ -716,6 +730,24 @@ func TestConvertParamsToArgsIgnoresUnknownFlags(t *testing.T) {
 	assert.Empty(t, args)
 }
 
+// TestConvertParamsToArgsHonoursUndeclaredPaging guards the contract that makes
+// dropping limit and offset from every tool schema safe: they are still read off
+// the params map, so an agent following a truncation notice can page through.
+func TestConvertParamsToArgsHonoursUndeclaredPaging(t *testing.T) {
+	t.Parallel()
+
+	server := &mcpServer{}
+	flags := commandFlags(createMockCommandWithFlags())
+
+	_, config := server.convertParamsToArgs(map[string]any{
+		"limit":  float64(120),
+		"offset": float64(50000),
+	}, flags)
+
+	assert.Equal(t, 120, config.Limit)
+	assert.Equal(t, 50000, config.Offset)
+}
+
 func TestProcessOutput(t *testing.T) {
 	t.Parallel()
 
@@ -727,6 +759,8 @@ func TestProcessOutput(t *testing.T) {
 		config         responseConfig
 		expectedText   string
 		expectedLength int
+		wantTruncated  bool
+		wantNextOffset int
 	}{
 		{
 			name:           "short output no limiting",
@@ -734,6 +768,7 @@ func TestProcessOutput(t *testing.T) {
 			config:         responseConfig{Limit: 100, Offset: 0},
 			expectedText:   "hello world",
 			expectedLength: 11,
+			wantNextOffset: 11,
 		},
 		{
 			name:           "output with limiting",
@@ -741,6 +776,8 @@ func TestProcessOutput(t *testing.T) {
 			config:         responseConfig{Limit: 5, Offset: 0},
 			expectedText:   "hello",
 			expectedLength: 5,
+			wantTruncated:  true,
+			wantNextOffset: 5,
 		},
 		{
 			name:           "output with offset",
@@ -748,6 +785,7 @@ func TestProcessOutput(t *testing.T) {
 			config:         responseConfig{Limit: 5, Offset: 6},
 			expectedText:   "world",
 			expectedLength: 5,
+			wantNextOffset: 11,
 		},
 		{
 			name:           "negative offset",
@@ -755,6 +793,7 @@ func TestProcessOutput(t *testing.T) {
 			config:         responseConfig{Limit: 5, Offset: -5},
 			expectedText:   "world",
 			expectedLength: 5,
+			wantNextOffset: 11,
 		},
 		{
 			name:           "unicode handling",
@@ -762,6 +801,8 @@ func TestProcessOutput(t *testing.T) {
 			config:         responseConfig{Limit: 5, Offset: 0},
 			expectedText:   "héllo",
 			expectedLength: 5,
+			wantTruncated:  true,
+			wantNextOffset: 5,
 		},
 	}
 
@@ -771,10 +812,50 @@ func TestProcessOutput(t *testing.T) {
 
 			result := server.processOutput(tt.output, tt.config)
 
-			assert.Equal(t, tt.expectedText, result)
-			assert.Len(t, []rune(result), tt.expectedLength)
+			assert.Equal(t, tt.expectedText, result.Text)
+			assert.Len(t, []rune(result.Text), tt.expectedLength)
+			assert.Equal(t, len([]rune(tt.output)), result.TotalSize)
+			assert.Equal(t, tt.wantTruncated, result.Truncated)
+			assert.Equal(t, tt.wantNextOffset, result.NextOffset)
 		})
 	}
+}
+
+func TestOutputResultTruncationNotice(t *testing.T) {
+	t.Parallel()
+
+	complete := outputResult{Text: "hello", TotalSize: 5, NextOffset: 5}
+	assert.Empty(t, complete.truncationNotice())
+
+	cut := outputResult{Text: "hello", TotalSize: 11, NextOffset: 5, Truncated: true}
+	notice := cut.truncationNotice()
+	assert.Contains(t, notice, "5 of 11 characters read")
+	assert.Contains(t, notice, `"offset": 5`)
+	assert.NotContains(t, notice, "per_page")
+
+	// Successive pages are the same size, so a notice built from the window
+	// length repeats itself and an agent cannot tell how far it has read.
+	page2 := outputResult{Text: "world", TotalSize: 20, NextOffset: 10, Truncated: true}
+	assert.Contains(t, page2.truncationNotice(), "10 of 20 characters read")
+	assert.NotEqual(t, notice, page2.truncationNotice(), "each page must report its own progress")
+
+	// A cut JSON document cannot be reassembled by paging, so the notice must
+	// point at narrowing the query rather than at offset.
+	cutJSON := outputResult{Text: `[{"id":1}`, TotalSize: 40, NextOffset: 9, Truncated: true, JSONLike: true}
+	jsonNotice := cutJSON.truncationNotice()
+	assert.Contains(t, jsonNotice, "9 of 40 characters read")
+	assert.Contains(t, jsonNotice, "will not parse")
+	assert.Contains(t, jsonNotice, "per_page")
+}
+
+func TestProcessOutputDetectsJSON(t *testing.T) {
+	t.Parallel()
+
+	server := &mcpServer{}
+
+	assert.True(t, server.processOutput(`[{"id":1},{"id":2}]`, responseConfig{Limit: 5}).JSONLike)
+	assert.True(t, server.processOutput("\n  {\"id\":1}", responseConfig{Limit: 5}).JSONLike)
+	assert.False(t, server.processOutput("plain trace output", responseConfig{Limit: 5}).JSONLike)
 }
 
 func TestBuildToolFromCommand(t *testing.T) {
@@ -822,12 +903,13 @@ func TestBuildToolFromCommand(t *testing.T) {
 			// Verify expected parameters
 			assert.Contains(t, properties, "args", "should have args parameter")
 			assert.Contains(t, properties, "flags", "should have flags parameter")
-			assert.Contains(t, properties, "limit", "should have limit parameter")
-			assert.Contains(t, properties, "offset", "should have offset parameter")
+			assert.NotContains(t, properties, "limit", "limit is advertised by the truncation notice, not the schema")
+			assert.NotContains(t, properties, "offset", "offset is advertised by the truncation notice, not the schema")
 
 			// Verify flags object structure
 			flagsParam, ok := properties["flags"].(map[string]any)
 			require.True(t, ok, "flags should be an object")
+			assert.NotContains(t, flagsParam, "description", "the flags object needs no description beyond its name")
 			flagsProperties, ok := flagsParam["properties"].(map[string]any)
 			require.True(t, ok, "flags should have properties")
 
@@ -873,8 +955,16 @@ func TestBuildToolFromCommandWithDestructiveAnnotation(t *testing.T) {
 				require.NotNil(t, tool.Annotations, "destructive tool should have annotations")
 				require.NotNil(t, tool.Annotations.DestructiveHint, "should have destructive hint")
 				assert.True(t, *tool.Annotations.DestructiveHint, "destructive hint should be true")
-			} else if tool.Annotations != nil && tool.Annotations.DestructiveHint != nil {
-				assert.False(t, *tool.Annotations.DestructiveHint, "safe command should not be marked destructive")
+				assert.False(t, tool.Annotations.ReadOnlyHint)
+				return
+			}
+
+			// mcp:safe means "not destructive", which still admits commands that
+			// reconfigure remote state or write files. Asserting readOnlyHint for
+			// the whole set would let clients auto-approve those.
+			if tool.Annotations != nil {
+				assert.False(t, tool.Annotations.ReadOnlyHint, "a non-destructive command is not necessarily read-only")
+				assert.Nil(t, tool.Annotations.DestructiveHint, "safe command should not be marked destructive")
 			}
 		})
 	}
@@ -998,6 +1088,7 @@ func TestCallToolResultStructure(t *testing.T) {
 		output          string
 		config          responseConfig
 		wantContentText string
+		wantNotice      bool
 	}{
 		{
 			name:            "short output",
@@ -1010,6 +1101,7 @@ func TestCallToolResultStructure(t *testing.T) {
 			output:          "This is a much longer output that will be truncated by the limit parameter",
 			config:          responseConfig{Limit: 20, Offset: 0},
 			wantContentText: "This is a much longe",
+			wantNotice:      true,
 		},
 		{
 			name:            "output with offset",
@@ -1032,9 +1124,10 @@ func TestCallToolResultStructure(t *testing.T) {
 			result := &mcp.CallToolResult{
 				Content: []mcp.Content{
 					&mcp.TextContent{
-						Text: processedOutput,
+						Text: processedOutput.Text + processedOutput.truncationNotice(),
 					},
 				},
+				StructuredContent: server.buildStructuredContent(processedOutput),
 			}
 
 			// Verify Content is present and populated
@@ -1043,11 +1136,20 @@ func TestCallToolResultStructure(t *testing.T) {
 
 			textContent, ok := result.Content[0].(*mcp.TextContent)
 			require.True(t, ok, "Content[0] must be *TextContent")
-			assert.Equal(t, tt.wantContentText, textContent.Text, "Content text should match expected output")
 
-			// Verify Content is present in the response
-			assert.NotNil(t, result.Content, "Content must be present in response")
-			assert.NotEmpty(t, textContent.Text, "Content.Text must not be empty")
+			structured, ok := result.StructuredContent.(map[string]any)
+			require.True(t, ok, "StructuredContent must be a map")
+			assert.Equal(t, tt.wantContentText, structured["content"], "structured content should hold the untouched window")
+			assert.Equal(t, len([]rune(tt.output)), structured["total_size"])
+
+			if tt.wantNotice {
+				assert.Contains(t, textContent.Text, tt.wantContentText)
+				assert.Contains(t, textContent.Text, "[Truncated:", "truncated output should carry a recovery notice")
+				assert.Contains(t, structured, "next_offset")
+			} else {
+				assert.Equal(t, tt.wantContentText, textContent.Text, "Content text should match expected output")
+				assert.NotContains(t, structured, "next_offset")
+			}
 		})
 	}
 }
@@ -1100,7 +1202,10 @@ func TestStructuredContentIncludesToolOutput(t *testing.T) {
 
 			server := &mcpServer{}
 
-			structuredContent := server.buildStructuredContent(tt.processedOutput)
+			structuredContent := server.buildStructuredContent(outputResult{
+				Text:      tt.processedOutput,
+				TotalSize: len([]rune(tt.processedOutput)),
+			})
 
 			result := &mcp.CallToolResult{StructuredContent: structuredContent}
 
