@@ -5,6 +5,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	getCmd "gitlab.com/gitlab-org/cli/internal/commands/skills/get"
 	installCmd "gitlab.com/gitlab-org/cli/internal/commands/skills/install"
 	listCmd "gitlab.com/gitlab-org/cli/internal/commands/skills/list"
 	updateCmd "gitlab.com/gitlab-org/cli/internal/commands/skills/update"
@@ -25,6 +26,7 @@ func NewCmdSkills(f cmdutils.Factory) *cobra.Command {
 		`) + text.ExperimentalString,
 	}
 
+	skillsCmd.AddCommand(getCmd.NewCmd(f))
 	skillsCmd.AddCommand(installCmd.NewCmdInstall(f))
 	skillsCmd.AddCommand(listCmd.NewCmdList(f))
 	skillsCmd.AddCommand(updateCmd.NewCmd(f))
