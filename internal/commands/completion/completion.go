@@ -117,7 +117,7 @@ func NewCmdCompletion(io *iostreams.IOStreams) *cobra.Command {
 			glab completion -s bash`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
-			mcpannotations.Safe: "true",
+			mcpannotations.Exclude: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := io.StdOut

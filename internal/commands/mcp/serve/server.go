@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -35,16 +36,24 @@ type mcpServer struct {
 	rootCmd *cobra.Command
 }
 
-// newMCPServer creates a new MCP server instance
-func newMCPServer(rootCmd *cobra.Command) *mcpServer {
-	// Create MCP server with usage instructions
-	instructions := `GitLab CLI MCP Server - Provides access to GitLab functionality through glab commands.
+// serverInstructions is the guidance every connecting client receives. The cap
+// is interpolated from defaultResponseLimit so tuning the constant cannot leave
+// this quoting a number nothing enforces.
+func serverInstructions() string {
+	return fmt.Sprintf(`GitLab CLI MCP Server - Provides access to GitLab functionality through glab commands.
 
 General Usage:
 - Use --help flag with any tool to get detailed usage information
-- For large outputs, use limit/offset parameters for pagination
-- Check 'total_size' in response metadata to navigate results
-- Most tools support common flags like --output for formatting`
+- Responses are capped at %d characters and say so when cut. List commands
+  routinely exceed this: narrow them with per_page, page, or jq rather than
+  paging, because a cut JSON response is a fragment that will not parse.
+  For plain-text output, "offset" and "limit" read further into the response.
+- Most tools support common flags like --output for formatting`, defaultResponseLimit)
+}
+
+// newMCPServer creates a new MCP server instance
+func newMCPServer(rootCmd *cobra.Command) *mcpServer {
+	instructions := serverInstructions()
 
 	mcpSrv := mcp.NewServer(
 		&mcp.Implementation{
@@ -219,63 +228,60 @@ func (s *mcpServer) buildToolFromCommand(toolName, description string, cmd *cobr
 		}
 	})
 
-	// Determine if this is a destructive command
-	isDestructive := s.isDestructiveCommand(cmd)
-
-	// Derive args description from cmd.Use (e.g. "api <endpoint>" → "Positional arguments: <endpoint>").
-	// strings.Fields handles irregular whitespace; joining the tail reconstructs multi-word arg specs cleanly.
-	argsDesc := "Positional arguments"
-	if use := strings.Fields(cmd.Use); len(use) > 1 {
-		hint := strings.TrimSpace(strings.ReplaceAll(strings.Join(use[1:], " "), "[flags]", ""))
-		if hint != "" {
-			argsDesc = "Positional arguments: " + hint
-		}
+	argsSchema := map[string]any{
+		"type":  "array",
+		"items": map[string]any{"type": "string"},
+	}
+	if hint := positionalArgsHint(cmd); hint != "" {
+		argsSchema["description"] = hint
 	}
 
-	// Build the input schema manually
+	// limit and offset are deliberately absent: convertParamsToArgs still honours
+	// them, but advertising them on all ~200 tools costs more context than the
+	// truncation notice that points an agent at them when output is actually cut.
 	inputSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			argsParam: map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "string"},
-				"description": argsDesc,
-			},
+			argsParam: argsSchema,
 			flagsParam: map[string]any{
-				"type":        "object",
-				"properties":  flagsProperties,
-				"description": "Command flags",
-			},
-			limitParam: map[string]any{
-				"type":        "number",
-				"description": "Response size limit",
-				"default":     float64(defaultResponseLimit),
-			},
-			offsetParam: map[string]any{
-				"type":        "number",
-				"description": "Pagination offset",
-				"default":     float64(0),
+				"type":       "object",
+				"properties": flagsProperties,
 			},
 		},
 	}
 
-	// Create the tool
 	tool := &mcp.Tool{
 		Name:        toolName,
 		Description: description,
 		InputSchema: inputSchema,
 	}
 
-	// Add destructive annotation if needed
-	if isDestructive {
-		if tool.Annotations == nil {
-			tool.Annotations = &mcp.ToolAnnotations{}
-		}
+	// No readOnlyHint for the rest: mcp:safe only means "not destructive", and
+	// that set still contains commands that reconfigure a runner or write files
+	// to disk. Claiming read-only would let clients auto-approve those. Saying
+	// nothing leaves destructiveHint at its spec default of true, which
+	// over-prompts rather than under-prompts.
+	if s.isDestructiveCommand(cmd) {
 		destructiveHint := true
-		tool.Annotations.DestructiveHint = &destructiveHint
+		tool.Annotations = &mcp.ToolAnnotations{DestructiveHint: &destructiveHint}
 	}
 
 	return tool
+}
+
+// positionalArgsHint derives an args description from cmd.Use
+// (e.g. "api <endpoint>" → "Positional arguments: <endpoint>"), returning ""
+// when cmd.Use names no arguments.
+func positionalArgsHint(cmd *cobra.Command) string {
+	use := strings.Fields(cmd.Use)
+	if len(use) < 2 {
+		return ""
+	}
+	hint := strings.TrimSpace(strings.ReplaceAll(strings.Join(use[1:], " "), "[flags]", ""))
+	if hint == "" {
+		return ""
+	}
+	return "Positional arguments: " + hint
 }
 
 // buildFlagSchema creates a JSON schema object for a flag (used in nested flags object)
@@ -365,14 +371,14 @@ func (s *mcpServer) createCommandHandler(cmdPath []string, flags *pflag.FlagSet)
 		}
 
 		// Process output with rune-based limiting
-		processedOutput := s.processOutput(output, config)
+		result := s.processOutput(output, config)
 
-		structuredContent := s.buildStructuredContent(processedOutput)
+		structuredContent := s.buildStructuredContent(result)
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{
-					Text: processedOutput,
+					Text: result.Text + result.truncationNotice(),
 				},
 			},
 			StructuredContent: structuredContent,
@@ -383,13 +389,17 @@ func (s *mcpServer) createCommandHandler(cmdPath []string, flags *pflag.FlagSet)
 // buildStructuredContent builds structured content from command output.
 // It always includes the raw text output under "content" and, when possible,
 // also includes parsed JSON under "data".
-func (s *mcpServer) buildStructuredContent(processedOutput string) map[string]any {
+func (s *mcpServer) buildStructuredContent(result outputResult) map[string]any {
 	structuredContent := map[string]any{
-		"content": processedOutput,
+		"content":    result.Text,
+		"total_size": result.TotalSize,
+	}
+	if result.Truncated {
+		structuredContent["next_offset"] = result.NextOffset
 	}
 
 	var structuredData any
-	if err := json.Unmarshal([]byte(processedOutput), &structuredData); err == nil {
+	if err := json.Unmarshal([]byte(result.Text), &structuredData); err == nil {
 		structuredContent["data"] = structuredData
 	}
 
@@ -402,8 +412,43 @@ type responseConfig struct {
 	Offset int
 }
 
+// outputResult is a window onto command output, sized by responseConfig.
+type outputResult struct {
+	Text       string
+	TotalSize  int
+	NextOffset int
+	Truncated  bool
+	JSONLike   bool
+}
+
+// truncationNotice tells an agent how to fetch the rest. The limit and offset
+// parameters are not in any tool's input schema, so this is where they are
+// advertised: once, to the caller that needs them.
+//
+// Slicing runs on runes, so a cut JSON document yields a fragment that never
+// parses. Paging by offset recovers the bytes but not the structure, which is
+// why JSON output is steered towards narrowing the query instead.
+func (r outputResult) truncationNotice() string {
+	if !r.Truncated {
+		return ""
+	}
+	// NextOffset rather than the window length: it is the cumulative position,
+	// so successive pages report progress instead of repeating the page size.
+	if r.JSONLike {
+		return fmt.Sprintf(
+			"\n\n[Truncated: %d of %d characters read. This window is an incomplete JSON fragment and will not parse. "+
+				"Narrow the query instead, with per_page, page, or jq. Passing \"offset\": %d returns the next raw chunk, not valid JSON.]",
+			r.NextOffset, r.TotalSize, r.NextOffset,
+		)
+	}
+	return fmt.Sprintf(
+		"\n\n[Truncated: %d of %d characters read. Call this tool again with \"offset\": %d to continue.]",
+		r.NextOffset, r.TotalSize, r.NextOffset,
+	)
+}
+
 // processOutput handles rune-based output limiting
-func (s *mcpServer) processOutput(output string, config responseConfig) string {
+func (s *mcpServer) processOutput(output string, config responseConfig) outputResult {
 	// Convert to runes for Unicode-safe processing
 	runes := []rune(output)
 	totalSize := len(runes)
@@ -426,7 +471,18 @@ func (s *mcpServer) processOutput(output string, config responseConfig) string {
 		processedRunes = runes[start:end]
 	}
 
-	return string(processedRunes)
+	return outputResult{
+		Text:       string(processedRunes),
+		TotalSize:  totalSize,
+		NextOffset: end,
+		Truncated:  end < totalSize,
+		JSONLike:   looksLikeJSON(output),
+	}
+}
+
+func looksLikeJSON(output string) bool {
+	trimmed := strings.TrimLeftFunc(output, unicode.IsSpace)
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 }
 
 // convertParamsToArgs converts MCP JSON parameters to command line arguments and extracts response config
