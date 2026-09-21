@@ -79,7 +79,8 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			Use %[1]s--draft%[1]s to add the comment to a pending review instead of publishing it
 			immediately:
 
-			- Pending comments are visible only to you until you submit the review from the merge request page.
+			- Pending comments are visible only to you until you publish the review with
+			%[1]sglab mr note publish%[1]s or submit it from the merge request page.
 			- Combine with %[1]s--file%[1]s or %[1]s--reply%[1]s to add the pending comment to the
 			diff or as a reply to a comment thread.
 			- Attachments added with %[1]s--attach%[1]s are uploaded to the project immediately,
