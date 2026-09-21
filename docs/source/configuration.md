@@ -151,10 +151,10 @@ For more information, see
 | `GLAB_NO_PROMPT` | `no_prompt` | `false` | Set to true (1) to disable prompts, or false (0) to enable them. |
 | `NO_PROMPT` | `no_prompt` | `false` | Alternative name for `GLAB_NO_PROMPT`, checked after it. |
 | `PROMPT_DISABLED` | `no_prompt` | `false` | Alternative name for `GLAB_NO_PROMPT`, checked after it. |
-| `GLAB_ORBIT_LOCAL_AUTO_DOWNLOAD` | `orbit_local_auto_download` | - | Automatically download Orbit local CLI binary without prompting (true/false). |
-| `ORBIT_LOCAL_AUTO_DOWNLOAD` | `orbit_local_auto_download` | - | Alternative name for `GLAB_ORBIT_LOCAL_AUTO_DOWNLOAD`, checked after it. |
-| `GLAB_ORBIT_LOCAL_AUTO_RUN` | `orbit_local_auto_run` | - | Automatically run Orbit local CLI without prompting (true/false). Set to true to skip the confirmation prompt. |
-| `ORBIT_LOCAL_AUTO_RUN` | `orbit_local_auto_run` | - | Alternative name for `GLAB_ORBIT_LOCAL_AUTO_RUN`, checked after it. |
+| `GLAB_ORBIT_CLI_AUTO_DOWNLOAD` | `orbit_cli_auto_download` | - | Automatically download the Orbit CLI binary without prompting (true/false). |
+| `ORBIT_CLI_AUTO_DOWNLOAD` | `orbit_cli_auto_download` | - | Alternative name for `GLAB_ORBIT_CLI_AUTO_DOWNLOAD`, checked after it. |
+| `GLAB_ORBIT_CLI_AUTO_RUN` | `orbit_cli_auto_run` | - | Automatically run the Orbit CLI without prompting (true/false). Set to true to skip the confirmation prompt. |
+| `ORBIT_CLI_AUTO_RUN` | `orbit_cli_auto_run` | - | Alternative name for `GLAB_ORBIT_CLI_AUTO_RUN`, checked after it. |
 | `GLAB_PAGER` | `glab_pager` | - | Your desired pager command to use, such as `less -R`. Takes precedence over the PAGER environment variable. GLAB_PAGER takes precedence over both. |
 | `GLAB_SEND_TELEMETRY` | `telemetry` | `true` | Set to false (0) to disable sending usage data to your GitLab instance or true (1) to enable. See <https://docs.gitlab.com/administration/settings/usage_statistics/> for more information. |
 | `GLAB_SHOW_WHATS_NEW` | `show_whats_new` | `true` | Show a one-time post-upgrade banner pointing at `glab whatsnew` when a new version is detected. |

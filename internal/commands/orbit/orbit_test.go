@@ -170,7 +170,7 @@ func TestValidate_InstallWithCommandErrors(t *testing.T) {
 }
 
 func TestNewCmd_HelpShowsGlabTextUntilBinaryIsInstalled(t *testing.T) {
-	t.Setenv("GLAB_ORBIT_LOCAL_BINARY_PATH", filepath.Join(t.TempDir(), "missing-orbit"))
+	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", filepath.Join(t.TempDir(), "missing-orbit"))
 	exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
 		cmd := NewCmd(f)
 		cmd.SetOut(f.IO().StdOut)
@@ -187,7 +187,7 @@ func TestNewCmd_HelpShowsGlabTextUntilBinaryIsInstalled(t *testing.T) {
 func TestRun_HelpExecsTheInstalledBinaryWithoutRunLifecycle(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "orbit")
 	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755))
-	t.Setenv("GLAB_ORBIT_LOCAL_BINARY_PATH", binary)
+	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", binary)
 	t.Setenv("GITLAB_TOKEN", "glpat-remote")
 	client, err := api.NewClientFromConfig("gitlab.com", config.NewBlankConfig(), false, "test-agent")
 	require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestRun_HelpExecsTheInstalledBinaryWithoutRunLifecycle(t *testing.T) {
 }
 
 func TestRun_HelpFallsBackToGlabTextWhenBinaryIsMissing(t *testing.T) {
-	t.Setenv("GLAB_ORBIT_LOCAL_BINARY_PATH", filepath.Join(t.TempDir(), "missing-orbit"))
+	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", filepath.Join(t.TempDir(), "missing-orbit"))
 	ios, _, _, _ := cmdtest.TestIOStreams()
 	f := cmdtest.NewTestFactory(ios, cmdtest.WithConfig(config.NewBlankConfig()))
 

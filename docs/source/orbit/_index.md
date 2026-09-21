@@ -27,8 +27,8 @@ Prerequisites:
 
 Configuration options:
 
-- `orbit_local_auto_run`: Skip the run confirmation prompt.
-- `orbit_local_auto_download`: Skip the download confirmation prompt.
+- `orbit_cli_auto_run`: Skip the run confirmation prompt.
+- `orbit_cli_auto_download`: Skip the download confirmation prompt.
 
 For more information, see the [Orbit documentation](https://docs.gitlab.com/orbit/).
 
