@@ -150,9 +150,8 @@ func (o *options) validate() error {
 }
 
 func (o *options) getKeyringTokens() ([]cachedToken, error) {
-	// Unfortunately, the keyring library doesn't provide a way to list all keys
-	// We would need to know the agent IDs to construct the cache keys
-	// For now, we'll return an empty list and suggest using --agent flag
+	// The keyring library can't enumerate keys, so cache keys must be
+	// constructed from the agent IDs passed with --agent.
 	if len(o.agents) == 0 {
 		return nil, fmt.Errorf("keyring token clearing requires --agent flag to specify agent IDs")
 	}
