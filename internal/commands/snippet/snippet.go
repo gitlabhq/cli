@@ -11,11 +11,13 @@ import (
 func NewCmdSnippet(f cmdutils.Factory) *cobra.Command {
 	snippetCmd := &cobra.Command{
 		Use:   "snippet <command> [flags]",
-		Short: `Create, view and manage snippets.`,
+		Short: `Create snippets.`,
 		Long: heredoc.Docf(`
 			Snippets store and share small pieces of code or text. A snippet can
 			belong to a project, or to your personal account when you pass
 			%[1]s--personal%[1]s.
+
+			To view and edit existing snippets, use the GitLab UI or %[1]sglab api%[1]s with the [Project snippets API](https://docs.gitlab.com/api/project_snippets/) or personal [Snippets API](https://docs.gitlab.com/api/snippets/).
 		`, "`"),
 		Example: heredoc.Doc(`
 			glab snippet create --title "Title of the snippet" --filename "main.go"`),

@@ -101,7 +101,7 @@ Run `glab --help` to view a list of core commands in your terminal.
 - [`glab securefile`](docs/source/securefile): Manage secure files for a project.
 - [`glab security`](docs/source/security): Manage GitLab security scan profiles for a project. (EXPERIMENTAL)
 - [`glab skills`](docs/source/skills): Manage glab agent skills. (EXPERIMENTAL)
-- [`glab snippet`](docs/source/snippet): Create, view and manage snippets.
+- [`glab snippet`](docs/source/snippet): Create snippets.
 - [`glab ssh-key`](docs/source/ssh-key): Manage SSH keys registered with your GitLab account.
 - [`glab stack`](docs/source/stack): Create, manage, and work with stacked diffs. (EXPERIMENTAL)
 - [`glab todo`](docs/source/todo): Manage your to-do list.
