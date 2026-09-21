@@ -26,8 +26,8 @@ func TestSpec_Wiring(t *testing.T) {
 	assert.Equal(t, "Orbit CLI", s.DisplayName)
 	assert.Equal(t, "77960826", s.ProjectID)
 	assert.Equal(t, "orbit-cli", s.PackageName)
-	assert.Equal(t, "orbit_local", s.ConfigPrefix)
-	assert.Equal(t, "GLAB_ORBIT_LOCAL", s.EnvVarPrefix)
+	assert.Equal(t, "orbit_cli", s.ConfigPrefix)
+	assert.Equal(t, "GLAB_ORBIT_CLI", s.EnvVarPrefix)
 	assert.Equal(t, "0.103.0", s.MinVersion)
 	assert.Zero(t, s.MaxCompatibleMajor, "Orbit is pre-1.0; major-version cap should be uncapped")
 	assert.ElementsMatch(t, []string{"darwin", "linux", "windows"}, s.SupportedOS)
@@ -150,13 +150,13 @@ func TestRunWithCustomPath_Validation(t *testing.T) {
 		ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
 		factory := cmdtest.NewTestFactory(ios)
 
-		t.Setenv("GLAB_ORBIT_LOCAL_BINARY_PATH", "/nonexistent/path/to/orbit")
+		t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", "/nonexistent/path/to/orbit")
 		runner := newRunner(factory.IO(), factory.Config(), Spec())
 		err := runner.Run(t.Context())
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "GLAB_ORBIT_LOCAL_BINARY_PATH")
-		assert.Contains(t, err.Error(), "orbit_local_binary_path")
+		assert.Contains(t, err.Error(), "GLAB_ORBIT_CLI_BINARY_PATH")
+		assert.Contains(t, err.Error(), "orbit_cli_binary_path")
 		assert.Contains(t, err.Error(), "/nonexistent/path/to/orbit")
 		assert.Contains(t, err.Error(), "was not found")
 	})
@@ -169,12 +169,12 @@ func TestRunWithCustomPath_Validation(t *testing.T) {
 		nonExecFile := filepath.Join(dir, "orbit")
 		require.NoError(t, os.WriteFile(nonExecFile, []byte("#!/bin/sh\n"), 0o644))
 
-		t.Setenv("GLAB_ORBIT_LOCAL_BINARY_PATH", nonExecFile)
+		t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", nonExecFile)
 		runner := newRunner(factory.IO(), factory.Config(), Spec())
 		err := runner.Run(t.Context())
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "GLAB_ORBIT_LOCAL_BINARY_PATH")
+		assert.Contains(t, err.Error(), "GLAB_ORBIT_CLI_BINARY_PATH")
 		assert.Contains(t, err.Error(), "is not executable")
 	})
 }
@@ -191,7 +191,7 @@ func TestHandleInstall_CustomPath(t *testing.T) {
 	execFile := filepath.Join(dir, "orbit")
 	require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/sh\n"), 0o755))
 
-	t.Setenv("GLAB_ORBIT_LOCAL_BINARY_PATH", execFile)
+	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", execFile)
 	runner := newRunner(factory.IO(), factory.Config(), Spec())
 	err := runner.HandleInstall(t.Context())
 

@@ -170,7 +170,7 @@ func (m *Manager) Update(ctx context.Context) (*BinaryInfo, error) {
 // validateBinaryPath verifies that a custom binary path is usable.
 //
 // Error messages avoid leading with the env-var name because fang
-// Title-cases the first token of an error ("Glab_orbit_local_..."), and
+// Title-cases the first token of an error ("Glab_orbit_cli_..."), and
 // they name both configuration sources (env var + config key) since either
 // can set the value.
 func validateBinaryPath(path string, spec Spec) error {

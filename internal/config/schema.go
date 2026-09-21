@@ -201,39 +201,39 @@ var KeySchema = []KeyDef{
 		UserSettable: true, HelpHidden: true,
 		Description: "Last time an update check was performed (automatically set).",
 	},
-	// ---- Orbit local binarymgr keys ----
+	// ---- Orbit CLI binarymgr keys ----
 	{
-		Name: "orbit_local_auto_run", Scope: ScopeGlobal, Type: TypeString,
+		Name: "orbit_cli_auto_run", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
-		EnvVars:      []string{"GLAB_ORBIT_LOCAL_AUTO_RUN", "ORBIT_LOCAL_AUTO_RUN"},
-		Description:  "Automatically run Orbit local CLI without prompting (true/false). Set to true to skip the confirmation prompt.",
+		EnvVars:      []string{"GLAB_ORBIT_CLI_AUTO_RUN", "ORBIT_CLI_AUTO_RUN"},
+		Description:  "Automatically run the Orbit CLI without prompting (true/false). Set to true to skip the confirmation prompt.",
 	},
 	{
-		Name: "orbit_local_auto_download", Scope: ScopeGlobal, Type: TypeString,
+		Name: "orbit_cli_auto_download", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
-		EnvVars:      []string{"GLAB_ORBIT_LOCAL_AUTO_DOWNLOAD", "ORBIT_LOCAL_AUTO_DOWNLOAD"},
-		Description:  "Automatically download Orbit local CLI binary without prompting (true/false).",
+		EnvVars:      []string{"GLAB_ORBIT_CLI_AUTO_DOWNLOAD", "ORBIT_CLI_AUTO_DOWNLOAD"},
+		Description:  "Automatically download the Orbit CLI binary without prompting (true/false).",
 	},
 	{
-		Name: "orbit_local_binary_path", Scope: ScopeGlobal, Type: TypeString,
+		Name: "orbit_cli_binary_path", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true, HelpHidden: true,
-		EnvVars:     []string{"GLAB_ORBIT_LOCAL_BINARY_PATH"},
-		Description: "Path to the installed Orbit local CLI binary (automatically set). Default: ~/.config/glab-cli/bin/orbit",
+		EnvVars:     []string{"GLAB_ORBIT_CLI_BINARY_PATH"},
+		Description: "Path to the installed Orbit CLI binary (automatically set). Default: ~/.config/glab-cli/bin/orbit",
 	},
 	{
-		Name: "orbit_local_binary_version", Scope: ScopeGlobal, Type: TypeString,
+		Name: "orbit_cli_binary_version", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true, HelpHidden: true,
-		Description: "Version of the installed Orbit local CLI binary (automatically set).",
+		Description: "Version of the installed Orbit CLI binary (automatically set).",
 	},
 	{
-		Name: "orbit_local_binary_checksum", Scope: ScopeGlobal, Type: TypeString,
+		Name: "orbit_cli_binary_checksum", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true, HelpHidden: true,
-		Description: "SHA256 checksum of the installed Orbit local CLI binary (automatically set).",
+		Description: "SHA256 checksum of the installed Orbit CLI binary (automatically set).",
 	},
 	{
-		Name: "orbit_local_last_update_check", Scope: ScopeGlobal, Type: TypeString,
+		Name: "orbit_cli_last_update_check", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true, HelpHidden: true,
-		Description: "Last time an Orbit local CLI update check was performed (automatically set).",
+		Description: "Last time an Orbit CLI update check was performed (automatically set).",
 	},
 
 	// ---------------- Per-host ----------------

@@ -43,19 +43,19 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Configuration options:
 
-			- %[1]sorbit_local_auto_run%[1]s: Skip the run confirmation prompt.
-			- %[1]sorbit_local_auto_download%[1]s: Skip the download confirmation prompt.
+			- %[1]sorbit_cli_auto_run%[1]s: Skip the run confirmation prompt.
+			- %[1]sorbit_cli_auto_download%[1]s: Skip the download confirmation prompt.
 
 			For more information, see the [Orbit documentation](https://docs.gitlab.com/orbit/).
 		`, "`") + text.ExperimentalString,
 		Annotations: map[string]string{
 			"help:environment": heredoc.Docf(`
-				- %[1]sGLAB_ORBIT_LOCAL_BINARY_PATH%[1]s: Use a local binary instead of the managed one. Skips
-				  download, version checks, and updates. Can also be set via the %[1]sorbit_local_binary_path%[1]s
+				- %[1]sGLAB_ORBIT_CLI_BINARY_PATH%[1]s: Use a local binary instead of the managed one. Skips
+				  download, version checks, and updates. Can also be set via the %[1]sorbit_cli_binary_path%[1]s
 				  configuration key.
-				- %[1]sORBIT_LOCAL_AUTO_DOWNLOAD%[1]s: Set to %[1]strue%[1]s to download the binary without a
+				- %[1]sORBIT_CLI_AUTO_DOWNLOAD%[1]s: Set to %[1]strue%[1]s to download the binary without a
 				  prompt. Required to run in a non-interactive environment such as CI.
-				- %[1]sORBIT_LOCAL_AUTO_RUN%[1]s: Set to %[1]strue%[1]s to run the binary without a prompt.
+				- %[1]sORBIT_CLI_AUTO_RUN%[1]s: Set to %[1]strue%[1]s to run the binary without a prompt.
 				  Required to run in a non-interactive environment such as CI.
 				`, "`"),
 		},
