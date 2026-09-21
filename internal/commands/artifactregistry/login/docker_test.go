@@ -134,7 +134,7 @@ func TestLoginDocker_InstallsShim(t *testing.T) {
 
 	content, readErr := os.ReadFile(shimPath)
 	require.NoError(t, readErr)
-	assert.Equal(t, "#!/bin/sh -eu\nglab auth docker-helper \"$@\"\n", string(content))
+	assert.Equal(t, "#!/bin/sh -eu\nexec glab auth docker-helper \"$@\"\n", string(content))
 }
 
 // TestLoginDocker_WarnsWhenTheShimIsNotOnPath is the last-resort install:

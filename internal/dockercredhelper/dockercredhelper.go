@@ -26,7 +26,7 @@ const (
 
 // script is the shim Docker executes. It delegates straight to
 // `glab auth docker-helper`, which reads the requested registry on stdin.
-var script = []byte("#!/bin/sh -eu\nglab auth docker-helper \"$@\"\n")
+var script = []byte("#!/bin/sh -eu\nexec glab auth docker-helper \"$@\"\n")
 
 // Installation reports where Install put the shim.
 type Installation struct {
