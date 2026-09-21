@@ -169,12 +169,20 @@ test-race: export CI_PROJECT_PATH=$(shell git remote get-url origin)
 test-race: bin/gotestsum ## Run tests with race detection
 	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage.txt -covermode=atomic -race $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...)
 
+# Only the packages that hold integration tests. Derived rather than listed so
+# a new *_integration_test.go is picked up without editing this file. The
+# TEST_PKGS default covers every package, which made this target re-run the
+# whole unit suite under -race on top of the tests:unit job that already does.
+# A command-line TEST_PKGS= still wins over this target-specific default.
+INTEGRATION_PKGS = $(shell find ./internal ./cmd -name '*_integration_test.go' -exec dirname {} \; | sort -u)
+
 .PHONY: integration-test-race
 integration-test-race: TEST_FORMAT ?= short
 integration-test-race: SHELL = /bin/bash # set environment variables to ensure consistent test behavior
 integration-test-race: VISUAL=
 integration-test-race: EDITOR=
 integration-test-race: PAGER=
+integration-test-race: TEST_PKGS = $(INTEGRATION_PKGS)
 integration-test-race: export CI_PROJECT_PATH=$(shell git remote get-url origin)
 integration-test-race: bin/gotestsum ## Run tests with race detection
 	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage.txt -covermode=atomic -race -tags=integration $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...) -count=1
