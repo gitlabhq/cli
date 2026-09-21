@@ -17,8 +17,12 @@ import (
 // credential helper (internal/commands/auth/docker.Helper.Get) can find it
 // later.
 func loginDocker(io *iostreams.IOStreams, cfg config.Config, hostname, registry string) error {
-	if _, err := dockercredhelper.Install(); err != nil {
+	installation, err := dockercredhelper.Install()
+	if err != nil {
 		return err
+	}
+	if !installation.OnPath {
+		io.LogErrorf("%s %s\n", io.Color().WarnIcon(), installation.PathWarning())
 	}
 
 	dir, err := dockercredhelper.ConfigDir()

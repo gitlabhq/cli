@@ -10,8 +10,12 @@ import (
 )
 
 func configureDocker(iostreams *iostreams.IOStreams, cfg config.Config) error {
-	if _, err := dockercredhelper.Install(); err != nil {
+	installation, err := dockercredhelper.Install()
+	if err != nil {
 		return err
+	}
+	if !installation.OnPath {
+		iostreams.LogErrorf("%s %s\n", iostreams.Color().WarnIcon(), installation.PathWarning())
 	}
 
 	hostnames, err := cfg.Hosts()

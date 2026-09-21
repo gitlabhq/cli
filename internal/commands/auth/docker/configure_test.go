@@ -58,6 +58,39 @@ func sandboxDocker(t *testing.T) string {
 	return dockerDir
 }
 
+// sandboxPackagedGlab is sandboxDocker for a glab the user cannot write next
+// to, as the .deb and .rpm packages install it: PATH holds only the
+// root-owned directory glab sits in, plus the user's own ~/.local/bin. It
+// returns the $DOCKER_CONFIG directory, the directory glab sits in, and that
+// ~/.local/bin path.
+func sandboxPackagedGlab(t *testing.T) (string, string, string) {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX directory modes not enforced on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the directory mode this test relies on")
+	}
+
+	glabDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(glabDir, "glab"), []byte("#!/bin/sh\n"), 0o755))
+	require.NoError(t, os.Chmod(glabDir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(glabDir, 0o755) })
+
+	home := t.TempDir()
+	localBin := filepath.Join(home, ".local", "bin")
+	require.NoError(t, os.MkdirAll(localBin, 0o755))
+
+	dockerDir := t.TempDir()
+	t.Setenv("PATH", glabDir+string(os.PathListSeparator)+localBin)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("DOCKER_CONFIG", dockerDir)
+
+	return dockerDir, glabDir, localBin
+}
+
 func TestConfigureDocker_RegistersConfiguredDomains(t *testing.T) {
 	dockerDir := sandboxDocker(t)
 
@@ -76,6 +109,31 @@ hosts:
 	data, err := os.ReadFile(filepath.Join(dockerDir, "config.json"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "registry.gitlab.example.com")
+}
+
+// TestConfigureDocker_WarnsWhenTheShimIsNotOnPath covers the last-resort
+// install: with nothing on PATH writable the shim goes to ~/.local/bin, where
+// Docker cannot resolve it, so the command has to say so rather than report a
+// success that does not work.
+func TestConfigureDocker_WarnsWhenTheShimIsNotOnPath(t *testing.T) {
+	_, glabDir, localBin := sandboxPackagedGlab(t)
+	// Drop ~/.local/bin back off PATH, leaving only the unwritable directory
+	// glab sits in.
+	t.Setenv("PATH", glabDir)
+
+	cfg := config.NewFromString(`
+---
+hosts:
+  gitlab.example.com:
+    token: token1
+    container_registry_domains: registry.gitlab.example.com
+`)
+	ios, _, _, errOut := cmdtest.TestIOStreams()
+
+	require.NoError(t, configureDocker(ios, cfg))
+	assert.FileExists(t, filepath.Join(localBin, "docker-credential-glab"))
+	assert.Contains(t, errOut.String(), localBin)
+	assert.Contains(t, errOut.String(), "not on your PATH")
 }
 
 // TestConfigureDocker_ReportsUnreadableDomains covers the message a user gets

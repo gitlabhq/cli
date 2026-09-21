@@ -137,6 +137,37 @@ func TestLoginDocker_InstallsShim(t *testing.T) {
 	assert.Equal(t, "#!/bin/sh -eu\nglab auth docker-helper \"$@\"\n", string(content))
 }
 
+// TestLoginDocker_WarnsWhenTheShimIsNotOnPath is the last-resort install:
+// nothing on PATH is writable, so the shim lands where Docker cannot resolve
+// it and the command has to say so.
+func TestLoginDocker_WarnsWhenTheShimIsNotOnPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX directory modes not enforced on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the directory mode this test relies on")
+	}
+
+	binDir := t.TempDir()
+	writeFakeGlab(t, binDir)
+	require.NoError(t, os.Chmod(binDir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(binDir, 0o755) })
+
+	home := t.TempDir()
+	setPath(t, binDir)
+	setHome(t, home)
+
+	ios, _, _, errOut := cmdtest.TestIOStreams()
+	cfg := newFixtureConfig(t)
+
+	require.NoError(t, loginDocker(ios, cfg, testHostname, "registry.example.com"))
+
+	localBin := filepath.Join(home, ".local", "bin")
+	assert.FileExists(t, filepath.Join(localBin, "docker-credential-glab"))
+	assert.Contains(t, errOut.String(), localBin)
+	assert.Contains(t, errOut.String(), "not on your PATH")
+}
+
 func TestLoginDocker_WritesCredHelpers(t *testing.T) {
 	binDir := t.TempDir()
 	home := t.TempDir()
