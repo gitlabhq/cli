@@ -100,6 +100,7 @@ func NewCmdNote(f cmdutils.Factory) *cobra.Command {
 	cobra.CheckErr(mrCreateNoteCmd.Flags().MarkDeprecated("unique", "use `glab mr note create` instead."))
 
 	mrCreateNoteCmd.AddCommand(NewCmdCreate(f))
+	mrCreateNoteCmd.AddCommand(NewCmdPublish(f))
 	mrCreateNoteCmd.AddCommand(NewCmdList(f))
 	mrCreateNoteCmd.AddCommand(NewCmdResolve(f))
 	mrCreateNoteCmd.AddCommand(NewCmdReopen(f))

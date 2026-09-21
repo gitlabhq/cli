@@ -337,6 +337,8 @@
           url: 'cli/mr/note/delete/'
         - title: glab mr note list
           url: 'cli/mr/note/list/'
+        - title: glab mr note publish
+          url: 'cli/mr/note/publish/'
         - title: glab mr note reopen
           url: 'cli/mr/note/reopen/'
         - title: glab mr note resolve

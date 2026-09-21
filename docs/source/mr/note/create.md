@@ -40,7 +40,8 @@ both flags for a file-level comment.
 Use `--draft` to add the comment to a pending review instead of publishing it
 immediately:
 
-- Pending comments are visible only to you until you submit the review from the merge request page.
+- Pending comments are visible only to you until you publish the review with
+`glab mr note publish` or submit it from the merge request page.
 - Combine with `--file` or `--reply` to add the pending comment to the
 diff or as a reply to a comment thread.
 - Attachments added with `--attach` are uploaded to the project immediately,
