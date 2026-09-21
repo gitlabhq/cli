@@ -28,9 +28,32 @@ const (
 // `glab auth docker-helper`, which reads the requested registry on stdin.
 var script = []byte("#!/bin/sh -eu\nglab auth docker-helper \"$@\"\n")
 
-// Locate resolves the glab binary on PATH. Install writes the shim next to
-// it, and the shim shells out to it, so a glab that PATH cannot resolve means
-// the install can never work.
+// Installation reports where Install put the shim.
+type Installation struct {
+	Path string
+	// OnPath is false when Path's directory is absent from PATH, which happens
+	// only when no directory on PATH would accept the write. Docker resolves
+	// the shim by name through PATH, so until the user adds the directory the
+	// shim is inert and the caller has to say so.
+	OnPath bool
+}
+
+// PathWarning is what to tell the user when OnPath is false. It lives next to
+// the field rather than in each caller so the commands that install the shim
+// (`glab auth configure-docker` and `glab artifact-registry login --docker`)
+// cannot drift apart on the remedy they name.
+//
+// No leading icon and no trailing newline: those belong to how the caller
+// formats a warning line.
+func (i Installation) PathWarning() string {
+	return fmt.Sprintf(
+		"%s was installed to %s, which is not on your PATH. Docker looks %s up by name, so add that directory to PATH before pulling from a GitLab registry.",
+		FullName, filepath.Dir(i.Path), FullName)
+}
+
+// Locate resolves the glab binary on PATH. The shim shells out to it, and
+// Install prefers to write the shim into the same directory, so a glab that
+// PATH cannot resolve means the install can never work.
 //
 // Exported separately from Install so a caller that does other work first,
 // such as a token exchange, can fail on a missing glab before spending that

@@ -308,16 +308,20 @@ func (o *options) validate() error {
 		// Both are checked here rather than left to dockercredhelper.Install,
 		// because run exchanges a token before it writes anything: without them, a
 		// login that can never work mints a live credential on the server and only
-		// then reports that Docker can never use it. Together they are everything
-		// Install can reject before its first write, so past this point an install
-		// failure is something that was not knowable up front.
+		// then reports that Docker can never use it.
+		//
+		// They are not everything Install can reject: it can still find no
+		// writable directory for the shim. That is not preflighted here because
+		// the only honest check is attempting the write, which would leave a shim
+		// behind on a login whose token exchange then fails. Install tries every
+		// directory on PATH and then ~/.local/bin, so reaching that failure takes
+		// a filesystem where none of them will accept a file.
 		if err := o.supportedOS(); err != nil {
 			return err
 		}
-		// The shim is written next to glab and shells out to it, so a glab that
-		// PATH cannot resolve is as fatal as an unsupported platform. Install
-		// repeats the lookup, which is cheap and keeps it safe for callers that
-		// skip this check.
+		// The shim shells out to glab, so a glab that PATH cannot resolve is as
+		// fatal as an unsupported platform. Install repeats the lookup, which is
+		// cheap and keeps it safe for callers that skip this check.
 		if _, err := dockercredhelper.Locate(); err != nil {
 			return err
 		}

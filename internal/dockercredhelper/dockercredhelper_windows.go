@@ -22,6 +22,6 @@ func Supported() error {
 }
 
 // Install always fails, for the reason Supported gives.
-func Install() (string, error) {
-	return "", Supported()
+func Install() (Installation, error) {
+	return Installation{}, Supported()
 }
