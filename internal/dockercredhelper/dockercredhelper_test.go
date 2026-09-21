@@ -83,7 +83,7 @@ func TestInstall_WritesExecutableShimNextToGlab(t *testing.T) {
 
 	content, err := os.ReadFile(installed.Path)
 	require.NoError(t, err)
-	assert.Equal(t, "#!/bin/sh -eu\nglab auth docker-helper \"$@\"\n", string(content))
+	assert.Equal(t, "#!/bin/sh -eu\nexec glab auth docker-helper \"$@\"\n", string(content))
 
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX file modes not enforced on Windows")
