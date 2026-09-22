@@ -17,6 +17,8 @@ View changes in a merge request.
 Defaults to the currently checked-out branch. Use `--color=never`
 to disable color output.
 
+For automated scripts or patch tools, use `--raw` for an unmodified Git patch.
+
 ```plaintext
 glab mr diff [<id> | <branch>] [flags]
 ```
