@@ -43,6 +43,8 @@ func NewCmdDiff(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 		Long: heredoc.Docf(`
 			Defaults to the currently checked-out branch. Use %[1]s--color=never%[1]s
 			to disable color output.
+
+			For automated scripts or patch tools, use %[1]s--raw%[1]s for an unmodified Git patch.
 		`, "`"),
 		Example: heredoc.Doc(`
 			glab mr diff 123
@@ -135,9 +137,31 @@ func (o *options) run(ctx context.Context) error {
 			return fmt.Errorf("could not find merge request diff: %w", err)
 		}
 		for _, diffLine := range diffVersion.Diffs {
-			// output the unified diff header
-			diffOut.WriteString("--- " + diffLine.OldPath + "\n")
-			diffOut.WriteString("+++ " + diffLine.NewPath + "\n")
+			oldPath := "a/" + diffLine.OldPath
+			newPath := "b/" + diffLine.NewPath
+
+			if diffLine.NewFile {
+				oldPath = "/dev/null"
+			}
+			if diffLine.DeletedFile {
+				newPath = "/dev/null"
+			}
+
+			// output standard unified diff headers
+			diffOut.WriteString("diff --git a/" + diffLine.OldPath + " b/" + diffLine.NewPath + "\n")
+
+			switch {
+			case diffLine.NewFile:
+				diffOut.WriteString("new file mode " + diffLine.BMode + "\n")
+			case diffLine.DeletedFile:
+				diffOut.WriteString("deleted file mode " + diffLine.AMode + "\n")
+			case diffLine.RenamedFile:
+				diffOut.WriteString("rename from " + diffLine.OldPath + "\n")
+				diffOut.WriteString("rename to " + diffLine.NewPath + "\n")
+			}
+
+			diffOut.WriteString("--- " + oldPath + "\n")
+			diffOut.WriteString("+++ " + newPath + "\n")
 
 			diffOut.WriteString(diffLine.Diff)
 		}

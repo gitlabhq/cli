@@ -268,16 +268,38 @@ func TestMRDiff_notty(t *testing.T) {
 			StartCommitSHA: "eeb57dffe83deb686a60a71c16c32f71046868fd",
 			State:          "collected",
 			RealSize:       "1",
-			Diffs: []*gitlab.Diff{{
-				OldPath:     "LICENSE.md",
-				NewPath:     "LICENSE",
-				AMode:       "0",
-				BMode:       "100644",
-				Diff:        "@@ -0,0 +1,21 @@\n+The MIT License (MIT)\n+\n+Copyright (c) 2018 Administrator\n+\n+Permission is hereby granted, free of charge, to any person obtaining a copy\n+of this software and associated documentation files (the \"Software\"), to deal\n+in the Software without restriction, including without limitation the rights\n+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n+copies of the Software, and to permit persons to whom the Software is\n+furnished to do so, subject to the following conditions:\n+\n+The above copyright notice and this permission notice shall be included in all\n+copies or substantial portions of the Software.\n+\n+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n+SOFTWARE.\n",
-				NewFile:     true,
-				RenamedFile: true,
-				DeletedFile: false,
-			}},
+			Diffs: []*gitlab.Diff{
+				{
+					OldPath:     "LICENSE",
+					NewPath:     "LICENSE",
+					AMode:       "0",
+					BMode:       "100644",
+					Diff:        "@@ -0,0 +1,21 @@\n+The MIT License (MIT)\n+\n+Copyright (c) 2018 Administrator\n+\n+Permission is hereby granted, free of charge, to any person obtaining a copy\n+of this software and associated documentation files (the \"Software\"), to deal\n+in the Software without restriction, including without limitation the rights\n+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n+copies of the Software, and to permit persons to whom the Software is\n+furnished to do so, subject to the following conditions:\n+\n+The above copyright notice and this permission notice shall be included in all\n+copies or substantial portions of the Software.\n+\n+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n+SOFTWARE.\n",
+					NewFile:     true,
+					RenamedFile: false,
+					DeletedFile: false,
+				},
+				{
+					OldPath:     "OLD_FILE",
+					NewPath:     "OLD_FILE",
+					AMode:       "100644",
+					BMode:       "0",
+					Diff:        "@@ -1,1 +0,0 @@\n-Deleted content\n",
+					NewFile:     false,
+					RenamedFile: false,
+					DeletedFile: true,
+				},
+				{
+					OldPath:     "OLD_NAME",
+					NewPath:     "NEW_NAME",
+					AMode:       "100644",
+					BMode:       "100644",
+					Diff:        "@@ -1,1 +1,1 @@\n-old\n+new\n",
+					NewFile:     false,
+					RenamedFile: true,
+					DeletedFile: false,
+				},
+			},
 		}, nil, nil)
 
 	exec := cmdtest.SetupCmdForTest(t, newCmdDiffWrapper, false,
@@ -288,8 +310,17 @@ func TestMRDiff_notty(t *testing.T) {
 
 	output, err := exec("")
 	require.NoError(t, err)
+
+	assert.Contains(t, output.String(), "diff --git a/LICENSE b/LICENSE\nnew file mode 100644\n--- /dev/null\n+++ b/LICENSE\n")
 	assert.Contains(t, output.String(), "+The MIT License (MIT)")
 	assert.Contains(t, output.String(), "+FITNESS")
+
+	assert.Contains(t, output.String(), "diff --git a/OLD_FILE b/OLD_FILE\ndeleted file mode 100644\n--- a/OLD_FILE\n+++ /dev/null\n")
+	assert.Contains(t, output.String(), "-Deleted content")
+
+	assert.Contains(t, output.String(), "diff --git a/OLD_NAME b/NEW_NAME\nrename from OLD_NAME\nrename to NEW_NAME\n--- a/OLD_NAME\n+++ b/NEW_NAME\n")
+	assert.Contains(t, output.String(), "-old")
+	assert.Contains(t, output.String(), "+new")
 }
 
 func TestMRDiff_tty(t *testing.T) {
@@ -355,7 +386,7 @@ func TestMRDiff_tty(t *testing.T) {
 				BMode:       "100644",
 				Diff:        "@@ -0,0 +1,2 @@\n+The MIT License (MIT)\n" + longLine + "\n",
 				NewFile:     true,
-				RenamedFile: true,
+				RenamedFile: false,
 				DeletedFile: false,
 			}},
 		}, nil, nil)
