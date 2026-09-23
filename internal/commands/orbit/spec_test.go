@@ -28,7 +28,7 @@ func TestSpec_Wiring(t *testing.T) {
 	assert.Equal(t, "orbit-cli", s.PackageName)
 	assert.Equal(t, "orbit_cli", s.ConfigPrefix)
 	assert.Equal(t, "GLAB_ORBIT_CLI", s.EnvVarPrefix)
-	assert.Equal(t, "0.103.0", s.MinVersion)
+	assert.Equal(t, "0.130.0", s.MinVersion)
 	assert.Zero(t, s.MaxCompatibleMajor, "Orbit is pre-1.0; major-version cap should be uncapped")
 	assert.ElementsMatch(t, []string{"darwin", "linux", "windows"}, s.SupportedOS)
 	assert.NotNil(t, s.Extract, "Orbit ships archives and requires an Extractor")
