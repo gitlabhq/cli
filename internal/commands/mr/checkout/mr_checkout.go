@@ -236,6 +236,13 @@ func (o *options) resolveDivergence(ctx context.Context) error {
 		return nil
 	}
 
+	// A local branch that is simply behind, which is what a checked-out branch
+	// looks like after the MR gained commits, has nothing to lose: fast-forward it
+	// instead of asking to reset.
+	if o.localIsAncestorOfFetchHead() {
+		return o.fastForward()
+	}
+
 	onTarget, err := o.guardReset()
 	if err != nil {
 		return err
@@ -269,6 +276,30 @@ func (o *options) localDivergesFromFetchHead() (bool, error) {
 		return false, err
 	}
 	return localSHA != strings.TrimSpace(fetchSHA), nil
+}
+
+// localIsAncestorOfFetchHead reports whether FETCH_HEAD descends from the local
+// branch, so the local branch can be fast-forwarded without losing commits.
+func (o *options) localIsAncestorOfFetchHead() bool {
+	_, err := o.gr.Git("merge-base", "--is-ancestor", "refs/heads/"+o.branch, "FETCH_HEAD")
+	return err == nil
+}
+
+// fastForward moves the local branch to FETCH_HEAD. On the checked-out branch
+// it goes through `git merge --ff-only`, which updates the working tree and
+// still refuses if uncommitted changes are in the way.
+func (o *options) fastForward() error {
+	currentBranch, symErr := o.gr.Git("symbolic-ref", "--quiet", "--short", "HEAD")
+	var err error
+	if symErr == nil && strings.TrimSpace(currentBranch) == o.branch {
+		err = o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "merge", "--ff-only", "FETCH_HEAD")
+	} else {
+		err = o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "branch", "-f", o.branch, "FETCH_HEAD")
+	}
+	if err != nil {
+		return fmt.Errorf("could not fast-forward local branch %q to the merge request: %w", o.branch, err)
+	}
+	return nil
 }
 
 // guardReset checks whether `git reset --hard FETCH_HEAD` is safe to run for
