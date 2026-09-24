@@ -4,6 +4,8 @@ package checkout
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net/url"
 	"testing"
 
@@ -390,6 +392,114 @@ func TestMrCheckout(t *testing.T) {
 		assert.Empty(t, output.String())
 	})
 
+	t.Run("when the checked-out branch is behind the merge request, fast-forwards", func(t *testing.T) {
+		t.Parallel()
+		testClient := newDivergenceTestClient(t)
+
+		ctrl := gomock.NewController(t)
+		mockGit := git_testing.NewMockGitRunner(ctrl)
+		// git refuses to fetch into the branch that is checked out, whatever the history.
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "refusing to fetch into branch 'refs/heads/feat-new-mr' checked out at '/repo'"))
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
+		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
+		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", nil)
+		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("feat-new-mr\n", nil)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "merge", "--ff-only", "FETCH_HEAD").Return(nil)
+		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
+		mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "checkout", "feat-new-mr").
+			DoAndReturn(git.CheckoutStub("feat-new-mr"))
+
+		exec := setupTest(t, testClient, cmdtest.WithGitRunner(mockGit))
+		_, err := exec("123")
+
+		require.NoError(t, err)
+	})
+
+	t.Run("when another branch is checked out and the local branch is behind, moves it", func(t *testing.T) {
+		t.Parallel()
+		testClient := newDivergenceTestClient(t)
+
+		ctrl := gomock.NewController(t)
+		mockGit := git_testing.NewMockGitRunner(ctrl)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
+		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
+		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", nil)
+		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("main\n", nil)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "branch", "-f", "feat-new-mr", "FETCH_HEAD").Return(nil)
+		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
+		mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "checkout", "feat-new-mr").
+			DoAndReturn(git.CheckoutStub("feat-new-mr"))
+
+		exec := setupTest(t, testClient, cmdtest.WithGitRunner(mockGit))
+		_, err := exec("123")
+
+		require.NoError(t, err)
+	})
+
+	t.Run("when the checked-out branch is behind but the working tree blocks the fast-forward, fails", func(t *testing.T) {
+		t.Parallel()
+		testClient := newDivergenceTestClient(t)
+
+		ctrl := gomock.NewController(t)
+		mockGit := git_testing.NewMockGitRunner(ctrl)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "refusing to fetch into branch 'refs/heads/feat-new-mr' checked out at '/repo'"))
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
+		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
+		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", nil)
+		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("feat-new-mr\n", nil)
+		// git refuses the merge because a local modification would be overwritten;
+		// the mock is strict, so no config or checkout call may follow.
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "merge", "--ff-only", "FETCH_HEAD").
+			DoAndReturn(func(_, stderr io.Writer, _ ...string) error {
+				fmt.Fprintln(stderr, "error: Your local changes to the following files would be overwritten by merge:\n\tfile.go")
+				return errors.New("exit status 1")
+			})
+
+		exec := setupTest(t, testClient, cmdtest.WithGitRunner(mockGit))
+		_, err := exec("123")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `could not fast-forward local branch "feat-new-mr"`)
+		assert.ErrorContains(t, err, "exit status 1")
+	})
+
+	t.Run("when another branch is checked out and moving the local branch fails", func(t *testing.T) {
+		t.Parallel()
+		testClient := newDivergenceTestClient(t)
+
+		ctrl := gomock.NewController(t)
+		mockGit := git_testing.NewMockGitRunner(ctrl)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
+		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
+		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", nil)
+		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("main\n", nil)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "branch", "-f", "feat-new-mr", "FETCH_HEAD").
+			Return(errors.New("exit status 128"))
+
+		exec := setupTest(t, testClient, cmdtest.WithGitRunner(mockGit))
+		_, err := exec("123")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `could not fast-forward local branch "feat-new-mr"`)
+		assert.ErrorContains(t, err, "exit status 128")
+	})
+
 	t.Run("when diverged without --force and non-interactive", func(t *testing.T) {
 		t.Parallel()
 		testClient := newDivergenceTestClient(t)
@@ -402,6 +512,7 @@ func TestMrCheckout(t *testing.T) {
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", errors.New("exit status 1"))
 		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("main\n", nil)
 
 		exec := setupTest(t, testClient, cmdtest.WithGitRunner(mockGit))
@@ -425,6 +536,7 @@ func TestMrCheckout(t *testing.T) {
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", errors.New("exit status 1"))
 		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("feat-new-mr\n", nil)
 		mockGit.EXPECT().Git("diff", "--name-only", "HEAD").Return("", nil)
 		mockGit.EXPECT().Git("ls-files", "--others", "--exclude-standard").Return("", nil)
@@ -452,6 +564,7 @@ func TestMrCheckout(t *testing.T) {
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", errors.New("exit status 1"))
 		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("feat-new-mr\n", nil)
 		mockGit.EXPECT().Git("diff", "--name-only", "HEAD").Return("file.go\n", nil)
 
@@ -474,6 +587,7 @@ func TestMrCheckout(t *testing.T) {
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", errors.New("exit status 1"))
 		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("feat-new-mr\n", nil)
 		mockGit.EXPECT().Git("diff", "--name-only", "HEAD").Return("", nil)
 		mockGit.EXPECT().Git("ls-files", "--others", "--exclude-standard").Return("local.txt\n", nil)
@@ -498,6 +612,7 @@ func TestMrCheckout(t *testing.T) {
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", errors.New("exit status 1"))
 		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("feat-new-mr\n", nil)
 		mockGit.EXPECT().Git("diff", "--name-only", "HEAD").Return("", nil)
 		mockGit.EXPECT().Git("ls-files", "--others", "--exclude-standard").Return("notes.txt\n", nil)
@@ -526,6 +641,7 @@ func TestMrCheckout(t *testing.T) {
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
+		mockGit.EXPECT().Git("merge-base", "--is-ancestor", "refs/heads/feat-new-mr", "FETCH_HEAD").Return("", errors.New("exit status 1"))
 		mockGit.EXPECT().Git("symbolic-ref", "--quiet", "--short", "HEAD").Return("main\n", nil)
 		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "branch", "-f", "feat-new-mr", "FETCH_HEAD").Return(nil)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
