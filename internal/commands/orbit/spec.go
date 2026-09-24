@@ -16,7 +16,7 @@ func Spec() binarymgr.Spec {
 		PackageName:   "orbit-cli",
 		ConfigPrefix:  "orbit_cli",
 		EnvVarPrefix:  "GLAB_ORBIT_CLI",
-		MinVersion:    "0.103.0",
+		MinVersion:    "0.130.0",
 		SupportedOS:   []string{"darwin", "linux", "windows"},
 		NormalizeArch: orbitNormalizeArch,
 		AssetName:     orbitAssetName,

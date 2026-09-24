@@ -60,8 +60,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 				`, "`"),
 		},
 		Example: heredoc.Doc(`
-			# Guided onboarding (choose your assistant)
-			$ glab orbit setup claude
+			# Connect Orbit to the coding agents on this machine, or undo it
+			$ glab orbit setup
+			$ glab orbit uninstall
 
 			# Query the remote Orbit graph (authenticates automatically)
 			$ glab orbit status
