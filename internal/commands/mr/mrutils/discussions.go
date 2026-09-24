@@ -143,28 +143,52 @@ func matchesType(discussion *gitlab.Discussion, typ string) bool {
 // ResolveDiscussionID resolves a prefix (8+ chars) to a full discussion ID.
 // Returns an error if the prefix is ambiguous or not found.
 func ResolveDiscussionID(ctx context.Context, client *gitlab.Client, projectID any, mrIID int64, prefix string) (string, error) {
-	prefixLen := len(prefix)
-	if prefixLen < 8 {
-		return "", fmt.Errorf("discussion ID prefix must be at least 8 characters, got %d", len(prefix))
-	}
-	discussions, err := ListAllDiscussions(ctx, client, projectID, mrIID, &gitlab.ListMergeRequestDiscussionsOptions{})
+	discussion, err := ResolveDiscussion(ctx, client, projectID, mrIID, prefix)
 	if err != nil {
 		return "", err
 	}
-	var matches []string
+	return discussion.ID, nil
+}
+
+// ResolveDiscussion resolves a prefix (8+ chars) to the discussion it names,
+// for callers that need the thread's notes and not only its ID.
+// Returns an error if the prefix is ambiguous or not found.
+func ResolveDiscussion(ctx context.Context, client *gitlab.Client, projectID any, mrIID int64, prefix string) (*gitlab.Discussion, error) {
+	prefixLen := len(prefix)
+	if prefixLen < 8 {
+		return nil, fmt.Errorf("discussion ID prefix must be at least 8 characters, got %d", len(prefix))
+	}
+	discussions, err := ListAllDiscussions(ctx, client, projectID, mrIID, &gitlab.ListMergeRequestDiscussionsOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var matches []*gitlab.Discussion
 	for _, d := range discussions {
 		if len(d.ID) >= prefixLen && d.ID[:prefixLen] == prefix {
-			matches = append(matches, d.ID)
+			matches = append(matches, d)
 		}
 	}
 	switch len(matches) {
 	case 0:
-		return "", fmt.Errorf("no discussion found matching prefix %q", prefix)
+		return nil, fmt.Errorf("no discussion found matching prefix %q", prefix)
 	case 1:
 		return matches[0], nil
 	default:
-		return "", fmt.Errorf("prefix %q matches %d discussions: %s", prefix, len(matches), formatMatches(matches))
+		ids := make([]string, 0, len(matches))
+		for _, d := range matches {
+			ids = append(ids, d.ID)
+		}
+		return nil, fmt.Errorf("prefix %q matches %d discussions: %s", prefix, len(matches), formatMatches(ids))
 	}
+}
+
+// IsInternalDiscussion reports whether a thread is internal. GitLab tracks
+// internal per thread rather than per note, so the opening note decides it.
+func IsInternalDiscussion(discussion *gitlab.Discussion) bool {
+	if len(discussion.Notes) == 0 {
+		return false
+	}
+	return discussion.Notes[0].Internal
 }
 
 // formatMatches formats discussion IDs for display, truncating each to 8 chars.

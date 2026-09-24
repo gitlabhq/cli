@@ -32,6 +32,7 @@ type createOptions struct {
 	line       string
 	oldLine    int
 	resolvable bool
+	internal   bool
 	draft      bool
 
 	// Populated in complete.
@@ -60,6 +61,8 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			Non-resolvable notes do not block merging when the project requires
 			**All threads must be resolved**. Use this option for automation or status
 			updates that do not need a human to resolve them.
+
+			Use %[1]s--internal%[1]s to create an internal note, which only project members can view. A reply to an internal thread is itself internal. When combined with %[1]s--reply%[1]s, %[1]s--internal%[1]s checks the target thread's visibility and fails if the thread is public. Replying to an internal thread without %[1]s--internal%[1]s still produces an internal reply.
 
 			Use %[1]s--reply%[1]s to add a note to an existing discussion thread instead of
 			starting a new one. The value can be a full discussion ID or a unique
@@ -97,6 +100,10 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			%[1]s--old-line%[1]s).
 			- %[1]s--draft%[1]s cannot be combined with %[1]s--unique%[1]s or
 			%[1]s--resolvable=false%[1]s.
+			- %[1]s--internal%[1]s cannot be combined with %[1]s--draft%[1]s or
+			%[1]s--file%[1]s (and by extension %[1]s--line%[1]s or
+			%[1]s--old-line%[1]s), nor with %[1]s--resolvable=true%[1]s unless
+			%[1]s--reply%[1]s is also given.
 			- %[1]s--attach%[1]s and %[1]s--unique%[1]s are mutually exclusive,
 			because every upload gets a fresh URL and so an attached comment can
 			never match an existing one.
@@ -124,6 +131,12 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 
 			# Create a non-resolvable note, for example for bot or CI status updates
 			glab mr note create 123 -m "Build status: green" --resolvable=false
+
+			# Create an internal note, visible only to project members
+			glab mr note create 123 -m "Rotating the leaked token now." --internal
+
+			# Reply to an internal thread, refusing to post if that thread is public
+			glab mr note create 123 --reply abc12345 --internal -m "Patch is ready."
 
 			# Reply to an existing discussion thread
 			glab mr note create 123 --reply abc12345 -m "I agree!"
@@ -157,7 +170,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := opts.validateFlags(); err != nil {
+			if err := opts.validateFlags(cmd); err != nil {
 				return err
 			}
 			if err := opts.complete(cmd, args); err != nil {
@@ -178,6 +191,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	fl.StringVar(&opts.line, "line", "", "Line in the new version. A single line number, like 42, or a range, like 10:15.")
 	fl.IntVar(&opts.oldLine, "old-line", 0, "Line in the old version, for commenting on a removed line.")
 	fl.BoolVar(&opts.resolvable, "resolvable", true, "Create the note as a resolvable discussion thread. Set to false to create a non-resolvable note.")
+	fl.BoolVar(&opts.internal, "internal", false, "Create the note as an internal note, visible only to project members.")
 	fl.BoolVar(&opts.draft, "draft", false, "Create the comment as a pending review comment.")
 	cmdutils.AddAttachFlag(cmd, &opts.attach, "comment")
 
@@ -189,6 +203,8 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	cmd.MarkFlagsMutuallyExclusive("unique", "file")
 	cmd.MarkFlagsMutuallyExclusive("line", "old-line")
 	cmd.MarkFlagsMutuallyExclusive("draft", "unique")
+	cmd.MarkFlagsMutuallyExclusive("internal", "draft")
+	cmd.MarkFlagsMutuallyExclusive("internal", "file")
 
 	return cmd
 }
@@ -245,7 +261,16 @@ func (o *createOptions) complete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func (o *createOptions) validateFlags() error {
+func (o *createOptions) validateFlags(cmd *cobra.Command) error {
+	if o.internal {
+		if o.reply == "" {
+			if cmd.Flags().Changed("resolvable") && o.resolvable {
+				return fmt.Errorf("--internal cannot be used with --resolvable=true")
+			}
+			o.resolvable = false
+		}
+	}
+
 	if !o.resolvable {
 		if o.draft {
 			return fmt.Errorf("--resolvable=false cannot be used with --draft")
@@ -328,10 +353,15 @@ func (o *createOptions) runCreate(ctx context.Context) error {
 }
 
 func (o *createOptions) runCreateNote(ctx context.Context) error {
+	createOpts := &gitlab.CreateMergeRequestNoteOptions{Body: &o.body}
+	if o.internal {
+		createOpts.Internal = &o.internal
+	}
+
 	note, _, err := o.client.Notes.CreateMergeRequestNote(
 		o.repo.FullName(),
 		o.mr.IID,
-		&gitlab.CreateMergeRequestNoteOptions{Body: &o.body},
+		createOpts,
 		gitlab.WithContext(ctx),
 	)
 	if err != nil {
@@ -343,9 +373,17 @@ func (o *createOptions) runCreateNote(ctx context.Context) error {
 }
 
 func (o *createOptions) runReply(ctx context.Context) error {
-	discussionID, err := mrutils.ResolveDiscussionID(ctx, o.client, o.repo.FullName(), o.mr.IID, o.reply)
+	discussion, err := mrutils.ResolveDiscussion(ctx, o.client, o.repo.FullName(), o.mr.IID, o.reply)
 	if err != nil {
 		return err
+	}
+	discussionID := discussion.ID
+
+	if o.internal && !mrutils.IsInternalDiscussion(discussion) {
+		return fmt.Errorf(
+			"--internal was requested but discussion %s is not internal, so the reply would be publicly visible",
+			mrutils.TruncateDiscussionID(discussionID),
+		)
 	}
 
 	note, _, err := o.client.Discussions.AddMergeRequestDiscussionNote(
