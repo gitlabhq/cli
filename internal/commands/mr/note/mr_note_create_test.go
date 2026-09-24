@@ -451,6 +451,7 @@ func Test_cmdCreate_resolvable(t *testing.T) {
 			CreateMergeRequestNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(pid any, mrIID int64, opts *gitlab.CreateMergeRequestNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Note, *gitlab.Response, error) {
 				assert.Equal(t, "Build status: green", *opts.Body)
+				assert.Nil(t, opts.Internal)
 				return &gitlab.Note{ID: 501}, nil, nil
 			})
 
@@ -531,6 +532,204 @@ func Test_cmdCreate_resolvable(t *testing.T) {
 		output, err := exec(`1 --resolvable=true --reply abc12345 -m "hi"`)
 		require.NoError(t, err)
 		assert.Contains(t, output.String(), "#note_503")
+	})
+}
+
+func Test_cmdCreate_internal(t *testing.T) {
+	t.Parallel()
+
+	t.Run("--internal posts an internal note via the Notes API", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := setupMR(t)
+
+		testClient.MockNotes.EXPECT().
+			CreateMergeRequestNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(pid any, mrIID int64, opts *gitlab.CreateMergeRequestNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Note, *gitlab.Response, error) {
+				assert.Equal(t, "Rotating the leaked token now.", *opts.Body)
+				require.NotNil(t, opts.Internal)
+				assert.True(t, *opts.Internal)
+				return &gitlab.Note{ID: 600}, nil, nil
+			})
+
+		exec := setupCreateExec(t, testClient)
+
+		output, err := exec(`1 --internal -m "Rotating the leaked token now."`)
+		require.NoError(t, err)
+		assert.Empty(t, output.Stderr())
+		assert.Equal(t, "https://gitlab.com/OWNER/REPO/merge_requests/1#note_600\n", output.String())
+	})
+
+	t.Run("--internal with an explicit --resolvable=false posts an internal note", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := setupMR(t)
+
+		testClient.MockNotes.EXPECT().
+			CreateMergeRequestNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(pid any, mrIID int64, opts *gitlab.CreateMergeRequestNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Note, *gitlab.Response, error) {
+				require.NotNil(t, opts.Internal)
+				assert.True(t, *opts.Internal)
+				return &gitlab.Note{ID: 601}, nil, nil
+			})
+
+		exec := setupCreateExec(t, testClient)
+
+		output, err := exec(`1 --internal --resolvable=false -m "members only"`)
+		require.NoError(t, err)
+		assert.Contains(t, output.String(), "#note_601")
+	})
+
+	t.Run("--internal --unique posts when no matching note exists", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := setupMR(t)
+
+		testClient.MockNotes.EXPECT().
+			ListMergeRequestNotes("OWNER/REPO", int64(1), gomock.Any()).
+			Return([]*gitlab.Note{{ID: 100, Body: "other note"}}, nil, nil)
+
+		testClient.MockNotes.EXPECT().
+			CreateMergeRequestNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(pid any, mrIID int64, opts *gitlab.CreateMergeRequestNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Note, *gitlab.Response, error) {
+				require.NotNil(t, opts.Internal)
+				assert.True(t, *opts.Internal)
+				return &gitlab.Note{ID: 602}, nil, nil
+			})
+
+		exec := setupCreateExec(t, testClient)
+
+		output, err := exec(`1 --internal --unique -m "brand new internal note"`)
+		require.NoError(t, err)
+		assert.Contains(t, output.String(), "#note_602")
+	})
+
+	t.Run("--internal never falls back to the Discussions API", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := setupMR(t)
+
+		testClient.MockDiscussions.EXPECT().
+			CreateMergeRequestDiscussion(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Times(0)
+
+		testClient.MockNotes.EXPECT().
+			CreateMergeRequestNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return(&gitlab.Note{ID: 603}, nil, nil)
+
+		exec := setupCreateExec(t, testClient)
+
+		_, err := exec(`1 --internal -m "members only"`)
+		require.NoError(t, err)
+	})
+
+	t.Run("--internal and --resolvable=true are mutually exclusive", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+
+		exec := setupCreateExec(t, testClient)
+
+		_, err := exec(`1 --internal --resolvable=true -m "hi"`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--internal cannot be used with --resolvable=true")
+	})
+
+	t.Run("--internal and --draft are mutually exclusive", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+
+		exec := setupCreateExec(t, testClient)
+
+		_, err := exec(`1 --internal --draft -m "hi"`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "none of the others can be")
+	})
+
+	t.Run("--internal --reply posts to an internal thread, which makes the reply internal", func(t *testing.T) {
+		t.Parallel()
+
+		const fullID = "abc12345deadbeef1234567890abcdef12345678"
+
+		testClient := setupMR(t)
+
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{ID: fullID, Notes: []*gitlab.Note{{ID: 1, Internal: true}}},
+			}, nil, nil)
+
+		testClient.MockDiscussions.EXPECT().
+			AddMergeRequestDiscussionNote("OWNER/REPO", int64(1), fullID, gomock.Any(), gomock.Any()).
+			Return(&gitlab.Note{ID: 604}, nil, nil)
+
+		exec := setupCreateExec(t, testClient)
+
+		output, err := exec(`1 --reply abc12345 --internal -m "Patch is ready."`)
+		require.NoError(t, err)
+		assert.Contains(t, output.String(), "#note_604")
+	})
+
+	t.Run("--internal --reply refuses to post to a public thread", func(t *testing.T) {
+		t.Parallel()
+
+		const fullID = "abc12345deadbeef1234567890abcdef12345678"
+
+		testClient := setupMR(t)
+
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{ID: fullID, Notes: []*gitlab.Note{{ID: 1, Internal: false}}},
+			}, nil, nil)
+
+		testClient.MockDiscussions.EXPECT().
+			AddMergeRequestDiscussionNote(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Times(0)
+
+		exec := setupCreateExec(t, testClient)
+
+		_, err := exec(`1 --reply abc12345 --internal -m "Patch is ready."`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not internal")
+		assert.Contains(t, err.Error(), "would be publicly visible")
+	})
+
+	t.Run("--reply without --internal still posts to an internal thread", func(t *testing.T) {
+		t.Parallel()
+
+		const fullID = "abc12345deadbeef1234567890abcdef12345678"
+
+		testClient := setupMR(t)
+
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{ID: fullID, Notes: []*gitlab.Note{{ID: 1, Internal: true}}},
+			}, nil, nil)
+
+		testClient.MockDiscussions.EXPECT().
+			AddMergeRequestDiscussionNote("OWNER/REPO", int64(1), fullID, gomock.Any(), gomock.Any()).
+			Return(&gitlab.Note{ID: 605}, nil, nil)
+
+		exec := setupCreateExec(t, testClient)
+
+		output, err := exec(`1 --reply abc12345 -m "no flag needed"`)
+		require.NoError(t, err)
+		assert.Contains(t, output.String(), "#note_605")
+	})
+
+	t.Run("--internal and --file are mutually exclusive", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+
+		exec := setupCreateExec(t, testClient)
+
+		_, err := exec(`1 --internal --file main.go --line 42 -m "hi"`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "none of the others can be")
 	})
 }
 

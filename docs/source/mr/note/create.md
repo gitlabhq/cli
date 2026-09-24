@@ -22,6 +22,8 @@ Non-resolvable notes do not block merging when the project requires
 **All threads must be resolved**. Use this option for automation or status
 updates that do not need a human to resolve them.
 
+Use `--internal` to create an internal note, which only project members can view. A reply to an internal thread is itself internal. When combined with `--reply`, `--internal` checks the target thread's visibility and fails if the thread is public. Replying to an internal thread without `--internal` still produces an internal reply.
+
 Use `--reply` to add a note to an existing discussion thread instead of
 starting a new one. The value can be a full discussion ID or a unique
 prefix of at least 8 characters. Find discussion IDs with
@@ -58,6 +60,10 @@ or `--file` (and by extension `--line` or
 `--old-line`).
 - `--draft` cannot be combined with `--unique` or
 `--resolvable=false`.
+- `--internal` cannot be combined with `--draft` or
+`--file` (and by extension `--line` or
+`--old-line`), nor with `--resolvable=true` unless
+`--reply` is also given.
 - `--attach` and `--unique` are mutually exclusive,
 because every upload gets a fresh URL and so an attached comment can
 never match an existing one.
@@ -97,6 +103,12 @@ glab mr note create 123 -m "LGTM" --unique
 # Create a non-resolvable note, for example for bot or CI status updates
 glab mr note create 123 -m "Build status: green" --resolvable=false
 
+# Create an internal note, visible only to project members
+glab mr note create 123 -m "Rotating the leaked token now." --internal
+
+# Reply to an internal thread, refusing to post if that thread is public
+glab mr note create 123 --reply abc12345 --internal -m "Patch is ready."
+
 # Reply to an existing discussion thread
 glab mr note create 123 --reply abc12345 -m "I agree!"
 
@@ -132,6 +144,7 @@ pngpaste - | glab mr note create 123 --attach -
       --attach stringArray   (EXPERIMENTAL) Upload a file and reference it at the end of the comment. Use "-" to read the file from standard input. Repeat the flag to attach multiple files.
       --draft                Create the comment as a pending review comment.
       --file string          File path for a diff comment, like <path/to/file>. Targets the latest merge request diff version.
+      --internal             Create the note as an internal note, visible only to project members.
       --line string          Line in the new version. A single line number, like 42, or a range, like 10:15.
   -m, --message string       Comment or note message.
       --old-line int         Line in the old version, for commenting on a removed line.
