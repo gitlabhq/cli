@@ -15,6 +15,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -121,4 +122,11 @@ func TestRunDoctor_ExitCodeOnFailure(t *testing.T) {
 
 	err := runDoctor(t.Context(), opts)
 	assert.ErrorIs(t, err, cmdutils.SilentError)
+}
+
+func TestMCPSafeAnnotation(t *testing.T) {
+	t.Parallel()
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	cmd := NewCmd(cmdtest.NewTestFactory(ios))
+	assert.Equal(t, "true", cmd.Annotations[mcpannotations.Safe])
 }

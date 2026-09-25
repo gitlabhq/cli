@@ -49,7 +49,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			glab repo members remove --user-id=123`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
-			mcpannotations.Safe: "false",
+			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.validate(); err != nil {

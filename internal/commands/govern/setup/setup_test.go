@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -193,4 +194,12 @@ func TestInstallClaudeHooks_PreservesAllSettingsKeys(t *testing.T) {
 
 	assert.Len(t, hooks["Stop"], 1)
 	assert.Len(t, hooks["SessionEnd"], 1)
+}
+
+func TestMCPDestructiveAnnotation(t *testing.T) {
+	t.Parallel()
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(ios)
+	cmd := NewCmd(f)
+	assert.Equal(t, "true", cmd.Annotations[mcpannotations.Destructive])
 }

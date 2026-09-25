@@ -62,7 +62,7 @@ func NewCmdEdit(f cmdutils.Factory) *cobra.Command {
 		`),
 		Args: cobra.ExactArgs(1),
 		Annotations: map[string]string{
-			mcpannotations.Safe: "false",
+			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error

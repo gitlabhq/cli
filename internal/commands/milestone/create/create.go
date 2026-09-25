@@ -57,7 +57,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 		`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
-			mcpannotations.Safe: "false",
+			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.run()

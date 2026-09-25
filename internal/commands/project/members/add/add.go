@@ -74,7 +74,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			glab repo members add --username=john.doe --role-id=101`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
-			mcpannotations.Safe: "false",
+			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.validate(); err != nil {

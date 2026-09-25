@@ -15,6 +15,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/mr/mrutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -87,6 +88,9 @@ func newResolveCmd(f cmdutils.Factory, resolve bool) *cobra.Command {
 			glab mr note %s abc12345deadbeef1234567890abcdef12345678
 		`, capitalize(action), action, capitalize(action), action, capitalize(action), action, capitalize(action), action),
 		Args: cobra.RangeArgs(1, 2),
+		Annotations: map[string]string{
+			mcpannotations.Destructive: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.complete(cmd.Context(), args); err != nil {
 				return err

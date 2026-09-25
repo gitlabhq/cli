@@ -46,7 +46,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			glab runner assign 9 -R owner/repo`),
 		Args: cobra.ExactArgs(1),
 		Annotations: map[string]string{
-			mcpannotations.Safe: "false",
+			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.complete(args); err != nil {

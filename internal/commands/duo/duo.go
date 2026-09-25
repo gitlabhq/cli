@@ -10,6 +10,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	duoAskCmd "gitlab.com/gitlab-org/cli/internal/commands/duo/ask"
 	duoCLICmd "gitlab.com/gitlab-org/cli/internal/commands/duo/cli"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
 
 func NewCmd(f cmdutils.Factory) *cobra.Command {
@@ -34,6 +35,11 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		// flags before RunE sees them.
 		DisableFlagParsing: true,
 		Args:               cobra.ArbitraryArgs,
+		// This RunE only redirects to "duo cli"; it has no independent
+		// behavior for MCP to expose as a tool.
+		Annotations: map[string]string{
+			mcpannotations.Exclude: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			for _, a := range args {
 				if a == "--help" || a == "-h" {

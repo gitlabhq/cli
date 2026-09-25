@@ -11,6 +11,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/summary"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -51,6 +52,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			glab dependency-firewall ci-summary
 		`),
 		Args: cobra.NoArgs,
+		Annotations: map[string]string{
+			mcpannotations.Safe: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.complete(); err != nil {
 				return err
