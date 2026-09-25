@@ -13,6 +13,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/utils"
 )
 
@@ -177,6 +178,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 				  Skips download, version checks, and updates. Can also be set through the
 				  %[1]sduo_cli_binary_path%[1]s configuration key.
 				`, "`"),
+			mcpannotations.Exclude: "true",
 		},
 		Example: heredoc.Doc(`
 			# Start an interactive GitLab Duo CLI session

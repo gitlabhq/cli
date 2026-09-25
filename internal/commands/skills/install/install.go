@@ -14,6 +14,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/skills/skill"
 	"gitlab.com/gitlab-org/cli/internal/git"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -82,6 +83,9 @@ func NewCmdInstall(f cmdutils.Factory) *cobra.Command {
 			glab skills install --force
 		`),
 		Args: cobra.MaximumNArgs(1),
+		Annotations: map[string]string{
+			mcpannotations.Destructive: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.complete(args); err != nil {
 				return err

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -239,4 +240,12 @@ func TestSyncSession_CursorNotAdvancedOnSessionFailure(t *testing.T) {
 	cursor, err := readCursor("sess-test")
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), cursor, "cursor should not advance when session creation fails")
+}
+
+func TestMCPDestructiveAnnotation(t *testing.T) {
+	t.Parallel()
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(ios)
+	cmd := NewCmd(f)
+	assert.Equal(t, "true", cmd.Annotations[mcpannotations.Destructive])
 }

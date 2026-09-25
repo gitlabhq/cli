@@ -10,6 +10,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/mr/mrutils"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -60,6 +61,9 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 			# List discussions on MR 123
 			glab mr note list 123`),
 		Args: cobra.MaximumNArgs(1),
+		Annotations: map[string]string{
+			mcpannotations.Safe: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.complete(args)
 			return opts.run(cmd.Context())

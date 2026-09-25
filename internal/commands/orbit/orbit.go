@@ -12,6 +12,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -49,6 +50,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			For more information, see the [Orbit documentation](https://docs.gitlab.com/orbit/).
 		`, "`") + text.ExperimentalString,
 		Annotations: map[string]string{
+			mcpannotations.Exclude: "true",
 			"help:environment": heredoc.Docf(`
 				- %[1]sGLAB_ORBIT_CLI_BINARY_PATH%[1]s: Use a local binary instead of the managed one. Skips
 				  download, version checks, and updates. Can also be set via the %[1]sorbit_cli_binary_path%[1]s

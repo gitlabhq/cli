@@ -15,6 +15,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/skills/registry"
 	"gitlab.com/gitlab-org/cli/internal/commands/skills/skill"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -52,6 +53,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			glab skills update --all
 		`),
 		Args: cobra.MaximumNArgs(1),
+		Annotations: map[string]string{
+			mcpannotations.Destructive: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.complete(cmd, args)
 			if err := opts.validate(); err != nil {

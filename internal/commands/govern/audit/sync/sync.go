@@ -18,6 +18,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -65,6 +66,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		    	$ glab govern audit sync --project my-group/my-project --hostname gitlab.com
 		`),
 		Args: cobra.NoArgs,
+		Annotations: map[string]string{
+			mcpannotations.Destructive: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.agentType = detectAgentType()
 			return runSync(cmd.Context(), opts)

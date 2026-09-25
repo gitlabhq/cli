@@ -21,6 +21,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -66,6 +67,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		    $ glab govern doctor
 		`),
 		Args: cobra.NoArgs,
+		Annotations: map[string]string{
+			mcpannotations.Safe: "true",
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDoctor(cmd.Context(), opts)
 		},
