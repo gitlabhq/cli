@@ -221,6 +221,69 @@ func Test_DeleteStackRefFile(t *testing.T) {
 	// TODO: write test
 }
 
+func Test_UnsetLocalConfig(t *testing.T) {
+	InitGitRepo(t)
+
+	require.NoError(t, SetLocalConfig("this.glabstacks", "a value"))
+
+	require.NoError(t, UnsetLocalConfig("this.glabstacks"))
+
+	_, err := Config("this.glabstacks")
+	require.Error(t, err, "the key should be gone")
+}
+
+func Test_RemoveStackRefDir(t *testing.T) {
+	for _, worktree := range []bool{false, true} {
+		suffix := ""
+		if worktree {
+			suffix = " in worktree"
+		}
+
+		t.Run("removes the stack and its files"+suffix, func(t *testing.T) {
+			InitGitRepoOrWorktree(t, worktree)
+
+			require.NoError(t, AddStackRefFile("doomed-stack", StackRef{SHA: "1a2b3c4d", Branch: "a-branch"}))
+			require.NoError(t, AddStackRefFile("keeper-stack", StackRef{SHA: "5e6f7a8b", Branch: "another-branch"}))
+
+			require.NoError(t, RemoveStackRefDir("doomed-stack"))
+
+			stackLoc, err := StackLocation()
+			require.NoError(t, err)
+			require.NoDirExists(t, filepath.Join(stackLoc, "doomed-stack"))
+			require.DirExists(t, filepath.Join(stackLoc, "keeper-stack"))
+		})
+	}
+
+	t.Run("removes a stack left with only a BASE_BRANCH file", func(t *testing.T) {
+		InitGitRepo(t)
+
+		stackDir, err := AddStackRefDir("merged-stack")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(stackDir, BaseBranchFile), []byte("main"), 0o644))
+
+		require.NoError(t, RemoveStackRefDir("merged-stack"))
+		require.NoDirExists(t, stackDir)
+	})
+
+	t.Run("refuses a name that escapes the stacked directory", func(t *testing.T) {
+		InitGitRepo(t)
+
+		require.NoError(t, AddStackRefFile("real-stack", StackRef{SHA: "1a2b3c4d", Branch: "a-branch"}))
+
+		for _, name := range []string{"", ".", "..", "../..", "nested/stack"} {
+			require.Error(t, RemoveStackRefDir(name), "name %q should be rejected", name)
+		}
+
+		gitDir, err := GitDir()
+		require.NoError(t, err)
+		require.DirExists(t, gitDir)
+
+		stackLoc, err := StackLocation()
+		require.NoError(t, err)
+		require.DirExists(t, filepath.Join(stackLoc, "real-stack"))
+	})
+}
+
 func Test_UpdateStackRefFile(t *testing.T) {
 	type args struct {
 		title    string
