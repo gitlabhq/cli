@@ -39,6 +39,18 @@ func SetLocalConfig(key, value string) error {
 	return nil
 }
 
+// UnsetLocalConfig removes a key from the repository-local Git config.
+// Git exits with a non-zero status when the key is not set, so check that it
+// has a value before calling this.
+func UnsetLocalConfig(key string) error {
+	unsetCmd := GitCommand("config", "--local", "--unset", key)
+	_, err := run.PrepareCmd(unsetCmd).Output()
+	if err != nil {
+		return fmt.Errorf("unsetting local Git config: %w", err)
+	}
+	return nil
+}
+
 func GetCurrentStackTitle() (string, error) {
 	return Config("glab.currentstack")
 }
@@ -57,6 +69,26 @@ func AddStackRefDir(dir string) (string, error) {
 	}
 
 	return createdDir, nil
+}
+
+// RemoveStackRefDir deletes a stack's metadata directory and everything in it,
+// including the BASE_BRANCH file that remains after the last ref file is gone.
+func RemoveStackRefDir(title string) error {
+	// filepath.Base returns "." and ".." unchanged, so they are rejected explicitly.
+	if title == "" || title == "." || title == ".." || title != filepath.Base(title) {
+		return fmt.Errorf("invalid stack name: %q", title)
+	}
+
+	stackDir, err := StackRootDir(title)
+	if err != nil {
+		return fmt.Errorf("finding stack location: %w", err)
+	}
+
+	if err := os.RemoveAll(stackDir); err != nil {
+		return fmt.Errorf("removing stacked diff directory: %w", err)
+	}
+
+	return nil
 }
 
 func StackRootDir(title string) (string, error) {

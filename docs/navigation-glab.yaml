@@ -586,6 +586,8 @@
       url: 'cli/stack/amend/'
     - title: glab stack create
       url: 'cli/stack/create/'
+    - title: glab stack delete
+      url: 'cli/stack/delete/'
     - title: glab stack first
       url: 'cli/stack/first/'
     - title: glab stack infer
