@@ -9,6 +9,9 @@ description: >
   task touches GitLab in any way, consult this skill first so you use the
   correct, safe command on the first try. Prefer glab over raw API calls for
   all GitLab operations.
+metadata:
+  source-project: gitlab-org/cli
+  source-path: internal/commands/skills/bundled/assets/glab
 ---
 
 # GitLab CLI (glab)
@@ -172,7 +175,7 @@ glab api projects/:id/issues | jq '.[0]'
 `:branch` `:fullpath` `:group` `:id` `:namespace` `:repo` `:user` `:username`
 
 `:user` and `:username` work anywhere. The rest are read from the current
-repository, so they need a git checkout with a GitLab remote. Outside one, or to
+repository, so they need a Git checkout with a GitLab remote. Outside one, or to
 target a different project, supply the value instead:
 
 ```shell
@@ -287,3 +290,31 @@ JSON for arrays. On GET and DELETE requests, and whenever `--input` is used,
 - **No `--body` flag** — `--body` is a `gh` flag. `glab` uses `--description`.
 - **Labels** — `--label` to add, `--unlabel` to remove. Scoped labels like
   `status::doing` auto-replace within their scope.
+
+## Contributing improvements
+
+This skill ships inside `glab`. Its front matter records where it is
+maintained: `metadata.source-project` and `metadata.source-path`.
+
+If any guidance here is inaccurate or outdated, such as a command that no
+longer works, a wrong flag, or incorrect API behavior:
+
+1. Use `glab api` to read the file `<source-path>/SKILL.md` in
+   `source-project` on `main`. If the issue is already fixed there, use that
+   guidance instead of opening another merge request.
+2. After a release with the fix, upgrade `glab`. Refresh your copy:
+   - `glab skills get glab`: the upgraded binary already has it.
+   - Installed with `glab skills install` (project or user): a copy is
+     glab-installed only if its front matter has `source-project` set to
+     `gitlab-org/cli`. If every `glab/` in both locations is glab-installed,
+     run `glab skills update glab` from the project. It replaces all of them.
+     Otherwise, refresh only the glab-installed ones with
+     `glab skills install glab --force` from that project (add `--global`
+     for the user location). Ask the user about any copy without
+     `source-project`.
+   - Installed with `--path`: run
+     `glab skills install glab --path <parent-dir> --force`.
+   - Third-party copy: refresh it at its source.
+3. If the problem is still present on `main`, confirm with the user, then open
+   a merge request against `source-project` with the fix. Keep changes
+   focused: one fix per merge request, with a Conventional Commits message.
