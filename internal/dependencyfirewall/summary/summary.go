@@ -184,12 +184,10 @@ func worstVerdict(blocked, warned int) verdict.Verdict {
 	}
 }
 
-// sanitizeCell makes an untrusted cell value safe to render inside the box: it
-// strips ANSI/OSC escapes and collapses any whitespace (including tabs and
-// newlines) to single spaces, so a crafted value can't tear the box or write
-// control characters to the terminal.
+// sanitizeCell makes an untrusted cell value safe to render inside the box so a
+// crafted value can't tear the box or write control characters to the terminal.
 func sanitizeCell(s string) string {
-	return strings.Join(strings.Fields(text.Strip(s)), " ")
+	return text.SanitizeInline(s)
 }
 
 // reasonOrDash sanitizes a reason and falls back to a dash when it is empty.

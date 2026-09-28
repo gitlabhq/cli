@@ -213,7 +213,7 @@ type Executor interface {
 // Run detects interruption from context cancellation and cannot recover the
 // specific signal (the received value is discarded), so it does not compute
 // 128+signal — SIGTERM's 143, for example, is never returned. The sibling df
-// package/ci-summary commands document blockExitCode = 3; this code is
+// package/ci-summary commands return verdict.BlockedExitCode (3); this code is
 // distinct from that and from the generic-failure 1.
 const interruptExitCode = 130
 

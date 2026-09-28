@@ -11,6 +11,7 @@ import (
 	cmdGradle "gitlab.com/gitlab-org/cli/internal/commands/df/gradle"
 	cmdMaven "gitlab.com/gitlab-org/cli/internal/commands/df/maven"
 	cmdNpm "gitlab.com/gitlab-org/cli/internal/commands/df/npm"
+	cmdPackage "gitlab.com/gitlab-org/cli/internal/commands/df/package"
 	cmdPip "gitlab.com/gitlab-org/cli/internal/commands/df/pip"
 	cmdPipenv "gitlab.com/gitlab-org/cli/internal/commands/df/pipenv"
 	cmdPnpm "gitlab.com/gitlab-org/cli/internal/commands/df/pnpm"
@@ -45,6 +46,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmd.AddCommand(cmdGradle.NewCmd(f))
 	cmd.AddCommand(cmdGem.NewCmd(f))
 	cmd.AddCommand(cmdBundle.NewCmd(f))
+	cmd.AddCommand(cmdPackage.NewCmd(f))
 	cmd.AddCommand(cmdCISummary.NewCmd(f))
 
 	return cmd

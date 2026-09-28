@@ -12,11 +12,20 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 )
+
+// CheckTimeout bounds a single policy evaluation (the REST call to the
+// dependency_firewall/evaluate endpoint). Every caller of Checker.Check should
+// pass a context deadlined by it so a hung or unreachable backend degrades
+// (the proxy fails closed, the package command reports a transport error)
+// instead of blocking indefinitely. Shared here so the proxy and the one-shot
+// package command agree on the bound.
+const CheckTimeout = 60 * time.Second
 
 // Operation is the package-manager action that triggered a check.
 type Operation int

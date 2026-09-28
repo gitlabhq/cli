@@ -19,6 +19,15 @@ import (
 // allow; restChecker never decides the fail-open policy itself.
 var errFirewallNotEvaluating = errors.New("dependency firewall is not evaluating this project")
 
+// IsNotEvaluating reports whether err is the "firewall not evaluating this
+// project" sentinel, so a caller that checks a coordinate directly (without a
+// CachingChecker to translate the fail-mode) can make the same fail-open
+// decision the cache makes: treat a not-evaluating project as an allow rather
+// than a block.
+func IsNotEvaluating(err error) bool {
+	return errors.Is(err, errFirewallNotEvaluating)
+}
+
 // restChecker is the real GitLab-backed policy source, selected whenever no
 // GLAB_DF_FAKE_* variable is set. It evaluates each coordinate against the
 // firewall for the request's project and maps the outcome to a Result. It

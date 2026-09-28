@@ -24,13 +24,6 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 )
 
-// policyCheckTimeout bounds a single policy evaluation (the REST call to the
-// dependency_firewall/evaluate endpoint). Without it a hung or unreachable
-// backend would block the tunnel goroutine and its TLS connection
-// indefinitely; on timeout the check returns an error and the proxy fails
-// closed (blocks) rather than hanging.
-const policyCheckTimeout = 60 * time.Second
-
 type certAuthority struct {
 	cert    *x509.Certificate
 	key     *rsa.PrivateKey
@@ -420,7 +413,7 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 // context to this call, which matters because the caller invokes it once per
 // request in a long-lived tunnel loop.
 func (p *Proxy) checkPolicy(ctx context.Context, m Match) policy.Result {
-	checkCtx, cancel := context.WithTimeout(ctx, policyCheckTimeout)
+	checkCtx, cancel := context.WithTimeout(ctx, policy.CheckTimeout)
 	defer cancel()
 	res, err := p.checker.Check(checkCtx, policy.Request{
 		Coordinate: m.Coordinate,

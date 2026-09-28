@@ -12,6 +12,14 @@ const (
 	Warning Verdict = "warning"
 )
 
+// BlockedExitCode is the process exit code a Dependency Firewall command
+// returns when the outcome is a block. It is distinct from the generic-error 1
+// and cobra's misuse 2, so callers and scripts can tell "blocked by policy"
+// apart from "the command failed". Defined here, the one package every df
+// command already imports, so the package and ci-summary commands share a
+// single definition and cannot drift.
+const BlockedExitCode = 3
+
 type Entry struct {
 	Package   string  `json:"package"`
 	Version   string  `json:"version,omitempty"`
