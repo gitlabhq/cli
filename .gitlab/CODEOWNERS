@@ -18,3 +18,5 @@
 /docs/source/dependency-firewall/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @mikeeddington @sroque-worcel @arpitgogia @hbakergitlab @mmishaev @grzesiek @jhebden
 /internal/commands/govern/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @nrosandich @jeanvdw @andrew.jung
 /docs/source/govern/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @nrosandich @jeanvdw @andrew.jung
+/internal/commands/orbit/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/orbit/team
+/docs/source/orbit/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @gitlab-org/orbit/team
