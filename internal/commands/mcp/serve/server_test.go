@@ -5,6 +5,7 @@ package serve
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
@@ -746,6 +748,22 @@ func TestConvertParamsToArgsHonoursUndeclaredPaging(t *testing.T) {
 
 	assert.Equal(t, 120, config.Limit)
 	assert.Equal(t, 50000, config.Offset)
+}
+
+func TestSubprocessEnvStampsInvocationSource(t *testing.T) {
+	// A client that already set the variable must not be able to disguise a
+	// tool call, so the stamp has to win.
+	t.Setenv(api.InvocationSourceEnv, "spoofed")
+
+	env := subprocessEnv()
+
+	var got string
+	for _, kv := range env {
+		if after, ok := strings.CutPrefix(kv, api.InvocationSourceEnv+"="); ok {
+			got = after
+		}
+	}
+	assert.Equal(t, api.InvocationSourceMCP, got, "last value wins, so the stamp must override the inherited one")
 }
 
 func TestProcessOutput(t *testing.T) {

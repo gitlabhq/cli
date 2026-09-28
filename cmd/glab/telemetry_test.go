@@ -182,6 +182,40 @@ func Test_buildTelemetryEvent_codingAgent(t *testing.T) {
 	}
 }
 
+func Test_buildTelemetryEvent_invocationSource(t *testing.T) {
+	tests := []struct {
+		name             string
+		invocationSource string
+		want             string
+		wantPresent      bool
+	}{
+		{name: "mcp tool call", invocationSource: "mcp", want: "mcp", wantPresent: true},
+		{name: "run directly", invocationSource: "", wantPresent: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, _ := telemetryServer(t, cmdtest.WithBuildInfo(api.BuildInfo{
+				Version:          "v1.2.3",
+				CodingAgent:      "claude-code",
+				InvocationSource: tt.invocationSource,
+			}))
+
+			_, event, ok := buildTelemetryEvent(f, "mr", "list", "mr list")
+			require.True(t, ok)
+
+			source, present := event.AdditionalProperties["invocation_source"]
+			require.Equal(t, tt.wantPresent, present)
+			require.Equal(t, tt.want, source)
+
+			// The agent is the same either way: invocation_source is the only
+			// thing separating a tool call from the command typed by hand.
+			require.Equal(t, "claude-code", event.AdditionalProperties["coding_agent"])
+			require.Equal(t, "mr list", event.AdditionalProperties["command_and_subcommand"])
+		})
+	}
+}
+
 func Test_addTelemetryHook_blocksUntilEventIsSent(t *testing.T) {
 	// The hook used to spawn an unjoined goroutine, so glab exited before the
 	// event was sent for every command that did not linger afterwards.

@@ -6,12 +6,13 @@ import (
 	"strings"
 )
 
-// agentValueRE validates AI_AGENT values: alphanumeric, dots, hyphens, underscores, max 64 chars.
-var agentValueRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+// envTokenRE validates caller-supplied environment values before they reach
+// telemetry: alphanumeric, dots, hyphens, underscores, max 64 chars.
+var envTokenRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 // AI_AGENT is the universal escape hatch; hardcoded agents are alphabetical, no priority implied.
 func DetectCodingAgent() string {
-	if v := os.Getenv("AI_AGENT"); agentValueRE.MatchString(v) {
+	if v := os.Getenv("AI_AGENT"); envTokenRE.MatchString(v) {
 		return v
 	}
 	if os.Getenv("CLAUDECODE") == "1" {
