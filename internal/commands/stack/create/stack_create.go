@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/stack/stackutils"
 	"gitlab.com/gitlab-org/cli/internal/git"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
@@ -33,6 +34,10 @@ func NewCmdCreateStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := stackutils.CheckNoRebaseInProgress(); err != nil {
+				return err
+			}
+
 			var titleString string
 
 			switch len(args) {

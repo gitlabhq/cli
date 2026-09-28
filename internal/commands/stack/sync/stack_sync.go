@@ -16,6 +16,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/mr/create"
 	"gitlab.com/gitlab-org/cli/internal/commands/mr/mrutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/stack/stackutils"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/git"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
@@ -110,6 +111,10 @@ func NewCmdSyncStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 }
 
 func (o *options) run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner) error {
+	if err := stackutils.CheckNoRebaseInProgress(); err != nil {
+		return err
+	}
+
 	client, err := auth.GetAuthenticatedClient(f.Config(), f.GitLabClient, f.IO())
 	if err != nil {
 		return fmt.Errorf("error authorizing with GitLab: %w", err)

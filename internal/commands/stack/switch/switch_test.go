@@ -110,3 +110,26 @@ func TestSwitchWithoutStackNameRequiresExistingStacks(t *testing.T) {
 
 	require.EqualError(t, err, "switching stacks failed: no stacks found; create one with \"glab stack create\"")
 }
+
+func TestSwitchBlockedByInProgressReorder(t *testing.T) {
+	git.InitGitRepo(t)
+	_, err := git.AddStackRefDir("current-stack")
+	require.NoError(t, err)
+	_, err = git.AddStackRefDir("target-stack")
+	require.NoError(t, err)
+	require.NoError(t, git.SetLocalConfig("glab.currentstack", "current-stack"))
+	require.NoError(t, git.WriteReorderState("current-stack",
+		git.ReorderState{NewOrder: []string{"branchA"}}))
+
+	exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+		return NewCmdStackSwitch(f, nil)
+	}, true)
+
+	_, err = exec("target-stack")
+
+	require.ErrorContains(t, err, "stack reorder is in progress")
+
+	currentStack, err := git.GetCurrentStackTitle()
+	require.NoError(t, err)
+	require.Equal(t, "current-stack", currentStack)
+}

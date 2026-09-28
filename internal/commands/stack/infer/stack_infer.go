@@ -94,6 +94,10 @@ func resolveBaseBranch(gr git.GitRunner, ref string) (string, error) {
 }
 
 func run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner, args []string, o *options) error {
+	if err := stackutils.CheckNoRebaseInProgress(); err != nil {
+		return err
+	}
+
 	baseBranch, err := parseBaseBranch(gr, args)
 	if err != nil {
 		return err

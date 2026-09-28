@@ -417,6 +417,99 @@ func Test_GetStacks(t *testing.T) {
 	}
 }
 
+func Test_WriteAndReadReorderState(t *testing.T) {
+	InitGitRepo(t)
+
+	state := ReorderState{
+		NewOrder:       []string{"branchC", "branchA", "branchB"},
+		NextIndex:      1,
+		OldTips:        map[string]string{"branchA": "aaa", "branchB": "bbb", "branchC": "ccc", "main": "000"},
+		OldParent:      map[string]string{"branchA": "main", "branchB": "branchA", "branchC": "branchB"},
+		BaseBranch:     "main",
+		OriginalBranch: "branchA",
+		OldRefs: map[string]StackRef{
+			"ref-a": {SHA: "ref-a", Prev: "", Next: "ref-b", Branch: "branchA"},
+			"ref-b": {SHA: "ref-b", Prev: "ref-a", Next: "ref-c", Branch: "branchB"},
+			"ref-c": {SHA: "ref-c", Prev: "ref-b", Next: "", Branch: "branchC"},
+		},
+		NewRefs: map[string]StackRef{
+			"ref-c": {SHA: "ref-c", Prev: "", Next: "ref-a", Branch: "branchC"},
+			"ref-a": {SHA: "ref-a", Prev: "ref-c", Next: "ref-b", Branch: "branchA"},
+			"ref-b": {SHA: "ref-b", Prev: "ref-a", Next: "", Branch: "branchB"},
+		},
+	}
+
+	// Create the stack directory first
+	err := AddStackRefFile("test-stack", StackRef{SHA: "dummy"})
+	require.NoError(t, err)
+
+	err = WriteReorderState("test-stack", state)
+	require.NoError(t, err)
+
+	got, err := ReadReorderState("test-stack")
+	require.NoError(t, err)
+	require.Equal(t, state, got)
+}
+
+func Test_DeleteReorderState(t *testing.T) {
+	InitGitRepo(t)
+
+	// Create directory and write state
+	err := AddStackRefFile("test-stack", StackRef{SHA: "dummy"})
+	require.NoError(t, err)
+
+	state := ReorderState{NewOrder: []string{"a"}}
+	err = WriteReorderState("test-stack", state)
+	require.NoError(t, err)
+
+	// Verify it exists
+	inProgress, err := ReorderInProgress("test-stack")
+	require.NoError(t, err)
+	require.True(t, inProgress)
+
+	err = DeleteReorderState("test-stack")
+	require.NoError(t, err)
+
+	// Verify it's gone
+	inProgress, err = ReorderInProgress("test-stack")
+	require.NoError(t, err)
+	require.False(t, inProgress)
+}
+
+func Test_ReorderInProgress(t *testing.T) {
+	InitGitRepo(t)
+
+	// Create the stack directory
+	err := AddStackRefFile("test-stack", StackRef{SHA: "dummy"})
+	require.NoError(t, err)
+
+	// No state file yet
+	inProgress, err := ReorderInProgress("test-stack")
+	require.NoError(t, err)
+	require.False(t, inProgress)
+
+	// Write state
+	state := ReorderState{NewOrder: []string{"a"}}
+	err = WriteReorderState("test-stack", state)
+	require.NoError(t, err)
+
+	// Now it should be in progress
+	inProgress, err = ReorderInProgress("test-stack")
+	require.NoError(t, err)
+	require.True(t, inProgress)
+}
+
+func Test_ReadReorderState_NotExist(t *testing.T) {
+	InitGitRepo(t)
+
+	// Create the stack directory but no state file
+	err := AddStackRefFile("test-stack", StackRef{SHA: "dummy"})
+	require.NoError(t, err)
+
+	_, err = ReadReorderState("test-stack")
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 func Test_StackLocation_SharedAcrossWorktrees(t *testing.T) {
 	repo := NewTestRepo(t)
 	worktreeDir1 := repo.addWorktree(t)
