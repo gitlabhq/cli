@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
@@ -616,6 +617,13 @@ func (s *mcpServer) convertParamsToArgs(params map[string]any, flags *pflag.Flag
 	return args, config
 }
 
+// subprocessEnv marks tool-call subprocesses so their telemetry is
+// distinguishable from the same command run by hand. The stamp is appended
+// last, overriding any value inherited from the client's environment.
+func subprocessEnv() []string {
+	return append(os.Environ(), api.InvocationSourceEnv+"="+api.InvocationSourceMCP)
+}
+
 // executeGlabCommand executes a glab command and captures its output
 func (s *mcpServer) executeGlabCommand(cmdPath []string, args []string) (string, error) {
 	// Get the current binary (same one running MCP server)
@@ -629,6 +637,7 @@ func (s *mcpServer) executeGlabCommand(cmdPath []string, args []string) (string,
 
 	// Execute subprocess
 	cmd := exec.Command(currentBinary, fullArgs...)
+	cmd.Env = subprocessEnv()
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

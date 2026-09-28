@@ -213,6 +213,11 @@ func buildTelemetryEvent(f cmdutils.Factory, command, subcommand, fullCommand st
 	if buildInfo.CodingAgent != "" {
 		properties["coding_agent"] = buildInfo.CodingAgent
 	}
+	// Without this an MCP tool call and the same command typed into an agent's
+	// terminal are identical: same command path, same inherited coding_agent.
+	if buildInfo.InvocationSource != "" {
+		properties["invocation_source"] = buildInfo.InvocationSource
+	}
 
 	return client, &trackEventOptions{
 		Event:                "gitlab_cli_command_used",

@@ -30,6 +30,7 @@ type ClientOption func(*Client) error
 type BuildInfo struct {
 	Version, Commit, Platform, Architecture string
 	CodingAgent                             string
+	InvocationSource                        string
 }
 
 func (i BuildInfo) UserAgent() string {
