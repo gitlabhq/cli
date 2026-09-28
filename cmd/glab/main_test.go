@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/zalando/go-keyring"
 	"go.uber.org/goleak"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
@@ -15,7 +16,10 @@ import (
 
 // Test started when the test binary is started
 // and calls the main function
-func TestGlab(t *testing.T) { //nolint:unparam
+func TestGlab(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	keyring.MockInit()
+	t.Cleanup(keyring.MockInit)
 	main()
 }
 
