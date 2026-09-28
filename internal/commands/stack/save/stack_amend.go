@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/stack/stackutils"
 	"gitlab.com/gitlab-org/cli/internal/git"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/run"
@@ -71,6 +72,10 @@ func NewCmdAmendStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.Get
 func amendFunc(ctx context.Context, f cmdutils.Factory, args []string, getText cmdutils.GetTextUsingEditor, description string, stageAll, noVerify, reword bool) (string, error) {
 	if reword && len(args) > 0 {
 		return "", fmt.Errorf("--reword cannot be used with file arguments")
+	}
+
+	if err := stackutils.CheckNoRebaseInProgress(); err != nil {
+		return "", err
 	}
 
 	if !reword {

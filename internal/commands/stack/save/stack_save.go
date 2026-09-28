@@ -49,6 +49,10 @@ func NewCmdSaveStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.GetT
 				return &cmdutils.FlagError{Err: errors.New("specify either of --message or --description")}
 			}
 
+			if err := stackutils.CheckNoRebaseInProgress(); err != nil {
+				return err
+			}
+
 			// check if there are even any changes before we start
 			err := checkForChanges()
 			if err != nil {

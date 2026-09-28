@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -368,6 +369,22 @@ var GitDir = func() (string, error) {
 		return "", err
 	}
 	return firstLine(output), nil
+}
+
+// RebaseInProgress reports whether a Git rebase is currently in progress in
+// this worktree (its git dir contains a rebase-merge or rebase-apply
+// directory).
+func RebaseInProgress() bool {
+	gitDir, err := GitDir()
+	if err != nil {
+		return false
+	}
+	for _, dir := range []string{"rebase-merge", "rebase-apply"} {
+		if _, err := os.Stat(filepath.Join(gitDir, dir)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // GitCommonDir returns the path to the shared git directory for the repository.

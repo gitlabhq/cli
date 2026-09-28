@@ -2,6 +2,7 @@ package stackutils
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os/user"
 	"strings"
@@ -12,6 +13,33 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/git"
 )
+
+// CheckNoRebaseInProgress returns an error when a stack reorder or a Git rebase
+// is currently in progress. Stack commands that mutate branches or commits call
+// this up front: Git does not reliably block those operations mid-rebase (for
+// example `checkout -b` and `commit --amend` succeed once the index is clean),
+// and running them can corrupt the stack. A paused reorder counts as in
+// progress even between branches, when no Git rebase is active.
+func CheckNoRebaseInProgress() error {
+	if title, err := git.GetCurrentStackTitle(); err == nil {
+		inProgress, err := git.ReorderInProgress(title)
+		if err != nil {
+			return fmt.Errorf("could not determine stack reorder state: %w", err)
+		}
+		if inProgress {
+			return errors.New(
+				"a stack reorder is in progress; run `glab stack reorder --continue` or `glab stack reorder --abort` before running this command")
+		}
+	}
+
+	if git.RebaseInProgress() {
+		return errors.New(
+			"a Git rebase is currently in progress; finish it before running this command.\n" +
+				"  Resolve the rebase with `git rebase --continue` (or abort it with `git rebase --abort`)")
+	}
+
+	return nil
+}
 
 func GenerateStackSha(message string, title string, author string, timestamp time.Time) (string, error) {
 	toSha := []byte(message + title + author + timestamp.String())

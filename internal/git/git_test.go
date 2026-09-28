@@ -811,3 +811,22 @@ func TestRemotes_InsideRepoReturnsUnderlyingError(t *testing.T) {
 	assert.Contains(t, err.Error(), "simulated git remote failure",
 		"the underlying git error should pass through unchanged")
 }
+
+func Test_RebaseInProgress(t *testing.T) {
+	InitGitRepo(t)
+
+	assert.False(t, RebaseInProgress(), "a fresh repo has no rebase in progress")
+
+	gitDir, err := GitDir()
+	require.NoError(t, err)
+
+	// Git records an in-flight rebase as a rebase-merge or rebase-apply
+	// directory inside the git dir; either one means "in progress".
+	rebaseMerge := filepath.Join(gitDir, "rebase-merge")
+	require.NoError(t, os.MkdirAll(rebaseMerge, 0o755))
+	assert.True(t, RebaseInProgress(), "rebase-merge directory should be detected")
+
+	require.NoError(t, os.RemoveAll(rebaseMerge))
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-apply"), 0o755))
+	assert.True(t, RebaseInProgress(), "rebase-apply directory should be detected")
+}
