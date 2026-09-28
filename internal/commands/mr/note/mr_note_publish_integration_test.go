@@ -5,7 +5,6 @@ package note
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +21,10 @@ import (
 	"gitlab.com/gitlab-org/cli/test"
 )
 
+// Test_MrNotePublish_Integration checks the one thing a mock cannot: that a real
+// instance applies what the deprecated PublishAllDraftNotesWithOptions call sends,
+// rather than merely accepting it, and that the drafts really are consumed.
+// Flag handling, output, and error wrapping are covered in mr_note_publish_test.go.
 func Test_MrNotePublish_Integration(t *testing.T) {
 	glTestHost := test.GetHostOrSkip(t)
 
@@ -39,7 +42,11 @@ func Test_MrNotePublish_Integration(t *testing.T) {
 		Ref:    &project.DefaultBranch,
 	})
 	require.NoError(t, err)
-	defer fixtureClient.Branches.DeleteBranch(projectPath, branchName)
+	t.Cleanup(func() {
+		if _, err := fixtureClient.Branches.DeleteBranch(projectPath, branchName); err != nil {
+			t.Logf("cleanup: deleting branch %s: %v", branchName, err)
+		}
+	})
 
 	_, _, err = fixtureClient.Commits.CreateCommit(projectPath, &gitlab.CreateCommitOptions{
 		Branch:        &branchName,
@@ -58,38 +65,37 @@ func Test_MrNotePublish_Integration(t *testing.T) {
 		TargetBranch: &project.DefaultBranch,
 	})
 	require.NoError(t, err)
-	defer fixtureClient.MergeRequests.UpdateMergeRequest(projectPath, mr.IID, &gitlab.UpdateMergeRequestOptions{
-		StateEvent: new("close"),
+	t.Cleanup(func() {
+		_, _, err := fixtureClient.MergeRequests.UpdateMergeRequest(projectPath, mr.IID, &gitlab.UpdateMergeRequestOptions{
+			StateEvent: new("close"),
+		})
+		if err != nil {
+			t.Logf("cleanup: closing !%d: %v", mr.IID, err)
+		}
 	})
 
 	cfg, err := config.Init()
 	require.NoError(t, err)
 
-	exec := func(cmdFunc cmdtest.CmdFunc, cli string) (string, string, error) {
+	exec := func(cmdFunc cmdtest.CmdFunc, cli string) error {
 		ios, _, stdout, stderr := cmdtest.TestIOStreams()
 		f := cmdutils.NewFactory(ios, false, cfg, api.BuildInfo{})
 		cmd := cmdFunc(f)
 		cmdutils.EnableRepoOverride(cmd, f)
 		_, err := cmdtest.ExecuteCommand(cmd, cli, stdout, stderr)
-		return stdout.String(), stderr.String(), err
+		return err
 	}
 
 	mrArg := fmt.Sprintf("%d -R %s", mr.IID, projectPath)
 
-	// Create one pending review comment; stdout is the bare draft ID.
-	stdout, _, err := exec(NewCmdCreate, fmt.Sprintf(`%s --draft -m "it draft"`, mrArg))
-	require.NoError(t, err)
-	_, err = strconv.ParseInt(strings.TrimSpace(stdout), 10, 64)
-	require.NoError(t, err, "expected bare numeric draft ID, got %q", stdout)
+	require.NoError(t, exec(NewCmdCreate, fmt.Sprintf(`%s --draft -m "it draft"`, mrArg)))
 
-	// Non-interactive publish without --yes is rejected.
-	_, _, err = exec(NewCmdPublish, mrArg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--yes required when not running interactively")
-
-	stdout, _, err = exec(NewCmdPublish, fmt.Sprintf(`%s -y -m "it summary" --reviewer-state reviewed`, mrArg))
-	require.NoError(t, err)
-	assert.Contains(t, stdout, "✓ Published 1 pending review comment.")
+	// Publishing consumes every draft, so this one call carries every body field
+	// the assertions below can check. --reviewer-state is deliberately absent:
+	// bulk_publish discards the UpdateReviewerStateService result, and that
+	// service refuses to create a reviewer row for a merge request's own author,
+	// which the fixture user always is. Sending it here would assert nothing.
+	require.NoError(t, exec(NewCmdPublish, fmt.Sprintf(`%s -y -m "it summary" --internal`, mrArg)))
 
 	drafts, _, err := fixtureClient.DraftNotes.ListDraftNotes(projectPath, mr.IID, &gitlab.ListDraftNotesOptions{})
 	require.NoError(t, err)
@@ -99,14 +105,21 @@ func Test_MrNotePublish_Integration(t *testing.T) {
 		return fixtureClient.Notes.ListMergeRequestNotes(projectPath, mr.IID, &gitlab.ListMergeRequestNotesOptions{}, p)
 	})
 	require.NoError(t, err)
-	bodies := make([]string, 0, len(notes))
-	for _, n := range notes {
-		bodies = append(bodies, n.Body)
-	}
-	assert.Contains(t, strings.Join(bodies, "\n"), "it draft")
-	assert.Contains(t, strings.Join(bodies, "\n"), "it summary")
 
-	_, _, err = exec(NewCmdPublish, mrArg+" -y")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no pending review comments")
+	var published, summary *gitlab.Note
+	for _, n := range notes {
+		switch strings.TrimSpace(n.Body) {
+		case "it draft":
+			published = n
+		case "it summary":
+			summary = n
+		}
+	}
+	require.NotNil(t, published, "published draft note missing from !%d", mr.IID)
+	require.NotNil(t, summary, "summary note missing from !%d", mr.IID)
+
+	// The draft is the control: if both came back internal, the flag would not be
+	// what made the summary internal.
+	assert.True(t, summary.Internal, "--internal should have marked the summary note internal")
+	assert.False(t, published.Internal, "the published draft should not be internal")
 }
