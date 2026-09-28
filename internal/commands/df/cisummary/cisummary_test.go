@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -33,12 +34,12 @@ func TestCISummaryRendersBlockedAndExitsNonZero(t *testing.T) {
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
 	out, err := exec("")
 
-	// The command must render the entry AND fail with blockExitCode so
-	// CI jobs surface policy violations as job failures.
+	// The command must render the entry AND fail with the blocked exit code
+	// so CI jobs surface policy violations as job failures.
 	require.Error(t, err)
 	var withCode *cmdutils.ExitError
 	require.ErrorAs(t, err, &withCode, "expected *cmdutils.ExitError, got %T", err)
-	assert.Equal(t, blockExitCode, withCode.Code)
+	assert.Equal(t, verdict.BlockedExitCode, withCode.Code)
 	assert.Contains(t, out.ErrBuf.String(), "foo")
 	assert.Contains(t, out.ErrBuf.String(), "known malware")
 }

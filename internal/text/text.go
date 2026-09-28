@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/mattn/go-runewidth"
 )
@@ -52,6 +53,30 @@ func Join(list []string, delim string) string {
 // Strip strips the string of all colors
 func Strip(s string) string {
 	return re.ReplaceAllString(hyperlinkOSCRegexp.ReplaceAllString(s, ""), "")
+}
+
+// SanitizeInline makes an untrusted string safe to print on a single line of
+// terminal or CI output. It removes ANSI/OSC escape sequences, drops the
+// remaining C0/C1 control characters (bell, backspace, and the like that
+// strings.Fields does not treat as whitespace), and collapses every run of
+// whitespace to a single space. Use it on any value derived from network or
+// user input before writing it to a log line, so a crafted value cannot inject
+// newlines or terminal control sequences.
+func SanitizeInline(s string) string {
+	stripped := Strip(s)
+	var b strings.Builder
+	b.Grow(len(stripped))
+	for _, r := range stripped {
+		switch {
+		case r == '\t' || r == '\n' || r == '\r':
+			b.WriteByte(' ')
+		case unicode.IsControl(r):
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // StringWidth returns the actual width of the string without colors

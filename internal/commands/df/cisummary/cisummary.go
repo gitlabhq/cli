@@ -15,13 +15,6 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
-// blockExitCode reports a policy violation: the log contains at least one
-// blocked entry. It is deliberately distinct from 1, which every other failure
-// path here returns (an unreadable log, an invalid flag), so a CI job can tell
-// "the firewall blocked a package" from "this command failed". Later slices of
-// this feature reuse the same code when they block a package.
-const blockExitCode = 3
-
 type options struct {
 	io      *iostreams.IOStreams
 	baseDir string
@@ -87,7 +80,7 @@ func (o *options) run() error {
 
 	for _, e := range log.Entries {
 		if e.Verdict == verdict.Blocked {
-			return cmdutils.WrapErrorWithCode(cmdutils.SilentError, blockExitCode,
+			return cmdutils.WrapErrorWithCode(cmdutils.SilentError, verdict.BlockedExitCode,
 				"Dependency Firewall blocked one or more packages during this run.")
 		}
 	}

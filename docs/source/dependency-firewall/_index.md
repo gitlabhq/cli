@@ -43,6 +43,7 @@ df
 - [`gradle`](gradle.md)
 - [`maven`](maven.md)
 - [`npm`](npm.md)
+- [`package`](package.md)
 - [`pip`](pip.md)
 - [`pipenv`](pipenv.md)
 - [`pnpm`](pnpm.md)
