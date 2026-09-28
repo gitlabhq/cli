@@ -104,8 +104,7 @@ make test-race                                # unit tests with -race
 go test ./internal/commands/mr/note/...       # single package
 go test ./internal/commands/mr/note/... -run TestCreate
 make gen-docs                                 # regenerate docs/source/** from cobra definitions
-make generate                                 # go generate ./... (includes config stubs)
-make gen-config                               # config stubs from internal/config/config.yaml.lock
+make generate                                 # go generate ./... (mockgen mocks)
 ```
 
 `make test` forcibly clears `VISUAL`, `EDITOR`, `PAGER`, and `GITLAB_TOKEN`,
