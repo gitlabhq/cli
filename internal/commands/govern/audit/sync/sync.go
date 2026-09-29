@@ -28,8 +28,6 @@ type options struct {
 	baseRepo  func() (glrepo.Interface, error)
 	silent    bool
 	complete  bool
-	project   string
-	hostname  string
 	agentType string
 }
 
@@ -50,20 +48,17 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			Called by the Stop hook after every agent turn. Also used by the
 			SessionEnd hook (with --complete) to mark the session as complete.
 
-			Project is resolved from:
-
-			1. --project flag (requires --hostname)
-			2. Git remote of the current directory
+			Project is resolved from the Git remote of the current directory, or overridden with -R/--repo.
 		`) + text.ExperimentalString,
 		Example: heredoc.Doc(`
-		    	# Sync the current agent session to GitLab
-		    	$ glab govern audit sync
+			# Sync the current agent session to GitLab
+			$ glab govern audit sync
 
-		    	# Sync and mark the session as completed
-		    	$ glab govern audit sync --complete
+			# Sync and mark the session as completed
+			$ glab govern audit sync --complete
 
-		    	# Sync against a specific project
-		    	$ glab govern audit sync --project my-group/my-project --hostname gitlab.com
+			# Sync against a specific project
+			$ glab govern audit sync -R my-group/my-project
 		`),
 		Args: cobra.NoArgs,
 		Annotations: map[string]string{
@@ -77,9 +72,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Suppress all output. Used when invoked from hooks.")
 	cmd.Flags().BoolVar(&opts.complete, "complete", false, "Mark the session as completed. Used by the SessionEnd hook.")
-	cmd.Flags().StringVarP(&opts.project, "project", "p", "", "Project ID or path to sync against.")
-	cmd.Flags().StringVarP(&opts.hostname, "hostname", "H", "", "GitLab hostname (required with --project).")
-	cmd.MarkFlagsRequiredTogether("project", "hostname")
+
+	cmdutils.EnableRepoOverride(cmd, f)
 
 	return cmd
 }
@@ -100,23 +94,12 @@ func runSync(ctx context.Context, opts *options) error {
 	var client *api.Client
 	var err error
 
-	if opts.project != "" && opts.hostname != "" {
-		client, err = opts.apiClient(opts.hostname)
-		if err != nil {
-			return fmt.Errorf("could not create API client: %w", err)
+	project, client, err = gaig.ResolveProject(opts.baseRepo, opts.apiClient)
+	if err != nil {
+		if !opts.silent {
+			opts.io.LogErrorf("error: could not resolve project: %v\n", err)
 		}
-		project, err = api.GetProject(client.Lab(), opts.project)
-		if err != nil {
-			return fmt.Errorf("could not fetch project %s: %w", opts.project, err)
-		}
-	} else {
-		project, client, err = gaig.ResolveProject(opts.baseRepo, opts.apiClient)
-		if err != nil {
-			if !opts.silent {
-				opts.io.LogErrorf("error: could not resolve project: %v\n", err)
-			}
-			return err
-		}
+		return err
 	}
 
 	if !opts.silent {

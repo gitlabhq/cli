@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -15,7 +16,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
+
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -230,8 +236,8 @@ func TestSyncSession_CursorNotAdvancedOnSessionFailure(t *testing.T) {
 	data, _ := json.Marshal(entry)
 	require.NoError(t, os.WriteFile(path, append(data, '\n'), 0o644))
 
-	ios, _, _, _ := cmdtest.TestIOStreams()
 	// nil client will cause ensureSession to fail
+	ios, _, _, _ := cmdtest.TestIOStreams()
 	opts := &options{io: ios, silent: true}
 
 	_ = syncSession(t.Context(), nil, nil, 0, "sess-test", path, opts)
@@ -240,6 +246,30 @@ func TestSyncSession_CursorNotAdvancedOnSessionFailure(t *testing.T) {
 	cursor, err := readCursor("sess-test")
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), cursor, "cursor should not advance when session creation fails")
+}
+
+func TestRunSync_RepoOverrideReachesResolveProject(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	tc := gitlabtesting.NewTestClientWithCtrl(ctrl, gitlab.WithBaseURL("https://gitlab.example.com"))
+	tc.MockProjects.EXPECT().
+		GetProject(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil, errors.New("project my-group/my-project not found"))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithApiClient(cmdtest.NewTestAuthSourceApiClient(
+			t, nil, gitlab.AccessTokenAuthSource{Token: "test-token"}, "gitlab.example.com",
+			api.WithGitLabClient(tc.Client),
+		)),
+	)
+
+	_, err := exec("--silent -R my-group/my-project")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "my-group/my-project")
 }
 
 func TestMCPDestructiveAnnotation(t *testing.T) {
