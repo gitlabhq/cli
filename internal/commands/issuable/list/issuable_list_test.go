@@ -800,6 +800,23 @@ func TestIssueListMutualOutputFlags(t *testing.T) {
 	assert.EqualError(t, err, "if any flags in the group [output output-format] are set none of the others can be; [output output-format] were all set")
 }
 
+func TestIssueAndIncidentListRejectInvalidOutputFlags(t *testing.T) {
+	for _, issueType := range []issuable.IssueType{issuable.TypeIssue, issuable.TypeIncident} {
+		t.Run(string(issueType), func(t *testing.T) {
+			for _, flag := range []string{"--output invalid", "--output \"\"", "--output-format invalid", "--output-format \"\""} {
+				t.Run(flag, func(t *testing.T) {
+					exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+						return NewCmdList(f, nil, issueType)
+					}, true)
+
+					_, err := exec(flag)
+					require.ErrorContains(t, err, "must be one of")
+				})
+			}
+		})
+	}
+}
+
 func TestIssueList_epicIssues(t *testing.T) {
 	// NOTE: This test cannot run in parallel because it uses cmdutils.GroupOverride()
 	// which modifies global viper state (SetEnvPrefix, BindEnv).

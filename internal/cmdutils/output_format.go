@@ -30,6 +30,12 @@ func (v *outputFormatValue) Set(format string) error {
 // By default it uses a standard description. Pass a custom description to
 // override.
 func EnableJSONOutput(cmd *cobra.Command, io *iostreams.IOStreams, outputFormat *string, customDescription ...string) {
+	EnableJSONOutputP(cmd, io, outputFormat, "F", customDescription...)
+}
+
+// EnableJSONOutputP is like EnableJSONOutput, but registers --output with the
+// given shorthand.
+func EnableJSONOutputP(cmd *cobra.Command, io *iostreams.IOStreams, outputFormat *string, shorthand string, customDescription ...string) {
 	description := "Format output as: text, json."
 	if len(customDescription) > 0 && customDescription[0] != "" {
 		description = customDescription[0]
@@ -41,7 +47,7 @@ func EnableJSONOutput(cmd *cobra.Command, io *iostreams.IOStreams, outputFormat 
 			io:        io,
 		},
 		"output",
-		"F",
+		shorthand,
 		description,
 	)
 	AddJQFlag(cmd, io)

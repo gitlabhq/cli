@@ -110,3 +110,21 @@ func TestEnableJSONOutput_RegistersJQFlag(t *testing.T) {
 	cmd, _, _ := outputCmdHarness(t)
 	assert.NotNil(t, cmd.Flag("jq"), "EnableJSONOutput must also register --jq")
 }
+
+func TestEnableJSONOutputP_CustomShorthand(t *testing.T) {
+	ios := &iostreams.IOStreams{
+		StdOut: &bytes.Buffer{},
+		StdErr: &bytes.Buffer{},
+		JQ:     &iostreams.JQFilter{},
+	}
+	cmd := &cobra.Command{Use: "test", RunE: func(*cobra.Command, []string) error { return nil }}
+	var outputFormat string
+	EnableJSONOutputP(cmd, ios, &outputFormat, "O")
+	cmd.SetArgs([]string{"-O", "json"})
+
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, "O", cmd.Flag("output").Shorthand)
+	assert.Equal(t, "json", outputFormat)
+	assert.True(t, ios.IsJSONOutput())
+	assert.NotNil(t, cmd.Flag("jq"))
+}
