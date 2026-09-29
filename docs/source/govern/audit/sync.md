@@ -20,10 +20,7 @@ and POST them to GitLab as audit events.
 Called by the Stop hook after every agent turn. Also used by the
 SessionEnd hook (with --complete) to mark the session as complete.
 
-Project is resolved from:
-
-1. --project flag (requires --hostname)
-2. Git remote of the current directory
+Project is resolved from the Git remote of the current directory, or overridden with -R/--repo.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
@@ -44,17 +41,16 @@ $ glab govern audit sync
 $ glab govern audit sync --complete
 
 # Sync against a specific project
-$ glab govern audit sync --project my-group/my-project --hostname gitlab.com
+$ glab govern audit sync -R my-group/my-project
 
 ```
 
 ## Options
 
 ```plaintext
-      --complete          Mark the session as completed. Used by the SessionEnd hook.
-  -H, --hostname string   GitLab hostname (required with --project).
-  -p, --project string    Project ID or path to sync against.
-      --silent            Suppress all output. Used when invoked from hooks.
+      --complete      Mark the session as completed. Used by the SessionEnd hook.
+  -R, --repo string   Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
+      --silent        Suppress all output. Used when invoked from hooks.
 ```
 
 ## Options inherited from parent commands
