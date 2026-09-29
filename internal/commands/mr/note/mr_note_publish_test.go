@@ -68,6 +68,99 @@ func Test_cmdPublish(t *testing.T) {
 		assert.Contains(t, output.String(), "✓ Published 1 pending review comment.")
 	})
 
+	t.Run("warns when author who is not a reviewer sets --reviewer-state", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1WithReviewers(t, testClient, 7)
+		mockDraftList(t, testClient, 1)
+		expectPublishReviewed(t, testClient)
+		testClient.MockUsers.EXPECT().
+			CurrentUser(gomock.Any()).
+			Return(&gitlab.User{ID: mr1AuthorID}, nil, nil)
+
+		exec := setupPublishExec(t, testClient)
+
+		output, err := exec(`1 -y --reviewer-state reviewed`)
+		require.NoError(t, err)
+		assert.Contains(t, output.Stderr(), "GitLab did not set your review state: you authored this merge request and are not one of its reviewers.")
+		assert.Contains(t, output.String(), "✓ Published 1 pending review comment.")
+	})
+
+	t.Run("no warning when author is also a reviewer", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1WithReviewers(t, testClient, 7, mr1AuthorID)
+		mockDraftList(t, testClient, 1)
+		expectPublishReviewed(t, testClient)
+		testClient.MockUsers.EXPECT().
+			CurrentUser(gomock.Any()).
+			Return(&gitlab.User{ID: mr1AuthorID}, nil, nil)
+
+		exec := setupPublishExec(t, testClient)
+
+		output, err := exec(`1 -y --reviewer-state reviewed`)
+		require.NoError(t, err)
+		assert.NotContains(t, output.Stderr(), "GitLab did not set your review state")
+		assert.Contains(t, output.String(), "✓ Published 1 pending review comment.")
+	})
+
+	t.Run("no warning when a different user sets --reviewer-state", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1WithReviewers(t, testClient)
+		mockDraftList(t, testClient, 1)
+		expectPublishReviewed(t, testClient)
+		testClient.MockUsers.EXPECT().
+			CurrentUser(gomock.Any()).
+			Return(&gitlab.User{ID: 7}, nil, nil)
+
+		exec := setupPublishExec(t, testClient)
+
+		output, err := exec(`1 -y --reviewer-state reviewed`)
+		require.NoError(t, err)
+		assert.NotContains(t, output.Stderr(), "GitLab did not set your review state")
+		assert.Contains(t, output.String(), "✓ Published 1 pending review comment.")
+	})
+
+	t.Run("publishes without warning when the current user lookup fails", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1WithReviewers(t, testClient)
+		mockDraftList(t, testClient, 1)
+		expectPublishReviewed(t, testClient)
+		testClient.MockUsers.EXPECT().
+			CurrentUser(gomock.Any()).
+			Return(nil, nil, errors.New("boom"))
+
+		exec := setupPublishExec(t, testClient)
+
+		output, err := exec(`1 -y --reviewer-state reviewed`)
+		require.NoError(t, err)
+		assert.NotContains(t, output.Stderr(), "GitLab did not set your review state")
+		assert.Contains(t, output.String(), "✓ Published 1 pending review comment.")
+	})
+
+	t.Run("no author check when publish fails", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1WithReviewers(t, testClient)
+		mockDraftList(t, testClient, 1)
+		testClient.MockDraftNotes.EXPECT().
+			PublishAllDraftNotesWithOptions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return(nil, errors.New("boom"))
+
+		exec := setupPublishExec(t, testClient)
+
+		output, err := exec(`1 -y --reviewer-state reviewed`)
+		require.ErrorContains(t, err, "failed to publish pending review comments")
+		assert.NotContains(t, output.Stderr(), "GitLab did not set your review state")
+	})
+
 	t.Run("errors when there are no pending comments", func(t *testing.T) {
 		t.Parallel()
 
@@ -233,6 +326,17 @@ func mockDraftList(t *testing.T, testClient *gitlabtesting.TestClient, count int
 	testClient.MockDraftNotes.EXPECT().
 		ListDraftNotes("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
 		Return(drafts, &gitlab.Response{NextPage: 0}, nil)
+}
+
+func expectPublishReviewed(t *testing.T, testClient *gitlabtesting.TestClient) {
+	t.Helper()
+	testClient.MockDraftNotes.EXPECT().
+		PublishAllDraftNotesWithOptions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(pid any, mrIID int64, opts *gitlab.PublishAllDraftNotesOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Response, error) {
+			require.NotNil(t, opts.ReviewerState)
+			assert.Equal(t, "reviewed", *opts.ReviewerState)
+			return nil, nil
+		})
 }
 
 func setupPublishExec(t *testing.T, testClient *gitlabtesting.TestClient) cmdtest.CmdExecFunc {

@@ -3,6 +3,7 @@ package note
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -13,6 +14,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/mr/mrutils"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -52,7 +54,7 @@ func NewCmdPublish(f cmdutils.Factory) *cobra.Command {
 
 			Use %[1]s--message%[1]s to add a summary note to the merge request when publishing, and %[1]s--internal%[1]s to restrict that summary to project members with at least the Reporter role.
 
-			Use %[1]s--reviewer-state%[1]s to set your review state on the merge request. Neither state records a formal approval; use %[1]sglab mr approve%[1]s to approve.
+			Use %[1]s--reviewer-state%[1]s to set your review state on the merge request. Neither state records a formal approval; use %[1]sglab mr approve%[1]s to approve. If you are the merge request author, GitLab ignores this flag unless you are also listed as one of the reviewers.
 
 			Unless you pass %[1]s--yes%[1]s, the command shows the number of pending comments and prompts you to confirm. When not running interactively, %[1]s--yes%[1]s is required. If there are no pending comments, the command exits with an error.
 		`, "`") + text.ExperimentalString,
@@ -173,5 +175,16 @@ func (o *publishOptions) run(ctx context.Context) error {
 	}
 
 	o.io.LogInfof("✓ Published %s. %s\n", utils.Pluralize(len(drafts), "pending review comment"), o.mr.WebURL)
+
+	// bulk_publish reports success but drops reviewer_state when the caller
+	// authored the MR and is not one of its reviewers.
+	if o.reviewerState != "" && o.mr.Author != nil {
+		user, _, err := o.client.Users.CurrentUser(gitlab.WithContext(ctx))
+		if err != nil {
+			dbg.Debugf("skipping --reviewer-state author check, current user lookup failed: %v", err)
+		} else if user.ID == o.mr.Author.ID && !slices.ContainsFunc(o.mr.Reviewers, func(r *gitlab.BasicUser) bool { return r.ID == user.ID }) {
+			o.io.LogErrorf("%s GitLab did not set your review state: you authored this merge request and are not one of its reviewers.\n", o.io.Color().WarnIcon())
+		}
+	}
 	return nil
 }
