@@ -261,7 +261,6 @@ func GetJobId(ctx context.Context, inputs *JobInputs, opts *JobOptions) (int64, 
 	}
 
 	// This is also the default
-	jobs := make([]*gitlab.Job, 0)
 	options := &gitlab.ListJobsOptions{
 		ListOptions: gitlab.ListOptions{
 			PerPage: 20,
@@ -269,29 +268,22 @@ func GetJobId(ctx context.Context, inputs *JobInputs, opts *JobOptions) (int64, 
 		},
 	}
 
-	for {
-		jobsPerPage, response, err := opts.Client.Jobs.ListPipelineJobs(opts.Repo.FullName(), pipelineId, options)
+	sawAnyJobs := false
+	for job, err := range gitlab.Scan2(func(p gitlab.PaginationOptionFunc) ([]*gitlab.Job, *gitlab.Response, error) {
+		return opts.Client.Jobs.ListPipelineJobs(opts.Repo.FullName(), pipelineId, options, p, gitlab.WithContext(ctx))
+	}) {
 		if err != nil {
 			return 0, fmt.Errorf("list pipeline jobs: %w", err)
 		}
-		jobs = append(jobs, jobsPerPage...)
+		sawAnyJobs = true
 
-		// indicate that we have reached the last page
-		if response.NextPage == 0 {
-			break
-		}
-
-		options.Page = response.NextPage
-	}
-
-	if len(jobs) == 0 {
-		return 0, fmt.Errorf("pipeline %d contains no jobs at all", pipelineId)
-	}
-
-	for _, job := range jobs {
 		if job.Name == inputs.JobName {
 			return job.ID, nil
 		}
+	}
+
+	if !sawAnyJobs {
+		return 0, fmt.Errorf("pipeline %d contains no jobs at all", pipelineId)
 	}
 
 	return 0, fmt.Errorf("pipeline %d contains no jobs with the name %s", pipelineId, inputs.JobName)

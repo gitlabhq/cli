@@ -2,6 +2,7 @@ package note
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -111,14 +112,12 @@ func NewCmdNote(f cmdutils.Factory) *cobra.Command {
 }
 
 func resolveDiscussion(ctx context.Context, client *gitlab.Client, f cmdutils.Factory, mr *gitlab.MergeRequest, repo glrepo.Interface, noteID int64, resolve bool) error {
-	discussions, err := mrutils.ListAllDiscussions(ctx, client, repo.FullName(), mr.IID, &gitlab.ListMergeRequestDiscussionsOptions{})
+	targetDiscussionID, _, err := mrutils.FindNoteInDiscussionPaginated(ctx, client, repo.FullName(), mr.IID, noteID)
 	if err != nil {
-		return fmt.Errorf("failed to list discussions: %w", err)
-	}
-
-	targetDiscussionID, _, err := mrutils.FindNoteInDiscussions(discussions, noteID)
-	if err != nil {
-		return fmt.Errorf("note %d not found in merge request !%d", noteID, mr.IID)
+		if errors.Is(err, mrutils.ErrNoteNotFound) {
+			return fmt.Errorf("note %d not found in merge request !%d", noteID, mr.IID)
+		}
+		return fmt.Errorf("failed to look up note %d in merge request !%d: %w", noteID, mr.IID, err)
 	}
 
 	action := "resolve"

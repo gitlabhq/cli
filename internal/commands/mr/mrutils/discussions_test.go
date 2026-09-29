@@ -3,13 +3,16 @@
 package mrutils
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 )
 
 func newTimer() *time.Time {
@@ -202,4 +205,104 @@ func Test_FilterDiscussions_EmptyNotes(t *testing.T) {
 
 	got := FilterDiscussions(discussions, FilterOpts{State: "resolved"})
 	assert.Empty(t, got)
+}
+
+func Test_FindNoteInDiscussionPaginated(t *testing.T) {
+	t.Parallel()
+
+	lastPageResponse := &gitlab.Response{
+		Response: &http.Response{StatusCode: http.StatusOK},
+	}
+	nextPageResponse := &gitlab.Response{
+		Response: &http.Response{StatusCode: http.StatusOK},
+		NextPage: 2,
+	}
+
+	t.Run("match on first page stops pagination", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+
+		// Only one call expected: no second page should ever be requested.
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{
+					ID:    "disc1",
+					Notes: []*gitlab.Note{{ID: 100}},
+				},
+			}, nextPageResponse, nil)
+
+		discussionID, note, err := FindNoteInDiscussionPaginated(t.Context(), testClient.Client, "OWNER/REPO", int64(1), 100)
+		require.NoError(t, err)
+		assert.Equal(t, "disc1", discussionID)
+		require.NotNil(t, note)
+		assert.Equal(t, int64(100), note.ID)
+	})
+
+	t.Run("match on a later page", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+
+		// First page: no match, has a next page.
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{ID: "disc1", Notes: []*gitlab.Note{{ID: 100}}},
+			}, nextPageResponse, nil)
+
+		// Second page: match, last page.
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{ID: "disc2", Notes: []*gitlab.Note{{ID: 200}}},
+			}, lastPageResponse, nil)
+
+		discussionID, note, err := FindNoteInDiscussionPaginated(t.Context(), testClient.Client, "OWNER/REPO", int64(1), 200)
+		require.NoError(t, err)
+		assert.Equal(t, "disc2", discussionID)
+		require.NotNil(t, note)
+		assert.Equal(t, int64(200), note.ID)
+	})
+
+	t.Run("no match across multiple pages walks all pages and returns error", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{ID: "disc1", Notes: []*gitlab.Note{{ID: 100}}},
+			}, nextPageResponse, nil)
+
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{ID: "disc2", Notes: []*gitlab.Note{{ID: 200}}},
+			}, lastPageResponse, nil)
+
+		discussionID, note, err := FindNoteInDiscussionPaginated(t.Context(), testClient.Client, "OWNER/REPO", int64(1), 999)
+		require.ErrorIs(t, err, ErrNoteNotFound)
+		assert.Contains(t, err.Error(), "999")
+		assert.Empty(t, discussionID)
+		assert.Nil(t, note)
+	})
+
+	t.Run("API error on a page is propagated and is not ErrNoteNotFound", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+
+		forbiddenResponse := &gitlab.Response{Response: &http.Response{StatusCode: http.StatusForbidden}}
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return(nil, forbiddenResponse, assert.AnError)
+
+		_, _, err := FindNoteInDiscussionPaginated(t.Context(), testClient.Client, "OWNER/REPO", int64(1), 100)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "fetch discussions")
+		assert.NotErrorIs(t, err, ErrNoteNotFound, "a real API failure must not be reported as ErrNoteNotFound")
+	})
 }

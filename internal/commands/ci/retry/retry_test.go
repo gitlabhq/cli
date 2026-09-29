@@ -77,7 +77,7 @@ func TestCiRetry(t *testing.T) {
 			expectedOut: "Retried job (ID: 1123), status: pending, ref: branch-name, weburl: https://gitlab.com/OWNER/REPO/-/jobs/1123\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockJobs.EXPECT().
-					ListPipelineJobs("OWNER/REPO", int64(123), gomock.Any()).
+					ListPipelineJobs("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.Job{
 						{
 							ID:     1122,
@@ -114,7 +114,7 @@ func TestCiRetry(t *testing.T) {
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				forbiddenResponse := &gitlab.Response{Response: &http.Response{StatusCode: http.StatusForbidden}}
 				tc.MockJobs.EXPECT().
-					ListPipelineJobs("OWNER/REPO", int64(123), gomock.Any()).
+					ListPipelineJobs("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
 					Return(nil, forbiddenResponse, fmt.Errorf("403 Forbidden"))
 			},
 		},

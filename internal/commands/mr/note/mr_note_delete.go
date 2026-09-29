@@ -2,6 +2,7 @@ package note
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -113,14 +114,12 @@ func (o *deleteOptions) complete(ctx context.Context, args []string) error {
 	o.repo = repo
 
 	// Find the parent discussion and note.
-	discussions, err := mrutils.ListAllDiscussions(ctx, client, repo.FullName(), mr.IID, &gitlab.ListMergeRequestDiscussionsOptions{})
+	o.discussionID, o.note, err = mrutils.FindNoteInDiscussionPaginated(ctx, client, repo.FullName(), mr.IID, noteID)
 	if err != nil {
-		return fmt.Errorf("failed to list discussions: %w", err)
-	}
-
-	o.discussionID, o.note, err = mrutils.FindNoteInDiscussions(discussions, noteID)
-	if err != nil {
-		return fmt.Errorf("note %d not found in merge request !%d", noteID, mr.IID)
+		if errors.Is(err, mrutils.ErrNoteNotFound) {
+			return fmt.Errorf("note %d not found in merge request !%d", noteID, mr.IID)
+		}
+		return fmt.Errorf("failed to look up note %d in merge request !%d: %w", noteID, mr.IID, err)
 	}
 
 	return nil

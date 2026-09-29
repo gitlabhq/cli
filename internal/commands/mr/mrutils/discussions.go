@@ -2,6 +2,7 @@ package mrutils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,12 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 )
+
+// ErrNoteNotFound is returned by FindNoteInDiscussionPaginated when no note
+// with the requested ID exists. Callers can distinguish this from a real
+// lookup failure (a network or API error while paginating) with errors.Is,
+// and should not report the latter as "not found".
+var ErrNoteNotFound = errors.New("note not found")
 
 // ListAllDiscussions fetches all discussions for a merge request, paginating automatically.
 var ListAllDiscussions = func(ctx context.Context, client *gitlab.Client, projectID any, mrIID int64, opts *gitlab.ListMergeRequestDiscussionsOptions) ([]*gitlab.Discussion, error) {
@@ -41,6 +48,33 @@ var ListAllDiscussions = func(ctx context.Context, client *gitlab.Client, projec
 	}
 
 	return allDiscussions, nil
+}
+
+// FindNoteInDiscussionPaginated finds the discussion and note object for a specific
+// note ID, scanning discussions page by page and returning as soon as a match is
+// found instead of fetching every page first.
+//
+// Returns ErrNoteNotFound (wrapped, check with errors.Is) if every page is scanned
+// without a match. Any other error indicates a real failure while listing
+// discussions and must not be treated as "not found" by callers.
+func FindNoteInDiscussionPaginated(ctx context.Context, client *gitlab.Client, projectID any, mrIID int64, noteID int64) (string, *gitlab.Note, error) {
+	opts := &gitlab.ListMergeRequestDiscussionsOptions{ListOptions: gitlab.ListOptions{PerPage: api.DefaultListLimit}}
+
+	for discussion, err := range gitlab.Scan2(func(p gitlab.PaginationOptionFunc) ([]*gitlab.Discussion, *gitlab.Response, error) {
+		return client.Discussions.ListMergeRequestDiscussions(projectID, mrIID, opts, p, gitlab.WithContext(ctx))
+	}) {
+		if err != nil {
+			return "", nil, fmt.Errorf("fetch discussions: %w", err)
+		}
+
+		for _, n := range discussion.Notes {
+			if n.ID == noteID {
+				return discussion.ID, n, nil
+			}
+		}
+	}
+
+	return "", nil, fmt.Errorf("%w: %d", ErrNoteNotFound, noteID)
 }
 
 // FilterOpts specifies how to filter discussions.
@@ -201,19 +235,6 @@ func formatMatches(matches []string) string {
 		b.WriteString(TruncateDiscussionID(m))
 	}
 	return b.String()
-}
-
-// FindNoteInDiscussions finds the discussion and note object for a specific note ID.
-// Returns the discussion ID and the Note, or an error if not found.
-func FindNoteInDiscussions(discussions []*gitlab.Discussion, noteID int64) (string, *gitlab.Note, error) {
-	for _, d := range discussions {
-		for _, n := range d.Notes {
-			if n.ID == noteID {
-				return d.ID, n, nil
-			}
-		}
-	}
-	return "", nil, fmt.Errorf("note %d not found", noteID)
 }
 
 // matchesFilePath checks if a discussion is on the specified file path.

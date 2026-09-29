@@ -2,6 +2,7 @@ package note
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -124,13 +125,12 @@ func (o *resolveOptions) complete(ctx context.Context, args []string) error {
 
 	// Resolve the discussion ID from the prefix or note ID.
 	if noteID, parseErr := strconv.ParseInt(o.discussionPrefix, 10, 64); parseErr == nil {
-		discussions, listErr := mrutils.ListAllDiscussions(ctx, client, repo.FullName(), mr.IID, &gitlab.ListMergeRequestDiscussionsOptions{})
-		if listErr != nil {
-			return fmt.Errorf("failed to list discussions: %w", listErr)
-		}
-		o.discussionID, _, err = mrutils.FindNoteInDiscussions(discussions, noteID)
+		o.discussionID, _, err = mrutils.FindNoteInDiscussionPaginated(ctx, client, repo.FullName(), mr.IID, noteID)
 		if err != nil {
-			return fmt.Errorf("note %d not found in merge request !%d: %w", noteID, mr.IID, err)
+			if errors.Is(err, mrutils.ErrNoteNotFound) {
+				return fmt.Errorf("note %d not found in merge request !%d", noteID, mr.IID)
+			}
+			return fmt.Errorf("failed to look up note %d in merge request !%d: %w", noteID, mr.IID, err)
 		}
 	} else {
 		o.discussionID, err = mrutils.ResolveDiscussionID(ctx, client, repo.FullName(), mr.IID, o.discussionPrefix)
