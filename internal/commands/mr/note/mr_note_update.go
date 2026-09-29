@@ -2,6 +2,7 @@ package note
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -121,15 +122,12 @@ func (o *updateOptions) complete(cmd *cobra.Command, args []string) error {
 	o.mr = mr
 	o.repo = repo
 
-	// Find the parent discussion.
-	discussions, err := mrutils.ListAllDiscussions(cmd.Context(), client, repo.FullName(), mr.IID, &gitlab.ListMergeRequestDiscussionsOptions{})
+	discussionID, note, err := mrutils.FindNoteInDiscussionPaginated(cmd.Context(), client, repo.FullName(), mr.IID, noteID)
 	if err != nil {
-		return fmt.Errorf("failed to list discussions: %w", err)
-	}
-
-	discussionID, note, err := mrutils.FindNoteInDiscussions(discussions, noteID)
-	if err != nil {
-		return fmt.Errorf("note %d not found in merge request !%d", noteID, mr.IID)
+		if errors.Is(err, mrutils.ErrNoteNotFound) {
+			return fmt.Errorf("note %d not found in merge request !%d", noteID, mr.IID)
+		}
+		return fmt.Errorf("failed to look up note %d in merge request !%d: %w", noteID, mr.IID, err)
 	}
 	o.discussionID = discussionID
 

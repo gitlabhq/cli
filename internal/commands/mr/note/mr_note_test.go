@@ -310,6 +310,59 @@ func Test_mrNote_resolve(t *testing.T) {
 		assert.Contains(t, output.String(), "✓ Discussion resolved (note #200 in !1)")
 	})
 
+	t.Run("resolve discussion found on second page", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1(t, testClient)
+
+		nextPageResponse := &gitlab.Response{
+			Response: &http.Response{StatusCode: http.StatusOK},
+			NextPage: 2,
+		}
+		lastPageResponse := &gitlab.Response{
+			Response: &http.Response{StatusCode: http.StatusOK},
+		}
+
+		// First page: no match.
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{
+					ID: "abc123",
+					Notes: []*gitlab.Note{
+						{ID: 100, Body: "First discussion"},
+					},
+				},
+			}, nextPageResponse, nil)
+
+		// Second page: match. No further pages should be requested.
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{
+					ID: "def456",
+					Notes: []*gitlab.Note{
+						{ID: 200, Body: "Second discussion"},
+					},
+				},
+			}, lastPageResponse, nil)
+
+		testClient.MockDiscussions.EXPECT().
+			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), "def456", gomock.Any(), gomock.Any()).
+			Return(&gitlab.Discussion{ID: "def456"}, nil, nil)
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
+			cmdtest.WithGitLabClient(testClient.Client),
+			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+			cmdtest.WithConfig(config.NewFromString("editor: vi")),
+		)
+
+		output, err := exec(`1 --resolve 200`)
+		require.NoError(t, err)
+		assert.Contains(t, output.String(), "✓ Discussion resolved (note #200 in !1)")
+	})
+
 	t.Run("note not found", func(t *testing.T) {
 		t.Parallel()
 
@@ -336,7 +389,7 @@ func Test_mrNote_resolve(t *testing.T) {
 						{ID: 100, Body: "First discussion"},
 					},
 				},
-			}, nil, nil)
+			}, &gitlab.Response{Response: &http.Response{StatusCode: http.StatusOK}}, nil)
 
 		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
 			cmdtest.WithGitLabClient(testClient.Client),
@@ -347,6 +400,80 @@ func Test_mrNote_resolve(t *testing.T) {
 		_, err := exec(`1 --resolve 999`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "note 999 not found in merge request !1")
+	})
+
+	t.Run("note not found across multiple pages", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1(t, testClient)
+
+		nextPageResponse := &gitlab.Response{
+			Response: &http.Response{StatusCode: http.StatusOK},
+			NextPage: 2,
+		}
+		lastPageResponse := &gitlab.Response{
+			Response: &http.Response{StatusCode: http.StatusOK},
+		}
+
+		// First page: no match, indicates a next page exists.
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{
+					ID: "abc123",
+					Notes: []*gitlab.Note{
+						{ID: 100, Body: "First discussion"},
+					},
+				},
+			}, nextPageResponse, nil)
+
+		// Second (last) page: still no match.
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Discussion{
+				{
+					ID: "def456",
+					Notes: []*gitlab.Note{
+						{ID: 200, Body: "Second discussion"},
+					},
+				},
+			}, lastPageResponse, nil)
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
+			cmdtest.WithGitLabClient(testClient.Client),
+			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+			cmdtest.WithConfig(config.NewFromString("editor: vi")),
+		)
+
+		_, err := exec(`1 --resolve 999`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "note 999 not found in merge request !1")
+	})
+
+	t.Run("underlying API error is preserved, not masked as not-found", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		mockMR1(t, testClient)
+
+		forbiddenResponse := &gitlab.Response{
+			Response: &http.Response{StatusCode: http.StatusForbidden},
+		}
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return(nil, forbiddenResponse, errors.New("403 Forbidden"))
+
+		exec := cmdtest.SetupCmdForTest(t, NewCmdNote, true,
+			cmdtest.WithGitLabClient(testClient.Client),
+			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+			cmdtest.WithConfig(config.NewFromString("editor: vi")),
+		)
+
+		_, err := exec(`1 --resolve 999`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "403 Forbidden")
+		assert.NotContains(t, err.Error(), "not found", "a real API failure must not be reported as note-not-found")
 	})
 }
 

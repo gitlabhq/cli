@@ -153,6 +153,53 @@ func TestGetJobId(t *testing.T) {
 			},
 		},
 		{
+			name:        "when job is found on page 1, page 2 is never requested",
+			jobName:     "lint",
+			pipelineId:  123,
+			expectedOut: 1122,
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				// Only one call expected: the mock has no second EXPECT(), so a
+				// second ListPipelineJobs call would fail the test.
+				tc.MockJobs.EXPECT().
+					ListPipelineJobs("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.Job{
+						{ID: 1122, Name: "lint", Status: "failed"},
+						{ID: 1124, Name: "publish", Status: "failed"},
+					}, nextPageResponse, nil)
+			},
+		},
+		{
+			name:          "when job name is not found across multiple pages",
+			jobName:       "missing",
+			pipelineId:    123,
+			expectedOut:   0,
+			expectedError: "pipeline 123 contains no jobs with the name missing",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockJobs.EXPECT().
+					ListPipelineJobs("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.Job{
+						{ID: 1122, Name: "lint", Status: "failed"},
+					}, nextPageResponse, nil)
+				tc.MockJobs.EXPECT().
+					ListPipelineJobs("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.Job{
+						{ID: 1144, Name: "deploy", Status: "failed"},
+					}, lastPageResponse, nil)
+			},
+		},
+		{
+			name:          "when pipeline contains no jobs at all",
+			jobName:       "lint",
+			pipelineId:    123,
+			expectedOut:   0,
+			expectedError: "pipeline 123 contains no jobs at all",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockJobs.EXPECT().
+					ListPipelineJobs("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.Job{}, lastPageResponse, nil)
+			},
+		},
+		{
 			name:          "when getJobId with name and pipelineId is requested and listJobs throws error",
 			jobName:       "lint",
 			pipelineId:    123,
