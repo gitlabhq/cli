@@ -164,8 +164,8 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *ListOptions) error, issueTyp
 	issueListCmd.Flags().BoolVarP(&opts.All, "all", "A", false, fmt.Sprintf("Get all %ss.", issueType))
 	issueListCmd.Flags().BoolVarP(&opts.Closed, "closed", "c", false, fmt.Sprintf("Get only closed %ss.", issueType))
 	issueListCmd.Flags().BoolVarP(&opts.Confidential, "confidential", "C", false, fmt.Sprintf("Filter by confidential %ss.", issueType))
-	issueListCmd.Flags().StringVarP(&opts.OutputFormat, "output-format", "F", "details", "Options: 'details', 'ids', 'urls'.")
-	issueListCmd.Flags().StringVarP(&opts.Output, "output", "O", "text", "Options: 'text' or 'json'.")
+	issueListCmd.Flags().VarP(cmdutils.NewEnumValue([]string{"details", "ids", "urls"}, "details", &opts.OutputFormat), "output-format", "F", "Options: 'details', 'ids', 'urls'.")
+	cmdutils.EnableJSONOutputP(issueListCmd, f.IO(), &opts.Output, "O", "Options: 'text' or 'json'.")
 	issueListCmd.Flags().Int64VarP(&opts.Page, "page", "p", 1, "Page number.")
 	issueListCmd.Flags().Int64VarP(&opts.PerPage, "per-page", "P", 30, "Number of items to list per page.")
 	issueListCmd.PersistentFlags().StringP("group", "g", "", "Select a group or subgroup. Ignored if a repo argument is set.")
@@ -187,7 +187,6 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *ListOptions) error, issueTyp
 	_ = issueListCmd.Flags().MarkHidden("mine")
 	_ = issueListCmd.Flags().MarkDeprecated("mine", "use --assignee=@me")
 
-	cmdutils.AddJQFlag(issueListCmd, f.IO())
 	return issueListCmd
 }
 
