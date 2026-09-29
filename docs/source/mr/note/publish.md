@@ -18,7 +18,7 @@ Publish every pending review comment you created on a merge request with `glab m
 
 Use `--message` to add a summary note to the merge request when publishing, and `--internal` to restrict that summary to project members with at least the Reporter role.
 
-Use `--reviewer-state` to set your review state on the merge request. Neither state records a formal approval; use `glab mr approve` to approve.
+Use `--reviewer-state` to set your review state on the merge request. Neither state records a formal approval; use `glab mr approve` to approve. If you are the merge request author, GitLab ignores this flag unless you are also listed as one of the reviewers.
 
 Unless you pass `--yes`, the command shows the number of pending comments and prompts you to confirm. When not running interactively, `--yes` is required. If there are no pending comments, the command exits with an error.
 

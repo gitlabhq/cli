@@ -112,7 +112,7 @@ func Test_cmdCreate_repoOverride(t *testing.T) {
 		t.Parallel()
 
 		testClient := gitlabtesting.NewTestClient(t)
-		mockMR1InRepo(t, testClient, "gitlab-org/cli")
+		mockMR1InRepo(t, testClient, "gitlab-org/cli", nil)
 
 		testClient.MockDiscussions.EXPECT().
 			CreateMergeRequestDiscussion("gitlab-org/cli", int64(1), gomock.Any(), gomock.Any()).
@@ -138,7 +138,7 @@ func Test_cmdCreate_repoOverride(t *testing.T) {
 		t.Parallel()
 
 		testClient := gitlabtesting.NewTestClient(t)
-		mockMR1InRepo(t, testClient, "gitlab-org/cli")
+		mockMR1InRepo(t, testClient, "gitlab-org/cli", nil)
 
 		testClient.MockDiscussions.EXPECT().
 			CreateMergeRequestDiscussion("gitlab-org/cli", int64(1), gomock.Any(), gomock.Any()).
