@@ -3,6 +3,10 @@ ARCH ?= $(shell uname -m | sed -e 's/x86_64/amd64/' | sed -e 's/aarch64/arm64/')
 DEBUG ?= false
 export PATH := $(abspath bin/):${PATH}
 
+# A git hook (such as lefthook's pre-push) exports these; left set, git commands
+# that tests run in temporary repositories act on the repository running the hook.
+unexport GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 # Build variables
 export CGO_ENABLED ?= 0
 ifeq (${VERBOSE}, 1)
