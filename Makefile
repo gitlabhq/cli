@@ -151,7 +151,7 @@ test: PAGER=
 test: GITLAB_TOKEN=
 test: export CI_PROJECT_PATH=$(shell git remote get-url origin)
 test: bin/gotestsum ## Run tests
-	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage.txt -covermode=atomic $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...)
+	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage-unit.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage-unit.txt -covermode=atomic $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...)
 
 .PHONY: test-changed
 test-changed: bin/gotestsum ## Run tests on packages changed vs origin/main (including reverse dependencies)
@@ -171,7 +171,7 @@ test-race: PAGER=
 test-race: GITLAB_TOKEN=
 test-race: export CI_PROJECT_PATH=$(shell git remote get-url origin)
 test-race: bin/gotestsum ## Run tests with race detection
-	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage.txt -covermode=atomic -race $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...)
+	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage-unit.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage-unit.txt -covermode=atomic -race $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...)
 
 # Only the packages that hold integration tests. Derived rather than listed so
 # a new *_integration_test.go is picked up without editing this file. The
@@ -189,7 +189,7 @@ integration-test-race: PAGER=
 integration-test-race: TEST_PKGS = $(INTEGRATION_PKGS)
 integration-test-race: export CI_PROJECT_PATH=$(shell git remote get-url origin)
 integration-test-race: bin/gotestsum ## Run tests with race detection
-	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage.txt -covermode=atomic -race -tags=integration $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...) -count=1
+	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage-integration.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage-integration.txt -covermode=atomic -race -tags=integration $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...) -count=1
 
 ifdef HASGOCILINT
 bin/golangci-lint:
@@ -204,9 +204,17 @@ bin/golangci-lint-${GOLANGCI_LINT_VERSION}:
 	curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | bash -s -- -b ./bin v${GOLANGCI_LINT_VERSION}
 	@mv bin/golangci-lint $@
 
-.PHONY: coverage
-coverage: ## Run coverage report
-	go tool cover -func coverage.txt
+.PHONY: coverage-merge
+coverage-merge: ## Merge coverage profiles from unit and integration tests
+	@[ -s coverage-unit.txt ] && [ -s coverage-integration.txt ] || { echo "coverage-merge: both coverage-unit.txt and coverage-integration.txt must exist and be non-empty" >&2; exit 1; }
+	@[ "$$(awk 'FNR==1' coverage-unit.txt coverage-integration.txt | sort -u)" = "mode: atomic" ] || { echo "coverage-merge: profiles must share a single 'mode: atomic' header" >&2; exit 1; }
+	{ echo "mode: atomic"; tail -q -n +2 coverage-unit.txt coverage-integration.txt; } > coverage.txt
+
+COVERAGE_PROFILE ?= coverage.txt
+
+.PHONY: coverage-report
+coverage-report: ## Run coverage report
+	go tool cover -func $(COVERAGE_PROFILE)
 
 .PHONY: lint
 lint: bin/golangci-lint ## Run linter
