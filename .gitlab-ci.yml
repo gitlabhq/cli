@@ -436,15 +436,12 @@ tests:unit:
     CGO_ENABLED: "1"
   script:
     - make test-race
-  after_script:
-    - echo -e "\e[0Ksection_start:`date +%s`:coverage[collapsed=true]\r\e[0KRunning coverage report"
-    - make coverage
-    - echo -e "\e[0Ksection_end:`date +%s`:coverage\r\e[0K"
-  coverage: /^total:\t+\(statements\)\t+\d+\.\d+%$/
   artifacts:
     when: always
+    paths:
+      - coverage-unit.txt
     reports:
-      junit: coverage.xml
+      junit: coverage-unit.xml
     access: "developer"
     expire_in: 7 days
 
@@ -466,10 +463,37 @@ tests:integration:
     # the GITLAB_TOKEN_TEST with less privilege used for testing and the GITLAB_TOKEN_RELEASE token
     # GITLAB_TEST_HOST is the GitLab instance used for the integration tests
     - GITLAB_TOKEN_TEST=$GITLAB_TOKEN_TEST GITLAB_TEST_HOST=$GITLAB_TEST_HOST make integration-test-race
+  artifacts:
+    when: always
+    paths:
+      - coverage-integration.txt
+    reports:
+      junit: coverage-integration.xml
+    access: "developer"
+    expire_in: 7 days
+
+tests:coverage:
+  extends:
+    - .go-cache
+    - .test
+  needs:
+    - job: tests:unit
+      artifacts: true
+    - job: tests:integration
+      artifacts: true
+  script:
+    - make coverage-merge
   after_script:
     - echo -e "\e[0Ksection_start:`date +%s`:coverage[collapsed=true]\r\e[0KRunning coverage report"
-    - make coverage
+    - make coverage-report
     - echo -e "\e[0Ksection_end:`date +%s`:coverage\r\e[0K"
+  coverage: /^total:\t+\(statements\)\t+\d+\.\d+%$/
+  artifacts:
+    when: always
+    paths:
+      - coverage.txt
+    access: "developer"
+    expire_in: 7 days
 
 .release:
   extends: .sign_windows_base

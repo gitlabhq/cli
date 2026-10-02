@@ -98,7 +98,7 @@ before merge.
 make build                                    # compile to ./bin/glab
 make lint                                     # golangci-lint (full)
 make fix                                      # golangci-lint --fix + gofmt + goimports
-make test                                     # all unit tests (gotestsum, writes coverage.txt/xml)
+make test                                     # all unit tests (gotestsum, writes coverage-unit.txt/coverage-unit.xml)
 make test-changed                             # tests changed packages + reverse deps against origin/main
 make test-race                                # unit tests with -race
 go test ./internal/commands/mr/note/...       # single package
