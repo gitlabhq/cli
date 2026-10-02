@@ -26,13 +26,14 @@ func noMorePages() *gitlab.Response {
 	return &gitlab.Response{NextPage: 0}
 }
 
-// testSpec is a minimal Spec used by manager-level tests. The duo and orbit
-// command packages have their own integration coverage of full specs.
+// testSpec is a minimal Spec used by manager-level tests. The binaries
+// package covers the full specs.
 func testSpec() Spec {
 	return Spec{
 		DisplayName:        "Test CLI",
 		ProjectID:          "12345",
 		PackageName:        "test-cli",
+		Command:            "test cli",
 		ConfigPrefix:       "test_cli",
 		EnvVarPrefix:       "GLAB_TEST_CLI",
 		MaxCompatibleMajor: 8,

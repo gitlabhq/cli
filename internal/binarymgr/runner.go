@@ -9,6 +9,8 @@ import (
 
 	"github.com/hashicorp/go-version"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 )
@@ -36,11 +38,6 @@ type Runner struct {
 	Install bool
 	Yes     bool
 	Args    []string
-
-	// UpdateCommand is the glab subcommand chain shown to users in the
-	// "Run 'glab X --update'" hint (e.g. "duo cli", "orbit local").
-	// Defaults to Spec.ConfigPrefix if empty.
-	UpdateCommand string
 }
 
 // updateCheckResult is the outcome of an update check.
@@ -343,31 +340,58 @@ func (r *Runner) checkAutoRun(ctx context.Context) error {
 	return nil
 }
 
+// ReportUpdate prints the update notice for the managed binary without the
+// 24-hour throttle. It stays silent on an unsupported platform and for a
+// binary that is not installed or is custom, since glab updates none of them.
+// Unlike InstalledBinary, it reports a binary below Spec.MinVersion, since
+// that user needs the update most.
+func (r *Runner) ReportUpdate(ctx context.Context) error {
+	managedPath, err := ManagedBinaryPath(r.Spec)
+	if errors.Is(err, ErrUnsupportedPlatform) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed checking for %s updates: %w", r.Spec.DisplayName, err)
+	}
+	installedPath, _ := r.Cfg.Get("", r.Spec.configKey("binary_path"))
+	installedVersion, _ := r.Cfg.Get("", r.Spec.configKey("binary_version"))
+	if installedPath != "" && installedPath != managedPath {
+		return nil
+	}
+	if installedVersion == "" || !isBinaryValid(managedPath) {
+		return nil
+	}
+
+	result, err := r.performUpdateCheck(ctx, true)
+	if err != nil {
+		// An outage answers with an HTML page that the error carries in full.
+		if errResp, ok := errors.AsType[*gitlab.ErrorResponse](err); ok {
+			return fmt.Errorf("failed checking for %s updates: the package registry responded with HTTP %d", r.Spec.DisplayName, errResp.StatusCode)
+		}
+		return fmt.Errorf("failed checking for %s updates: %w", r.Spec.DisplayName, err)
+	}
+	r.printUpdateNotice(result)
+	return nil
+}
+
 func (r *Runner) checkForUpdates(ctx context.Context) {
 	result, err := r.performUpdateCheck(ctx, r.ShouldForceUpdateCheck())
 	if err != nil || result == nil {
 		return
 	}
-
-	color := r.IO.Color()
-	if result.hasUpdate {
-		r.IO.LogInfof("\n%s New %s version available: %s → %s\n", color.DotWarnIcon(), r.Spec.DisplayName, result.currentVersion, result.latestVersion)
-		r.IO.LogInfof("Run 'glab %s --update' to update to the latest version\n", r.updateCommand())
-	}
-	if result.newMajorVersion != "" {
-		r.IO.LogInfof("\n%s %s %s is available but requires a newer version of glab.\n", color.DotWarnIcon(), r.Spec.DisplayName, result.newMajorVersion)
-		r.IO.LogInfof("Run 'glab check-update' to check for the latest glab version.\n")
-	}
+	r.printUpdateNotice(result)
 }
 
-// updateCommand is the glab subcommand chain users run to update this
-// binary. Spec doesn't carry it because the runner is constructed inside
-// the command package, so callers can override it via UpdateCommand.
-func (r *Runner) updateCommand() string {
-	if r.UpdateCommand != "" {
-		return r.UpdateCommand
+func (r *Runner) printUpdateNotice(result *updateCheckResult) {
+	color := r.IO.Color()
+	if result.hasUpdate {
+		r.IO.LogErrorf("\n%s New %s version available: %s → %s\n", color.DotWarnIcon(), r.Spec.DisplayName, result.currentVersion, result.latestVersion)
+		r.IO.LogErrorf("Run 'glab %s update' to update to the latest version\n", r.Spec.Command)
 	}
-	return r.Spec.ConfigPrefix
+	if result.newMajorVersion != "" {
+		r.IO.LogErrorf("\n%s %s %s is available but requires a newer version of glab.\n", color.DotWarnIcon(), r.Spec.DisplayName, result.newMajorVersion)
+		r.IO.LogErrorf("Run 'glab check-update' to check for the latest glab version.\n")
+	}
 }
 
 // saveAutoDownloadPreference persists the user's "always download updates"

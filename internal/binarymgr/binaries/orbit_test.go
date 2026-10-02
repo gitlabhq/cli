@@ -1,13 +1,12 @@
 //go:build !integration
 
-package orbit
+package binaries
 
 import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,16 +15,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
-	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
-func TestSpec_Wiring(t *testing.T) {
+func TestOrbit_Wiring(t *testing.T) {
 	t.Parallel()
 
-	s := Spec()
-	assert.Equal(t, "Orbit CLI", s.DisplayName)
+	s := Orbit()
+	assert.Equal(t, "GitLab Orbit CLI", s.DisplayName)
 	assert.Equal(t, "77960826", s.ProjectID)
 	assert.Equal(t, "orbit-cli", s.PackageName)
+	assert.Equal(t, "orbit", s.Command)
 	assert.Equal(t, "orbit_cli", s.ConfigPrefix)
 	assert.Equal(t, "GLAB_ORBIT_CLI", s.EnvVarPrefix)
 	assert.Equal(t, "0.130.0", s.MinVersion)
@@ -139,63 +138,4 @@ func buildOrbitZip(t *testing.T) []byte {
 	require.NoError(t, err)
 	require.NoError(t, zw.Close())
 	return buf.Bytes()
-}
-
-func TestRunWithCustomPath_Validation(t *testing.T) {
-	if _, err := binarymgr.ManagedBinaryPath(Spec()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
-		t.Skipf("skipping on unsupported platform: %v", err)
-	}
-
-	t.Run("non-existent path returns clear error", func(t *testing.T) {
-		ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
-		factory := cmdtest.NewTestFactory(ios)
-
-		t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", "/nonexistent/path/to/orbit")
-		runner := newRunner(factory.IO(), factory.Config(), Spec())
-		err := runner.Run(t.Context())
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "GLAB_ORBIT_CLI_BINARY_PATH")
-		assert.Contains(t, err.Error(), "orbit_cli_binary_path")
-		assert.Contains(t, err.Error(), "/nonexistent/path/to/orbit")
-		assert.Contains(t, err.Error(), "was not found")
-	})
-
-	t.Run("non-executable file returns clear error", func(t *testing.T) {
-		ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
-		factory := cmdtest.NewTestFactory(ios)
-
-		dir := t.TempDir()
-		nonExecFile := filepath.Join(dir, "orbit")
-		require.NoError(t, os.WriteFile(nonExecFile, []byte("#!/bin/sh\n"), 0o644))
-
-		t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", nonExecFile)
-		runner := newRunner(factory.IO(), factory.Config(), Spec())
-		err := runner.Run(t.Context())
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "GLAB_ORBIT_CLI_BINARY_PATH")
-		assert.Contains(t, err.Error(), "is not executable")
-	})
-}
-
-func TestHandleInstall_CustomPath(t *testing.T) {
-	if _, err := binarymgr.ManagedBinaryPath(Spec()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
-		t.Skipf("skipping on unsupported platform: %v", err)
-	}
-
-	ios, _, stderr, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
-	factory := cmdtest.NewTestFactory(ios)
-
-	dir := t.TempDir()
-	execFile := filepath.Join(dir, "orbit")
-	require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/sh\n"), 0o755))
-
-	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", execFile)
-	runner := newRunner(factory.IO(), factory.Config(), Spec())
-	err := runner.HandleInstall(t.Context())
-
-	require.NoError(t, err)
-	assert.Contains(t, stderr.String(), "Using custom Orbit CLI binary:")
-	assert.Contains(t, stderr.String(), execFile)
 }

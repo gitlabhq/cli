@@ -198,6 +198,9 @@
   submenu:
     - title: glab duo cli
       url: 'cli/duo/cli/'
+      submenu:
+        - title: glab duo cli update
+          url: 'cli/duo/cli/update/'
 - title: glab govern
   url: 'cli/govern/'
   submenu:
@@ -385,6 +388,9 @@
           url: 'cli/opentofu/state/unlock/'
 - title: glab orbit
   url: 'cli/orbit/'
+  submenu:
+    - title: glab orbit update
+      url: 'cli/orbit/update/'
 - title: glab packages
   url: 'cli/packages/'
   submenu:

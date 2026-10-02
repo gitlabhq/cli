@@ -3,7 +3,9 @@
 package binarymgr
 
 import (
+	"bytes"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +13,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -188,5 +194,137 @@ func TestInstalledBinary(t *testing.T) {
 		status, err := InstalledBinary(cfg, spec)
 		require.ErrorContains(t, err, "reading test_cli_binary_version: keyring locked")
 		assert.Equal(t, InstallStatus{Path: custom, Version: "unknown version", Installed: true}, status)
+	})
+}
+
+func TestRunner_ReportUpdate(t *testing.T) {
+	installManaged := func(t *testing.T, cfg config.Config, spec Spec, version string) {
+		t.Helper()
+		managed, err := ManagedBinaryPath(spec)
+		require.NoError(t, err)
+		require.NoError(t, os.MkdirAll(filepath.Dir(managed), 0o755))
+		require.NoError(t, os.WriteFile(managed, []byte("#!/bin/sh\n"), 0o755))
+		require.NoError(t, cfg.Set("", spec.configKey("binary_version"), version))
+	}
+	runnerWithRegistry := func(t *testing.T, mock func(*gitlabtesting.TestClient)) (*Runner, config.Config, *bytes.Buffer, *bytes.Buffer) {
+		t.Helper()
+		t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+		ios, _, stdout, stderr := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+		testClient := gitlabtesting.NewTestClient(t, gitlab.WithBaseURL("https://gitlab.com"))
+		mock(testClient)
+		cfg := config.NewBlankConfig()
+		spec := testSpec()
+		return &Runner{IO: ios, Cfg: cfg, Spec: spec, Manager: &Manager{io: ios, spec: spec, client: testClient.Client}}, cfg, stdout, stderr
+	}
+	runnerWithLatest := func(t *testing.T, latest ...string) (*Runner, config.Config, *bytes.Buffer, *bytes.Buffer) {
+		t.Helper()
+		return runnerWithRegistry(t, func(tc *gitlabtesting.TestClient) {
+			for _, v := range latest {
+				tc.MockPackages.EXPECT().
+					ListProjectPackages(testSpec().ProjectID, gomock.Any(), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.Package{{ID: 1, Version: v}}, noMorePages(), nil)
+			}
+		})
+	}
+	runnerWithRegistryError := func(t *testing.T, err error) (*Runner, config.Config, *bytes.Buffer, *bytes.Buffer) {
+		t.Helper()
+		return runnerWithRegistry(t, func(tc *gitlabtesting.TestClient) {
+			tc.MockPackages.EXPECT().
+				ListProjectPackages(testSpec().ProjectID, gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(nil, nil, err)
+		})
+	}
+
+	t.Run("installed binary with an update prints the update command", func(t *testing.T) {
+		r, cfg, stdout, stderr := runnerWithLatest(t, "8.1.0")
+		installManaged(t, cfg, r.Spec, "8.0.0")
+
+		require.NoError(t, r.ReportUpdate(t.Context()))
+
+		assert.Contains(t, stderr.String(), "New Test CLI version available: 8.0.0 → 8.1.0")
+		assert.Contains(t, stderr.String(), "Run 'glab test cli update' to update to the latest version")
+		assert.Empty(t, stdout.String())
+	})
+
+	t.Run("installed binary checks even within the 24-hour throttle", func(t *testing.T) {
+		r, cfg, _, stderr := runnerWithLatest(t, "8.1.0")
+		installManaged(t, cfg, r.Spec, "8.0.0")
+		require.NoError(t, cfg.Set("", r.Spec.configKey("last_update_check"), time.Now().Format(time.RFC3339)))
+
+		require.NoError(t, r.ReportUpdate(t.Context()))
+
+		assert.Contains(t, stderr.String(), "8.0.0 → 8.1.0")
+	})
+
+	t.Run("installed binary below the minimum version is still reported", func(t *testing.T) {
+		r, cfg, _, stderr := runnerWithLatest(t, "8.1.0")
+		r.Spec.MinVersion = "8.0.5"
+		installManaged(t, cfg, r.Spec, "8.0.0")
+
+		require.NoError(t, r.ReportUpdate(t.Context()))
+
+		assert.Contains(t, stderr.String(), "8.0.0 → 8.1.0")
+	})
+
+	t.Run("recorded version without a binary on disk prints nothing and makes no request", func(t *testing.T) {
+		r, cfg, stdout, stderr := runnerWithLatest(t)
+		require.NoError(t, cfg.Set("", r.Spec.configKey("binary_version"), "8.0.0"))
+
+		require.NoError(t, r.ReportUpdate(t.Context()))
+
+		assert.Empty(t, stdout.String())
+		assert.Empty(t, stderr.String())
+	})
+
+	t.Run("registry failure is returned with the binary name", func(t *testing.T) {
+		r, cfg, stdout, stderr := runnerWithRegistryError(t, errors.New("connection refused"))
+		installManaged(t, cfg, r.Spec, "8.0.0")
+
+		err := r.ReportUpdate(t.Context())
+
+		require.EqualError(t, err, "failed checking for Test CLI updates: failed to fetch packages: connection refused")
+		assert.Empty(t, stdout.String())
+		assert.Empty(t, stderr.String())
+	})
+
+	t.Run("registry HTTP error reports only the status code", func(t *testing.T) {
+		r, cfg, _, _ := runnerWithRegistryError(t, &gitlab.ErrorResponse{StatusCode: http.StatusServiceUnavailable, Message: "<html>maintenance</html>"})
+		installManaged(t, cfg, r.Spec, "8.0.0")
+
+		err := r.ReportUpdate(t.Context())
+
+		require.EqualError(t, err, "failed checking for Test CLI updates: the package registry responded with HTTP 503")
+	})
+
+	t.Run("installed binary that is current prints nothing", func(t *testing.T) {
+		r, cfg, stdout, stderr := runnerWithLatest(t, "8.0.0")
+		installManaged(t, cfg, r.Spec, "8.0.0")
+
+		require.NoError(t, r.ReportUpdate(t.Context()))
+
+		assert.Empty(t, stdout.String())
+		assert.Empty(t, stderr.String())
+	})
+
+	t.Run("binary that is not installed prints nothing and makes no request", func(t *testing.T) {
+		r, _, stdout, stderr := runnerWithLatest(t)
+
+		require.NoError(t, r.ReportUpdate(t.Context()))
+
+		assert.Empty(t, stdout.String())
+		assert.Empty(t, stderr.String())
+	})
+
+	t.Run("custom binary prints nothing and makes no request", func(t *testing.T) {
+		r, cfg, stdout, stderr := runnerWithLatest(t)
+		custom := filepath.Join(t.TempDir(), "custom")
+		require.NoError(t, os.WriteFile(custom, []byte("#!/bin/sh\n"), 0o755))
+		require.NoError(t, cfg.Set("", r.Spec.configKey("binary_path"), custom))
+		require.NoError(t, cfg.Set("", r.Spec.configKey("binary_version"), "8.0.0"))
+
+		require.NoError(t, r.ReportUpdate(t.Context()))
+
+		assert.Empty(t, stdout.String())
+		assert.Empty(t, stderr.String())
 	})
 }

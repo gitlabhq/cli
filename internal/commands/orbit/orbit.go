@@ -8,7 +8,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
+	"gitlab.com/gitlab-org/cli/internal/binarymgr/binaries"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	orbitUpdateCmd "gitlab.com/gitlab-org/cli/internal/commands/orbit/update"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -29,13 +31,13 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	opts := &options{io: f.IO(), cfg: f.Config(), factory: f, execute: executeOrbit}
 	cmd := &cobra.Command{
 		Use:   "orbit [<command>] [flags]",
-		Short: `Run the Orbit CLI. (EXPERIMENTAL)`,
+		Short: `Run the GitLab Orbit CLI. (EXPERIMENTAL)`,
 		Long: heredoc.Docf(`
-			Run the Orbit CLI through glab.
+			Run the GitLab Orbit CLI through glab.
 
 			Every command and flag, including %[1]s--help%[1]s, is forwarded verbatim to the managed Orbit binary. glab downloads, verifies, and updates that binary for you on first use. Until the binary is installed, %[1]s--help%[1]s shows this text instead. glab passes your resolved GitLab credential to the binary on every invocation, so remote commands such as %[1]sglab orbit query%[1]s need no separate login.
 
-			glab handles only %[1]s--install%[1]s, %[1]s--update%[1]s, and %[1]s--yes%[1]s itself. Run %[1]sglab help orbit%[1]s to see them.
+			glab handles only the %[1]supdate%[1]s command and the %[1]s--install%[1]s, %[1]s--update%[1]s, and %[1]s--yes%[1]s flags itself. Run %[1]sglab help orbit%[1]s to see them.
 
 			Prerequisites:
 
@@ -81,8 +83,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Install or update the managed binary without running it
 			$ glab orbit --install
-			$ glab orbit --update`),
+			$ glab orbit update`),
 		DisableFlagParsing: true,
+		Args:               cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.complete(cmd, args)
 			if err := opts.validate(); err != nil {
@@ -97,7 +100,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl.BoolP("help", "h", false, "Show the Orbit binary's help, or this text until the binary is installed.")
 	fl.BoolP("yes", "y", false, "Skip confirmation prompts.")
 	fl.Bool("install", false, "Install the Orbit binary without running it.")
-	fl.Bool("update", false, "Check for and install updates to the binary.")
+	fl.Bool("update", false, "Check for and install updates to the binary. Same as the update command.")
+
+	cmd.AddCommand(orbitUpdateCmd.NewCmd(f))
 
 	return cmd
 }
@@ -121,7 +126,7 @@ func (o *options) run(ctx context.Context) error {
 	if o.flags.helpOnly() {
 		return o.runHelp(ctx)
 	}
-	runner := newRunner(o.io, o.cfg, Spec())
+	runner := newRunner(o.io, o.cfg, binaries.Orbit())
 	runner.Yes = o.flags.yes
 	runner.Install = o.flags.install
 	runner.Update = o.flags.update
@@ -134,7 +139,7 @@ func (o *options) run(ctx context.Context) error {
 }
 
 func (o *options) runHelp(ctx context.Context) error {
-	status, err := binarymgr.InstalledBinary(o.cfg, Spec())
+	status, err := binarymgr.InstalledBinary(o.cfg, binaries.Orbit())
 	if err != nil {
 		dbg.Debugf("orbit help: %v", err)
 	}
@@ -181,4 +186,13 @@ func splitGlabFlags(args []string) glabFlags {
 		}
 	}
 	return flags
+}
+
+func newRunner(io *iostreams.IOStreams, cfg config.Config, spec binarymgr.Spec) *binarymgr.Runner {
+	return &binarymgr.Runner{
+		IO:      io,
+		Cfg:     cfg,
+		Spec:    spec,
+		Manager: binarymgr.NewManager(io, spec),
+	}
 }

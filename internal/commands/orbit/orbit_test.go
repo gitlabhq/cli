@@ -12,8 +12,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
+	"gitlab.com/gitlab-org/cli/internal/binarymgr"
+	"gitlab.com/gitlab-org/cli/internal/binarymgr/binaries"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -180,7 +183,7 @@ func TestNewCmd_HelpShowsGlabTextUntilBinaryIsInstalled(t *testing.T) {
 	for _, args := range []string{"", "--help", "-h status"} {
 		out, err := exec(args)
 		require.NoError(t, err, args)
-		assert.Contains(t, out.String(), "Run the Orbit CLI", args)
+		assert.Contains(t, out.String(), "Run the GitLab Orbit CLI", args)
 	}
 }
 
@@ -253,6 +256,7 @@ func TestOrbitCredentialEnv_InjectsResolvedCredential(t *testing.T) {
 
 func TestOrbitCredentialEnv_SkipsWhenUnauthenticated(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "")
+	keyring.MockInit()
 
 	client, err := api.NewClientFromConfig("gitlab.com", config.NewBlankConfig(), false, "test-agent")
 	require.NoError(t, err)
@@ -262,4 +266,89 @@ func TestOrbitCredentialEnv_SkipsWhenUnauthenticated(t *testing.T) {
 
 	assert.Nil(t, orbitCredentialEnv(t.Context(), f))
 	assert.Empty(t, stderr.String())
+}
+
+func TestRunWithCustomPath_Validation(t *testing.T) {
+	if _, err := binarymgr.ManagedBinaryPath(binaries.Orbit()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
+		t.Skipf("skipping on unsupported platform: %v", err)
+	}
+
+	t.Run("non-existent path returns clear error", func(t *testing.T) {
+		ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+		factory := cmdtest.NewTestFactory(ios)
+
+		t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", "/nonexistent/path/to/orbit")
+		runner := newRunner(factory.IO(), factory.Config(), binaries.Orbit())
+		err := runner.Run(t.Context())
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GLAB_ORBIT_CLI_BINARY_PATH")
+		assert.Contains(t, err.Error(), "orbit_cli_binary_path")
+		assert.Contains(t, err.Error(), "/nonexistent/path/to/orbit")
+		assert.Contains(t, err.Error(), "was not found")
+	})
+
+	t.Run("non-executable file returns clear error", func(t *testing.T) {
+		ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+		factory := cmdtest.NewTestFactory(ios)
+
+		dir := t.TempDir()
+		nonExecFile := filepath.Join(dir, "orbit")
+		require.NoError(t, os.WriteFile(nonExecFile, []byte("#!/bin/sh\n"), 0o644))
+
+		t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", nonExecFile)
+		runner := newRunner(factory.IO(), factory.Config(), binaries.Orbit())
+		err := runner.Run(t.Context())
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GLAB_ORBIT_CLI_BINARY_PATH")
+		assert.Contains(t, err.Error(), "is not executable")
+	})
+}
+
+func TestHandleInstall_CustomPath(t *testing.T) {
+	if _, err := binarymgr.ManagedBinaryPath(binaries.Orbit()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
+		t.Skipf("skipping on unsupported platform: %v", err)
+	}
+
+	ios, _, stderr, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	factory := cmdtest.NewTestFactory(ios)
+
+	dir := t.TempDir()
+	execFile := filepath.Join(dir, "orbit")
+	require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/sh\n"), 0o755))
+
+	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", execFile)
+	runner := newRunner(factory.IO(), factory.Config(), binaries.Orbit())
+	err := runner.HandleInstall(t.Context())
+
+	require.NoError(t, err)
+	assert.Contains(t, stderr.String(), "Using custom GitLab Orbit CLI binary:")
+	assert.Contains(t, stderr.String(), execFile)
+}
+
+func TestNewCmd_UpdateRouting(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "update is glab's subcommand", args: []string{"update"}, want: "update"},
+		{name: "update after --yes is glab's subcommand", args: []string{"--yes", "update"}, want: "update"},
+		{name: "--update stays on the pass-through command", args: []string{"--update"}, want: "orbit"},
+		{name: "update after another command passes through", args: []string{"grep", "update"}, want: "orbit"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+			cmd := NewCmd(cmdtest.NewTestFactory(ios))
+
+			found, _, err := cmd.Find(tc.args)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, found.Name())
+		})
+	}
 }
