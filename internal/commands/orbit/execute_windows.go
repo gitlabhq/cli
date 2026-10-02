@@ -43,12 +43,12 @@ func wrapExecError(err error) error {
 	if errors.As(err, &errno) && errno == errorBadExeFormat {
 		if runtime.GOARCH == "arm64" {
 			return cmdutils.WrapError(err, fmt.Sprintf(
-				"failed to execute Orbit CLI: the x86_64 binary could not run on ARM64 Windows. "+
+				"failed to execute GitLab Orbit CLI: the x86_64 binary could not run on ARM64 Windows. "+
 					"This usually means x64 emulation is not enabled. Upgrade to Windows 11 or enable x64 emulation, "+
 					"then retry %q",
 				"glab orbit"))
 		}
-		return cmdutils.WrapError(err, "failed to execute Orbit CLI: the binary appears to be corrupted. Run `glab orbit --update` to reinstall")
+		return cmdutils.WrapError(err, "failed to execute GitLab Orbit CLI: the binary appears to be corrupted. Run `glab orbit update` to reinstall")
 	}
-	return cmdutils.WrapError(err, "failed to execute Orbit CLI")
+	return cmdutils.WrapError(err, "failed to execute GitLab Orbit CLI")
 }

@@ -6,10 +6,11 @@ import (
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
-	"golang.org/x/sys/cpu"
 
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
+	"gitlab.com/gitlab-org/cli/internal/binarymgr/binaries"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	duoCLIUpdateCmd "gitlab.com/gitlab-org/cli/internal/commands/duo/cli/update"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -17,91 +18,16 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/utils"
 )
 
-// duoMaxCompatibleMajorVersion caps Duo CLI auto-updates to this major
-// version. Bump after validating compatibility against the new major.
-const duoMaxCompatibleMajorVersion = 9
-
-// Spec returns the binarymgr.Spec describing the Duo CLI binary. It is
-// exported so tests and other consumers can introspect it.
-func Spec() binarymgr.Spec {
-	return binarymgr.Spec{
-		DisplayName:        "GitLab Duo CLI",
-		ProjectID:          "46519181",
-		PackageName:        "duo-cli",
-		ConfigPrefix:       "duo_cli",
-		EnvVarPrefix:       "GLAB_DUO_CLI",
-		MaxCompatibleMajor: duoMaxCompatibleMajorVersion,
-		SupportedOS:        []string{"darwin", "linux", "windows"},
-		NormalizeArch:      duoNormalizeArch,
-		AssetName:          duoAssetName,
-		InstalledName:      duoInstalledName,
-		// Duo ships raw binaries — no extraction needed.
-		Extract: nil,
-	}
-}
-
-func duoNormalizeArch(goos, goarch string) (string, error) {
-	return duoNormalizeArchFor(goos, goarch, detectLinuxX64ArchVariant)
-}
-
-// duoNormalizeArchFor is duoNormalizeArch's testable core. The Linux x64
-// variant detector is injected so tests don't depend on the host CPU.
-func duoNormalizeArchFor(goos, goarch string, linuxX64Variant func() string) (string, error) {
-	switch goarch {
-	case "amd64":
-		switch goos {
-		case "windows":
-			return "x64-baseline", nil
-		case "linux":
-			return linuxX64Variant(), nil
-		}
-		return "x64", nil
-	case "arm64", "aarch64":
-		return "arm64", nil
-	}
-	return "", binarymgr.ErrUnsupportedPlatform
-}
-
-// detectLinuxX64ArchVariant mirrors the upstream Duo CLI installer's
-// detect_linux_x64_variant: "x64-modern" when the host CPU advertises AVX2,
-// otherwise "x64" (baseline).
-//
-// AVX2 is a sufficient proxy for the full feature set Bun's modern target
-// requires (AVX2 + BMI2 + FMA): every CPU that advertises AVX2 also has
-// BMI2 and FMA (Haswell+ / Excavator+), so checking AVX2 alone matches the
-// upstream installer's bash detect_linux_x64_variant exactly.
-func detectLinuxX64ArchVariant() string {
-	// Linux uses "x64" instead of "x64-baseline" to preserve
-	// compatibility with previous versions of glab as x64 should work on most systems
-	// and it matches the duo cli install script:
-	// https://gitlab.com/gitlab-org/editor-extensions/gitlab-lsp/-/blob/247ec22ab64e4160ff5776c4254598623f537738/packages/cli/scripts/install_duo_cli.sh
-	if cpu.X86.HasAVX2 {
-		return "x64-modern"
-	}
-	return "x64"
-}
-
-func duoAssetName(goos, arch string) string {
-	name := "duo-" + goos + "-" + arch
-	if goos == "windows" {
-		name += ".exe"
-	}
-	return name
-}
-
-func duoInstalledName(goos string) string {
-	if goos == "windows" {
-		return "duo.exe"
-	}
-	return "duo"
-}
-
 // AppendBinaryStatusFooter registers a help function on cmd that renders glab's
 // standard help and then appends a section describing how to reach the GitLab
 // Duo CLI's own help, depending on whether the binary is installed.
 func AppendBinaryStatusFooter(cmd *cobra.Command, f cmdutils.Factory) {
 	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
 		c.Root().HelpFunc()(c, args)
+		// Subcommands inherit this help func, but the footer only describes cmd.
+		if c != cmd {
+			return
+		}
 
 		io := f.IO()
 		io.LogInfo(io.Color().Bold("GITLAB DUO CLI"))
@@ -128,7 +54,7 @@ func AppendBinaryStatusFooter(cmd *cobra.Command, f cmdutils.Factory) {
 }
 
 func binaryStatus(cfg config.Config) (string, string, bool) {
-	status, err := binarymgr.InstalledBinary(cfg, Spec())
+	status, err := binarymgr.InstalledBinary(cfg, binaries.DuoCLI())
 	if err != nil {
 		dbg.Debugf("binaryStatus: %v", err)
 	}
@@ -137,7 +63,7 @@ func binaryStatus(cfg config.Config) (string, string, bool) {
 
 // NewCmd creates the `glab duo cli` command.
 func NewCmd(f cmdutils.Factory) *cobra.Command {
-	spec := Spec()
+	spec := binaries.DuoCLI()
 	cmd := &cobra.Command{
 		Use:   "cli [command]",
 		Short: "Run the GitLab Duo CLI.",
@@ -168,7 +94,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			- %[1]sduo_cli_auto_run%[1]s: Skip the run confirmation prompt.
 			- %[1]sduo_cli_auto_download%[1]s: Skip the download confirmation prompt.
 
-			%[1]sglab%[1]s passes all other arguments and flags through to the GitLab Duo CLI binary. To see the GitLab Duo CLI commands and flags, run %[1]sglab duo cli help%[1]s.
+			Except for the %[1]supdate%[1]s command, %[1]sglab%[1]s passes all other arguments and flags through to the GitLab Duo CLI binary. To see the GitLab Duo CLI commands and flags, run %[1]sglab duo cli help%[1]s.
 
 			For more information, see the [GitLab Duo CLI documentation](https://docs.gitlab.com/user/gitlab_duo_cli/).
 		`, "`"),
@@ -207,8 +133,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			glab duo cli --install --yes
 
 			# Check for and install updates
-			glab duo cli --update`),
+			glab duo cli update`),
 		DisableFlagParsing: true,
+		Args:               cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runner := newRunner(f.IO(), f.Config(), spec)
 
@@ -253,8 +180,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl := cmd.Flags()
 	fl.BoolP("yes", "y", false, "Skip confirmation prompts.")
 	fl.Bool("install", false, "Install the GitLab Duo CLI binary without running it.")
-	fl.Bool("update", false, "Check for and install updates to the binary.")
+	fl.Bool("update", false, "Check for and install updates to the binary. Same as the update command.")
 
+	cmd.AddCommand(duoCLIUpdateCmd.NewCmd(f))
 	AppendBinaryStatusFooter(cmd, f)
 
 	return cmd
@@ -302,6 +230,5 @@ func newRunner(io *iostreams.IOStreams, cfg config.Config, spec binarymgr.Spec) 
 		Executor: func(ctx context.Context, binaryPath string, args []string) error {
 			return executeDuoCLI(ctx, io, binaryPath, args)
 		},
-		UpdateCommand: "duo cli",
 	}
 }

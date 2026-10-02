@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
+	"gitlab.com/gitlab-org/cli/internal/binarymgr/binaries"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -25,7 +26,7 @@ func TestNewCmd_Structure(t *testing.T) {
 	cmd := NewCmd(factory)
 
 	assert.True(t, cmd.DisableFlagParsing, "DisableFlagParsing should be enabled for transparent pass-through")
-	assert.Nil(t, cmd.Args, "Args should be nil to accept any arguments")
+	require.NoError(t, cmd.Args(cmd, []string{"run", "--goal", "x"}), "Args should accept any arguments")
 	assert.NotNil(t, cmd.RunE, "RunE should be set")
 
 	// Verify glab-owned flags are registered for documentation
@@ -36,88 +37,8 @@ func TestNewCmd_Structure(t *testing.T) {
 	assert.Equal(t, "y", yesFlag.Shorthand, "--yes should have -y shorthand")
 }
 
-func TestSpec_Wiring(t *testing.T) {
-	t.Parallel()
-
-	s := Spec()
-	assert.Equal(t, "GitLab Duo CLI", s.DisplayName)
-	assert.Equal(t, "46519181", s.ProjectID)
-	assert.Equal(t, "duo-cli", s.PackageName)
-	assert.Equal(t, "duo_cli", s.ConfigPrefix)
-	assert.Equal(t, "GLAB_DUO_CLI", s.EnvVarPrefix)
-	assert.Equal(t, duoMaxCompatibleMajorVersion, s.MaxCompatibleMajor)
-	assert.ElementsMatch(t, []string{"darwin", "linux", "windows"}, s.SupportedOS)
-	assert.Nil(t, s.Extract, "Duo ships raw binaries; no extractor expected")
-}
-
-func TestDuoNormalizeArch(t *testing.T) {
-	t.Parallel()
-
-	baseline := func() string { return "x64" }
-	modern := func() string { return "x64-modern" }
-
-	tests := []struct {
-		name        string
-		goos        string
-		goarch      string
-		linuxX64    func() string
-		want        string
-		expectError bool
-	}{
-		{name: "amd64 darwin", goos: "darwin", goarch: "amd64", linuxX64: baseline, want: "x64"},
-		{name: "amd64 linux baseline (no AVX2)", goos: "linux", goarch: "amd64", linuxX64: baseline, want: "x64"},
-		{name: "amd64 linux modern (AVX2)", goos: "linux", goarch: "amd64", linuxX64: modern, want: "x64-modern"},
-		{name: "amd64 windows", goos: "windows", goarch: "amd64", linuxX64: baseline, want: "x64-baseline"},
-		{name: "arm64 darwin", goos: "darwin", goarch: "arm64", linuxX64: baseline, want: "arm64"},
-		{name: "arm64 linux", goos: "linux", goarch: "arm64", linuxX64: baseline, want: "arm64"},
-		{name: "arm64 windows", goos: "windows", goarch: "arm64", linuxX64: baseline, want: "arm64"},
-		{name: "aarch64 alias", goos: "linux", goarch: "aarch64", linuxX64: baseline, want: "arm64"},
-		{name: "unsupported arch", goos: "linux", goarch: "386", linuxX64: baseline, expectError: true},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := duoNormalizeArchFor(tc.goos, tc.goarch, tc.linuxX64)
-			if tc.expectError {
-				require.Error(t, err)
-				require.ErrorIs(t, err, binarymgr.ErrUnsupportedPlatform)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tc.want, got)
-			}
-		})
-	}
-}
-
-func TestDetectLinuxX64ArchVariant(t *testing.T) {
-	t.Parallel()
-	// Host CPU is unknown at test time; just assert the detector returns
-	// one of the two valid variants.
-	got := detectLinuxX64ArchVariant()
-	assert.Contains(t, []string{"x64", "x64-modern"}, got)
-}
-
-func TestDuoAssetName(t *testing.T) {
-	t.Parallel()
-
-	assert.Equal(t, "duo-darwin-arm64", duoAssetName("darwin", "arm64"))
-	assert.Equal(t, "duo-linux-x64", duoAssetName("linux", "x64"))
-	assert.Equal(t, "duo-linux-x64-modern", duoAssetName("linux", "x64-modern"))
-	assert.Equal(t, "duo-windows-x64-baseline.exe", duoAssetName("windows", "x64-baseline"))
-	assert.Equal(t, "duo-windows-arm64.exe", duoAssetName("windows", "arm64"))
-}
-
-func TestDuoInstalledName(t *testing.T) {
-	t.Parallel()
-
-	assert.Equal(t, "duo", duoInstalledName("darwin"))
-	assert.Equal(t, "duo", duoInstalledName("linux"))
-	assert.Equal(t, "duo.exe", duoInstalledName("windows"))
-}
-
 func TestRunWithCustomPath_Validation(t *testing.T) {
-	if _, err := binarymgr.ManagedBinaryPath(Spec()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
+	if _, err := binarymgr.ManagedBinaryPath(binaries.DuoCLI()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
 		t.Skipf("skipping on unsupported platform: %v", err)
 	}
 
@@ -126,7 +47,7 @@ func TestRunWithCustomPath_Validation(t *testing.T) {
 		factory := cmdtest.NewTestFactory(ios)
 
 		t.Setenv("GLAB_DUO_CLI_BINARY_PATH", "/nonexistent/path/to/duo")
-		runner := newRunner(factory.IO(), factory.Config(), Spec())
+		runner := newRunner(factory.IO(), factory.Config(), binaries.DuoCLI())
 		err := runner.Run(t.Context())
 
 		require.Error(t, err)
@@ -142,7 +63,7 @@ func TestRunWithCustomPath_Validation(t *testing.T) {
 
 		dir := t.TempDir()
 		t.Setenv("GLAB_DUO_CLI_BINARY_PATH", dir)
-		runner := newRunner(factory.IO(), factory.Config(), Spec())
+		runner := newRunner(factory.IO(), factory.Config(), binaries.DuoCLI())
 		err := runner.Run(t.Context())
 
 		require.Error(t, err)
@@ -160,7 +81,7 @@ func TestRunWithCustomPath_Validation(t *testing.T) {
 		require.NoError(t, os.WriteFile(nonExecFile, []byte("#!/bin/sh\n"), 0o644))
 
 		t.Setenv("GLAB_DUO_CLI_BINARY_PATH", nonExecFile)
-		runner := newRunner(factory.IO(), factory.Config(), Spec())
+		runner := newRunner(factory.IO(), factory.Config(), binaries.DuoCLI())
 		err := runner.Run(t.Context())
 
 		require.Error(t, err)
@@ -172,7 +93,7 @@ func TestRunWithCustomPath_Validation(t *testing.T) {
 }
 
 func TestHandleInstall_CustomPath(t *testing.T) {
-	if _, err := binarymgr.ManagedBinaryPath(Spec()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
+	if _, err := binarymgr.ManagedBinaryPath(binaries.DuoCLI()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
 		t.Skipf("skipping on unsupported platform: %v", err)
 	}
 
@@ -185,7 +106,7 @@ func TestHandleInstall_CustomPath(t *testing.T) {
 		require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/sh\n"), 0o755))
 
 		t.Setenv("GLAB_DUO_CLI_BINARY_PATH", execFile)
-		runner := newRunner(factory.IO(), factory.Config(), Spec())
+		runner := newRunner(factory.IO(), factory.Config(), binaries.DuoCLI())
 		err := runner.HandleInstall(t.Context())
 
 		require.NoError(t, err)
@@ -270,14 +191,14 @@ func TestShouldForceUpdateCheck(t *testing.T) {
 
 			ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
 			factory := cmdtest.NewTestFactory(ios)
-			runner := newRunner(factory.IO(), factory.Config(), Spec())
+			runner := newRunner(factory.IO(), factory.Config(), binaries.DuoCLI())
 			assert.Equal(t, tt.expected, runner.ShouldForceUpdateCheck())
 		})
 	}
 }
 
 func TestBinaryStatus(t *testing.T) {
-	if _, err := binarymgr.ManagedBinaryPath(Spec()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
+	if _, err := binarymgr.ManagedBinaryPath(binaries.DuoCLI()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
 		t.Skipf("skipping on unsupported platform: %v", err)
 	}
 
@@ -314,7 +235,7 @@ func TestBinaryStatus(t *testing.T) {
 }
 
 func TestAppendBinaryStatusFooter_ShowsSetupStepsWhenNotInstalled(t *testing.T) {
-	if _, err := binarymgr.ManagedBinaryPath(Spec()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
+	if _, err := binarymgr.ManagedBinaryPath(binaries.DuoCLI()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
 		t.Skipf("skipping on unsupported platform: %v", err)
 	}
 
@@ -333,4 +254,45 @@ func TestAppendBinaryStatusFooter_ShowsSetupStepsWhenNotInstalled(t *testing.T) 
 
 	assert.Contains(t, stdout.String(), "not installed yet")
 	assert.Contains(t, stdout.String(), "glab duo cli --install")
+}
+
+func TestNewCmd_UpdateRouting(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "update is glab's subcommand", args: []string{"update"}, want: "update"},
+		{name: "update after --yes is glab's subcommand", args: []string{"--yes", "update"}, want: "update"},
+		{name: "--update stays on the pass-through command", args: []string{"--update"}, want: "cli"},
+		{name: "update after another command passes through", args: []string{"run", "--goal", "update"}, want: "cli"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+			cmd := NewCmd(cmdtest.NewTestFactory(ios))
+
+			found, _, err := cmd.Find(tc.args)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, found.Name())
+		})
+	}
+}
+
+func TestAppendBinaryStatusFooter_OmittedFromSubcommandHelp(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	ios, _, stdout, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	cmd := NewCmd(cmdtest.NewTestFactory(ios))
+	root := &cobra.Command{Use: "glab"}
+	root.SetHelpFunc(func(*cobra.Command, []string) {})
+	root.AddCommand(cmd)
+	update, _, err := cmd.Find([]string{"update"})
+	require.NoError(t, err)
+
+	require.NoError(t, update.Help())
+
+	assert.NotContains(t, stdout.String(), "GITLAB DUO CLI")
 }

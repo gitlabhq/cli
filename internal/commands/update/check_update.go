@@ -1,6 +1,7 @@
 package update
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +17,8 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
+	"gitlab.com/gitlab-org/cli/internal/binarymgr"
+	"gitlab.com/gitlab-org/cli/internal/binarymgr/binaries"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
@@ -44,6 +47,8 @@ func NewCheckUpdateCmd(f cmdutils.Factory) *cobra.Command {
 		When glab runs this check automatically after other commands, it
 		checks for updates at most once every 24 hours.
 
+		When you run this command, glab also reports updates for the GitLab Duo CLI and GitLab Orbit CLI binaries, if they are installed.
+
 		To turn off the automatic update check, run
 		%[1]sglab config set check_update false%[1]s. To turn it back on,
 		run %[1]sglab config set check_update true%[1]s.
@@ -61,7 +66,7 @@ func NewCheckUpdateCmd(f cmdutils.Factory) *cobra.Command {
 			mcpannotations.Exclude: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return CheckUpdateExplicit(f)
+			return CheckUpdateExplicit(cmd.Context(), f)
 		},
 	}
 
@@ -80,9 +85,19 @@ func CheckUpdate(f cmdutils.Factory, silentSuccess bool) error {
 }
 
 // CheckUpdateExplicit performs an update check when explicitly invoked by the user.
-// Unlike automatic checks, this bypasses the 24-hour throttle.
-func CheckUpdateExplicit(f cmdutils.Factory) error {
-	return checkUpdate(f, false, true)
+// Unlike automatic checks, this bypasses the 24-hour throttle. Managed binaries
+// are only checked here because each one already checks for updates when it runs.
+func CheckUpdateExplicit(ctx context.Context, f cmdutils.Factory) error {
+	if err := checkUpdate(f, false, true); err != nil {
+		return err
+	}
+	for _, spec := range binaries.All() {
+		runner := &binarymgr.Runner{IO: f.IO(), Cfg: f.Config(), Spec: spec, Manager: binarymgr.NewManager(f.IO(), spec)}
+		if err := runner.ReportUpdate(ctx); err != nil {
+			f.IO().LogErrorf("%s %s\n", f.IO().Color().WarnIcon(), err)
+		}
+	}
+	return nil
 }
 
 func checkUpdate(f cmdutils.Factory, silentSuccess bool, forceCheck bool) error {
@@ -131,7 +146,7 @@ func checkUpdate(f cmdutils.Factory, silentSuccess bool, forceCheck bool) error 
 	} else if !silentSuccess {
 		c := f.IO().Color()
 		f.IO().LogErrorf("%v",
-			c.Green("You are already using the latest version of glab!\n"))
+			c.Green("You are using the latest version of glab\n"))
 	}
 
 	// Piggybacks on the 24h throttle so we don't issue one gitlab.com

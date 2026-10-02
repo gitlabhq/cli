@@ -76,7 +76,7 @@ func TestNewCheckUpdateCmd(t *testing.T) {
 		{
 			name:    "same version",
 			version: "v1.11.1",
-			stdErr:  "You are already using the latest version of glab!\n",
+			stdErr:  "You are using the latest version of glab\n",
 		},
 		{
 			name:          "older version, human, homebrew",

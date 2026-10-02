@@ -20,6 +20,10 @@ type Spec struct {
 	// PackageName is the generic-package name (e.g. "duo-cli", "orbit-cli").
 	PackageName string
 
+	// Command is the glab subcommand chain that runs the binary
+	// (e.g. "duo cli", "orbit"), used in update hints.
+	Command string
+
 	// ConfigPrefix is the config-key namespace. Keys are derived as
 	// <prefix>_binary_path, _binary_version, _binary_checksum,
 	// _last_update_check, _auto_run, _auto_download.

@@ -201,39 +201,39 @@ var KeySchema = []KeyDef{
 		UserSettable: true, HelpHidden: true,
 		Description: "Last time an update check was performed (automatically set).",
 	},
-	// ---- Orbit CLI binarymgr keys ----
+	// ---- GitLab Orbit CLI binarymgr keys ----
 	{
 		Name: "orbit_cli_auto_run", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_ORBIT_CLI_AUTO_RUN", "ORBIT_CLI_AUTO_RUN"},
-		Description:  "Automatically run the Orbit CLI without prompting (true/false). Set to true to skip the confirmation prompt.",
+		Description:  "Automatically run the GitLab Orbit CLI without prompting (true/false). Set to true to skip the confirmation prompt.",
 	},
 	{
 		Name: "orbit_cli_auto_download", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_ORBIT_CLI_AUTO_DOWNLOAD", "ORBIT_CLI_AUTO_DOWNLOAD"},
-		Description:  "Automatically download the Orbit CLI binary without prompting (true/false).",
+		Description:  "Automatically download the GitLab Orbit CLI binary without prompting (true/false).",
 	},
 	{
 		Name: "orbit_cli_binary_path", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true, HelpHidden: true,
 		EnvVars:     []string{"GLAB_ORBIT_CLI_BINARY_PATH"},
-		Description: "Path to the installed Orbit CLI binary (automatically set). Default: ~/.config/glab-cli/bin/orbit",
+		Description: "Path to the installed GitLab Orbit CLI binary (automatically set). Default: ~/.config/glab-cli/bin/orbit",
 	},
 	{
 		Name: "orbit_cli_binary_version", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true, HelpHidden: true,
-		Description: "Version of the installed Orbit CLI binary (automatically set).",
+		Description: "Version of the installed GitLab Orbit CLI binary (automatically set).",
 	},
 	{
 		Name: "orbit_cli_binary_checksum", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true, HelpHidden: true,
-		Description: "SHA256 checksum of the installed Orbit CLI binary (automatically set).",
+		Description: "SHA256 checksum of the installed GitLab Orbit CLI binary (automatically set).",
 	},
 	{
 		Name: "orbit_cli_last_update_check", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true, HelpHidden: true,
-		Description: "Last time an Orbit CLI update check was performed (automatically set).",
+		Description: "Last time a GitLab Orbit CLI update check was performed (automatically set).",
 	},
 
 	// ---------------- Per-host ----------------

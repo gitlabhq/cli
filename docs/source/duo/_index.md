@@ -40,4 +40,4 @@ glab duo cli run --goal "Fix the failing tests in this project"
 
 ## Subcommands
 
-- [`cli`](cli.md)
+- [`cli`](cli/_index.md)

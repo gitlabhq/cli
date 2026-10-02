@@ -22,6 +22,8 @@ even if the previous check was less than 24 hours ago.
 When glab runs this check automatically after other commands, it
 checks for updates at most once every 24 hours.
 
+When you run this command, glab also reports updates for the GitLab Duo CLI and GitLab Orbit CLI binaries, if they are installed.
+
 To turn off the automatic update check, run
 `glab config set check_update false`. To turn it back on,
 run `glab config set check_update true`.

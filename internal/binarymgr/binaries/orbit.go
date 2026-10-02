@@ -1,19 +1,19 @@
-package orbit
+package binaries
 
 import (
 	"runtime"
 
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
-	"gitlab.com/gitlab-org/cli/internal/config"
-	"gitlab.com/gitlab-org/cli/internal/iostreams"
 )
 
-// MaxCompatibleMajor is left unset (uncapped) while Orbit is pre-1.0.
-func Spec() binarymgr.Spec {
+// Orbit describes the GitLab Orbit CLI binary run by `glab orbit`. MaxCompatibleMajor
+// is left unset (uncapped) while Orbit is pre-1.0.
+func Orbit() binarymgr.Spec {
 	return binarymgr.Spec{
-		DisplayName:   "Orbit CLI",
+		DisplayName:   "GitLab Orbit CLI",
 		ProjectID:     "77960826",
 		PackageName:   "orbit-cli",
+		Command:       "orbit",
 		ConfigPrefix:  "orbit_cli",
 		EnvVarPrefix:  "GLAB_ORBIT_CLI",
 		MinVersion:    "0.130.0",
@@ -22,16 +22,6 @@ func Spec() binarymgr.Spec {
 		AssetName:     orbitAssetName,
 		InstalledName: orbitInstalledName,
 		Extract:       orbitExtractorFor(runtime.GOOS),
-	}
-}
-
-func newRunner(io *iostreams.IOStreams, cfg config.Config, spec binarymgr.Spec) *binarymgr.Runner {
-	return &binarymgr.Runner{
-		IO:            io,
-		Cfg:           cfg,
-		Spec:          spec,
-		Manager:       binarymgr.NewManager(io, spec),
-		UpdateCommand: "orbit",
 	}
 }
 

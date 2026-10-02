@@ -40,7 +40,7 @@ Configuration options:
 - `duo_cli_auto_run`: Skip the run confirmation prompt.
 - `duo_cli_auto_download`: Skip the download confirmation prompt.
 
-`glab` passes all other arguments and flags through to the GitLab Duo CLI binary. To see the GitLab Duo CLI commands and flags, run `glab duo cli help`.
+Except for the `update` command, `glab` passes all other arguments and flags through to the GitLab Duo CLI binary. To see the GitLab Duo CLI commands and flags, run `glab duo cli help`.
 
 For more information, see the [GitLab Duo CLI documentation](https://docs.gitlab.com/user/gitlab_duo_cli/).
 
@@ -77,14 +77,14 @@ glab duo cli --install
 glab duo cli --install --yes
 
 # Check for and install updates
-glab duo cli --update
+glab duo cli update
 ```
 
 ## Options
 
 ```plaintext
       --install   Install the GitLab Duo CLI binary without running it.
-      --update    Check for and install updates to the binary.
+      --update    Check for and install updates to the binary. Same as the update command.
   -y, --yes       Skip confirmation prompts.
 ```
 
@@ -93,3 +93,7 @@ glab duo cli --update
 ```plaintext
   -h, --help   Show help for this command.
 ```
+
+## Subcommands
+
+- [`update`](update.md)

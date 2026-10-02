@@ -32,5 +32,5 @@ func TestWrapExecError_corruptHintOnAMD64(t *testing.T) {
 func TestWrapExecError_genericMessage(t *testing.T) {
 	t.Parallel()
 	err := wrapExecError(errors.New("some other failure"))
-	assert.ErrorContains(t, err, "failed to execute Orbit CLI")
+	assert.ErrorContains(t, err, "failed to execute GitLab Orbit CLI")
 }
