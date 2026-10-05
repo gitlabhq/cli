@@ -41,7 +41,8 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 			# List files from another project
 			glab securefile list -R owner/repo
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

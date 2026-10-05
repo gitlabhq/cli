@@ -150,7 +150,8 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 
 			# Attach a screenshot to the description
 			glab mr create -t "Fix login bug" -d "Before and after:" --attach ./before.png --attach ./after.png`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			repoOverride, _ := cmd.Flags().GetString("head")
 			if repoFromEnv := os.Getenv("GITLAB_HEAD_REPO"); repoOverride == "" && repoFromEnv != "" {

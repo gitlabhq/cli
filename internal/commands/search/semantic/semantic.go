@@ -81,7 +81,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Limit results
 			glab search semantic -q "database migrations" --limit 5
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

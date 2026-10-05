@@ -66,7 +66,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		    # Check AI agent governance configuration on this machine
 		    $ glab govern doctor
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

@@ -37,7 +37,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Example: heredoc.Doc(`
 			glab opentofu state list
 			glab opentofu state list -F json`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

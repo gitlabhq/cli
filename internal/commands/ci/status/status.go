@@ -61,7 +61,8 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 
 			# Get the pipeline for the current branch
 			glab ci status`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

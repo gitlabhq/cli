@@ -118,7 +118,8 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 
 			# Attach a screenshot to the description
 			glab issue create -t "Login button misaligned" -d "See below." --attach ./screenshot.png`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

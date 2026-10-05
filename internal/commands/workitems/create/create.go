@@ -75,7 +75,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Attach a screenshot to the description
 			glab work-items create --type issue --title "Add feature" --attach ./screenshot.png
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

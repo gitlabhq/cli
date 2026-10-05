@@ -73,8 +73,9 @@ func NewCmd(f cmdutils.Factory, runE func(opts *options) error) *cobra.Command {
 			so re-importing one is skipped with a warning. Set its value again
 			with %[1]sglab variable set --hidden%[1]s.
 		`, "`"),
-		Aliases: []string{"im"},
-		Args:    cobra.NoArgs,
+		Aliases:           []string{"im"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Example: heredoc.Doc(`
 			# Pipe an export straight into an import, to restore the same project
 			glab variable export | glab variable import

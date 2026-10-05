@@ -47,7 +47,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Remove a user by ID
 			glab repo members remove --user-id=123`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

@@ -35,7 +35,8 @@ func NewCmdStackFirst(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 		Long:  "Moves to the first diff in the stack, and checks out that branch.\n" + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			glab stack first`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
@@ -69,7 +70,8 @@ func NewCmdStackNext(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 		Long:  "Moves to the next diff in the stack, and checks out that branch.\n" + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			glab stack next`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
@@ -108,7 +110,8 @@ func NewCmdStackPrev(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 		Long:  "Moves to the previous diff in the stack, and checks out that branch.\n" + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			glab stack prev`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
@@ -147,7 +150,8 @@ func NewCmdStackLast(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 		Long:  "Moves to the last diff in the stack, and checks out that branch.\n" + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			glab stack last`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
@@ -182,7 +186,8 @@ func NewCmdStackMove(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 		Long:  "Shows a menu with a fuzzy finder to select a stack.\n" + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			glab stack move`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

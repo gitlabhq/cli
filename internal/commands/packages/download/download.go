@@ -90,8 +90,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Use the 'dl' alias and target another project
 			glab packages dl -n my-package --version 1.0.0 --filename app.zip -R owner/repo
 		`),
-		Aliases: []string{"dl"},
-		Args:    cobra.NoArgs,
+		Aliases:           []string{"dl"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},

@@ -37,7 +37,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			You must have administrator access. The runner controller can be
 			created in a disabled state for testing before you enable the runner controller.
 		`) + text.ExperimentalString,
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Example: heredoc.Doc(`
 			# Create a runner controller with default settings
 			glab runner-controller create

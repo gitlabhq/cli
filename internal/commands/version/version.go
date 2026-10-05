@@ -21,8 +21,9 @@ func NewCmdVersion(f cmdutils.Factory) *cobra.Command {
 		`),
 		Example: heredoc.Doc(`
 			glab version`),
-		Aliases: []string{"v"},
-		Args:    cobra.NoArgs,
+		Aliases:           []string{"v"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},

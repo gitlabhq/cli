@@ -59,7 +59,8 @@ func NewCmdRunTrig(f cmdutils.Factory) *cobra.Command {
 			# Specify CI inputs
 			glab ci run-trig -t xxxx -b main --input key1:val1 --input key2:val2
 			glab ci run-trig -t xxxx -b main --input "replicas:int(3)" --input "debug:bool(false)" --input "regions:array(us-east,eu-west)"`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

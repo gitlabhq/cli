@@ -72,10 +72,11 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:    "credential-helper [flags]",
-		Args:   cobra.NoArgs,
-		Short:  "Implements a generic credential helper.",
-		Hidden: true,
+		Use:               "credential-helper [flags]",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		Short:             "Implements a generic credential helper.",
+		Hidden:            true,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},

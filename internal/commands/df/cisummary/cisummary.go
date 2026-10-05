@@ -44,7 +44,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Show blocked and flagged packages from the last firewall run
 			glab dependency-firewall ci-summary
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

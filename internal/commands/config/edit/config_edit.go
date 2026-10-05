@@ -48,7 +48,8 @@ func NewCmdEdit(f cmdutils.Factory) *cobra.Command {
 
 			# Open the local configuration file with the default editor
 			glab config edit -l`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},

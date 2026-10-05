@@ -54,8 +54,9 @@ func NewCmdReleaseList(f cmdutils.Factory) *cobra.Command {
 			first. Use %[1]s--repo%[1]s to target a different project, or %[1]s-F json%[1]s for
 			machine-readable output.
 		`, "`"),
-		Aliases: []string{"ls"},
-		Args:    cobra.NoArgs,
+		Aliases:           []string{"ls"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Example: heredoc.Doc(`
 			glab release list
 			glab release list --per-page 50

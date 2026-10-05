@@ -45,8 +45,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			By default, repositories are listed for the current project. Use %[1]s--repo%[1]s
 			to target another project, or %[1]s--group%[1]s to list repositories for a group.
 		`, "`"),
-		Aliases: []string{"ls"},
-		Args:    cobra.NoArgs,
+		Aliases:           []string{"ls"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Example: heredoc.Doc(`
 			# List container registry repositories for the current project
 			glab container-registry repository list

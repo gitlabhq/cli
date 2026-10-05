@@ -44,7 +44,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Configure hooks for AI agent governance
 			$ glab govern setup
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

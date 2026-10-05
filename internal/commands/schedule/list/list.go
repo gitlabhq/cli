@@ -55,7 +55,8 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 			# List schedules as JSON
 			glab schedule list --output json
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

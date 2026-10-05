@@ -43,7 +43,8 @@ func NewCmdGenerate(f cmdutils.Factory) *cobra.Command {
 		# Generate a changelog for commits between two SHAs
 		glab changelog generate --from abc123 --to def456
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

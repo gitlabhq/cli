@@ -40,7 +40,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Skip the download prompt
 			glab duo cli update --yes`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},

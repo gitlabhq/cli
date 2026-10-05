@@ -32,7 +32,8 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 			# List every bundled skill with its description
 			glab skills list
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

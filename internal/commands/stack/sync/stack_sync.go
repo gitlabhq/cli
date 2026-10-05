@@ -87,7 +87,8 @@ func NewCmdSyncStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 			glab stack sync --assignee user1,user2
 			glab stack sync --label bug,priority::high
 			glab stack sync --reviewer user1 --reviewer user2`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

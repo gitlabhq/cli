@@ -17,9 +17,10 @@ import (
 // as a Docker credential helper.
 func NewCmdConfigureDocker(f cmdutils.Factory) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "configure-docker",
-		Args:  cobra.NoArgs,
-		Short: "Register glab as a Docker credential helper.",
+		Use:               "configure-docker",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		Short:             "Register glab as a Docker credential helper.",
 		Long: heredoc.Docf(`
 		Configures Docker to use glab for authentication with GitLab
 		container registries. This command runs only on Linux and macOS.
