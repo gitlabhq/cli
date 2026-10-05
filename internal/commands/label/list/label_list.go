@@ -14,6 +14,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/tableprinter"
+	"gitlab.com/gitlab-org/cli/internal/utils"
 )
 
 type printLabel struct {
@@ -133,7 +134,7 @@ func (o *options) run() error {
 	}
 
 	if o.group != "" {
-		labels, _, err := client.GroupLabels.ListGroupLabels(o.group, labelApiOpts.listGroupLabelsOptions())
+		labels, resp, err := client.GroupLabels.ListGroupLabels(o.group, labelApiOpts.listGroupLabelsOptions())
 		if err != nil {
 			return err
 		}
@@ -142,7 +143,7 @@ func (o *options) run() error {
 				return err
 			}
 		} else {
-			o.io.LogInfof("Showing label %d of %d for group %s.\n\n", len(labels), len(labels), o.group)
+			o.io.LogInfof("%s\n", o.listTitle(o.group, len(labels), resp))
 			for _, label := range labels {
 				pl = append(pl, printLabel{ID: strconv.FormatInt(label.ID, 10), Name: label.Name, Description: label.Description, Color: label.Color})
 			}
@@ -154,7 +155,7 @@ func (o *options) run() error {
 			return err
 		}
 
-		labels, _, err := client.Labels.ListLabels(repo.FullName(), labelApiOpts.listLabelsOptions())
+		labels, resp, err := client.Labels.ListLabels(repo.FullName(), labelApiOpts.listLabelsOptions())
 		if err != nil {
 			return err
 		}
@@ -163,7 +164,7 @@ func (o *options) run() error {
 				return err
 			}
 		} else {
-			o.io.LogInfof("Showing label %d of %d on %s.\n\n", len(labels), len(labels), repo.FullName())
+			o.io.LogInfof("%s\n", o.listTitle(repo.FullName(), len(labels), resp))
 			for _, label := range labels {
 				pl = append(pl, printLabel{ID: strconv.FormatInt(label.ID, 10), Name: label.Name, Description: label.Description, Color: label.Color})
 			}
@@ -187,4 +188,15 @@ func printLabels(label []printLabel, io *iostreams.IOStreams) {
 	}
 
 	io.LogInfo(table.String())
+}
+
+func (o *options) listTitle(repoName string, count int, resp *gitlab.Response) string {
+	title := utils.NewListTitle("label")
+	title.RepoName = repoName
+	title.Page = o.page
+	title.CurrentPageTotal = count
+	if resp != nil {
+		title.Total = int(resp.TotalItems)
+	}
+	return title.Describe()
 }

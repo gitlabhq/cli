@@ -46,7 +46,7 @@ func TestLabelList(t *testing.T) {
 		{
 			name: "List project labels",
 			cli:  "",
-			expectedOut: heredoc.Doc(`Showing label 2 of 2 on OWNER/REPO.
+			expectedOut: heredoc.Doc(`Showing 2 labels on OWNER/REPO. (Page 1)
 
 			ID	Name	Description	Color
 			1	bug		#6699cc
@@ -57,6 +57,48 @@ func TestLabelList(t *testing.T) {
 				tc.MockLabels.EXPECT().
 					ListLabels("OWNER/REPO", gomock.Any()).
 					Return(testLabels, nil, nil)
+			},
+		},
+		{
+			name: "List project labels shows the total from the API",
+			cli:  "",
+			expectedOut: heredoc.Doc(`Showing 2 of 33 labels on OWNER/REPO. (Page 1)
+
+			ID	Name	Description	Color
+			1	bug		#6699cc
+			2	ux	User Experience	#3cb371
+
+			`),
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockLabels.EXPECT().
+					ListLabels("OWNER/REPO", gomock.Any()).
+					Return(testLabels, &gitlab.Response{CurrentPage: 1, TotalPages: 17, TotalItems: 33}, nil)
+			},
+		},
+		{
+			name: "List project labels without a total from the API",
+			cli:  "",
+			expectedOut: heredoc.Doc(`Showing 2 labels on OWNER/REPO. (Page 1)
+
+			ID	Name	Description	Color
+			1	bug		#6699cc
+			2	ux	User Experience	#3cb371
+
+			`),
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockLabels.EXPECT().
+					ListLabels("OWNER/REPO", gomock.Any()).
+					Return(testLabels, &gitlab.Response{CurrentPage: 1, NextPage: 2}, nil)
+			},
+		},
+		{
+			name:        "List project labels when there are none",
+			cli:         "",
+			expectedOut: "No labels available on OWNER/REPO.\n\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockLabels.EXPECT().
+					ListLabels("OWNER/REPO", gomock.Any()).
+					Return([]*gitlab.Label{}, &gitlab.Response{CurrentPage: 1}, nil)
 			},
 		},
 	}
@@ -161,7 +203,7 @@ func TestGroupLabelList(t *testing.T) {
 		},
 	}
 
-	expectedOut := heredoc.Doc(`Showing label 2 of 2 for group foo.
+	expectedOut := heredoc.Doc(`Showing 2 labels on foo. (Page 1)
 
 	ID	Name	Description	Color
 	1	groupbug		#6699cc
@@ -184,6 +226,45 @@ func TestGroupLabelList(t *testing.T) {
 
 	// WHEN
 	output, err := exec("--group foo")
+
+	// THEN
+	require.NoError(t, err)
+	assert.Equal(t, expectedOut, output.OutBuf.String())
+	assert.Empty(t, output.ErrBuf.String())
+}
+
+func TestGroupLabelListShowsTotal(t *testing.T) {
+	testLabels := []*gitlab.GroupLabel{
+		{
+			ID:          1,
+			Name:        "groupbug",
+			Description: "",
+			Color:       "#6699cc",
+		},
+	}
+
+	expectedOut := heredoc.Doc(`Showing 1 of 33 labels on foo. (Page 33)
+
+	ID	Name	Description	Color
+	1	groupbug		#6699cc
+
+	`)
+
+	// GIVEN
+	testClient := gitlabtesting.NewTestClient(t)
+	testClient.MockGroupLabels.EXPECT().
+		ListGroupLabels("foo", gomock.Any()).
+		Return(testLabels, &gitlab.Response{CurrentPage: 33, TotalPages: 33, TotalItems: 33}, nil)
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmdList,
+		true,
+		cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
+	)
+
+	// WHEN
+	output, err := exec("--group foo --per-page 1 --page 33")
 
 	// THEN
 	require.NoError(t, err)
