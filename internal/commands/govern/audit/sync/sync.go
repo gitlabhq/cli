@@ -60,7 +60,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Sync against a specific project
 			$ glab govern audit sync -R my-group/my-project
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

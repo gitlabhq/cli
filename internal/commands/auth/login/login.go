@@ -66,9 +66,10 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 	var tokenStdin bool
 
 	cmd := &cobra.Command{
-		Use:   "login",
-		Args:  cobra.NoArgs,
-		Short: "Authenticate with a GitLab instance.",
+		Use:               "login",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		Short:             "Authenticate with a GitLab instance.",
 		Long: heredoc.Docf(`
 			Authenticates with a GitLab instance.
 

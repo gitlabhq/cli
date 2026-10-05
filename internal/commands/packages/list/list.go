@@ -59,7 +59,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# List packages from another project
 			glab packages list -R owner/repo
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

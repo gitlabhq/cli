@@ -88,7 +88,8 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *ListOptions) error, issueTyp
 			glab %[1]s ls --all
 			glab %[1]s list --assignee=@me
 			glab %[1]s list --milestone release-2.0.0 --opened`, issueType)),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

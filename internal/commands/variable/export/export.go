@@ -48,8 +48,9 @@ func NewCmdExport(f cmdutils.Factory, runE func(opts *options) error) *cobra.Com
 			%[1]sjson%[1]s (default), %[1]senv%[1]s (KEY=VALUE pairs), or
 			%[1]sexport%[1]s (shell export statements).
 		`, "`"),
-		Aliases: []string{"ex"},
-		Args:    cobra.NoArgs,
+		Aliases:           []string{"ex"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Example: heredoc.Doc(`
 			glab variable export
 			glab variable export --per-page 1000 --page 1

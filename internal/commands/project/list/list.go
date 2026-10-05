@@ -51,8 +51,9 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 		`, "`"),
 		Example: heredoc.Doc(`
 			glab repo list`),
-		Args:    cobra.NoArgs,
-		Aliases: []string{"ls"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		Aliases:           []string{"ls"},
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

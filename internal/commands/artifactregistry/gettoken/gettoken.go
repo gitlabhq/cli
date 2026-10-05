@@ -60,7 +60,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Get a token as JSON, including its expiry
 			glab artifact-registry get-token --output json
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		// mcpannotations.Exclude, not Safe or Destructive: every run mints a
 		// live bearer credential and prints it, so an MCP agent invoking this
 		// would receive a usable secret. token/create and

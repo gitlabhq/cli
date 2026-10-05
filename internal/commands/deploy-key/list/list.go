@@ -47,7 +47,8 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 
 			# Include the key ID in the output
 			glab deploy-key list --show-id`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

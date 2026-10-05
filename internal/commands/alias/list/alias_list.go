@@ -36,7 +36,8 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 		# List all configured aliases
 		glab alias list
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

@@ -191,7 +191,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Configure sbt to authenticate against a registry for two hours
 			glab artifact-registry login --sbt --registry https://ar.example.com --duration 2h
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 			"help:environment": heredoc.Doc(`

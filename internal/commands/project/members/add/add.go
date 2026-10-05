@@ -72,7 +72,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			glab repo members add --user-id=123 --role=reporter
 			# Add a user with a custom role
 			glab repo members add --username=john.doe --role-id=101`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

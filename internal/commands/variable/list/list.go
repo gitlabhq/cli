@@ -40,8 +40,9 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *options) error) *cobra.Comma
 			Defaults to the current project. Use %[1]s--group%[1]s to list variables
 			for a group, or %[1]s--instance%[1]s to list instance variables.
 		`, "`"),
-		Aliases: []string{"ls"},
-		Args:    cobra.NoArgs,
+		Aliases:           []string{"ls"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Example: heredoc.Doc(`
 			glab variable list
 			glab variable list -i

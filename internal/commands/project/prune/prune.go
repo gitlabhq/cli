@@ -86,7 +86,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Detect merged branches with Git instead of GitLab (faster, but misses squash and rebase merges)
 			glab repo prune --merged
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

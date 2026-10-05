@@ -37,10 +37,11 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:     "list",
-		Short:   "List user, group, or project access tokens.",
-		Aliases: []string{"ls"},
-		Args:    cobra.NoArgs,
+		Use:               "list",
+		Short:             "List user, group, or project access tokens.",
+		Aliases:           []string{"ls"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Long: heredoc.Doc(`
 			List all tokens for a user, group, or project.
 

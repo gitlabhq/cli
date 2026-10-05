@@ -44,7 +44,8 @@ func NewCmdServe(_ cmdutils.Factory) *cobra.Command {
 		`, "```") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			glab mcp serve`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},

@@ -45,8 +45,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Instance scope requires administrator access.
 		`),
-		Aliases: []string{"ls"},
-		Args:    cobra.NoArgs,
+		Aliases:           []string{"ls"},
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Example: heredoc.Doc(`
 			# List runners for the current project
 			glab runner list

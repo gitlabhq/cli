@@ -58,7 +58,8 @@ func NewCmdCheckManifestUsage(f cmdutils.Factory) *cobra.Command {
 
 			# Recursively check a group and all its subgroups
 			glab cluster agent check-manifest-usage --group my-group --recursive`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

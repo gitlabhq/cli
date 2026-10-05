@@ -58,7 +58,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Show Artifact Registry access status as JSON
 			glab artifact-registry status --output json
 		`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		// Not mcpannotations.Safe: reading the claims requires minting a token,
 		// so each run creates server-side state rather than only reading it.
 		Annotations: map[string]string{

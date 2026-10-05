@@ -138,7 +138,8 @@ func NewCmdGraph(f cmdutils.Factory) *cobra.Command {
 
 			# Show objects reachable from pod roots
 			glab cluster graph -R user/project -a 123 --root-expression "resource == \"pods\""`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

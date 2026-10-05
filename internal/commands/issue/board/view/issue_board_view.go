@@ -68,7 +68,8 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 		`),
 		Example: heredoc.Doc(`
 			glab issue board view`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

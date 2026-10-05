@@ -52,7 +52,8 @@ func NewCmdGet(f cmdutils.Factory) *cobra.Command {
 
 			# Show only failed jobs for the head pipeline of MR !42
 			glab ci get --merge-request=42 --status=failed --with-job-details`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},

@@ -43,7 +43,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Open the configuration file in an editor
 			$EDITOR "$(glab config path)"`),
-		Args: cobra.NoArgs,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 			"help:environment": heredoc.Doc(`

@@ -60,8 +60,9 @@ func NewCheckUpdateCmd(f cmdutils.Factory) *cobra.Command {
 		# Check for the latest glab version using the alias
 		glab update
 		`),
-		Aliases: commandAliases,
-		Args:    cobra.NoArgs,
+		Aliases:           commandAliases,
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},
