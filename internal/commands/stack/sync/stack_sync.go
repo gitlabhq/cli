@@ -35,6 +35,7 @@ type options struct {
 	remotes        func() (glrepo.Remotes, error)
 	user           gitlab.User
 	noVerify       bool
+	skipPush       bool
 	updateBase     bool
 	skipMRCreation bool
 	assignees      []string
@@ -71,16 +72,17 @@ func NewCmdSyncStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
    or the upstream repository.
 1. Optional. If --update-base is set, rebases the entire stack onto the
    latest version of the base branch.
-1. Pushes any amended changes to their merge requests.
+1. Pushes any amended changes to their merge requests, unless --skip-push is set.
 1. Rebases any changes that happened previously in the stack.
 1. Creates merge requests for branches that don't have one yet,
-   unless --skip-mr-creation is set.
+   unless --skip-mr-creation or --skip-push is set.
 1. Removes any branches that were already merged, or with a closed merge request.
 ` + text.ExperimentalString),
 		Example: heredoc.Doc(`
 			glab stack sync
 			glab stack sync --no-verify
 			glab stack sync --update-base
+			glab stack sync --skip-push
 			glab stack sync --skip-mr-creation
 			glab stack sync --assignee user1,user2
 			glab stack sync --label bug,priority::high
@@ -102,6 +104,7 @@ func NewCmdSyncStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 	fl := stackSaveCmd.Flags()
 	fl.BoolVar(&opts.noVerify, "no-verify", false, "Bypass the pre-push hook. (See githooks(5) for more information.)")
 	fl.BoolVar(&opts.updateBase, "update-base", false, "Rebase the stack onto the latest version of the base branch.")
+	fl.BoolVar(&opts.skipPush, "skip-push", false, "Rebase the stack locally without pushing branches or creating merge requests. Still fetches from the remote and calls the GitLab API.")
 	fl.BoolVar(&opts.skipMRCreation, "skip-mr-creation", false, "Skip creating merge requests for branches that don't have one yet.")
 	fl.StringSliceVarP(&opts.assignees, "assignee", "a", []string{}, "Assign merge request to people by their `usernames`. Multiple usernames can be comma-separated or specified by repeating the flag.")
 	fl.StringSliceVarP(&opts.labels, "label", "l", []string{}, "Add label by `name`. Multiple labels can be comma-separated or specified by repeating the flag.")
@@ -166,6 +169,7 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner)
 	}
 
 	pushAfterSync := false
+	var branchesToPush []string
 
 	if o.updateBase {
 		baseBranch, err := stack.BaseBranch(gr)
@@ -181,6 +185,7 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner)
 			return err
 		}
 		pushAfterSync = true
+		branchesToPush = append(branchesToPush, stack.Branches()...)
 	}
 
 	for ref := range stack.Iter() {
@@ -203,6 +208,7 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner)
 
 			if needsPush {
 				pushAfterSync = true
+				branchesToPush = append(branchesToPush, ref.Branch)
 			}
 		case strings.Contains(status, NothingToCommit):
 			// this is fine. we can just move on.
@@ -211,9 +217,18 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner)
 		}
 
 		if ref.MR == "" {
-			if o.skipMRCreation {
-				fmt.Println(progressString(o.io, ref.Branch+" has no merge request. Skipping MR creation."))
-			} else {
+			switch {
+			case o.skipPush:
+				o.io.LogInfo(progressString(
+					o.io,
+					ref.Branch+" has no merge request. Skipping MR creation because --skip-push was specified.",
+				))
+			case o.skipMRCreation:
+				fmt.Println(progressString(
+					o.io,
+					ref.Branch+" has no merge request. Skipping MR creation.",
+				))
+			default:
 				err := populateMR(o.io, &ref, o, client, gr)
 				if err != nil {
 					return err
@@ -237,9 +252,19 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner)
 	}
 
 	if pushAfterSync {
-		err := forcePushAllWithLease(o, &stack, gr)
-		if err != nil {
-			return fmt.Errorf("error pushing branches to remote: %w", err)
+		if o.skipPush {
+			branchesToPush = dedupe(filterEmpty(branchesToPush))
+			o.io.LogInfo(progressString(
+				o.io,
+				"Skipped pushing branches:",
+				strings.Join(branchesToPush, ", "),
+			))
+			o.io.LogInfo("Run `glab stack sync` without `--skip-push` to push these branches to the remote.")
+		} else {
+			err := forcePushAllWithLease(o, &stack, gr)
+			if err != nil {
+				return fmt.Errorf("error pushing branches to remote: %w", err)
+			}
 		}
 	}
 
