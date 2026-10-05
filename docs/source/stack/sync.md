@@ -20,10 +20,10 @@ Sync and submit progress on a stacked diff. This command runs these steps:
    or the upstream repository.
 1. Optional. If --update-base is set, rebases the entire stack onto the
    latest version of the base branch.
-1. Pushes any amended changes to their merge requests.
+1. Pushes any amended changes to their merge requests, unless --skip-push is set.
 1. Rebases any changes that happened previously in the stack.
 1. Creates merge requests for branches that don't have one yet,
-   unless --skip-mr-creation is set.
+   unless --skip-mr-creation or --skip-push is set.
 1. Removes any branches that were already merged, or with a closed merge request.
 
 This feature is an experiment and is not ready for production use.
@@ -41,6 +41,7 @@ glab stack sync [flags]
 glab stack sync
 glab stack sync --no-verify
 glab stack sync --update-base
+glab stack sync --skip-push
 glab stack sync --skip-mr-creation
 glab stack sync --assignee user1,user2
 glab stack sync --label bug,priority::high
@@ -55,6 +56,7 @@ glab stack sync --reviewer user1 --reviewer user2
       --no-verify            Bypass the pre-push hook. (See githooks(5) for more information.)
       --reviewer usernames   Request review from users by their usernames. Multiple usernames can be comma-separated or specified by repeating the flag.
       --skip-mr-creation     Skip creating merge requests for branches that don't have one yet.
+      --skip-push            Rebase the stack locally without pushing branches or creating merge requests. Still fetches from the remote and calls the GitLab API.
       --update-base          Rebase the stack onto the latest version of the base branch.
 ```
 

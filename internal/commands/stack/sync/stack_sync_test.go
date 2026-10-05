@@ -3,6 +3,7 @@
 package sync
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -26,18 +27,20 @@ import (
 )
 
 type SyncScenario struct {
-	refs           map[string]TestRef
-	title          string
-	baseBranch     string
-	pushNeeded     bool
-	pushErr        error
-	noVerify       bool
-	updateBase     bool
-	rebaseError    bool
-	skipMRCreation bool
-	assignees      []string
-	labels         []string
-	reviewers      []string
+	refs                map[string]TestRef
+	title               string
+	baseBranch          string
+	pushNeeded          bool
+	pushErr             error
+	noVerify            bool
+	skipPush            bool
+	updateBase          bool
+	rebaseError         bool
+	skipMRCreation      bool
+	assignees           []string
+	labels              []string
+	reviewers           []string
+	wantSkippedBranches []string
 }
 
 type TestRef struct {
@@ -140,6 +143,12 @@ func TestNewCmdSyncStack_Flags(t *testing.T) {
 	require.NotNil(t, reviewerFlag)
 	assert.Equal(t, "[]", reviewerFlag.DefValue)
 	assert.Contains(t, reviewerFlag.Usage, "usernames")
+
+	// Test --skip-push flag exists
+	skipPushFlag := cmd.Flag("skip-push")
+	require.NotNil(t, skipPushFlag)
+	assert.Equal(t, "false", skipPushFlag.DefValue)
+	assert.Contains(t, skipPushFlag.Usage, "pushing")
 }
 
 func Test_stackSync(t *testing.T) {
@@ -1003,6 +1012,252 @@ func Test_stackSync(t *testing.T) {
 					}, nil, nil)
 			},
 		},
+
+		{
+			name: "skip-push rebases diverged stack without pushing",
+			args: args{
+				stack: SyncScenario{
+					title:      "skip push cascade",
+					skipPush:   true,
+					pushNeeded: true,
+					refs: map[string]TestRef{
+						"1": {
+							ref: git.StackRef{
+								SHA:    "1",
+								Prev:   "",
+								Next:   "2",
+								Branch: "Branch1",
+								MR:     "http://gitlab.com/stack_guy/stackproject/-/merge_requests/1",
+							},
+							state: NothingToCommit,
+						},
+						"2": {
+							ref: git.StackRef{
+								SHA:    "2",
+								Prev:   "1",
+								Next:   "",
+								Branch: "Branch2",
+								MR:     "http://gitlab.com/stack_guy/stackproject/-/merge_requests/2",
+							},
+							state: BranchHasDiverged,
+						},
+					},
+				},
+			},
+			setupMocks: func(t *testing.T, testClient *gitlabtesting.TestClient) {
+				t.Helper()
+
+				testClient.MockUsers.EXPECT().
+					CurrentUser(gomock.Any()).
+					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
+
+				testClient.MockMergeRequests.EXPECT().
+					ListProjectMergeRequests("stack_guy/stackproject", gomock.Any()).
+					DoAndReturn(func(
+						pid any,
+						opts *gitlab.ListProjectMergeRequestsOptions,
+						options ...gitlab.RequestOptionFunc,
+					) ([]*gitlab.BasicMergeRequest, *gitlab.Response, error) {
+						return []*gitlab.BasicMergeRequest{
+							{
+								ID:           25,
+								IID:          25,
+								ProjectID:    3,
+								SourceBranch: *opts.SourceBranch,
+								State:        "opened",
+							},
+						}, nil, nil
+					}).Times(2)
+
+				testClient.MockMergeRequests.EXPECT().
+					GetMergeRequest("stack_guy/stackproject", gomock.Any(), gomock.Any()).
+					Return(&gitlab.MergeRequest{
+						BasicMergeRequest: gitlab.BasicMergeRequest{
+							ID:    25,
+							IID:   25,
+							State: "opened",
+						},
+					}, nil, nil).Times(2)
+			},
+		},
+
+		{
+			name: "skip-push skips MR creation for branches without MRs",
+			args: args{
+				stack: SyncScenario{
+					title:    "skip push no mr",
+					skipPush: true,
+					refs: map[string]TestRef{
+						"1": {
+							ref: git.StackRef{
+								SHA:         "1",
+								Prev:        "",
+								Next:        "",
+								Branch:      "Branch1",
+								MR:          "",
+								Description: "test branch",
+							},
+							state: NothingToCommit,
+						},
+					},
+				},
+			},
+			setupMocks: func(t *testing.T, testClient *gitlabtesting.TestClient) {
+				t.Helper()
+
+				testClient.MockUsers.EXPECT().
+					CurrentUser(gomock.Any()).
+					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
+			},
+		},
+
+		{
+			name: "skip-push with update-base rebases all branches without pushing",
+			args: args{
+				stack: SyncScenario{
+					title:      "skip push with update base",
+					skipPush:   true,
+					updateBase: true,
+					pushNeeded: true,
+					refs: map[string]TestRef{
+						"1": {
+							ref: git.StackRef{
+								SHA:    "1",
+								Prev:   "",
+								Next:   "2",
+								Branch: "Branch1",
+								MR:     "http://gitlab.com/stack_guy/stackproject/-/merge_requests/1",
+							},
+							state: NothingToCommit,
+						},
+						"2": {
+							ref: git.StackRef{
+								SHA:    "2",
+								Prev:   "1",
+								Next:   "",
+								Branch: "Branch2",
+								MR:     "http://gitlab.com/stack_guy/stackproject/-/merge_requests/2",
+							},
+							state: NothingToCommit,
+						},
+					},
+				},
+			},
+			setupMocks: func(t *testing.T, testClient *gitlabtesting.TestClient) {
+				t.Helper()
+
+				testClient.MockUsers.EXPECT().
+					CurrentUser(gomock.Any()).
+					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
+
+				testClient.MockMergeRequests.EXPECT().
+					ListProjectMergeRequests("stack_guy/stackproject", gomock.Any()).
+					DoAndReturn(func(
+						pid any,
+						opts *gitlab.ListProjectMergeRequestsOptions,
+						options ...gitlab.RequestOptionFunc,
+					) ([]*gitlab.BasicMergeRequest, *gitlab.Response, error) {
+						return []*gitlab.BasicMergeRequest{
+							{
+								ID:           25,
+								IID:          25,
+								ProjectID:    3,
+								SourceBranch: *opts.SourceBranch,
+								State:        "opened",
+							},
+						}, nil, nil
+					}).Times(2)
+
+				testClient.MockMergeRequests.EXPECT().
+					GetMergeRequest("stack_guy/stackproject", gomock.Any(), gomock.Any()).
+					Return(&gitlab.MergeRequest{
+						BasicMergeRequest: gitlab.BasicMergeRequest{
+							ID:    25,
+							IID:   25,
+							State: "opened",
+						},
+					}, nil, nil).Times(2)
+			},
+		},
+
+		{
+			name: "skip-push logs only modified and downstream rebased branches",
+			args: args{
+				stack: SyncScenario{
+					title:               "skip push cascade logging",
+					skipPush:            true,
+					pushNeeded:          true,
+					wantSkippedBranches: []string{"Branch2", "Branch3"},
+					refs: map[string]TestRef{
+						"1": {
+							ref: git.StackRef{
+								SHA:    "1",
+								Prev:   "",
+								Next:   "2",
+								Branch: "Branch1",
+								MR:     "http://gitlab.com/stack_guy/stackproject/-/merge_requests/1",
+							},
+							state: NothingToCommit,
+						},
+						"2": {
+							ref: git.StackRef{
+								SHA:    "2",
+								Prev:   "1",
+								Next:   "3",
+								Branch: "Branch2",
+								MR:     "http://gitlab.com/stack_guy/stackproject/-/merge_requests/2",
+							},
+							state: BranchHasDiverged,
+						},
+						"3": {
+							ref: git.StackRef{
+								SHA:    "3",
+								Prev:   "2",
+								Next:   "",
+								Branch: "Branch3",
+								MR:     "http://gitlab.com/stack_guy/stackproject/-/merge_requests/3",
+							},
+							state: BranchHasDiverged,
+						},
+					},
+				},
+			},
+			setupMocks: func(t *testing.T, testClient *gitlabtesting.TestClient) {
+				t.Helper()
+
+				testClient.MockUsers.EXPECT().
+					CurrentUser(gomock.Any()).
+					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
+
+				testClient.MockMergeRequests.EXPECT().
+					ListProjectMergeRequests("stack_guy/stackproject", gomock.Any()).
+					DoAndReturn(func(
+						pid any,
+						opts *gitlab.ListProjectMergeRequestsOptions,
+						options ...gitlab.RequestOptionFunc,
+					) ([]*gitlab.BasicMergeRequest, *gitlab.Response, error) {
+						return []*gitlab.BasicMergeRequest{
+							{
+								ID:           25,
+								IID:          25,
+								ProjectID:    3,
+								SourceBranch: *opts.SourceBranch,
+								State:        "opened",
+							},
+						}, nil, nil
+					}).Times(3)
+
+				testClient.MockMergeRequests.EXPECT().
+					GetMergeRequest("stack_guy/stackproject", gomock.Any(), gomock.Any()).
+					Return(&gitlab.MergeRequest{
+						BasicMergeRequest: gitlab.BasicMergeRequest{
+							ID:    25,
+							IID:   25,
+							State: "opened",
+						},
+					}, nil, nil).Times(3)
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -1017,8 +1272,12 @@ func Test_stackSync(t *testing.T) {
 
 			f, opts := setupTestFactory(t, testClient)
 
+			stdout := &bytes.Buffer{}
+			opts.io.StdOut = stdout
+
 			// Set options from test case
 			opts.noVerify = tc.args.stack.noVerify
+			opts.skipPush = tc.args.stack.skipPush
 			opts.updateBase = tc.args.stack.updateBase
 			opts.skipMRCreation = tc.args.stack.skipMRCreation
 			opts.assignees = tc.args.stack.assignees
@@ -1071,7 +1330,7 @@ func Test_stackSync(t *testing.T) {
 					case NothingToCommit:
 					}
 
-					if ref.MR == "" && !tc.args.stack.skipMRCreation {
+					if ref.MR == "" && !tc.args.stack.skipMRCreation && !tc.args.stack.skipPush {
 						if ref.IsFirst() == true {
 							if tc.args.stack.baseBranch != "" {
 								err := git.AddStackBaseBranch(tc.args.stack.title, tc.args.stack.baseBranch)
@@ -1098,7 +1357,7 @@ func Test_stackSync(t *testing.T) {
 				}
 			}
 
-			if tc.args.stack.pushNeeded {
+			if tc.args.stack.pushNeeded && !tc.args.stack.skipPush {
 				command := []string{"push", "origin", "--force-with-lease"}
 				if tc.args.stack.noVerify {
 					command = append(command, "--no-verify")
@@ -1121,6 +1380,16 @@ func Test_stackSync(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
+			}
+
+			if tc.args.stack.pushNeeded && tc.args.stack.skipPush {
+				stdoutText := stdout.String()
+				assert.Contains(t, stdoutText, "Skipped pushing branches:")
+				if len(tc.args.stack.wantSkippedBranches) > 0 {
+					want := "Skipped pushing branches: \n  " +
+						strings.Join(tc.args.stack.wantSkippedBranches, ", ")
+					assert.Contains(t, stdout.String(), want)
+				}
 			}
 		})
 	}
