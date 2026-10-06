@@ -379,7 +379,7 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 			return
 		}
 
-		if isBinaryDownload(resp) {
+		if isStreamable(resp) {
 			err := resp.Write(conn)
 			resp.Body.Close()
 			if err != nil {
@@ -455,14 +455,88 @@ func drainAndClose(body io.ReadCloser) {
 	_ = body.Close()
 }
 
-// isBinaryDownload reports whether resp is a successful binary package payload
-// (a tarball) that should be streamed rather than buffered for inspection.
-func isBinaryDownload(resp *http.Response) bool {
+// binaryArtifactExts are the download suffixes that identify a package
+// artifact payload across ecosystems. A response for one of these is streamed
+// straight to the client rather than buffered for inspection, regardless of
+// its Content-Type: some registries serve them with a text or otherwise
+// unhelpful type (for example files.pythonhosted.org serves wheels as
+// binary/octet-stream and crates.io serves .crate files as application/gzip).
+//
+// The Maven entries are the binary members of mavenPrimaryExts; ".pom" is
+// omitted because it is small XML metadata, not an artifact payload.
+var binaryArtifactExts = []string{
+	".whl", ".crate", ".tgz", ".tar.gz", ".tar.bz2", ".zip", ".gem",
+	".jar", ".war", ".aar", ".nupkg",
+}
+
+// binaryContentTypes are the Content-Type prefixes that identify a binary
+// artifact payload. These cover the octet-stream and archive types registries
+// return for package downloads, including the application/java-archive that
+// repo1.maven.org returns for .jar/.war. Metadata/index responses
+// (application/json, text/html) are deliberately excluded so they still take
+// the buffer-and-rewrite path that fixes up Content-Length after the
+// transport's automatic decompression.
+var binaryContentTypes = []string{
+	"application/octet-stream",
+	"binary/octet-stream",
+	"application/gzip",
+	"application/x-gzip",
+	"application/zip",
+	"application/java-archive",
+}
+
+// isStreamable reports whether resp is a binary package payload that can be
+// streamed straight to the client rather than buffered for the
+// Content-Length/Content-Encoding fixup. Buffering large artifacts would stall
+// the tunnel and can trip a client read-timeout on multi-megabyte downloads,
+// so genuine artifacts are streamed; but the streaming path writes the
+// response verbatim, so it is only safe when the response is self-delimiting
+// and needs no rewrite:
+//
+//   - Known Content-Length. The proxy strips the client's Accept-Encoding and
+//     the transport may transparently decompress the body, leaving
+//     ContentLength == -1. Writing an unknown-length body over the keep-alive
+//     HTTP/1.1 tunnel gives the client no framing to detect end-of-body, so it
+//     stalls until its read timeout. Those responses must take the buffered
+//     path, which sets Content-Length.
+//   - Not transport-decompressed (resp.Uncompressed == false). When the
+//     transport gunzipped the body it also dropped Content-Length and left a
+//     now-inaccurate Content-Encoding, both of which only the buffered path
+//     repairs.
+//
+// Real artifacts (wheels, crates, tarballs, gems, jars) are served
+// pre-compressed with an accurate Content-Length and are not
+// transport-decompressed, so they stream; metadata/index responses and the
+// PEP 658 ".whl.metadata" sidecar (served without a length and often gzipped)
+// fall through to buffering.
+func isStreamable(resp *http.Response) bool {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return false
 	}
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "application/octet-stream") {
-		return true
+	if resp.ContentLength < 0 || resp.Uncompressed {
+		return false
 	}
-	return strings.HasSuffix(resp.Request.URL.Path, ".tgz")
+	if !isBinaryArtifact(resp) {
+		return false
+	}
+	return true
+}
+
+// isBinaryArtifact reports whether resp looks like a binary package payload,
+// by request path suffix or Content-Type. Metadata/index responses
+// (application/json, text/html) are deliberately excluded.
+func isBinaryArtifact(resp *http.Response) bool {
+	path := resp.Request.URL.Path
+	for _, ext := range binaryArtifactExts {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
+	contentType := resp.Header.Get("Content-Type")
+	for _, ct := range binaryContentTypes {
+		if strings.HasPrefix(contentType, ct) {
+			return true
+		}
+	}
+	return false
 }
