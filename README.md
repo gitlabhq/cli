@@ -237,7 +237,7 @@ in `CONTRIBUTING.md`.
 
 ## Contributing
 
-Feel like contributing? That's awesome! We have a [contributing guide](https://gitlab.com/gitlab-org/cli/-/blob/main/CONTRIBUTING.md) and [Code of conduct](https://gitlab.com/gitlab-org/cli/-/blob/main/CODE_OF_CONDUCT.md) to help guide you.
+Feel like contributing? That's awesome! We have a [contributing guide](https://gitlab.com/gitlab-org/cli/-/blob/main/CONTRIBUTING.md) and [Code of conduct](https://about.gitlab.com/community/contribute/code-of-conduct/) to help guide you.
 
 When updating command help text or documentation, follow the
 [GitLab CLI documentation style guide](https://docs.gitlab.com/development/documentation/cli_styleguide/).
