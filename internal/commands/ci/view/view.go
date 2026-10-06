@@ -16,6 +16,7 @@ import (
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/gdamore/tcell/v2"
 	"github.com/lunixbochs/vtclean"
+	"github.com/mattn/go-runewidth"
 	"github.com/rivo/tview"
 	"github.com/spf13/cobra"
 	"golang.org/x/text/cases"
@@ -122,9 +123,12 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 		  navigate the modal, and %[1]sEnter%[1]s to confirm.
 		- %[1]sCtrl+D%[1]s to cancel a job. If the selected job isn't running or pending,
 		  quits the CI/CD view.
+		- %[1]sCtrl+S%[1]s to show the full name of the selected job.
 		- %[1]sCtrl+Q%[1]s to quit the CI/CD view.
 		- %[1]sCtrl+Space%[1]s to suspend application and view the logs. Similar to %[1]sglab ci trace%[1]s.
 		- Supports %[1]svi%[1]s style bindings and arrow keys for navigating jobs and logs.
+
+		Job names too long for their box scroll while the job is selected.
 	`, "`"),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
@@ -318,6 +322,26 @@ func handleBridgeJobSelection(app *tview.Application, root *tview.Pages, forceUp
 	app.ForceDraw()
 }
 
+// jobNamePage is the page name of the modal opened by showJobName.
+const jobNamePage = "job-name"
+
+// showJobName opens a modal with the full name of the selected job
+func showJobName(app *tview.Application, root *tview.Pages) {
+	modalVisible = true
+	modal := tview.NewModal().
+		SetBackgroundColor(tcell.ColorDefault).
+		SetText(tview.Escape(fmt.Sprintf("Full job name:\n%s", curJob.Name))).
+		AddButtons([]string{"OK"}).
+		SetButtonActivatedStyle(buttonActivatedStyle).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			modalVisible = false
+			root.RemovePage(jobNamePage)
+			app.ForceDraw()
+		})
+	root.AddAndSwitchToPage(jobNamePage, modal, false)
+	app.ForceDraw()
+}
+
 func inputCapture(
 	ctx context.Context,
 	app *tview.Application,
@@ -334,6 +358,7 @@ func inputCapture(
 			case modalVisible:
 				modalVisible = !modalVisible
 				root.HidePage("yesno")
+				root.RemovePage(jobNamePage)
 				if inputCh == nil {
 					inputCh <- struct{}{}
 				}
@@ -439,6 +464,13 @@ func inputCapture(
 			root.AddAndSwitchToPage("yesno", modal, false)
 			inputCh <- struct{}{}
 			app.ForceDraw()
+			return nil
+		case tcell.KeyCtrlS:
+			if modalVisible || curJob == nil {
+				break
+			}
+			showJobName(app, root)
+			inputCh <- struct{}{}
 			return nil
 		case tcell.KeyEnter:
 			if !modalVisible {
@@ -555,7 +587,89 @@ var (
 	jobs                      []*ViewJob
 	pipelines                 []gitlab.PipelineInfo
 	boxes                     map[string]*tview.TextView
+
+	// titleScroll marquees the name of the selected job, see titleScroller.
+	titleScroll titleScroller
 )
+
+const (
+	// maxTitle is the number of columns a job box gives its title. The box is
+	// drawn maxTitle+2 wide and tview draws the title between the borders.
+	maxTitle = 20
+	// statusWidth is the width of the status glyph and the space that precedes
+	// every job title, for example "✔ ".
+	statusWidth = 2
+	// scrollPause is how many redraws the marquee rests at each end of a job
+	// name before moving on, so that both ends stay readable.
+	scrollPause = 7
+)
+
+// titleScroller marquees the title of the selected job, so a name too long for
+// its box can still be read in full. It advances one column per redraw of the
+// jobs view.
+type titleScroller struct {
+	jobName string // name of the job being scrolled
+	offset  int    // leading runes of the name already scrolled past
+	pause   int    // redraws spent resting at the current offset
+}
+
+// follow points the scroller at job, restarting from the first character
+// whenever the selection moves.
+func (s *titleScroller) follow(jobName string) {
+	if s.jobName != jobName {
+		*s = titleScroller{jobName: jobName}
+	}
+}
+
+// scroll returns the leading part of name that fits in width display columns
+// at the current marquee offset, and advances the marquee. Names that already
+// fit are returned untouched. The offset counts runes but the window is
+// measured in columns, so a double-width rune (CJK, emoji) is never split and
+// the result never exceeds width columns.
+func (s *titleScroller) scroll(name string, width int) string {
+	runes := []rune(name)
+	if width < 1 || runewidth.StringWidth(name) <= width {
+		s.offset, s.pause = 0, 0
+		return name
+	}
+	// tailStart is the smallest offset whose remaining runes still fit in
+	// width columns: the marquee's resting place at the end of the name.
+	w, tailStart := 0, len(runes)
+	for tailStart > 0 {
+		rw := runewidth.RuneWidth(runes[tailStart-1])
+		if w+rw > width {
+			break
+		}
+		w += rw
+		tailStart--
+	}
+	if s.offset > tailStart {
+		s.offset = tailStart
+	}
+
+	w, end := 0, s.offset
+	for end < len(runes) {
+		rw := runewidth.RuneWidth(runes[end])
+		if w+rw > width {
+			break
+		}
+		w += rw
+		end++
+	}
+	visible := string(runes[s.offset:end])
+
+	atEnd := s.offset >= tailStart
+	switch {
+	case (s.offset == 0 || atEnd) && s.pause < scrollPause:
+		s.pause++
+	case atEnd:
+		s.offset, s.pause = 0, 0
+	default:
+		s.offset++
+		s.pause = 0
+	}
+	return visible
+}
 
 // bracketEscaper wraps a writer and escapes square brackets for tview, but preserves ANSI escape sequences.
 // This is necessary because tview interprets square brackets as color tag markers.
@@ -720,6 +834,40 @@ func adjacentStages(jobs []*ViewJob, s string) (string, string) {
 	return p, n
 }
 
+// jobStatus maps a job's status to the glyph shown in its box title and the
+// colour of the box border. Statuses with no colour of their own return
+// tcell.ColorDefault, which leaves the border as it is.
+func jobStatus(job *ViewJob) (rune, tcell.Color) {
+	switch job.Status {
+	case string(gitlab.Success):
+		return '✔', tcell.ColorGreen
+	case string(gitlab.Failed):
+		if job.AllowFailure {
+			return '!', tcell.ColorOrange
+		}
+		return '✘', tcell.ColorRed
+	case string(gitlab.Running):
+		return '●', tcell.ColorBlue
+	case string(gitlab.Pending):
+		return '●', tcell.ColorYellow
+	case string(gitlab.Manual):
+		return '■', tcell.ColorGrey
+	case string(gitlab.Canceled):
+		return 'Ø', tcell.ColorDefault
+	case string(gitlab.Skipped):
+		return '»', tcell.ColorDefault
+	}
+	return 0, tcell.ColorDefault
+}
+
+// jobName returns the job name as shown in its box title. Pipelines are often
+// written with a "<job>:<stage>" naming pattern to tell apart the same service
+// built in different stages, and the stage suffix tends to make the title
+// spill over the width of the box, so it is trimmed.
+func jobName(job *ViewJob) string {
+	return strings.TrimSuffix(job.Name, ":"+job.Stage)
+}
+
 func jobsView(
 	ctx context.Context,
 	app *tview.Application,
@@ -731,7 +879,7 @@ func jobsView(
 	select {
 	case jobs = <-jobsCh:
 	case <-inputCh:
-	case <-time.NewTicker(time.Second * 1).C:
+	case <-time.After(time.Millisecond * 250):
 	}
 	if jobs == nil {
 		jobs = <-jobsCh
@@ -807,7 +955,6 @@ func jobsView(
 	var (
 		rowIdx   int
 		stageIdx int
-		maxTitle = 20
 	)
 	boxKeys := make(map[string]bool)
 	for _, j := range jobs {
@@ -829,6 +976,7 @@ func jobsView(
 	lastStage = jobs[0].Stage
 	rowIdx = 0
 	stageIdx = 0
+	titleScroll.follow(curJob.Name)
 	for _, j := range jobs {
 		if j.Stage != lastStage {
 			rowIdx = 0
@@ -841,50 +989,30 @@ func jobsView(
 		boxKeys[key] = true
 		x, y, w, h := boxX, maxY/6+(rowIdx*5), maxTitle+2, 4
 		b := box(root, key, x, y, w, h)
-		b.SetTitle(j.Name)
 		// The scope of jobs to show, one or array of: created, pending, running,
 		// failed, success, canceled, skipped; showing all jobs if none provided
-		var statChar rune
-		switch j.Status {
-		case string(gitlab.Success):
-			b.SetBorderColor(tcell.ColorGreen)
-			statChar = '✔'
-		case string(gitlab.Failed):
-			if j.AllowFailure {
-				b.SetBorderColor(tcell.ColorOrange)
-				statChar = '!'
-			} else {
-				b.SetBorderColor(tcell.ColorRed)
-				statChar = '✘'
-			}
-		case string(gitlab.Running):
-			b.SetBorderColor(tcell.ColorBlue)
-			statChar = '●'
-		case string(gitlab.Pending):
-			b.SetBorderColor(tcell.ColorYellow)
-			statChar = '●'
-		case string(gitlab.Manual):
-			b.SetBorderColor(tcell.ColorGrey)
-			statChar = '■'
-		case string(gitlab.Canceled):
-			statChar = 'Ø'
-		case string(gitlab.Skipped):
-			statChar = '»'
+		statChar, borderColor := jobStatus(j)
+		if borderColor != tcell.ColorDefault {
+			b.SetBorderColor(borderColor)
 		}
-		title := fmt.Sprintf("%c %s", statChar, j.Name)
-		// trim the suffix if it matches the stage, I've seen
-		// the pattern in 2 different places to handle
-		// different stages for the same service and it tends
-		// to make the title spill over the max
-		title = strings.TrimSuffix(title, ":"+j.Stage)
-		title = tview.Escape(title)
-		b.SetTitle(title)
-		// tview default aligns center, which is nice, but if
-		// the title is too long we want to bias towards seeing
-		// the beginning of it
+		name := jobName(j)
+		// Measure the escaped title, which is what tview draws: it reads an
+		// unescaped "[step]" in a name as a colour tag and counts it as no
+		// columns at all, so a name that overflows can pass for one that fits.
+		title := tview.Escape(fmt.Sprintf("%c %s", statChar, name))
 		if tview.TaggedStringWidth(title) > maxTitle {
+			// tview default aligns center, which is nice, but if
+			// the title is too long we want to bias towards seeing
+			// the beginning of it
 			b.SetTitleAlign(tview.AlignLeft)
+			// The selected job scrolls its name so the whole of it can be
+			// read. Every other box shows the name from the start again.
+			if j.Name == curJob.Name {
+				title = tview.Escape(fmt.Sprintf("%c %s", statChar, titleScroll.scroll(name, maxTitle-statusWidth)))
+			}
 		}
+		b.SetTitle(title)
+
 		triggerText := ""
 		if j.Kind == Bridge {
 			triggerText = "»"

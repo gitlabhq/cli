@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/rivo/tview"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,22 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 	"gitlab.com/gitlab-org/cli/test"
 )
+
+// screenText returns everything rendered on screen, one row per line, for
+// tests that assert on the text rather than on an exact layout.
+func screenText(screen tcell.Screen) string {
+	sx, sy := screen.Size()
+	lines := make([]string, 0, sy)
+	for y := range sy {
+		runes := make([]rune, sx)
+		for x := range sx {
+			s, _, _ := screen.Get(x, y)
+			runes[x], _ = utf8.DecodeRuneInString(s)
+		}
+		lines = append(lines, string(runes))
+	}
+	return strings.Join(lines, "\n")
+}
 
 func assertScreen(t *testing.T, screen tcell.Screen, expected []string) {
 	t.Helper()
@@ -435,7 +452,8 @@ func Test_jobsView(t *testing.T) {
 		"  │       Stage1       │      │       Stage2       │      │       Stage3       │        ",
 		"  └────────────────────┘      └────────────────────┘      └────────────────────┘        ",
 		"                                                                                        ",
-		"  ╔✔ stage1-job1-reall…╗      ┌● stage2-job1[step]─┐      ┌───■ stage3-job1────┐        ",
+		// The selected job scrolls its name instead of being cut short with an ellipsis.
+		"  ╔✔ stage1-job1-really╗      ┌● stage2-job1[step]─┐      ┌───■ stage3-job1────┐        ",
 		"  ║                    ║      │                    │      │                    │        ",
 		"  ║             01m 01s║═╦══╦═│                    │═╦══╦═│                    │        ",
 		"  ╚════════════════════╝ ║  ║ └────────────────────┘ ║  ║ └────────────────────┘        ",
@@ -1293,6 +1311,95 @@ func Test_inputCapture_ctrlSpaceIgnoresBridgeJobs(t *testing.T) {
 	assert.Same(t, event, got, "Ctrl+Space on a bridge job must not start a trace")
 }
 
+func Test_inputCapture_ctrlSShowsFullJobName(t *testing.T) {
+	// Longer than the maxTitle columns a job box gives its title
+	const longName = "build:integration:very-long-name"
+
+	newHandler := func(t *testing.T, root *tview.Pages) func(*tcell.EventKey) *tcell.EventKey {
+		t.Helper()
+
+		tc := gitlabtesting.NewTestClient(t)
+		ios, _, _, _ := cmdtest.TestIOStreams()
+		return inputCapture(
+			t.Context(), tview.NewApplication(), root, &navigator{},
+			make(chan struct{}, 1), make(chan bool, 1),
+			&options{io: ios}, tc.Client,
+		)
+	}
+
+	// Cannot run in parallel: mutates the package-level view globals.
+	selectJob := func(t *testing.T, job *ViewJob) {
+		t.Helper()
+		t.Cleanup(func() {
+			pipelines, curJob, jobs, logsVisible, modalVisible = nil, nil, nil, false, false
+		})
+		pipelines = []gitlab.PipelineInfo{{ID: 10, ProjectID: 7}}
+		// jobs stays nil so the key press cannot move the selection off job.
+		jobs = nil
+		curJob = job
+		logsVisible, modalVisible = false, false
+	}
+
+	ctrlS := func() *tcell.EventKey {
+		return tcell.NewEventKey(tcell.KeyCtrlS, 0, tcell.ModNone)
+	}
+
+	t.Run("opens a modal holding the untruncated name", func(t *testing.T) {
+		selectJob(t, &ViewJob{ID: 55, Name: longName, Stage: "integration"})
+		root := tview.NewPages()
+
+		got := newHandler(t, root)(ctrlS())
+
+		assert.Nil(t, got, "Ctrl+S is consumed by the modal")
+		assert.True(t, modalVisible, "the view must stop redrawing behind the modal")
+		require.True(t, root.HasPage(jobNamePage))
+
+		screen := tcell.NewSimulationScreen("UTF-8")
+		require.NoError(t, screen.Init())
+		screen.SetSize(150, 30)
+		root.SetRect(0, 0, 150, 30)
+		root.Draw(screen)
+		assert.Contains(t, screenText(screen), longName,
+			"the modal shows the name the job box has to truncate")
+	})
+
+	t.Run("opens for a bridge job too", func(t *testing.T) {
+		// Bridge names are truncated in exactly the same way as job names.
+		selectJob(t, &ViewJob{ID: 55, Name: longName, Kind: Bridge})
+		root := tview.NewPages()
+
+		got := newHandler(t, root)(ctrlS())
+
+		assert.Nil(t, got)
+		assert.True(t, root.HasPage(jobNamePage))
+	})
+
+	t.Run("is ignored while another modal is open", func(t *testing.T) {
+		selectJob(t, &ViewJob{ID: 55, Name: longName})
+		modalVisible = true
+		root := tview.NewPages()
+
+		event := ctrlS()
+		got := newHandler(t, root)(event)
+
+		assert.Same(t, event, got, "Ctrl+S must not stack a modal on a modal")
+		assert.False(t, root.HasPage(jobNamePage))
+	})
+
+	t.Run("is ignored when no job is selected", func(t *testing.T) {
+		// curJob is nil until the first job list arrives, and between
+		// descending into a child pipeline and its jobs being fetched.
+		selectJob(t, nil)
+		root := tview.NewPages()
+
+		event := ctrlS()
+		got := newHandler(t, root)(event)
+
+		assert.Same(t, event, got)
+		assert.False(t, root.HasPage(jobNamePage))
+	})
+}
+
 func Test_curPipeline_tracksDescentIntoChildPipeline(t *testing.T) {
 	// Cannot run in parallel: mutates the package-level `pipelines` global.
 	t.Cleanup(func() { pipelines = nil })
@@ -1561,4 +1668,178 @@ func TestCIView(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_jobsView_bracketedJobNames(t *testing.T) {
+	// tview reads an unescaped "[production]" in a job name as a colour tag.
+	const bracketed = "deploy-app[production]"
+	require.LessOrEqual(t, tview.TaggedStringWidth("✔ "+bracketed), maxTitle,
+		"fixture must be a name that measures as fitting before it is escaped")
+	require.Greater(t, tview.TaggedStringWidth(tview.Escape("✔ "+bracketed)), maxTitle,
+		"fixture must be a name that overflows the box once escaped")
+
+	render := func(t *testing.T, selected string) map[string]string {
+		t.Helper()
+		t.Cleanup(func() {
+			boxes, jobs, curJob, titleScroll = nil, nil, nil, titleScroller{}
+		})
+
+		viewJobs := []*ViewJob{
+			{ID: 1, Name: bracketed, Stage: "deploy", Status: "success"},
+			{ID: 2, Name: "short", Stage: "deploy", Status: "success"},
+		}
+		boxes = make(map[string]*tview.TextView)
+		curJob = viewJobs[0]
+		for _, j := range viewJobs {
+			if j.Name == selected {
+				curJob = j
+			}
+		}
+
+		root := tview.NewPages()
+		root.SetRect(0, 0, 90, 30)
+		jobsCh := make(chan []*ViewJob, 1)
+		jobsCh <- viewJobs
+		jobsView(t.Context(), nil, jobsCh, make(chan struct{}), root, nil)
+
+		titles := make(map[string]string, len(viewJobs))
+		for _, j := range viewJobs {
+			titles[j.Name] = boxes["jobs-"+j.Name].GetTitle()
+		}
+		return titles
+	}
+
+	t.Run("an unselected bracketed name is escaped for tview", func(t *testing.T) {
+		titles := render(t, "short")
+
+		assert.Equal(t, "✔ deploy-app[production[]", titles[bracketed],
+			"the box holds the escaped name, which tview then has to truncate")
+	})
+
+	t.Run("a selected bracketed name scrolls instead of being truncated", func(t *testing.T) {
+		titles := render(t, bracketed)
+
+		assert.Equal(t, maxTitle, tview.TaggedStringWidth(titles[bracketed]),
+			"the scrolled window fills the box exactly, so tview adds no ellipsis")
+		assert.NotEqual(t, "✔ deploy-app[production[]", titles[bracketed],
+			"the full name does not fit and must have been scrolled")
+	})
+
+	t.Run("a name that fits is left alone", func(t *testing.T) {
+		titles := render(t, bracketed)
+
+		assert.Equal(t, "✔ short", titles["short"])
+	})
+}
+
+func Test_titleScroller(t *testing.T) {
+	t.Parallel()
+
+	t.Run("leaves a name that fits alone", func(t *testing.T) {
+		t.Parallel()
+
+		var s titleScroller
+		s.follow("short")
+		for range 5 {
+			require.Equal(t, "short", s.scroll("short", 18))
+		}
+	})
+
+	t.Run("scrolls a long name end to end and wraps", func(t *testing.T) {
+		t.Parallel()
+
+		var s titleScroller
+		s.follow("job")
+		// "abcdefgh" in a 4 column window: rest at the start, scroll one
+		// column per redraw, rest at the end, then start over.
+		want := []string{
+			"abcd", "abcd", "abcd", "abcd", "abcd", "abcd", "abcd", "abcd",
+			"bcde", "cdef", "defg",
+			"efgh", "efgh", "efgh", "efgh", "efgh", "efgh", "efgh", "efgh",
+			"abcd",
+		}
+		for i, w := range want {
+			require.Equal(t, w, s.scroll("abcdefgh", 4), "redraw %d", i)
+		}
+	})
+
+	t.Run("restarts when the selection moves", func(t *testing.T) {
+		t.Parallel()
+
+		var s titleScroller
+		s.follow("job1")
+		for range scrollPause + 1 {
+			s.scroll("abcdefgh", 4)
+		}
+		require.NotEqual(t, "abcd", s.scroll("abcdefgh", 4))
+		s.follow("job2")
+		require.Equal(t, "abcd", s.scroll("abcdefgh", 4))
+	})
+
+	t.Run("counts runes, not bytes", func(t *testing.T) {
+		t.Parallel()
+
+		var s titleScroller
+		s.follow("job")
+		require.Equal(t, "über", s.scroll("überlang", 4))
+	})
+
+	t.Run("scrolls double-width runes by column, not rune count", func(t *testing.T) {
+		t.Parallel()
+
+		// Six double-width runes are 12 columns wide, so a 4 column window
+		// holds two of them. A rune-counting window would take four runes
+		// (8 columns) and overflow the box.
+		var s titleScroller
+		s.follow("job")
+		name := "一二三四五六"
+		want := []string{
+			"一二", "一二", "一二", "一二", "一二", "一二", "一二", "一二",
+			"二三", "三四", "四五",
+			"五六", "五六", "五六", "五六", "五六", "五六", "五六", "五六",
+			"一二",
+		}
+		for i, w := range want {
+			got := s.scroll(name, 4)
+			require.Equal(t, w, got, "redraw %d", i)
+			require.LessOrEqual(t, runewidth.StringWidth(got), 4, "redraw %d overflows the window", i)
+		}
+	})
+
+	t.Run("scrolls double-width emoji by column, not rune count", func(t *testing.T) {
+		t.Parallel()
+
+		// The fixture relies on these emoji being two columns wide; assert it
+		// so a future runewidth table change fails here loudly instead of
+		// silently skewing the frames below.
+		require.Equal(t, 2, runewidth.RuneWidth('🚀'))
+		require.Equal(t, 2, runewidth.RuneWidth('🔥'))
+
+		var s titleScroller
+		s.follow("job")
+		name := "🚀🔥🚀🔥🚀🔥"
+		want := []string{
+			"🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥",
+			"🔥🚀", "🚀🔥", "🔥🚀",
+			"🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥", "🚀🔥",
+			"🚀🔥",
+		}
+		for i, w := range want {
+			got := s.scroll(name, 4)
+			require.Equal(t, w, got, "redraw %d", i)
+			require.LessOrEqual(t, runewidth.StringWidth(got), 4, "redraw %d overflows the window", i)
+		}
+	})
+
+	t.Run("recovers when the window outgrows the offset", func(t *testing.T) {
+		t.Parallel()
+
+		// A job renamed, or a redraw at a narrower width, must not slice out
+		// of range.
+		s := titleScroller{jobName: "job", offset: 30}
+		require.Equal(t, "efgh", s.scroll("abcdefgh", 4))
+		// A box too narrow to hold anything stops scrolling rather than
+		// slicing; tview cuts the title down to whatever fits.
+		require.Equal(t, "abcdefgh", s.scroll("abcdefgh", 0))
+	})
 }
