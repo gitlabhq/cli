@@ -116,7 +116,7 @@ func (o *options) run() error {
 	var iterationBuilder strings.Builder
 
 	if o.group != "" {
-		iterations, _, err := client.GroupIterations.ListGroupIterations(o.group, iterationApiOpts.listGroupIterationsOptions())
+		iterations, resp, err := client.GroupIterations.ListGroupIterations(o.group, iterationApiOpts.listGroupIterationsOptions())
 		if err != nil {
 			return err
 		}
@@ -125,7 +125,7 @@ func (o *options) run() error {
 				return err
 			}
 		} else {
-			o.io.LogInfof("Showing iteration %d of %d for group %s.\n\n", len(iterations), len(iterations), o.group)
+			o.io.LogInfof("%s\n", o.listTitle(o.group, len(iterations), resp))
 			for _, iteration := range iterations {
 				iterationBuilder.WriteString(formatIterationInfo(iteration.Description, iteration.Title, iteration.WebURL))
 			}
@@ -136,7 +136,7 @@ func (o *options) run() error {
 		if err != nil {
 			return err
 		}
-		iterations, _, err := client.ProjectIterations.ListProjectIterations(repo.FullName(), iterationApiOpts.listProjectIterationsOptions())
+		iterations, resp, err := client.ProjectIterations.ListProjectIterations(repo.FullName(), iterationApiOpts.listProjectIterationsOptions())
 		if err != nil {
 			return err
 		}
@@ -145,7 +145,7 @@ func (o *options) run() error {
 				return err
 			}
 		} else {
-			o.io.LogInfof("Showing iteration %d of %d on %s.\n\n", len(iterations), len(iterations), repo.FullName())
+			o.io.LogInfof("%s\n", o.listTitle(repo.FullName(), len(iterations), resp))
 			for _, iteration := range iterations {
 				iterationBuilder.WriteString(formatIterationInfo(iteration.Description, iteration.Title, iteration.WebURL))
 			}
@@ -160,4 +160,15 @@ func formatIterationInfo(description string, title string, webURL string) string
 		description = fmt.Sprintf(" -> %s", description)
 	}
 	return fmt.Sprintf("%s%s (%s)\n", title, description, webURL)
+}
+
+func (o *options) listTitle(repoName string, count int, resp *gitlab.Response) string {
+	title := utils.NewListTitle("iteration")
+	title.RepoName = repoName
+	title.Page = o.page
+	title.CurrentPageTotal = count
+	if resp != nil {
+		title.Total = int(resp.TotalItems)
+	}
+	return title.Describe()
 }
