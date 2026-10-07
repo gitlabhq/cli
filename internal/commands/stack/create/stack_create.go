@@ -17,14 +17,15 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/utils"
 )
 
-var longString = `Create a new stacked diff. Adds metadata to your "./.git/stacked" directory.
-` + text.ExperimentalString
-
 func NewCmdCreateStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 	stackCreateCmd := &cobra.Command{
-		Use:     "create",
-		Short:   "Create a new stacked diff. (EXPERIMENTAL)",
-		Long:    strings.Replace(longString, "\"./.git/stacked\"", "`./.git/stacked`", 1),
+		Use:   "create",
+		Short: "Create a new stack. (EXPERIMENTAL)",
+		Long: heredoc.Docf(`
+			The stack starts empty, and the other %[1]sglab stack%[1]s commands act on it until you switch. The branch you have checked out becomes its base branch, which the first merge request targets, so push it to the remote before you run %[1]sglab stack sync%[1]s. To add diffs, use %[1]sglab stack save%[1]s.
+
+			This command adds metadata to your %[1]s./.git/stacked%[1]s directory.
+		`, "`") + text.ExperimentalString,
 		Aliases: []string{"new"},
 		Example: heredoc.Doc(`
 			glab stack create cool-new-feature

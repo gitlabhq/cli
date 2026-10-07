@@ -19,11 +19,11 @@ func NewCmdStackSwitch(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 	stackSwitchCmd := &cobra.Command{
 		Use:   "switch [stack-name]",
 		Short: "Switch between stacks. (EXPERIMENTAL)",
-		Long: heredoc.Doc(
-			"Switch between stacks to work on another stack created with \"glab stack create\".\n" +
-				"When stack-name is omitted, choose from the list of all stacks.\n" +
-				text.ExperimentalString,
-		),
+		Long: heredoc.Docf(`
+			If you do not provide a stack name, the command shows a list of stacks for you to choose from.
+
+			After you switch, use %[1]sglab stack move%[1]s to check out a diff in the new stack.
+		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Interactively pick from the list of available stacks.
 			glab stack switch

@@ -23,9 +23,12 @@ func NewCmdAmendStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.Get
 	var reword bool
 	stackSaveCmd := &cobra.Command{
 		Use:   "amend",
-		Short: `Save more changes to a stacked diff. (EXPERIMENTAL)`,
-		Long: `Add more changes to an existing stacked diff.
-` + text.ExperimentalString,
+		Short: `Save your changes to an existing diff. (EXPERIMENTAL)`,
+		Long: heredoc.Docf(`
+			Adds your changes to the diff you have checked out. Its merge request updates the next time you run %[1]sglab stack sync%[1]s, which also rebases the diffs after it.
+
+			To create a new diff from your changes instead, use %[1]sglab stack save%[1]s.
+		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Amend diff with currently staged changes
 			glab stack amend -m "Fix a function"
@@ -133,7 +136,7 @@ func amendFunc(ctx context.Context, f cmdutils.Factory, args []string, getText c
 
 	var output string
 	if f.IO().IsOutputTTY() {
-		output = fmt.Sprintf("Amended stack item with description: %q.\n", description)
+		output = fmt.Sprintf("Amended diff with description: %q.\n", description)
 	}
 
 	s.Stop()

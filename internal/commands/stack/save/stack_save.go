@@ -26,9 +26,12 @@ func NewCmdSaveStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.GetT
 	var noVerify bool
 	stackSaveCmd := &cobra.Command{
 		Use:   "save",
-		Short: `Save your progress within a stacked diff. (EXPERIMENTAL)`,
-		Long: `Save your current progress with a diff on the stack.
-` + text.ExperimentalString,
+		Short: `Save your changes as a new diff. (EXPERIMENTAL)`,
+		Long: heredoc.Docf(`
+			Adds a new diff to the end of the stack. It becomes a new merge request the next time you run %[1]sglab stack sync%[1]s.
+
+			To add your changes to the diff you have checked out instead, use %[1]sglab stack amend%[1]s.
+		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Save currently staged changes as diff with description
 			glab stack save -m "added a function"
@@ -89,7 +92,7 @@ func NewCmdSaveStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.GetT
 				currentRef, err := git.CurrentStackRefFromCurrentBranch(title)
 				if err == nil && !currentRef.Empty() && !currentRef.IsLast() {
 					color := f.IO().Color()
-					f.IO().LogErrorf("%s warning: you are not on the last entry of the stack. Consider using 'glab stack amend' to modify the current entry. New changes will be appended to the end of the stack.\n", color.WarnIcon())
+					f.IO().LogErrorf("%s warning: you are not on the last diff of the stack. Consider using 'glab stack amend' to modify the diff you have checked out. New changes will be appended to the end of the stack.\n", color.WarnIcon())
 				}
 			}
 
