@@ -5,7 +5,7 @@ description: Manage stacked diffs and merge requests with the GitLab CLI. Use wh
 
 # glab stack
 
-`glab stack` is a feature of the [GitLab CLI](https://gitlab.com/gitlab-org/cli) for managing **stacked diffs** — a series of small, dependent merge requests that build on each other to deliver a larger feature. Each entry in the stack is a separate branch with its own MR. Reviewers see only the diff for their layer; you keep building while earlier changes are in review.
+`glab stack` is a feature of the [GitLab CLI](https://gitlab.com/gitlab-org/cli) for managing **stacked diffs** — a series of small, dependent merge requests that build on each other to deliver a larger feature. Each diff in the stack is a separate branch with its own MR. Reviewers see only the changes in their diff; you keep building while earlier changes are in review.
 
 > **Status:** Experiment, released in GitLab CLI v1.42.0. The interface may change.
 
@@ -32,8 +32,8 @@ Stacks work well when:
 
 - A feature is large enough that a single MR would be hard to review
 - Changes have a clear dependency order — data layer feeds the API layer feeds the UI
-- You want to unblock reviewers on completed layers while you keep building
-- Feedback on one layer shouldn't block progress on the layers above it
+- You want to unblock reviewers on completed diffs while you keep building
+- Feedback on one diff shouldn't block progress on the diffs after it
 
 Each diff should represent a discrete, logical concern that can be reviewed independently. A reviewer reading the MRs in sequence should understand the progression as a cohesive story.
 
@@ -62,7 +62,7 @@ Plan your diff boundaries before writing code. Earlier diffs (closer to main) ar
 **`save` vs `amend`:**
 
 - `glab stack save` — creates a **new** diff (new commit, new branch). Use when adding a new logical concern on top of what exists.
-- `glab stack amend` — modifies the **current** diff. Use when addressing review feedback or fixing a mistake in the current layer.
+- `glab stack amend` — modifies the diff you have **checked out**. Use when addressing review feedback or fixing a mistake in that diff.
 
 **Important:** If you navigate to an earlier diff and run `save` instead of `amend`, the CLI will warn you but still proceed — appending the new diff to the **end** of the stack, not inserting it at the current position. Always use `amend` when you've navigated to a specific diff to address feedback. Only use `save` from the last diff in the stack.
 
@@ -76,12 +76,12 @@ For precise control over which files go into a diff, stage with `git add <files>
 | Save staged changes as a new diff | `glab stack save -m "description"` |
 | Stage all tracked files and save | `glab stack save -a -m "description"` |
 | Stage all files (incl. untracked) and save | `glab stack save . -m "description"` |
-| Amend the current diff | `glab stack amend -m "description"` |
+| Amend the diff you have checked out | `glab stack amend -m "description"` |
 | Amend with all tracked files staged | `glab stack amend -a -m "description"` |
 | Push branches and create/update MRs | `glab stack sync` |
 | Sync and set reviewer/assignee/label | `glab stack sync --reviewer <user> --assignee <user> --label <label>` |
 | Rebase stack onto latest base branch | `glab stack sync --update-base` |
-| List all diffs in the current stack | `glab stack list` |
+| List all diffs in the stack | `glab stack list` |
 | Go to the oldest diff | `glab stack first` |
 | Go to the newest diff | `glab stack last` |
 | Step toward main | `glab stack prev` |
@@ -94,22 +94,22 @@ For precise control over which files go into a diff, stage with `git add <files>
 # 1. Create a stack for a feature
 glab stack create add-authentication
 
-# 2. Build the first layer (data model)
+# 2. Build the first diff (data model)
 git add app/models/user.rb db/migrate/001_create_users.rb
 glab stack save -m "Add user model and migration"
 
-# 3. Build the second layer (API) — depends on the model above
+# 3. Build the second diff (API) — depends on the model above
 git add app/controllers/sessions_controller.rb
 glab stack save -m "Add session controller"
 
-# 4. Build the third layer (UI) — depends on the API above
+# 4. Build the third diff (UI) — depends on the API above
 glab stack save . -m "Add login view and assets"
 
 # 5. Push all branches and open MRs on GitLab
 glab stack sync
 ```
 
-After `sync`, each diff has its own MR: !1 targets `main`, !2 targets the !1 branch, and so on. Reviewers see only the delta for their layer.
+After `sync`, each diff has its own MR: !1 targets `main`, !2 targets the !1 branch, and so on. Reviewers see only the changes in their diff.
 
 **`sync` fetches from origin first**, then pushes each branch and creates or updates MRs. If a branch is detected as behind its remote (e.g., a reviewer applied a suggestion through the GitLab web UI), `sync` will pull those changes before pushing. You don't need to manually pull stack branches before syncing in the common case.
 
@@ -119,7 +119,7 @@ After `sync`, each diff has its own MR: !1 targets `main`, !2 targets the !1 bra
 
 **Rebasing onto an updated base branch:** If the base branch (e.g., `main`) has moved forward, run `glab stack sync --update-base` to rebase the entire stack onto the latest base.
 
-**Merge diffs bottom-to-top.** Always merge the first diff (oldest, closest to main) before merging the ones above it. When the first diff merges, `sync` automatically retargets the next MR onto main. If a middle diff is merged out of order, the lower MR will show a combined diff that doesn't belong to its layer — there's no clean automated recovery.
+**Merge diffs in order, first to last.** Always merge the first diff (oldest, closest to main) before merging the ones after it. When the first diff merges, `sync` automatically retargets the next MR onto main. If a middle diff is merged out of order, the earlier MR will show a combined diff that doesn't belong to it — there's no clean automated recovery.
 
 ### Responding to review feedback
 

@@ -65,19 +65,17 @@ func NewCmdSyncStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 
 	stackSaveCmd := &cobra.Command{
 		Use:   "sync",
-		Short: `Sync and submit progress on a stacked diff. (EXPERIMENTAL)`,
-		Long: heredoc.Doc(`Sync and submit progress on a stacked diff. This command runs these steps:
+		Short: `Push the stack to GitLab, and create or update its merge requests. (EXPERIMENTAL)`,
+		Long: heredoc.Docf(`
+			Updates GitLab to match your local stack:
 
-1. Optional. If working in a fork, select whether to push to the fork,
-   or the upstream repository.
-1. Optional. If --update-base is set, rebases the entire stack onto the
-   latest version of the base branch.
-1. Pushes any amended changes to their merge requests, unless --skip-push is set.
-1. Rebases any changes that happened previously in the stack.
-1. Creates merge requests for branches that don't have one yet,
-   unless --skip-mr-creation or --skip-push is set.
-1. Removes any branches that were already merged, or with a closed merge request.
-` + text.ExperimentalString),
+			- Creates a merge request for each diff without one, unless %[1]s--skip-mr-creation%[1]s or %[1]s--skip-push%[1]s is set. Each merge request targets the branch of the previous diff, or the base branch for the first diff.
+			- Pulls changes made on GitLab, such as applied suggestions, into any diff whose branch is behind its remote.
+			- If you amended a diff since the last sync, rebases the diffs after it. Then, unless %[1]s--skip-push%[1]s is set, force-pushes the stack's branches.
+			- Removes diffs with merged merge requests and deletes their local branches. Keeps diffs with closed merge requests.
+			- If you're working in a fork, asks whether to push to the fork or the upstream repository.
+			- With %[1]s--update-base%[1]s, rebases the stack onto the latest version of the base branch. Then, unless %[1]s--skip-push%[1]s is set, force-pushes the stack's branches.
+		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			glab stack sync
 			glab stack sync --no-verify

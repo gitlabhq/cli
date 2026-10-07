@@ -14,8 +14,9 @@ Switch between stacks. (EXPERIMENTAL)
 
 ## Synopsis
 
-Switch between stacks to work on another stack created with "glab stack create".
-When stack-name is omitted, choose from the list of all stacks.
+If you do not provide a stack name, the command shows a list of stacks for you to choose from.
+
+After you switch, use `glab stack move` to check out a diff in the new stack.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.

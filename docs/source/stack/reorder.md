@@ -14,11 +14,12 @@ Reorder a stack of diffs. (EXPERIMENTAL)
 
 ## Synopsis
 
-Change the order of diffs in the current stack.
+Opens an editor with one diff per line, so you can rearrange them.
 
-You choose the new order in your editor. After you save and close the file, each branch is then rebased onto its new parent so the local Git history matches the new order, and each diff is retargeted onto the branch before it to reflect the new order. Nothing is pushed. GitLab shows the old commits until you run `glab stack sync` to force-push the rebased branches.
+When you save and close the file, each diff's branch is rebased onto the branch of the diff now before it, and each moved diff's merge request is retargeted to match. The rebased branches are not pushed automatically, so run `glab stack sync` to force-push them and replace the old commits on GitLab.
 
-If a rebase hits a conflict, resolve it, finish the rebase with `git rebase --continue` and then run `glab stack reorder --continue`. Alternatively, run `glab stack reorder --abort` to restore the original branch order.
+If a rebase hits a conflict, resolve it, run `git rebase --continue`, and then run `glab stack reorder --continue`. To restore the original order instead, run `glab stack reorder --abort`.
+
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
 For more information, see

@@ -14,13 +14,11 @@ Delete a stack. (EXPERIMENTAL)
 
 ## Synopsis
 
-Delete a stacked diff.
-
 Removes the stack's local metadata from the `.git/stacked` directory.
 Use this command to clean up stacks for merged or abandoned merge requests.
 Branches, commits, and merge requests are not affected.
 
-When stack-name is omitted, choose from the list of all stacks.
+If you do not provide a stack name, the command shows a list of stacks for you to choose from.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.

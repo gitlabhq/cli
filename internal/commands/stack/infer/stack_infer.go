@@ -27,21 +27,23 @@ func NewCmdInferStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 
 	stackInferCmd := &cobra.Command{
 		Use:   "infer <revision-range>",
-		Short: `Add layers to a stack based on a range of commits. (EXPERIMENTAL)`,
-		Long: `Add layers to a stack based on a range of commits.
-This will append layers to an existing stack, or create a new one if needed.
-` + text.ExperimentalString,
+		Short: `Add diffs to a stack based on a range of commits. (EXPERIMENTAL)`,
+		Long: heredoc.Doc(`
+			Opens an editor with the commits in the range for you to choose from.
+
+			When you save and close the file, the command creates one diff for each commit listed in the file and appends them to the stack. If there's no stack to add them to, the command creates one first.
+		`) + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Commit range syntax is similar to "git rev-list".
 			# The start of the range must be a branch name (not a relative ref like HEAD~5).
 
-			# Infer stack from commits between main and current branch
+			# Add diffs from the commits between main and the current branch
 			glab stack infer main..HEAD
 
-			# Infer stack from commits on a feature branch since it diverged from develop
+			# Add diffs from the commits on a feature branch since it diverged from develop
 			glab stack infer develop..HEAD
 
-			# Create a new stack with a specific name
+			# If there's no stack to add the diffs to, create one with a specific name
 			glab stack infer --name feature-stack main..HEAD
 		`),
 		Args: cobra.MinimumNArgs(1),
@@ -133,16 +135,16 @@ func run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner, args []strin
 		return fmt.Errorf("no commits selected for stack")
 	}
 
-	io.StartSpinner("Creating stack layers...")
+	io.StartSpinner("Creating stack diffs...")
 	defer io.StopSpinner("")
 
 	err = createBranches(f, gr, commits, title, stack)
 	if err != nil {
-		return fmt.Errorf("error creating stack layers: %w", err)
+		return fmt.Errorf("error creating stack diffs: %w", err)
 	}
 
 	io.StopSpinner("")
-	io.LogInfof("%s Added %d layer(s) to stack %q. Run `glab stack sync` to push and create merge requests.\n",
+	io.LogInfof("%s Added %d diff(s) to stack %q. Run `glab stack sync` to push and create merge requests.\n",
 		color.GreenCheck(), len(commits), title)
 
 	return nil

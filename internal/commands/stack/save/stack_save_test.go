@@ -247,10 +247,10 @@ func TestSaveStack_WarningWhenNotOnLastEntry(t *testing.T) {
 			require.NoError(t, err)
 
 			if tc.expectWarning {
-				require.Contains(t, output.Stderr(), "warning: you are not on the last entry of the stack")
+				require.Contains(t, output.Stderr(), "warning: you are not on the last diff of the stack")
 				require.Contains(t, output.Stderr(), "glab stack amend")
 			} else {
-				require.NotContains(t, output.Stderr(), "warning: you are not on the last entry of the stack")
+				require.NotContains(t, output.Stderr(), "warning: you are not on the last diff of the stack")
 			}
 		})
 	}

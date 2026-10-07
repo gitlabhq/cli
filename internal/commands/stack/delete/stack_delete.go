@@ -36,13 +36,11 @@ func NewCmdDeleteStack(f cmdutils.Factory) *cobra.Command {
 		Use:   "delete [<stack-name>]",
 		Short: "Delete a stack. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`
-			Delete a stacked diff.
-
 			Removes the stack's local metadata from the %[1]s.git/stacked%[1]s directory.
 			Use this command to clean up stacks for merged or abandoned merge requests.
 			Branches, commits, and merge requests are not affected.
 
-			When stack-name is omitted, choose from the list of all stacks.
+			If you do not provide a stack name, the command shows a list of stacks for you to choose from.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Interactively pick from the list of available stacks
@@ -164,7 +162,7 @@ func (o *options) run(ctx context.Context) error {
 func (o *options) confirmDeletion(ctx context.Context) error {
 	// Corrupted refs should not block deletion, so a failure only skips the count.
 	if stack, err := git.GatherStackRefs(o.name); err == nil && !stack.Empty() {
-		o.io.LogInfof("Stack %s still has %s.\n", o.name, utils.Pluralize(len(stack.Refs), "layer"))
+		o.io.LogInfof("Stack %s still has %s.\n", o.name, utils.Pluralize(len(stack.Refs), "diff"))
 	}
 
 	o.io.LogInfof("Deleting a stack removes its local metadata. Branches and merge requests are not affected.\n\n")

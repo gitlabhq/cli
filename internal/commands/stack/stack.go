@@ -32,7 +32,13 @@ func NewCmdStack(f cmdutils.Factory) *cobra.Command {
 	stackCmd := &cobra.Command{
 		Use:   "stack <command> [flags]",
 		Short: `Create, manage, and work with stacked diffs. (EXPERIMENTAL)`,
-		Long:  `Stacked diffs are a way of creating small changes that build upon each other to ultimately deliver a feature. This kind of workflow can be used to accelerate development time by continuing to build upon your changes, while earlier changes in the stack are reviewed and updated based on feedback.` + "\n" + text.ExperimentalString,
+		Long: heredoc.Docf(`
+			A stack is a series of small, dependent merge requests that together deliver a feature. Reviewers can review and merge earlier changes while you keep building on top of them.
+
+			Locally, each diff in the stack is one commit on its own branch, built on the branch of the previous diff. When you run %[1]sglab stack sync%[1]s, each diff becomes a merge request that targets the branch of the previous diff. The first diff targets the base branch.
+
+			The %[1]sglab stack%[1]s commands act on the stack you last created or switched to, regardless of which branch you have checked out.
+		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			glab stack create cool-new-feature
 			glab stack sync`),

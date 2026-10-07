@@ -44,11 +44,12 @@ func NewCmdReorderStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.G
 		Use:   "reorder",
 		Short: "Reorder a stack of diffs. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`
-			Change the order of diffs in the current stack.
+			Opens an editor with one diff per line, so you can rearrange them.
 
-			You choose the new order in your editor. After you save and close the file, each branch is then rebased onto its new parent so the local Git history matches the new order, and each diff is retargeted onto the branch before it to reflect the new order. Nothing is pushed. GitLab shows the old commits until you run %[1]sglab stack sync%[1]s to force-push the rebased branches.
+			When you save and close the file, each diff's branch is rebased onto the branch of the diff now before it, and each moved diff's merge request is retargeted to match. The rebased branches are not pushed automatically, so run %[1]sglab stack sync%[1]s to force-push them and replace the old commits on GitLab.
 
-			If a rebase hits a conflict, resolve it, finish the rebase with %[1]sgit rebase --continue%[1]s and then run %[1]sglab stack reorder --continue%[1]s. Alternatively, run %[1]sglab stack reorder --abort%[1]s to restore the original branch order.`, "`") + text.ExperimentalString,
+			If a rebase hits a conflict, resolve it, run %[1]sgit rebase --continue%[1]s, and then run %[1]sglab stack reorder --continue%[1]s. To restore the original order instead, run %[1]sglab stack reorder --abort%[1]s.
+		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Reorder the stack by choosing a new branch order in your editor
 			glab stack reorder

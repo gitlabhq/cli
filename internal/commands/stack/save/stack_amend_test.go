@@ -34,7 +34,7 @@ func Test_stackAmendCmd(t *testing.T) {
 			files:        []string{"testfile", "randomfile"},
 			amendedFiles: []string{"otherfile"},
 			description:  "this is a commit message",
-			expected:     "Amended stack item with description: \"this is a commit message\".\n",
+			expected:     "Amended diff with description: \"this is a commit message\".\n",
 		},
 		{
 			desc:         "amending regular files with --no-verify",
@@ -42,7 +42,7 @@ func Test_stackAmendCmd(t *testing.T) {
 			files:        []string{"testfile", "randomfile"},
 			amendedFiles: []string{"otherfile"},
 			description:  "amend with no verify",
-			expected:     "Amended stack item with description: \"amend with no verify\".\n",
+			expected:     "Amended diff with description: \"amend with no verify\".\n",
 		},
 		{
 			desc:          "with no message",
@@ -51,7 +51,7 @@ func Test_stackAmendCmd(t *testing.T) {
 			amendedFiles:  []string{"otherfile"},
 			description:   "",
 			editorMessage: "amended description",
-			expected:      "Amended stack item with description: \"amended description\".\n",
+			expected:      "Amended diff with description: \"amended description\".\n",
 		},
 		{
 			desc:         "with no amended changes",
@@ -159,7 +159,7 @@ func Test_stackAmendReword(t *testing.T) {
 		// Now reword with NO file changes (clean working tree)
 		output, err := amendFunc(t.Context(), f, []string{}, getText, "reworded message", false, false, true)
 		require.NoError(t, err)
-		require.Equal(t, "Amended stack item with description: \"reworded message\".\n", output)
+		require.Equal(t, "Amended diff with description: \"reworded message\".\n", output)
 
 		// Verify the stack ref description was updated
 		ref, err := git.CurrentStackRefFromCurrentBranch("cool-test-feature")
@@ -242,6 +242,6 @@ func Test_stackAmendReword(t *testing.T) {
 		// Reword with no -m flag — should open editor and use its output
 		output, err := amendFunc(t.Context(), f, []string{}, getText, "", false, false, true)
 		require.NoError(t, err)
-		require.Equal(t, "Amended stack item with description: \"editor reworded message\".\n", output)
+		require.Equal(t, "Amended diff with description: \"editor reworded message\".\n", output)
 	})
 }

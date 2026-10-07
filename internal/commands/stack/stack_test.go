@@ -20,6 +20,6 @@ func TestStackCmd(t *testing.T) {
 
 	require.NoError(t, cmd.Execute())
 
-	assert.Contains(t, buf.String(), "Stacked diffs are a way of creating small changes that build upon each other to ultimately deliver")
+	assert.Contains(t, buf.String(), "A stack is a series of small, dependent merge requests that together deliver a feature.")
 	assert.Contains(t, buf.String(), text.ExperimentalString)
 }
