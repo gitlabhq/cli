@@ -4,6 +4,7 @@ package list
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,7 +53,7 @@ func TestIterationList(t *testing.T) {
 	output, err := exec("")
 	require.NoError(t, err)
 
-	assert.Equal(t, "Showing iteration 1 of 1 on OWNER/REPO.\n\n Iteration II -> Ipsum Lorem ipsum (http://gitlab.example.com/groups/my-group/-/iterations/13)\n \n", output.String())
+	assert.Equal(t, "Showing 1 iteration on OWNER/REPO. (Page 1)\n\n Iteration II -> Ipsum Lorem ipsum (http://gitlab.example.com/groups/my-group/-/iterations/13)\n \n", output.String())
 	assert.Empty(t, output.Stderr())
 }
 
@@ -146,7 +147,7 @@ func TestIterationListGroup(t *testing.T) {
 	output, err := exec("-g my-group")
 	require.NoError(t, err)
 
-	assert.Equal(t, "Showing iteration 1 of 1 for group my-group.\n\n Group Iteration -> Group iteration description (http://gitlab.example.com/groups/my-group/-/iterations/13)\n \n", output.String())
+	assert.Equal(t, "Showing 1 iteration on my-group. (Page 1)\n\n Group Iteration -> Group iteration description (http://gitlab.example.com/groups/my-group/-/iterations/13)\n \n", output.String())
 	assert.Empty(t, output.Stderr())
 }
 
@@ -175,6 +176,112 @@ func TestIterationListEmpty(t *testing.T) {
 	output, err := exec("")
 	require.NoError(t, err)
 
-	assert.Equal(t, "Showing iteration 0 of 0 on OWNER/REPO.\n\n\n", output.String())
+	assert.Equal(t, "No iterations available on OWNER/REPO.\n\n", output.String())
 	assert.Empty(t, output.Stderr())
+}
+
+func TestIterationListGroupEmpty(t *testing.T) {
+	t.Parallel()
+
+	testClient := gitlabtesting.NewTestClient(t)
+
+	testClient.MockGroupIterations.EXPECT().
+		ListGroupIterations("my-group", gomock.Any()).
+		Return([]*gitlab.GroupIteration{}, nil, nil)
+
+	apiClient, err := api.NewClient(
+		func(*http.Client) (gitlab.AuthSource, error) {
+			return gitlab.AccessTokenAuthSource{Token: "test-token"}, nil
+		},
+		api.WithGitLabClient(testClient.Client),
+	)
+	require.NoError(t, err)
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdList, true,
+		cmdtest.WithApiClient(apiClient),
+		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+	)
+
+	output, err := exec("-g my-group")
+	require.NoError(t, err)
+
+	assert.Equal(t, "No iterations available on my-group.\n\n", output.String())
+	assert.Empty(t, output.Stderr())
+}
+
+func TestIterationListHeaderTotal(t *testing.T) {
+	t.Parallel()
+
+	projectIterations := []*gitlab.ProjectIteration{
+		{Title: "Iteration II", WebURL: "http://gitlab.example.com/groups/my-group/-/iterations/13"},
+	}
+	groupIterations := []*gitlab.GroupIteration{
+		{Title: "Group Iteration", WebURL: "http://gitlab.example.com/groups/my-group/-/iterations/13"},
+	}
+
+	tests := []struct {
+		name       string
+		cli        string
+		setupMock  func(tc *gitlabtesting.TestClient)
+		wantHeader string
+	}{
+		{
+			name: "project shows the total from the API",
+			cli:  "",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockProjectIterations.EXPECT().
+					ListProjectIterations("OWNER/REPO", gomock.Any()).
+					Return(projectIterations, &gitlab.Response{CurrentPage: 1, TotalPages: 25, TotalItems: 25}, nil)
+			},
+			wantHeader: "Showing 1 of 25 iterations on OWNER/REPO. (Page 1)\n",
+		},
+		{
+			name: "group shows the total from the API",
+			cli:  "-g my-group --per-page 1 --page 25",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockGroupIterations.EXPECT().
+					ListGroupIterations("my-group", gomock.Any()).
+					Return(groupIterations, &gitlab.Response{CurrentPage: 25, TotalPages: 25, TotalItems: 25}, nil)
+			},
+			wantHeader: "Showing 1 of 25 iterations on my-group. (Page 25)\n",
+		},
+		{
+			name: "project without a total from the API",
+			cli:  "",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockProjectIterations.EXPECT().
+					ListProjectIterations("OWNER/REPO", gomock.Any()).
+					Return(projectIterations, &gitlab.Response{CurrentPage: 1, NextPage: 2}, nil)
+			},
+			wantHeader: "Showing 1 iteration on OWNER/REPO. (Page 1)\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			testClient := gitlabtesting.NewTestClient(t)
+			tt.setupMock(testClient)
+
+			apiClient, err := api.NewClient(
+				func(*http.Client) (gitlab.AuthSource, error) {
+					return gitlab.AccessTokenAuthSource{Token: "test-token"}, nil
+				},
+				api.WithGitLabClient(testClient.Client),
+			)
+			require.NoError(t, err)
+
+			exec := cmdtest.SetupCmdForTest(t, NewCmdList, true,
+				cmdtest.WithApiClient(apiClient),
+				cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+			)
+
+			output, err := exec(tt.cli)
+			require.NoError(t, err)
+
+			assert.True(t, strings.HasPrefix(output.String(), tt.wantHeader), "got %q", output.String())
+			assert.Empty(t, output.Stderr())
+		})
+	}
 }
