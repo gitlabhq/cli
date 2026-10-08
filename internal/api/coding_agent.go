@@ -40,6 +40,8 @@ func DetectCodingAgent() string {
 	switch strings.ToLower(os.Getenv("TERM_PROGRAM")) {
 	case "cursor":
 		return "cursor-terminal"
+	case "kiro":
+		return "kiro-terminal"
 	case "windsurf":
 		return "windsurf-terminal"
 	case "zed":

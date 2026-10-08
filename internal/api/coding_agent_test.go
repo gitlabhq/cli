@@ -73,6 +73,21 @@ func TestDetectCodingAgent(t *testing.T) {
 			expected: "cursor-terminal",
 		},
 		{
+			name:     "TERM_PROGRAM=kiro falls back to kiro-terminal",
+			envVars:  map[string]string{"TERM_PROGRAM": "kiro"},
+			expected: "kiro-terminal",
+		},
+		{
+			name:     "TERM_PROGRAM=Kiro is case-insensitive",
+			envVars:  map[string]string{"TERM_PROGRAM": "Kiro"},
+			expected: "kiro-terminal",
+		},
+		{
+			name:     "TERM_PROGRAM=kiroshi is ignored",
+			envVars:  map[string]string{"TERM_PROGRAM": "kiroshi"},
+			expected: "",
+		},
+		{
 			name:     "TERM_PROGRAM=Windsurf is case-insensitive",
 			envVars:  map[string]string{"TERM_PROGRAM": "Windsurf"},
 			expected: "windsurf-terminal",
