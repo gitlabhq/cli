@@ -342,10 +342,21 @@
           url: 'cli/mr/note/create/'
         - title: glab mr note delete
           url: 'cli/mr/note/delete/'
+        - title: glab mr note draft
+          url: 'cli/mr/note/draft/'
+          submenu:
+            - title: glab mr note draft create
+              url: 'cli/mr/note/draft/create/'
+            - title: glab mr note draft delete
+              url: 'cli/mr/note/draft/delete/'
+            - title: glab mr note draft list
+              url: 'cli/mr/note/draft/list/'
+            - title: glab mr note draft publish
+              url: 'cli/mr/note/draft/publish/'
+            - title: glab mr note draft update
+              url: 'cli/mr/note/draft/update/'
         - title: glab mr note list
           url: 'cli/mr/note/list/'
-        - title: glab mr note publish
-          url: 'cli/mr/note/publish/'
         - title: glab mr note reopen
           url: 'cli/mr/note/reopen/'
         - title: glab mr note resolve

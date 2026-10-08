@@ -1,6 +1,6 @@
 //go:build integration
 
-package note
+package publish
 
 import (
 	"fmt"
@@ -16,16 +16,17 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	createCmd "gitlab.com/gitlab-org/cli/internal/commands/mr/note/draft/create"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 	"gitlab.com/gitlab-org/cli/test"
 )
 
-// Test_MrNotePublish_Integration checks the one thing a mock cannot: that a real
+// TestDraftPublish_Integration checks the one thing a mock cannot: that a real
 // instance applies what the deprecated PublishAllDraftNotesWithOptions call sends,
 // rather than merely accepting it, and that the drafts really are consumed.
-// Flag handling, output, and error wrapping are covered in mr_note_publish_test.go.
-func Test_MrNotePublish_Integration(t *testing.T) {
+// Flag handling, output, and error wrapping are covered in publish_test.go.
+func TestDraftPublish_Integration(t *testing.T) {
 	glTestHost := test.GetHostOrSkip(t)
 
 	const projectPath = "cli-automated-testing/test"
@@ -88,14 +89,14 @@ func Test_MrNotePublish_Integration(t *testing.T) {
 
 	mrArg := fmt.Sprintf("%d -R %s", mr.IID, projectPath)
 
-	require.NoError(t, exec(NewCmdCreate, fmt.Sprintf(`%s --draft -m "it draft"`, mrArg)))
+	require.NoError(t, exec(createCmd.NewCmd, fmt.Sprintf(`%s -m "it draft"`, mrArg)))
 
 	// Publishing consumes every draft, so this one call carries every body field
 	// the assertions below can check. --reviewer-state is deliberately absent:
 	// bulk_publish discards the UpdateReviewerStateService result, and that
 	// service refuses to create a reviewer row for a merge request's own author,
 	// which the fixture user always is. Sending it here would assert nothing.
-	require.NoError(t, exec(NewCmdPublish, fmt.Sprintf(`%s -y -m "it summary" --internal`, mrArg)))
+	require.NoError(t, exec(NewCmd, fmt.Sprintf(`%s -y -m "it summary" --internal`, mrArg)))
 
 	drafts, _, err := fixtureClient.DraftNotes.ListDraftNotes(projectPath, mr.IID, &gitlab.ListDraftNotesOptions{})
 	require.NoError(t, err)

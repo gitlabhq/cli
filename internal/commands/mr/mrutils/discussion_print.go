@@ -1,6 +1,7 @@
 package mrutils
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 
@@ -140,42 +141,51 @@ func PrintDiscussions(out io.Writer, ios *iostreams.IOStreams, discussions []*gi
 	}
 }
 
+// PrintDraftNotes renders pending review comments to standard output.
+func PrintDraftNotes(ios *iostreams.IOStreams, drafts []*gitlab.DraftNote) {
+	c := ios.Color()
+	for _, d := range drafts {
+		header := c.Gray(fmt.Sprintf("[draft #%d]", d.ID))
+		if d.DiscussionID != "" {
+			header += " (reply to " + TruncateDiscussionID(d.DiscussionID) + ")"
+		}
+		ios.LogInfof("%s%s\n%s\n\n", header, commentFileContext(c, d.Position), utils.Indent(renderBody(ios, d.Note), " "))
+	}
+}
+
 // PrintCommentFileContext prints file and line context for a note position.
 func PrintCommentFileContext(out io.Writer, c *iostreams.ColorPalette, pos *gitlab.NotePosition) {
-	// Check for multi-line comment first
-	if pos.LineRange != nil && pos.LineRange.StartRange != nil && pos.LineRange.EndRange != nil {
-		startLine := pos.LineRange.StartRange.NewLine
-		endLine := pos.LineRange.EndRange.NewLine
+	if fileContext := commentFileContext(c, pos); fileContext != "" {
+		fmt.Fprintln(out, fileContext) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
+	}
+}
 
-		// Fall back to old line numbers if new ones aren't available
-		if startLine == 0 {
-			startLine = pos.LineRange.StartRange.OldLine
-		}
-		if endLine == 0 {
-			endLine = pos.LineRange.EndRange.OldLine
-		}
+// commentFileContext returns " on <path>:<lines>" for a position that targets
+// a file, and "" otherwise.
+func commentFileContext(c *iostreams.ColorPalette, pos *gitlab.NotePosition) string {
+	if !HasFilePosition(pos) {
+		return ""
+	}
+	path := cmp.Or(pos.NewPath, pos.OldPath)
 
-		// Display range if we have valid start and end lines
-		if startLine > 0 && endLine > 0 {
-			filePath := pos.NewPath
-			if filePath == "" {
-				filePath = pos.OldPath
-			}
-			if filePath != "" {
-				if startLine != endLine {
-					fmt.Fprintf(out, " on %s:%d-%d\n", c.Cyan(filePath), startLine, endLine) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
-				} else {
-					fmt.Fprintf(out, " on %s:%d\n", c.Cyan(filePath), startLine) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
-				}
-				return
-			}
+	if lr := pos.LineRange; lr != nil && lr.StartRange != nil && lr.EndRange != nil {
+		startLine := cmp.Or(lr.StartRange.NewLine, lr.StartRange.OldLine)
+		endLine := cmp.Or(lr.EndRange.NewLine, lr.EndRange.OldLine)
+		switch {
+		case startLine > 0 && endLine > 0 && startLine != endLine:
+			return fmt.Sprintf(" on %s:%d-%d", c.Cyan(path), startLine, endLine)
+		case startLine > 0 && endLine > 0:
+			return fmt.Sprintf(" on %s:%d", c.Cyan(path), startLine)
 		}
 	}
 
-	// Fall back to single-line comment
-	if pos.NewPath != "" && pos.NewLine > 0 {
-		fmt.Fprintf(out, " on %s:%d\n", c.Cyan(pos.NewPath), pos.NewLine) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
-	} else if pos.OldPath != "" && pos.OldLine > 0 {
-		fmt.Fprintf(out, " on %s:%d\n", c.Cyan(pos.OldPath), pos.OldLine) //nolint:forbidigo // out is a generic io.Writer also used with non-stdout writers (strings.Builder, bytes.Buffer)
+	switch {
+	case pos.NewPath != "" && pos.NewLine > 0:
+		return fmt.Sprintf(" on %s:%d", c.Cyan(pos.NewPath), pos.NewLine)
+	case pos.OldPath != "" && pos.OldLine > 0:
+		return fmt.Sprintf(" on %s:%d", c.Cyan(pos.OldPath), pos.OldLine)
+	default:
+		// File-level and image comments have a path but no line.
+		return " on " + c.Cyan(path)
 	}
 }

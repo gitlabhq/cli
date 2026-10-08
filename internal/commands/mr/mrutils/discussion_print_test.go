@@ -205,13 +205,25 @@ func Test_PrintCommentFileContext(t *testing.T) {
 			expected: " on main.go:10\n",
 		},
 		{
-			name: "position with no line numbers",
+			name: "file-level comment has a path but no line",
 			note: &gitlab.Note{
 				Position: &gitlab.NotePosition{
 					NewPath: "file.go",
 					NewLine: 0,
 				},
 			},
+			expected: " on file.go\n",
+		},
+		{
+			name: "file-level comment on a deleted file",
+			note: &gitlab.Note{
+				Position: &gitlab.NotePosition{OldPath: "removed.go", PositionType: "file"},
+			},
+			expected: " on removed.go\n",
+		},
+		{
+			name:     "empty position",
+			note:     &gitlab.Note{Position: &gitlab.NotePosition{}},
 			expected: "",
 		},
 	}
@@ -224,4 +236,32 @@ func Test_PrintCommentFileContext(t *testing.T) {
 			assert.Equal(t, tt.expected, got)
 		})
 	}
+}
+
+func Test_PrintDraftNotes(t *testing.T) {
+	t.Parallel()
+
+	ios, _, out, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+
+	PrintDraftNotes(ios, []*gitlab.DraftNote{
+		{ID: 501, Note: "General draft", Position: &gitlab.NotePosition{}},
+		{ID: 502, Note: "Diff draft", Position: &gitlab.NotePosition{NewPath: "main.go", NewLine: 42}},
+		{ID: 503, Note: "Reply draft", DiscussionID: "abcdef1234567890abcdef1234567890abcdef12"},
+		{ID: 504, Note: "Range draft", Position: &gitlab.NotePosition{
+			NewPath: "main.go",
+			NewLine: 12,
+			LineRange: &gitlab.LineRange{
+				StartRange: &gitlab.LinePosition{NewLine: 10},
+				EndRange:   &gitlab.LinePosition{NewLine: 12},
+			},
+		}},
+	})
+
+	assert.Equal(t,
+		"[draft #501]\n General draft\n\n"+
+			"[draft #502] on main.go:42\n Diff draft\n\n"+
+			"[draft #503] (reply to abcdef12…)\n Reply draft\n\n"+
+			"[draft #504] on main.go:10-12\n Range draft\n\n",
+		stripansi.Strip(out.String()),
+	)
 }

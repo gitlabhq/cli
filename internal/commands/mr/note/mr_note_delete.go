@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -131,18 +130,12 @@ func (o *deleteOptions) run(ctx context.Context) error {
 	}
 
 	if !o.yes && o.io.PromptEnabled() {
-		body := o.note.Body
-		if r := []rune(body); len(r) > 80 {
-			body = string(r[:80]) + "..."
-		}
-		body = strings.ReplaceAll(body, "\n", " ")
-
 		author := ""
 		if o.note.Author.Username != "" {
 			author = fmt.Sprintf(" by @%s", o.note.Author.Username)
 		}
 
-		o.io.LogInfof("Note %d%s: %s\n", o.noteID, author, body)
+		o.io.LogInfof("Note %d%s: %s\n", o.noteID, author, mrutils.NotePreview(o.note.Body))
 
 		var confirmed bool
 		if err := o.io.Confirm(ctx, &confirmed, "Are you sure you want to delete this note?"); err != nil {

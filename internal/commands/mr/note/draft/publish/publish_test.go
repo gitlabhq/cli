@@ -1,6 +1,6 @@
 //go:build !integration
 
-package note
+package publish
 
 import (
 	"errors"
@@ -17,7 +17,9 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
-func Test_cmdPublish(t *testing.T) {
+const mr1AuthorID int64 = 42
+
+func TestDraftPublish(t *testing.T) {
 	t.Parallel()
 
 	t.Run("publishes with summary note, internal, and reviewer state", func(t *testing.T) {
@@ -72,7 +74,7 @@ func Test_cmdPublish(t *testing.T) {
 		t.Parallel()
 
 		testClient := gitlabtesting.NewTestClient(t)
-		mockMR1WithReviewers(t, testClient, 7)
+		mockMR1(t, testClient, &gitlab.BasicUser{ID: mr1AuthorID}, 7)
 		mockDraftList(t, testClient, 1)
 		expectPublishReviewed(t, testClient)
 		testClient.MockUsers.EXPECT().
@@ -91,7 +93,7 @@ func Test_cmdPublish(t *testing.T) {
 		t.Parallel()
 
 		testClient := gitlabtesting.NewTestClient(t)
-		mockMR1WithReviewers(t, testClient, 7, mr1AuthorID)
+		mockMR1(t, testClient, &gitlab.BasicUser{ID: mr1AuthorID}, 7, mr1AuthorID)
 		mockDraftList(t, testClient, 1)
 		expectPublishReviewed(t, testClient)
 		testClient.MockUsers.EXPECT().
@@ -110,7 +112,7 @@ func Test_cmdPublish(t *testing.T) {
 		t.Parallel()
 
 		testClient := gitlabtesting.NewTestClient(t)
-		mockMR1WithReviewers(t, testClient)
+		mockMR1(t, testClient, &gitlab.BasicUser{ID: mr1AuthorID})
 		mockDraftList(t, testClient, 1)
 		expectPublishReviewed(t, testClient)
 		testClient.MockUsers.EXPECT().
@@ -129,7 +131,7 @@ func Test_cmdPublish(t *testing.T) {
 		t.Parallel()
 
 		testClient := gitlabtesting.NewTestClient(t)
-		mockMR1WithReviewers(t, testClient)
+		mockMR1(t, testClient, &gitlab.BasicUser{ID: mr1AuthorID})
 		mockDraftList(t, testClient, 1)
 		expectPublishReviewed(t, testClient)
 		testClient.MockUsers.EXPECT().
@@ -148,7 +150,7 @@ func Test_cmdPublish(t *testing.T) {
 		t.Parallel()
 
 		testClient := gitlabtesting.NewTestClient(t)
-		mockMR1WithReviewers(t, testClient)
+		mockMR1(t, testClient, &gitlab.BasicUser{ID: mr1AuthorID})
 		mockDraftList(t, testClient, 1)
 		testClient.MockDraftNotes.EXPECT().
 			PublishAllDraftNotesWithOptions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
@@ -170,59 +172,48 @@ func Test_cmdPublish(t *testing.T) {
 		exec := setupPublishExec(t, testClient)
 
 		_, err := exec(`1 -y`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no pending review comments on !1")
+		require.ErrorContains(t, err, "no pending review comments on !1")
 	})
 
 	t.Run("--internal requires --message", func(t *testing.T) {
 		t.Parallel()
 
-		testClient := gitlabtesting.NewTestClient(t)
-
-		exec := setupPublishExec(t, testClient)
+		exec := setupPublishExec(t, gitlabtesting.NewTestClient(t))
 
 		_, err := exec(`1 -y --internal`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--internal requires --message")
+		require.ErrorContains(t, err, "--internal requires --message")
 	})
 
 	t.Run("rejects whitespace-only --message", func(t *testing.T) {
 		t.Parallel()
 
-		testClient := gitlabtesting.NewTestClient(t)
-
-		exec := setupPublishExec(t, testClient)
+		exec := setupPublishExec(t, gitlabtesting.NewTestClient(t))
 
 		_, err := exec(`1 -y -m "   "`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--message cannot be empty")
+		require.ErrorContains(t, err, "--message cannot be empty")
 	})
 
 	t.Run("rejects unknown reviewer state", func(t *testing.T) {
 		t.Parallel()
 
-		testClient := gitlabtesting.NewTestClient(t)
-
-		exec := setupPublishExec(t, testClient)
+		exec := setupPublishExec(t, gitlabtesting.NewTestClient(t))
 
 		_, err := exec(`1 -y --reviewer-state bogus`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "must be one of")
+		require.ErrorContains(t, err, "must be one of")
 	})
 
-	t.Run("--yes required non-interactively", func(t *testing.T) {
+	t.Run("--yes required non-interactively, before any API call", func(t *testing.T) {
 		t.Parallel()
 
-		testClient := setupMR(t)
+		testClient := gitlabtesting.NewTestClient(t)
 
-		exec := cmdtest.SetupCmdForTest(t, NewCmdPublish, false,
+		exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 			cmdtest.WithGitLabClient(testClient.Client),
 			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		)
 
 		_, err := exec(`1`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--yes required when not running interactively")
+		require.ErrorContains(t, err, "--yes required when not running interactively")
 	})
 
 	t.Run("ListDraftNotes error wrapped", func(t *testing.T) {
@@ -237,9 +228,7 @@ func Test_cmdPublish(t *testing.T) {
 		exec := setupPublishExec(t, testClient)
 
 		_, err := exec(`1 -y`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to list pending review comments")
-		assert.Contains(t, err.Error(), "boom")
+		require.ErrorContains(t, err, "failed to list pending review comments: boom")
 	})
 
 	t.Run("paginates draft list", func(t *testing.T) {
@@ -286,18 +275,15 @@ func Test_cmdPublish(t *testing.T) {
 		exec := setupPublishExec(t, testClient)
 
 		_, err := exec(`1 -y`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to publish pending review comments")
-		assert.Contains(t, err.Error(), "boom")
+		require.ErrorContains(t, err, "failed to publish pending review comments: boom")
 	})
 }
 
-func Test_cmdPublish_DeclinePrompt(t *testing.T) {
+func TestDraftPublish_DeclinePrompt(t *testing.T) {
 	// NOTE: This test cannot run in parallel because the huh form library
 	// uses global state (charmbracelet/bubbles runeutil sanitizer).
 	testClient := setupMR(t)
 	mockDraftList(t, testClient, 2)
-	// Nothing must be published when the user declines the prompt.
 	testClient.MockDraftNotes.EXPECT().
 		PublishAllDraftNotesWithOptions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Times(0)
@@ -306,7 +292,7 @@ func Test_cmdPublish_DeclinePrompt(t *testing.T) {
 	c.Expect(ugh.Confirm("Publish 2 pending review comments?")).
 		Do(ugh.Reject)
 
-	exec := cmdtest.SetupCmdForTest(t, NewCmdPublish, true,
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, true,
 		cmdtest.WithGitLabClient(testClient.Client),
 		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 		cmdtest.WithConsole(t, c),
@@ -315,6 +301,32 @@ func Test_cmdPublish_DeclinePrompt(t *testing.T) {
 	out, err := exec(`1`)
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "Aborted.")
+}
+
+func setupMR(t *testing.T) *gitlabtesting.TestClient {
+	t.Helper()
+	testClient := gitlabtesting.NewTestClient(t)
+	mockMR1(t, testClient, nil)
+	return testClient
+}
+
+func mockMR1(t *testing.T, tc *gitlabtesting.TestClient, author *gitlab.BasicUser, reviewerIDs ...int64) {
+	t.Helper()
+	reviewers := make([]*gitlab.BasicUser, 0, len(reviewerIDs))
+	for _, id := range reviewerIDs {
+		reviewers = append(reviewers, &gitlab.BasicUser{ID: id})
+	}
+	tc.MockMergeRequests.EXPECT().
+		GetMergeRequest("OWNER/REPO", int64(1), gomock.Any()).
+		Return(&gitlab.MergeRequest{
+			BasicMergeRequest: gitlab.BasicMergeRequest{
+				ID:        1,
+				IID:       1,
+				WebURL:    "https://gitlab.com/OWNER/REPO/merge_requests/1",
+				Author:    author,
+				Reviewers: reviewers,
+			},
+		}, nil, nil)
 }
 
 func mockDraftList(t *testing.T, testClient *gitlabtesting.TestClient, count int) {
@@ -341,7 +353,7 @@ func expectPublishReviewed(t *testing.T, testClient *gitlabtesting.TestClient) {
 
 func setupPublishExec(t *testing.T, testClient *gitlabtesting.TestClient) cmdtest.CmdExecFunc {
 	t.Helper()
-	return cmdtest.SetupCmdForTest(t, NewCmdPublish, true,
+	return cmdtest.SetupCmdForTest(t, NewCmd, true,
 		cmdtest.WithGitLabClient(testClient.Client),
 		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
 	)

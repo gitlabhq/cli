@@ -1,6 +1,7 @@
 package mrutils
 
 import (
+	"context"
 	"crypto/sha1"
 	"fmt"
 	"strconv"
@@ -11,27 +12,75 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/diff"
 )
 
-// GetLatestDiffVersion fetches MR diff versions and returns the latest one
-// (with diffs included).
-var GetLatestDiffVersion = func(client *gitlab.Client, project string, mrIID int64) (*gitlab.MergeRequestDiffVersion, error) {
-	versions, _, err := client.MergeRequests.GetMergeRequestDiffVersions(project, mrIID, nil)
+// LineRange is the value of a --line flag: a single new-side line like "42"
+// or a range like "10:15". It parses during flag parsing, so a malformed value
+// fails before a command prompts for a comment body. The zero value means no
+// line.
+type LineRange struct {
+	Start, End int
+}
+
+func (r *LineRange) String() string {
+	switch {
+	case r.Start == 0:
+		return ""
+	case r.Start == r.End:
+		return strconv.Itoa(r.Start)
+	default:
+		return fmt.Sprintf("%d:%d", r.Start, r.End)
+	}
+}
+
+func (r *LineRange) Set(s string) error {
+	start, end, err := parseLine(s)
+	if err != nil {
+		return err
+	}
+	r.Start, r.End = start, end
+	return nil
+}
+
+func (r *LineRange) Type() string {
+	return "string"
+}
+
+// DiffPosition resolves a file path and a --line or --old-line value into a
+// diff position on the latest merge request diff version. Leave lines and
+// oldLine zero for a file-level comment.
+func DiffPosition(ctx context.Context, client *gitlab.Client, project string, mrIID int64, filePath string, lines LineRange, oldLine int) (*gitlab.PositionOptions, error) {
+	version, err := latestDiffVersion(ctx, client, project, mrIID)
+	if err != nil {
+		return nil, err
+	}
+
+	fileDiff, err := findFileDiff(version, filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildDiffPosition(version, fileDiff, lines.Start, lines.End, oldLine)
+}
+
+// latestDiffVersion returns the latest MR diff version with its diffs included.
+func latestDiffVersion(ctx context.Context, client *gitlab.Client, project string, mrIID int64) (*gitlab.MergeRequestDiffVersion, error) {
+	versions, _, err := client.MergeRequests.GetMergeRequestDiffVersions(project, mrIID, nil, gitlab.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list MR diff versions: %w", err)
 	}
 	if len(versions) == 0 {
 		return nil, fmt.Errorf("no diff versions found for MR !%d", mrIID)
 	}
-	// First version in the list is the latest
+	// The API lists versions newest first.
 	latest := versions[0]
-	full, _, err := client.MergeRequests.GetSingleMergeRequestDiffVersion(project, mrIID, latest.ID, nil)
+	full, _, err := client.MergeRequests.GetSingleMergeRequestDiffVersion(project, mrIID, latest.ID, nil, gitlab.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch diff version %d: %w", latest.ID, err)
 	}
 	return full, nil
 }
 
-// FindFileDiff finds a file's diff in the given version by matching NewPath or OldPath.
-func FindFileDiff(version *gitlab.MergeRequestDiffVersion, filePath string) (*gitlab.Diff, error) {
+// findFileDiff finds a file's diff in the given version by matching NewPath or OldPath.
+func findFileDiff(version *gitlab.MergeRequestDiffVersion, filePath string) (*gitlab.Diff, error) {
 	for _, d := range version.Diffs {
 		if d.NewPath == filePath || d.OldPath == filePath {
 			return d, nil
@@ -40,7 +89,7 @@ func FindFileDiff(version *gitlab.MergeRequestDiffVersion, filePath string) (*gi
 	return nil, fmt.Errorf("file %q not found in MR diff", filePath)
 }
 
-// BuildDiffPosition builds a PositionOptions for a diff comment.
+// buildDiffPosition builds a PositionOptions for a diff comment.
 // lineStart/lineEnd refer to new-side lines (lineEnd > lineStart for multiline).
 // oldLine refers to an old-side (removed) line.
 // For file-level comments, pass lineStart=0 and oldLine=0.
@@ -50,7 +99,7 @@ func FindFileDiff(version *gitlab.MergeRequestDiffVersion, filePath string) (*gi
 // For added lines only NewLine is set; for removed lines only OldLine.
 // Reference implementation: GitLab VS Code Extension, see
 // https://gitlab.com/gitlab-org/gitlab-vscode-extension/-/blob/main/src/common/services/mr/create_comment.ts
-func BuildDiffPosition(version *gitlab.MergeRequestDiffVersion, fileDiff *gitlab.Diff, lineStart, lineEnd, oldLine int) (*gitlab.PositionOptions, error) {
+func buildDiffPosition(version *gitlab.MergeRequestDiffVersion, fileDiff *gitlab.Diff, lineStart, lineEnd, oldLine int) (*gitlab.PositionOptions, error) {
 	pos := &gitlab.PositionOptions{
 		BaseSHA:      new(version.BaseCommitSHA),
 		HeadSHA:      new(version.HeadCommitSHA),
@@ -153,9 +202,9 @@ func BuildDiffPosition(version *gitlab.MergeRequestDiffVersion, fileDiff *gitlab
 	return pos, nil
 }
 
-// ParseLine parses a line flag value like "42" or "10:15" into start and end line numbers.
+// parseLine parses a line flag value like "42" or "10:15" into start and end line numbers.
 // For a single line, start == end.
-func ParseLine(s string) (int, int, error) {
+func parseLine(s string) (int, int, error) {
 	if s == "" {
 		return 0, 0, nil
 	}

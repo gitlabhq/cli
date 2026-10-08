@@ -13,6 +13,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/mr/mrutils"
+	draftCmd "gitlab.com/gitlab-org/cli/internal/commands/mr/note/draft"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
@@ -56,7 +57,7 @@ func NewCmdNote(f cmdutils.Factory) *cobra.Command {
 			// Create note (existing behavior)
 			body, _ := cmd.Flags().GetString("message")
 			if strings.TrimSpace(body) == "" {
-				body, err = getBodyFromStdinOrEditor(f, cmd)
+				body, err = mrutils.NoteBodyFromStdinOrEditor(cmd.Context(), f.IO(), f.Config)
 				if err != nil {
 					return err
 				}
@@ -101,7 +102,7 @@ func NewCmdNote(f cmdutils.Factory) *cobra.Command {
 	cobra.CheckErr(mrCreateNoteCmd.Flags().MarkDeprecated("unique", "use `glab mr note create` instead."))
 
 	mrCreateNoteCmd.AddCommand(NewCmdCreate(f))
-	mrCreateNoteCmd.AddCommand(NewCmdPublish(f))
+	mrCreateNoteCmd.AddCommand(draftCmd.NewCmd(f))
 	mrCreateNoteCmd.AddCommand(NewCmdList(f))
 	mrCreateNoteCmd.AddCommand(NewCmdResolve(f))
 	mrCreateNoteCmd.AddCommand(NewCmdReopen(f))

@@ -2,41 +2,13 @@ package note
 
 import (
 	"fmt"
-	"io"
 	"strings"
-
-	"github.com/spf13/cobra"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
-	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 )
-
-func getBodyFromStdinOrEditor(f cmdutils.Factory, cmd *cobra.Command) (string, error) {
-	var body string
-
-	if !f.IO().IsInTTY {
-		data, err := io.ReadAll(f.IO().In)
-		if err != nil {
-			return "", fmt.Errorf("failed to read from stdin: %w", err)
-		}
-		body = strings.TrimSpace(string(data))
-	} else {
-		editor, err := cmdutils.GetEditor(f.Config)
-		if err != nil {
-			return "", err
-		}
-
-		err = f.IO().Editor(cmd.Context(), &body, "Note message:", "Enter the note message for the merge request.", "", editor)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	return body, nil
-}
 
 // deduplicateNote checks whether a note with the same body already exists on the MR.
 // If a duplicate is found, it prints the URL and returns (true, nil).
