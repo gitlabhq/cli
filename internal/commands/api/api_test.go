@@ -2290,6 +2290,9 @@ func Test_magicFieldValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.args.opts == nil {
+				tt.args.opts = &options{}
+			}
 			got, err := magicFieldValue(tt.args.v, tt.args.opts)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("magicFieldValue() error = %v, wantErr %v", err, tt.wantErr)
@@ -2427,6 +2430,9 @@ func Test_fillPlaceholders(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.args.opts == nil {
+				tt.args.opts = &options{}
+			}
 			got, err := fillPlaceholders(tt.args.value, tt.args.opts, true)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("fillPlaceholders() error = %v, wantErr %v", err, tt.wantErr)
@@ -2435,6 +2441,99 @@ func Test_fillPlaceholders(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("fillPlaceholders() got = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func Test_apiRun_customPlaceholders(t *testing.T) {
+	tests := []struct {
+		name     string
+		cli      string
+		wantURI  string
+		wantBody string
+	}{
+		{
+			name:    "percent-encoded in the endpoint",
+			cli:     `projects/123/repository/branches/:target --silent --placeholder target=feat/x`,
+			wantURI: "/api/v4/projects/123/repository/branches/feat%2Fx",
+		},
+		{
+			name:     "sent unchanged in a --field value",
+			cli:      `projects/123/repository/branches --silent --placeholder target=feat/x -F branch=:target -f ref=main`,
+			wantURI:  "/api/v4/projects/123/repository/branches",
+			wantBody: `{"branch":"feat/x","ref":"main"}`,
+		},
+		{
+			name:     "left alone in a --raw-field value",
+			cli:      `projects/123/repository/branches --silent --placeholder target=feat/x -f branch=:target`,
+			wantURI:  "/api/v4/projects/123/repository/branches",
+			wantBody: `{"branch":":target"}`,
+		},
+		{
+			name:    "built-in and custom placeholders together",
+			cli:     `projects/:fullpath/repository/branches/:target --silent --placeholder target=feat/x`,
+			wantURI: "/api/v4/projects/OWNER%2FREPO/repository/branches/feat%2Fx",
+		},
+		{
+			name:    "several placeholders",
+			cli:     `projects/:proj/repository/branches/:target --silent --placeholder proj=group/app --placeholder target=main`,
+			wantURI: "/api/v4/projects/group%2Fapp/repository/branches/main",
+		},
+		{
+			name:    "a name extending a built-in one wins over it",
+			cli:     `hello/:repo-name --silent --placeholder repo-name=x`,
+			wantURI: "/api/v4/hello/x",
+		},
+		{
+			name:    "a value is not expanded again",
+			cli:     `hello/:wrapped --silent --placeholder wrapped=:repo`,
+			wantURI: "/api/v4/hello/:repo",
+		},
+		{
+			name:    "an undefined name is sent verbatim",
+			cli:     `hello/:other --silent --placeholder target=x`,
+			wantURI: "/api/v4/hello/:other",
+		},
+		{
+			name:    "an empty value is allowed",
+			cli:     `hello/:empty/world --silent --placeholder empty=`,
+			wantURI: "/api/v4/hello//world",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := runAPIArgvRecording(t, tt.cli)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURI, got.req.URL.RequestURI())
+			if tt.wantBody != "" {
+				assert.JSONEq(t, tt.wantBody, string(got.body))
+			}
+		})
+	}
+}
+
+func Test_apiRun_customPlaceholderErrors(t *testing.T) {
+	const badName = `must start with a letter, contain only letters, digits, '_', or '-', and not end with '-'`
+	tests := []struct {
+		cli     string
+		wantErr string
+	}{
+		{cli: `hello --placeholder target`, wantErr: `invalid --placeholder "target": expected <name>=<value>`},
+		{cli: `hello --placeholder =value`, wantErr: `invalid --placeholder name "": ` + badName},
+		{cli: `hello --placeholder 1st=value`, wantErr: `invalid --placeholder name "1st": ` + badName},
+		{cli: `hello --placeholder trailing-=value`, wantErr: `invalid --placeholder name "trailing-": ` + badName},
+		{cli: `hello --placeholder a/b=value`, wantErr: `invalid --placeholder name "a/b": ` + badName},
+		{cli: `hello --placeholder branch=main`, wantErr: `invalid --placeholder name "branch": conflicts with a built-in placeholder`},
+		{cli: `hello --placeholder target=a --placeholder target=b`, wantErr: `invalid --placeholder name "target": defined more than once`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.cli, func(t *testing.T) {
+			err := runAPIArgvGuarded(t, tt.cli)
+			var flagErr *cmdutils.FlagError
+			require.ErrorAs(t, err, &flagErr)
+			assert.Equal(t, tt.wantErr, err.Error())
 		})
 	}
 }

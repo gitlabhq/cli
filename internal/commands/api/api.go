@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -47,6 +48,9 @@ type options struct {
 	paginate            bool
 	silent              bool
 	outputFormat        string
+	placeholderFlags    []string
+	placeholders        map[string]string
+	placeholderRE       *regexp.Regexp
 }
 
 type fieldFlag struct {
@@ -129,6 +133,8 @@ func NewCmdApi(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 		- %[1]s:repo%[1]s
 		- %[1]s:user%[1]s
 		- %[1]s:username%[1]s
+
+		To define your own placeholder, pass %[1]s--placeholder <name>=<value>%[1]s and use %[1]s:<name>%[1]s in the endpoint or in %[1]s--field%[1]s values. In the endpoint, the value is encoded as a single path segment. In %[1]s--field%[1]s values, it is sent unchanged. To put a value in a query string, pass it as a field instead: %[1]s-X GET -F <key>=:<name>%[1]s. A custom placeholder cannot reuse the name of a built-in placeholder.
 
 		The default HTTP request method is %[1]sGET%[1]s when no parameters are added,
 		and %[1]sPOST%[1]s otherwise. To override the method, use %[1]s--method%[1]s.
@@ -228,6 +234,9 @@ func NewCmdApi(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 			# List issues for a project by URL-encoded path
 			glab api projects/gitlab-com%2Fwww-gitlab-com/issues
 
+			# Get a branch whose name contains a slash, using a custom placeholder
+			glab api projects/:fullpath/repository/branches/:target --placeholder target=feature/login
+
 			# Upload a file to a project wiki
 			glab api --method POST projects/:fullpath/wikis/attachments --form "file=@./image.png" --form "branch=main"
 
@@ -322,6 +331,7 @@ func NewCmdApi(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 	fl.StringVar(&opts.requestInputFile, "input", "", "The file to use as the body for the HTTP request.")
 	fl.BoolVar(&opts.silent, "silent", false, "Do not print the response body.")
 	fl.Var(cmdutils.NewEnumValue([]string{"json", "ndjson"}, "json", &opts.outputFormat), "output", "Format output as: json, ndjson.")
+	fl.StringArrayVar(&opts.placeholderFlags, "placeholder", nil, "Define a custom placeholder in <name>=<value> format, expanded from :<name>. Repeat the flag to define more than one.")
 	cmd.MarkFlagsMutuallyExclusive("paginate", "input")
 	cmd.MarkFlagsMutuallyExclusive("form", "field")
 	cmd.MarkFlagsMutuallyExclusive("form", "raw-field")
@@ -359,6 +369,34 @@ func (o *options) validate(cmd *cobra.Command) error {
 		return &cmdutils.FlagError{Err: errors.New("'@-' (stdin) can only be used once across all --form fields")}
 	}
 
+	return o.parsePlaceholders()
+}
+
+func (o *options) parsePlaceholders() error {
+	if len(o.placeholderFlags) == 0 {
+		return nil
+	}
+
+	o.placeholders = make(map[string]string, len(o.placeholderFlags))
+	for _, spec := range o.placeholderFlags {
+		name, value, ok := strings.Cut(spec, "=")
+		switch {
+		case !ok:
+			return &cmdutils.FlagError{Err: fmt.Errorf("invalid --placeholder %q: expected <name>=<value>", spec)}
+		case !placeholderNameRE.MatchString(name):
+			return &cmdutils.FlagError{Err: fmt.Errorf("invalid --placeholder name %q: must start with a letter, contain only letters, digits, '_', or '-', and not end with '-'", name)}
+		case slices.Contains(Placeholders, name):
+			return &cmdutils.FlagError{Err: fmt.Errorf("invalid --placeholder name %q: conflicts with a built-in placeholder", name)}
+		}
+		if _, dup := o.placeholders[name]; dup {
+			return &cmdutils.FlagError{Err: fmt.Errorf("invalid --placeholder name %q: defined more than once", name)}
+		}
+		o.placeholders[name] = value
+	}
+
+	names := slices.Concat(Placeholders, slices.Collect(maps.Keys(o.placeholders)))
+	slices.SortStableFunc(names, func(a, b string) int { return len(b) - len(a) })
+	o.placeholderRE = regexp.MustCompile(`:(` + strings.Join(names, "|") + `)\b`)
 	return nil
 }
 
@@ -621,7 +659,7 @@ func streamNDJSON(body io.Reader, out io.Writer) error {
 // Placeholders are the tokens `glab api` expands in a request path or field
 // value, without their leading colon. Exported so documentation and the bundled
 // skills can be checked against the real set rather than a copy of it: a token
-// that is not here is not a placeholder, and is sent to the API verbatim.
+// that is neither here nor defined with --placeholder is sent to the API verbatim.
 //
 // Order matters. The regexp alternation below tries these in sequence, so a
 // longer token must precede any token that prefixes it.
@@ -640,6 +678,8 @@ var Placeholders = []string{
 
 var placeholderRE = regexp.MustCompile(`:(` + strings.Join(Placeholders, "|") + `)\b`)
 
+var placeholderNameRE = regexp.MustCompile(`^[A-Za-z](?:[A-Za-z0-9_-]*[A-Za-z0-9_])?$`)
+
 // jsonFieldHint is shared by both --field JSON failures so the guidance cannot
 // drift between them.
 const jsonFieldHint = `Use proper JSON syntax (e.g. -F 'key=["value1","value2"]') or -f to pass a literal string.`
@@ -653,7 +693,11 @@ var legacyRawArrayRE = regexp.MustCompile(`^\[\s*([[:lower:]_]+(\s*,\s*[[:lower:
 // When escapePath is true, substituted values are URL-encoded so they're safe as a single path segment;
 // callers expanding placeholders into request bodies or query values should pass false to preserve raw values.
 func fillPlaceholders(value string, opts *options, escapePath bool) (string, error) {
-	if !placeholderRE.MatchString(value) {
+	re := placeholderRE
+	if opts.placeholderRE != nil {
+		re = opts.placeholderRE
+	}
+	if !re.MatchString(value) {
 		return value, nil
 	}
 
@@ -665,7 +709,10 @@ func fillPlaceholders(value string, opts *options, escapePath bool) (string, err
 	}
 
 	var err error
-	filled := placeholderRE.ReplaceAllStringFunc(value, func(m string) string {
+	filled := re.ReplaceAllStringFunc(value, func(m string) string {
+		if custom, ok := opts.placeholders[m[1:]]; ok {
+			return maybeEscape(custom)
+		}
 		switch m {
 		case ":id":
 			baseRepo, baseRepoErr := opts.baseRepo()

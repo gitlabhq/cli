@@ -148,6 +148,7 @@ func TestBundledSkillsOnlyUseRealPlaceholders(t *testing.T) {
 	// header, and `"key":"value"` in JSON all fail to match, which is what keeps
 	// this to actual placeholder positions.
 	tokenRE := regexp.MustCompile(`:([A-Za-z_][A-Za-z0-9_]*)`)
+	declaredRE := regexp.MustCompile(`--placeholder[ =]([A-Za-z][A-Za-z0-9_-]*)=`)
 
 	skills, err := All()
 	require.NoError(t, err)
@@ -164,8 +165,12 @@ func TestBundledSkillsOnlyUseRealPlaceholders(t *testing.T) {
 				if !strings.Contains(line, "glab api") {
 					continue
 				}
+				declared := map[string]bool{}
+				for _, d := range declaredRE.FindAllStringSubmatch(line, -1) {
+					declared[d[1]] = true
+				}
 				for _, m := range tokenRE.FindAllStringSubmatch(line, -1) {
-					assert.Truef(t, allowed[m[1]],
+					assert.Truef(t, allowed[m[1]] || declared[m[1]],
 						"%s:%d uses %q, which glab api does not expand and sends verbatim:\n\t%s",
 						name, lineNo, m[0], strings.TrimSpace(line))
 				}

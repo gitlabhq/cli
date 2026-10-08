@@ -39,6 +39,8 @@ with values from the repository of the current directory:
 - `:user`
 - `:username`
 
+To define your own placeholder, pass `--placeholder <name>=<value>` and use `:<name>` in the endpoint or in `--field` values. In the endpoint, the value is encoded as a single path segment. In `--field` values, it is sent unchanged. To put a value in a query string, pass it as a field instead: `-X GET -F <key>=:<name>`. A custom placeholder cannot reuse the name of a built-in placeholder.
+
 The default HTTP request method is `GET` when no parameters are added,
 and `POST` otherwise. To override the method, use `--method`.
 
@@ -143,6 +145,9 @@ glab api projects/:fullpath/releases
 # List issues for a project by URL-encoded path
 glab api projects/gitlab-com%2Fwww-gitlab-com/issues
 
+# Get a branch whose name contains a slash, using a custom placeholder
+glab api projects/:fullpath/repository/branches/:target --placeholder target=feature/login
+
 # Upload a file to a project wiki
 glab api --method POST projects/:fullpath/wikis/attachments --form "file=@./image.png" --form "branch=main"
 
@@ -206,17 +211,18 @@ glab api graphql --paginate -f query='
 ## Options
 
 ```plaintext
-  -F, --field stringArray       Add a parameter of inferred type. Using this flag changes the default HTTP method to POST.
-      --form stringArray        Add a multipart form field. To upload a file, prefix the value with @ followed by the file path. To read from standard input, use @- (at most once). Using this flag changes the default HTTP method to POST.
-  -H, --header stringArray      Add an additional HTTP request header.
-      --hostname string         The GitLab hostname for the request. Defaults to gitlab.com, or the authenticated host in the current Git directory.
-  -i, --include                 Include HTTP response headers in the output.
-      --input string            The file to use as the body for the HTTP request.
-  -X, --method string           The HTTP method for the request. (default "GET")
-      --output string           Format output as: json, ndjson. (default "json")
-      --paginate                Make additional HTTP requests to fetch all pages of results.
-  -f, --raw-field stringArray   Add a string parameter.
-      --silent                  Do not print the response body.
+  -F, --field stringArray         Add a parameter of inferred type. Using this flag changes the default HTTP method to POST.
+      --form stringArray          Add a multipart form field. To upload a file, prefix the value with @ followed by the file path. To read from standard input, use @- (at most once). Using this flag changes the default HTTP method to POST.
+  -H, --header stringArray        Add an additional HTTP request header.
+      --hostname string           The GitLab hostname for the request. Defaults to gitlab.com, or the authenticated host in the current Git directory.
+  -i, --include                   Include HTTP response headers in the output.
+      --input string              The file to use as the body for the HTTP request.
+  -X, --method string             The HTTP method for the request. (default "GET")
+      --output string             Format output as: json, ndjson. (default "json")
+      --paginate                  Make additional HTTP requests to fetch all pages of results.
+      --placeholder stringArray   Define a custom placeholder in <name>=<value> format, expanded from :<name>. Repeat the flag to define more than one.
+  -f, --raw-field stringArray     Add a string parameter.
+      --silent                    Do not print the response body.
 ```
 
 ## Options inherited from parent commands
