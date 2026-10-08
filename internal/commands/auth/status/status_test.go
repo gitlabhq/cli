@@ -4,6 +4,7 @@ package status
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -764,6 +765,155 @@ func Test_statusRun_flagValidation(t *testing.T) {
 	assert.Contains(t, err.Error(), "if any flags in the group [all hostname] are set none of the others can be")
 }
 
+func Test_statusRun_jsonOutput(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+	t.Setenv("GITLAB_TOKEN", "")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    token: fake-token-one
+    git_protocol: ssh
+    api_protocol: https
+    ssh_host: ssh.gitlab.example.com
+  another.example:
+    token: fake-token-two
+    api_protocol: http
+    subfolder: gitlab
+`), 0o600))
+
+	tc := gitlabtesting.NewTestClient(t)
+	gomock.InOrder(
+		tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(&gitlab.User{Username: "john_smith"}, nil, nil),
+		tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(nil, &gitlab.Response{Response: &http.Response{StatusCode: http.StatusUnauthorized}}, errors.New("GET http://another.example/gitlab/api/v4/user: 401 {message: 401 Unauthorized}")),
+	)
+	client := func(token, hostname string) (*api.Client, error) { //nolint:unparam
+		return cmdtest.NewTestApiClient(t, nil, token, hostname, api.WithGitLabClient(tc.Client)), nil
+	}
+
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, stdout, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		outputFormat: "json",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return client("", repoHost)
+		},
+		httpClientOverride: client,
+		io:                 io,
+	}
+
+	err = opts.run(t.Context())
+	require.ErrorIs(t, err, cmdutils.SilentError)
+	assert.Empty(t, stderr.String())
+	assert.NotContains(t, stdout.String(), "fake-token")
+
+	var result struct {
+		Hosts []hostStatus `json:"hosts"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	require.Len(t, result.Hosts, 2)
+
+	assert.Equal(t, hostStatus{
+		Host:            "gitlab.example.com",
+		State:           "success",
+		User:            "john_smith",
+		TokenSource:     "config_file",
+		GitProtocol:     "ssh",
+		APIProtocol:     "https",
+		APIEndpoint:     "https://gitlab.example.com/api/v4/",
+		GraphQLEndpoint: "https://gitlab.example.com/api/graphql/",
+		SSHHost:         "ssh.gitlab.example.com",
+	}, result.Hosts[0])
+	assert.Equal(t, hostStatus{
+		Host:            "another.example",
+		State:           "error",
+		Error:           "GET http://another.example/gitlab/api/v4/user: 401 {message: 401 Unauthorized}",
+		TokenSource:     "config_file",
+		GitProtocol:     "ssh",
+		APIProtocol:     "http",
+		APIEndpoint:     "http://another.example/gitlab/api/v4/",
+		GraphQLEndpoint: "http://another.example/gitlab/api/graphql/",
+		Subfolder:       "gitlab",
+	}, result.Hosts[1])
+}
+
+func Test_statusRun_jsonOutputSucceeds(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+	t.Setenv("GITLAB_TOKEN", "fake-token-env")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(`---
+hosts:
+  gitlab.example.com:
+    api_protocol: https
+`), 0o600))
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(&gitlab.User{Username: "john_smith"}, nil, nil)
+	client := func(token, hostname string) (*api.Client, error) { //nolint:unparam
+		return cmdtest.NewTestApiClient(t, nil, token, hostname, api.WithGitLabClient(tc.Client)), nil
+	}
+
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, stdout, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		hostname:     "gitlab.example.com",
+		outputFormat: "json",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return client("", repoHost)
+		},
+		httpClientOverride: client,
+		io:                 io,
+	}
+
+	require.NoError(t, opts.run(t.Context()))
+	assert.Empty(t, stderr.String())
+	assert.NotContains(t, stdout.String(), "fake-token")
+
+	var result struct {
+		Hosts []hostStatus `json:"hosts"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	require.Len(t, result.Hosts, 1)
+	assert.Equal(t, "gitlab.example.com", result.Hosts[0].Host)
+	assert.Equal(t, "success", result.Hosts[0].State)
+	assert.Equal(t, "john_smith", result.Hosts[0].User)
+	assert.Equal(t, "environment", result.Hosts[0].TokenSource)
+	assert.Empty(t, result.Hosts[0].Error)
+}
+
+func Test_statusRun_showTokenWithJSONOutput(t *testing.T) {
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		func(f cmdutils.Factory) *cobra.Command { return NewCmdStatus(f, nil) },
+		false,
+		cmdtest.WithConfig(config.NewFromString(heredoc.Doc(`
+			hosts:
+			  gitlab.example.com:
+			    token: fake-token
+			`,
+		))),
+	)
+
+	_, err := exec("--show-token --output json")
+
+	require.Error(t, err)
+	assert.Equal(t, "--show-token cannot be used with --output json", err.Error())
+}
+
 func Test_sanitizeAuthError(t *testing.T) {
 	htmlBody := []byte("<!DOCTYPE html>\n<html><head><title>Action Controller: Exception caught</title></head><body>error</body></html>")
 
@@ -811,6 +961,148 @@ func Test_sanitizeAuthError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, sanitizeAuthError(tt.err))
+		})
+	}
+}
+
+func runJSONStatus(t *testing.T, cfgYAML string, apiClient func(string) (*api.Client, error), httpClientOverride func(string, string) (*api.Client, error)) ([]hostStatus, error) {
+	t.Helper()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(cfgYAML), 0o600))
+	configs, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	io, _, stdout, stderr := cmdtest.TestIOStreams()
+
+	opts := &options{
+		hostname:     "gitlab.example.com",
+		outputFormat: "json",
+		config: func() config.Config {
+			return configs
+		},
+		apiClient:          apiClient,
+		httpClientOverride: httpClientOverride,
+		io:                 io,
+	}
+
+	runErr := opts.run(t.Context())
+	assert.Empty(t, stderr.String())
+
+	var result struct {
+		Hosts []hostStatus `json:"hosts"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	return result.Hosts, runErr
+}
+
+func Test_statusRun_jsonOutputErrors(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+
+	tests := []struct {
+		name            string
+		keyringErr      string
+		cfgYAML         string
+		wantError       string
+		wantTokenSource string
+	}{
+		{
+			name:       "keyring read failure",
+			keyringErr: "keyring locked",
+			cfgYAML: `---
+hosts:
+  gitlab.example.com:
+    use_keyring: "true"
+    api_protocol: https
+`,
+			wantError: "could not read the token: ",
+		},
+		{
+			name:       "API client setup failure",
+			keyringErr: "keyring unavailable",
+			cfgYAML: `---
+hosts:
+  gitlab.example.com:
+    token: fake-token-one
+    api_protocol: https
+`,
+			wantError:       "failed to initialize api client: client setup failed",
+			wantTokenSource: "config_file",
+		},
+		{
+			name:       "no token stored",
+			keyringErr: "keyring unavailable",
+			cfgYAML: `---
+hosts:
+  gitlab.example.com:
+    api_protocol: https
+`,
+			wantError:       "failed to initialize api client: client setup failed",
+			wantTokenSource: "none",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keyring.MockInitWithError(errors.New(tt.keyringErr))
+			t.Cleanup(keyring.MockInit)
+
+			hosts, err := runJSONStatus(t, tt.cfgYAML, func(string) (*api.Client, error) {
+				return nil, errors.New("client setup failed")
+			}, nil)
+
+			require.ErrorIs(t, err, cmdutils.SilentError)
+			require.Len(t, hosts, 1)
+			assert.Equal(t, "error", hosts[0].State)
+			assert.Contains(t, hosts[0].Error, tt.wantError)
+			assert.Equal(t, tt.wantTokenSource, hosts[0].TokenSource)
+		})
+	}
+}
+
+func Test_statusRun_jsonOutputIncompleteOAuth2Warning(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	t.Cleanup(keyring.MockInit)
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GLAB_IS_OAUTH2", "")
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(&gitlab.User{Username: "john_smith"}, nil, nil)
+	client := func(token, hostname string) (*api.Client, error) { //nolint:unparam
+		return cmdtest.NewTestApiClient(t, nil, token, hostname, api.WithGitLabClient(tc.Client)), nil
+	}
+
+	hosts, err := runJSONStatus(t, `---
+hosts:
+  gitlab.example.com:
+    token: fake-token-one
+    is_oauth2: "true"
+    api_protocol: https
+`, func(repoHost string) (*api.Client, error) { return client("", repoHost) }, client)
+
+	require.NoError(t, err)
+	require.Len(t, hosts, 1)
+	assert.Equal(t, "success", hosts[0].State)
+	require.Len(t, hosts[0].Warnings, 1)
+	assert.Contains(t, hosts[0].Warnings[0], "gitlab.example.com is configured for OAuth, but no refresh token is stored")
+}
+
+func Test_tokenSourceKind(t *testing.T) {
+	tests := []struct {
+		source string
+		want   tokenKind
+	}{
+		{source: "keyring", want: tokenKindKeyring},
+		{source: "GITLAB_TOKEN", want: tokenKindEnvironment},
+		{source: "GITLAB_ACCESS_TOKEN", want: tokenKindEnvironment},
+		{source: "OAUTH_TOKEN", want: tokenKindEnvironment},
+		{source: "/home/user/.config/glab-cli/config.yml", want: tokenKindConfigFile},
+		{source: "", want: tokenKindConfigFile},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			assert.Equal(t, tt.want, tokenSourceKind(tt.source))
+			assert.Equal(t, tt.want == tokenKindConfigFile, isPlaintextTokenSource(tt.source))
 		})
 	}
 }

@@ -24,9 +24,10 @@ import (
 )
 
 type options struct {
-	hostname  string
-	showToken bool
-	all       bool
+	hostname     string
+	showToken    bool
+	all          bool
+	outputFormat string
 
 	defaultHostname    string
 	httpClientOverride func(token, hostname string) (*api.Client, error) // used in tests to mock http client
@@ -68,11 +69,17 @@ func NewCmdStatus(f cmdutils.Factory, runE func(*options) error) *cobra.Command 
 
 			# Display the authentication token alongside the status
 			glab auth status --show-token
+
+			# Print the authentication status of all configured instances as JSON
+			glab auth status --all --output json
 		`),
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := opts.validate(); err != nil {
+				return err
+			}
 			if runE != nil {
 				return runE(opts)
 			}
@@ -85,9 +92,33 @@ func NewCmdStatus(f cmdutils.Factory, runE func(*options) error) *cobra.Command 
 	cmd.Flags().BoolVarP(&opts.showToken, "show-token", "t", false, "Display the authentication token.")
 	cmd.Flags().BoolVarP(&opts.all, "all", "a", false, "Check the authentication status of all configured instances.")
 
+	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat)
+
 	cmd.MarkFlagsMutuallyExclusive("all", "hostname")
 
 	return cmd
+}
+
+type hostStatus struct {
+	Host            string   `json:"host"`
+	State           string   `json:"state"`
+	User            string   `json:"user,omitempty"`
+	Error           string   `json:"error,omitempty"`
+	TokenSource     string   `json:"token_source,omitempty"`
+	GitProtocol     string   `json:"git_protocol,omitempty"`
+	APIProtocol     string   `json:"api_protocol,omitempty"`
+	APIEndpoint     string   `json:"api_endpoint"`
+	GraphQLEndpoint string   `json:"graphql_endpoint"`
+	Subfolder       string   `json:"subfolder,omitempty"`
+	SSHHost         string   `json:"ssh_host,omitempty"`
+	Warnings        []string `json:"warnings,omitempty"`
+}
+
+func (o *options) validate() error {
+	if o.showToken && o.outputFormat == "json" {
+		return &cmdutils.FlagError{Err: errors.New("--show-token cannot be used with --output json")}
+	}
+	return nil
 }
 
 func (o *options) run(ctx context.Context) error {
@@ -117,10 +148,13 @@ func (o *options) run(ctx context.Context) error {
 	}
 
 	failedAuth := false
+	var hosts []hostStatus
 	for _, instance := range instances {
 		if o.hostname != "" && o.hostname != instance {
 			continue
 		}
+		hosts = append(hosts, hostStatus{Host: instance, State: "success"})
+		hs := &hosts[len(hosts)-1]
 		statusInfo[instance] = []string{}
 		addMsg := func(x string, ys ...any) {
 			statusInfo[instance] = append(statusInfo[instance], fmt.Sprintf(x, ys...))
@@ -137,6 +171,7 @@ func (o *options) run(ctx context.Context) error {
 			// unavailable); surface it instead of proceeding with an empty token
 			// and a confusing 401.
 			failedAuth = true
+			hs.State, hs.Error = "error", fmt.Sprintf("could not read the token: %s", tokenErr)
 			addMsg("%s %s: could not read the token: %s", c.FailedIcon(), instance, tokenErr)
 		case err == nil:
 			authCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -144,7 +179,8 @@ func (o *options) run(ctx context.Context) error {
 			cancel()
 			if err != nil {
 				failedAuth = true
-				addMsg("%s %s: API call failed: %s", c.FailedIcon(), instance, sanitizeAuthError(err))
+				hs.State, hs.Error = "error", sanitizeAuthError(err)
+				addMsg("%s %s: API call failed: %s", c.FailedIcon(), instance, hs.Error)
 				if resp != nil && resp.StatusCode == 401 && slices.Contains(config.EnvKeyEquivalence("token"), tokenSource) {
 					// An environment token is sent as a PAT even when the host is
 					// configured for OAuth, unless GLAB_IS_OAUTH2 says otherwise.
@@ -163,10 +199,12 @@ func (o *options) run(ctx context.Context) error {
 					addMsg("  %s To see the token value in use, run: %s", c.WarnIcon(), c.Bold("env | grep -E 'GITLAB_TOKEN|GITLAB_ACCESS_TOKEN|OAUTH_TOKEN'"))
 				}
 			} else {
+				hs.User = user.Username
 				addMsg("%s Logged in to %s as %s (%s)", c.GreenCheck(), instance, c.Bold(user.Username), tokenSource)
 			}
 		default:
 			failedAuth = true
+			hs.State, hs.Error = "error", fmt.Sprintf("failed to initialize api client: %s", err)
 			addMsg("%s %s: failed to initialize api client: %s", c.FailedIcon(), instance, err)
 		}
 		proto, _ := cfg.Get(instance, "git_protocol")
@@ -180,6 +218,8 @@ func (o *options) run(ctx context.Context) error {
 		sshHost, _ := cfg.Get(instance, "ssh_host")
 		apiEndpoint := glinstance.APIEndpoint(instance, apiProto, apiHost, subfolder)
 		graphQLEndpoint := glinstance.GraphQLEndpoint(instance, apiProto, apiHost, subfolder)
+		hs.GitProtocol, hs.APIProtocol, hs.Subfolder, hs.SSHHost = proto, apiProto, subfolder, sshHost
+		hs.APIEndpoint, hs.GraphQLEndpoint = apiEndpoint, graphQLEndpoint
 		if apiProto != "" {
 			addMsg("%s API calls for %s are made over %s protocol.",
 				c.GreenCheck(), instance, c.Bold(apiProto))
@@ -199,6 +239,7 @@ func (o *options) run(ctx context.Context) error {
 		// the token was not simply absent.
 		if tokenErr == nil {
 			if api.IsTokenConfigured(token) {
+				hs.TokenSource = string(tokenSourceKind(tokenSource))
 				tokenDisplay := "**************************"
 				if o.showToken {
 					tokenDisplay = token
@@ -216,6 +257,7 @@ func (o *options) run(ctx context.Context) error {
 					}
 				}
 			} else {
+				hs.TokenSource = tokenSourceNone
 				addMsg("%s No token found (checked config file, keyring, and environment variables).", c.WarnIcon())
 			}
 		}
@@ -225,9 +267,22 @@ func (o *options) run(ctx context.Context) error {
 			continue
 		}
 		if msg, ok := incompleteOAuth2Warning(cfg, instance); ok {
+			hs.Warnings = append(hs.Warnings, msg)
 			addMsg("%s %s", c.WarnIcon(), msg)
 			addMsg("  To clear it, run %s.", c.Bold("glab auth login --hostname "+instance))
 		}
+	}
+
+	if o.outputFormat == "json" {
+		if err := o.io.PrintJSON(struct {
+			Hosts []hostStatus `json:"hosts"`
+		}{hosts}); err != nil {
+			return err
+		}
+		if failedAuth {
+			return cmdutils.SilentError
+		}
+		return nil
 	}
 
 	for _, instance := range instances {
@@ -291,13 +346,39 @@ func sanitizeAuthError(err error) string {
 // token is read from the operating system keyring.
 const keyringTokenSource = "keyring"
 
+// tokenSourceNone is reported in JSON output when no token is stored for a host.
+const tokenSourceNone = "none"
+
+// tokenKind is the storage class of a token, as reported in the JSON
+// token_source field.
+type tokenKind string
+
+const (
+	tokenKindKeyring     tokenKind = "keyring"
+	tokenKindEnvironment tokenKind = "environment"
+	tokenKindConfigFile  tokenKind = "config_file"
+)
+
+// tokenSourceKind is the single place that classifies a config-layer token
+// source, so the text and JSON output cannot disagree about where a token lives.
+func tokenSourceKind(tokenSource string) tokenKind {
+	switch {
+	case tokenSource == keyringTokenSource:
+		return tokenKindKeyring
+	case slices.Contains(config.EnvKeyEquivalence("token"), tokenSource):
+		return tokenKindEnvironment
+	default:
+		return tokenKindConfigFile
+	}
+}
+
 // tokenStorageDescription returns a human-readable description of where a
 // token was read from, for display in status output.
 func tokenStorageDescription(tokenSource string) string {
-	switch {
-	case tokenSource == keyringTokenSource:
+	switch tokenSourceKind(tokenSource) {
+	case tokenKindKeyring:
 		return "operating system keyring"
-	case slices.Contains(config.EnvKeyEquivalence("token"), tokenSource):
+	case tokenKindEnvironment:
 		return "environment variable " + tokenSource
 	default:
 		return "configuration file (plaintext)"
@@ -335,8 +416,5 @@ func incompleteOAuth2Warning(cfg config.Config, instance string) (string, bool) 
 // configuration file (rather than the keyring or an environment variable), in
 // which case status suggests migrating it to the keyring.
 func isPlaintextTokenSource(tokenSource string) bool {
-	if tokenSource == keyringTokenSource {
-		return false
-	}
-	return !slices.Contains(config.EnvKeyEquivalence("token"), tokenSource)
+	return tokenSourceKind(tokenSource) == tokenKindConfigFile
 }
