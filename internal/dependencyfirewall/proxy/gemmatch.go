@@ -39,8 +39,8 @@ func (GemMatcher) Match(req *http.Request) Match {
 		return Match{}
 	}
 	file := path
-	if i := strings.LastIndex(path, "/"); i >= 0 {
-		file = path[i+1:]
+	if _, after, ok := strings.CutLast(path, "/"); ok {
+		file = after
 	}
 	// Only the "gems/" directory serves .gem downloads; guard against
 	// matching unrelated ".gem" paths. Require "gems" to be the file's

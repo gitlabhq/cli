@@ -225,7 +225,7 @@ func (opts *opts) executeCommand(ctx context.Context, cmd string) error {
 	}
 
 	color := opts.IO.Color()
-	question := fmt.Sprintf("Run `%s`", color.Green(cmd))
+	question := "Run `" + color.Green(cmd) + "`"
 	confirmed := true
 	if err := opts.IO.Confirm(ctx, &confirmed, question); err != nil {
 		return err
