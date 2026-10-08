@@ -170,7 +170,7 @@ glab api projects/:id/issues | jq '.[0]'
 
 ### Placeholders
 
-`glab api` expands exactly these tokens in a path, a field value, or inline JSON:
+`glab api` expands these built-in tokens in a path, a field value, or inline JSON:
 
 `:branch` `:fullpath` `:group` `:id` `:namespace` `:repo` `:user` `:username`
 
@@ -183,6 +183,17 @@ glab api projects/:id/issues                    # inside a checkout
 glab api projects/:id/issues -R group/project   # any project; placeholder still expands
 glab api projects/group%2Fproject/issues        # literal path -- %2F is required
 glab api projects/1234/issues                   # numeric project ID
+```
+
+To insert any other value, define your own placeholder with
+`--placeholder <name>=<value>`. In the path, glab encodes the value as a single
+segment, so you don't need to write `%2F` by hand. In `-F` values it is sent
+unchanged. For a query string value, pass it as a field with `-X GET -F` rather
+than in the path:
+
+```shell
+glab api projects/:fullpath/repository/branches/:target --placeholder target=feature/login
+glab api projects/:id/issues -X GET -F search=:term --placeholder term='a&b'
 ```
 
 Anything else beginning with a colon is **not** a placeholder. glab sends it to
