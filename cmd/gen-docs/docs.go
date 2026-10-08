@@ -361,9 +361,9 @@ func printSubcommands(cmd *cobra.Command, buf *bytes.Buffer) {
 	for _, cmdC := range cmd.Commands() {
 		if cmdC.Name() != "help" && cmdC.IsAvailableCommand() {
 			if cmdC.HasAvailableSubCommands() {
-				subcommands.WriteString(fmt.Sprintf("- [`%s`](%s/_index.md)\n", cmdC.Name(), cmdC.Name()))
+				subcommands.WriteString(fmt.Sprintf("- [%#q](%s/_index.md)\n", cmdC.Name(), cmdC.Name()))
 			} else {
-				subcommands.WriteString(fmt.Sprintf("- [`%s`](%s.md)\n", cmdC.Name(), cmdC.Name()))
+				subcommands.WriteString(fmt.Sprintf("- [%#q](%s.md)\n", cmdC.Name(), cmdC.Name()))
 			}
 		}
 	}

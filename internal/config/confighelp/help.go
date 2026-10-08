@@ -17,7 +17,7 @@ func Settings() string {
 		if !kd.UserSettable || kd.HelpHidden {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("- `%s`: %s", kd.Name, describe(kd)))
+		lines = append(lines, fmt.Sprintf("- %#q: %s", kd.Name, describe(kd)))
 	}
 	slices.Sort(lines)
 	return strings.Join(lines, "\n")

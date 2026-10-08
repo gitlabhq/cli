@@ -54,8 +54,8 @@ var sdistExts = []string{".tar.gz", ".zip", ".tar.bz2", ".tgz"}
 // formats degrade to no match.
 func pypiFile(path string) (string, string, bool) {
 	filename := path
-	if i := strings.LastIndex(path, "/"); i >= 0 {
-		filename = path[i+1:]
+	if _, after, ok := strings.CutLast(path, "/"); ok {
+		filename = after
 	}
 	// A PEP 658 sidecar (<wheel>.whl.metadata) is often the only request pip
 	// makes for a blocked package; treat it as the wheel it describes.

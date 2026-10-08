@@ -104,8 +104,8 @@ func cargoDownload(path string) (string, string, cargoDownloadResult) {
 // by a digit.
 func cargoCrateFile(path string) (string, string, cargoDownloadResult) {
 	filename := path
-	if i := strings.LastIndex(path, "/"); i >= 0 {
-		filename = path[i+1:]
+	if _, after, ok := strings.CutLast(path, "/"); ok {
+		filename = after
 	}
 	base := strings.TrimSuffix(filename, ".crate")
 	for i := 0; i+1 < len(base); i++ {
