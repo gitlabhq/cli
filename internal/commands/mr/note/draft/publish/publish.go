@@ -1,7 +1,8 @@
-package note
+package publish
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,7 +12,6 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
-	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/mr/mrutils"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
@@ -22,7 +22,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/utils"
 )
 
-type publishOptions struct {
+type options struct {
 	io           *iostreams.IOStreams
 	factory      cmdutils.Factory
 	gitlabClient func() (*gitlab.Client, error)
@@ -39,8 +39,8 @@ type publishOptions struct {
 	repo   glrepo.Interface
 }
 
-func NewCmdPublish(f cmdutils.Factory) *cobra.Command {
-	opts := &publishOptions{
+func NewCmd(f cmdutils.Factory) *cobra.Command {
+	opts := &options{
 		io:           f.IO(),
 		factory:      f,
 		gitlabClient: f.GitLabClient,
@@ -48,9 +48,9 @@ func NewCmdPublish(f cmdutils.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "publish [<id> | <branch>]",
-		Short: "Publish all pending review comments on a merge request. (EXPERIMENTAL)",
+		Short: "Publish all your pending review comments on a merge request. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`
-			Publish every pending review comment you created on a merge request with %[1]sglab mr note create --draft%[1]s. Only your own pending comments are published; other reviewers' pending comments are unaffected.
+			Publish every pending review comment you created on a merge request, as when you submit a review from the merge request page. Only your own pending comments are published; other reviewers' pending comments are unaffected. Check what is pending with %[1]sglab mr note draft list%[1]s first.
 
 			Use %[1]s--message%[1]s to add a summary note to the merge request when publishing, and %[1]s--internal%[1]s to restrict that summary to project members with at least the Reporter role.
 
@@ -60,23 +60,23 @@ func NewCmdPublish(f cmdutils.Factory) *cobra.Command {
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Publish your pending review comments on merge request 123
-			glab mr note publish 123
+			glab mr note draft publish 123
 
 			# Publish the current branch's pending review comments
-			glab mr note publish
+			glab mr note draft publish
 
 			# Publish with a summary note and request changes
-			glab mr note publish 123 -m "A few blockers, see the comments." --reviewer-state requested_changes
+			glab mr note draft publish 123 -m "A few blockers, see the comments." --reviewer-state requested_changes
 
 			# Publish without confirmation
-			glab mr note publish 123 --yes
+			glab mr note draft publish 123 --yes
 		`),
 		Args: cobra.MaximumNArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := opts.validateFlags(); err != nil {
+			if err := opts.validate(); err != nil {
 				return err
 			}
 			if err := opts.complete(cmd, args); err != nil {
@@ -98,7 +98,22 @@ func NewCmdPublish(f cmdutils.Factory) *cobra.Command {
 	return cmd
 }
 
-func (o *publishOptions) complete(cmd *cobra.Command, args []string) error {
+// validate checks only flag values, so it runs before complete to reject bad
+// input without any API calls.
+func (o *options) validate() error {
+	if o.message != "" && strings.TrimSpace(o.message) == "" {
+		return errors.New("--message cannot be empty")
+	}
+	if o.internal && strings.TrimSpace(o.message) == "" {
+		return errors.New("--internal requires --message")
+	}
+	if !o.yes && !o.io.PromptEnabled() {
+		return cmdutils.FlagError{Err: errors.New("--yes required when not running interactively")}
+	}
+	return nil
+}
+
+func (o *options) complete(cmd *cobra.Command, args []string) error {
 	client, err := o.gitlabClient()
 	if err != nil {
 		return err
@@ -115,27 +130,10 @@ func (o *publishOptions) complete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func (o *publishOptions) validateFlags() error {
-	if o.message != "" && strings.TrimSpace(o.message) == "" {
-		return fmt.Errorf("--message cannot be empty")
-	}
-	if o.internal && strings.TrimSpace(o.message) == "" {
-		return fmt.Errorf("--internal requires --message")
-	}
-	return nil
-}
-
-func (o *publishOptions) run(ctx context.Context) error {
-	if !o.yes && !o.io.PromptEnabled() {
-		return cmdutils.FlagError{Err: fmt.Errorf("--yes required when not running interactively")}
-	}
-
-	listOpts := &gitlab.ListDraftNotesOptions{ListOptions: gitlab.ListOptions{PerPage: api.MaxPerPage}}
-	drafts, err := gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.DraftNote, *gitlab.Response, error) {
-		return o.client.DraftNotes.ListDraftNotes(o.repo.FullName(), o.mr.IID, listOpts, p, gitlab.WithContext(ctx))
-	})
+func (o *options) run(ctx context.Context) error {
+	drafts, err := mrutils.ListAllDraftNotes(ctx, o.client, o.repo.FullName(), o.mr.IID)
 	if err != nil {
-		return fmt.Errorf("failed to list pending review comments: %w", err)
+		return err
 	}
 	if len(drafts) == 0 {
 		return fmt.Errorf("no pending review comments on !%d", o.mr.IID)

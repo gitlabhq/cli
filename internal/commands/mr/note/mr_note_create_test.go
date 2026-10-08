@@ -112,7 +112,7 @@ func Test_cmdCreate_repoOverride(t *testing.T) {
 		t.Parallel()
 
 		testClient := gitlabtesting.NewTestClient(t)
-		mockMR1InRepo(t, testClient, "gitlab-org/cli", nil)
+		mockMR1InRepo(t, testClient, "gitlab-org/cli")
 
 		testClient.MockDiscussions.EXPECT().
 			CreateMergeRequestDiscussion("gitlab-org/cli", int64(1), gomock.Any(), gomock.Any()).
@@ -138,7 +138,7 @@ func Test_cmdCreate_repoOverride(t *testing.T) {
 		t.Parallel()
 
 		testClient := gitlabtesting.NewTestClient(t)
-		mockMR1InRepo(t, testClient, "gitlab-org/cli", nil)
+		mockMR1InRepo(t, testClient, "gitlab-org/cli")
 
 		testClient.MockDiscussions.EXPECT().
 			CreateMergeRequestDiscussion("gitlab-org/cli", int64(1), gomock.Any(), gomock.Any()).
@@ -635,18 +635,6 @@ func Test_cmdCreate_internal(t *testing.T) {
 		assert.Contains(t, err.Error(), "--internal cannot be used with --resolvable=true")
 	})
 
-	t.Run("--internal and --draft are mutually exclusive", func(t *testing.T) {
-		t.Parallel()
-
-		testClient := gitlabtesting.NewTestClient(t)
-
-		exec := setupCreateExec(t, testClient)
-
-		_, err := exec(`1 --internal --draft -m "hi"`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "none of the others can be")
-	})
-
 	t.Run("--internal --reply posts to an internal thread, which makes the reply internal", func(t *testing.T) {
 		t.Parallel()
 
@@ -954,16 +942,16 @@ func Test_cmdCreate_diffComment(t *testing.T) {
 		assert.Contains(t, err.Error(), "not found in MR diff")
 	})
 
-	t.Run("invalid line format", func(t *testing.T) {
+	t.Run("invalid line format fails before any API call", func(t *testing.T) {
 		t.Parallel()
 
-		testClient := setupMR(t)
+		testClient := gitlabtesting.NewTestClient(t)
 
 		exec := setupCreateExec(t, testClient)
 
 		_, err := exec(`1 --file main.go --line abc -m "bad line"`)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid line number")
+		assert.Contains(t, err.Error(), `invalid argument "abc" for "--line" flag: invalid line number "abc"`)
 	})
 
 	t.Run("--line without --file", func(t *testing.T) {
@@ -991,119 +979,6 @@ func Test_cmdCreate_diffComment(t *testing.T) {
 	})
 }
 
-func Test_cmdCreate_draft(t *testing.T) {
-	t.Parallel()
-
-	t.Run("creates pending review comment", func(t *testing.T) {
-		t.Parallel()
-
-		testClient := setupMR(t)
-
-		testClient.MockDraftNotes.EXPECT().
-			CreateDraftNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
-			DoAndReturn(func(pid any, mrIID int64, opts *gitlab.CreateDraftNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.DraftNote, *gitlab.Response, error) {
-				assert.Equal(t, "Needs work", *opts.Note)
-				assert.Nil(t, opts.Position)
-				assert.Nil(t, opts.InReplyToDiscussionID)
-				return &gitlab.DraftNote{ID: 601}, nil, nil
-			})
-
-		exec := setupCreateExec(t, testClient)
-
-		output, err := exec(`1 --draft -m "Needs work"`)
-		require.NoError(t, err)
-		assert.Equal(t, "601\n", output.String())
-	})
-
-	t.Run("pending diff comment carries position", func(t *testing.T) {
-		t.Parallel()
-
-		testClient := setupMR(t)
-		makeDiffVersion(t, testClient)
-
-		testClient.MockDraftNotes.EXPECT().
-			CreateDraftNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
-			DoAndReturn(func(pid any, mrIID int64, opts *gitlab.CreateDraftNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.DraftNote, *gitlab.Response, error) {
-				require.NotNil(t, opts.Position)
-				assert.Equal(t, int64(2), *opts.Position.NewLine)
-				return &gitlab.DraftNote{ID: 602}, nil, nil
-			})
-
-		exec := setupCreateExec(t, testClient)
-
-		output, err := exec(`1 --draft --file main.go --line 2 -m "hm"`)
-		require.NoError(t, err)
-		assert.Equal(t, "602\n", output.String())
-	})
-
-	t.Run("pending reply resolves discussion prefix", func(t *testing.T) {
-		t.Parallel()
-
-		const fullID = "abc12345deadbeef1234567890abcdef12345678"
-
-		testClient := setupMR(t)
-
-		testClient.MockDiscussions.EXPECT().
-			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
-			Return([]*gitlab.Discussion{{ID: fullID}}, nil, nil)
-
-		testClient.MockDraftNotes.EXPECT().
-			CreateDraftNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
-			DoAndReturn(func(pid any, mrIID int64, opts *gitlab.CreateDraftNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.DraftNote, *gitlab.Response, error) {
-				require.NotNil(t, opts.InReplyToDiscussionID)
-				assert.Equal(t, fullID, *opts.InReplyToDiscussionID)
-				return &gitlab.DraftNote{ID: 603}, nil, nil
-			})
-
-		exec := setupCreateExec(t, testClient)
-
-		output, err := exec(`1 --draft --reply abc12345 -m "agree"`)
-		require.NoError(t, err)
-		assert.Equal(t, "603\n", output.String())
-	})
-
-	t.Run("--draft and --unique are mutually exclusive", func(t *testing.T) {
-		t.Parallel()
-
-		testClient := gitlabtesting.NewTestClient(t)
-
-		exec := setupCreateExec(t, testClient)
-
-		_, err := exec(`1 --draft --unique -m "hi"`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "none of the others can be")
-	})
-
-	t.Run("--draft rejects --resolvable=false", func(t *testing.T) {
-		t.Parallel()
-
-		testClient := gitlabtesting.NewTestClient(t)
-
-		exec := setupCreateExec(t, testClient)
-
-		_, err := exec(`1 --draft --resolvable=false -m "hi"`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--resolvable=false cannot be used with --draft")
-	})
-
-	t.Run("CreateDraftNote error wrapped", func(t *testing.T) {
-		t.Parallel()
-
-		testClient := setupMR(t)
-
-		testClient.MockDraftNotes.EXPECT().
-			CreateDraftNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
-			Return(nil, nil, errors.New("boom"))
-
-		exec := setupCreateExec(t, testClient)
-
-		_, err := exec(`1 --draft -m "hi"`)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to create pending review comment")
-		assert.Contains(t, err.Error(), "boom")
-	})
-}
-
 // --- test helpers ---
 
 func setupMR(t *testing.T) *gitlabtesting.TestClient {
@@ -1124,13 +999,13 @@ func makeDiffVersion(t *testing.T, testClient *gitlabtesting.TestClient) {
  line5
 `
 	testClient.MockMergeRequests.EXPECT().
-		GetMergeRequestDiffVersions("OWNER/REPO", int64(1), gomock.Any()).
+		GetMergeRequestDiffVersions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
 		Return([]*gitlab.MergeRequestDiffVersion{
 			{ID: 10, BaseCommitSHA: "base", HeadCommitSHA: "head", StartCommitSHA: "start"},
 		}, nil, nil)
 
 	testClient.MockMergeRequests.EXPECT().
-		GetSingleMergeRequestDiffVersion("OWNER/REPO", int64(1), int64(10), gomock.Any()).
+		GetSingleMergeRequestDiffVersion("OWNER/REPO", int64(1), int64(10), gomock.Any(), gomock.Any()).
 		Return(&gitlab.MergeRequestDiffVersion{
 			ID:             10,
 			BaseCommitSHA:  "base",

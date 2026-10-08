@@ -31,7 +31,7 @@ func Test_ParseLine(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			start, end, err := ParseLine(tt.input)
+			start, end, err := parseLine(tt.input)
 			if tt.wantErr != "" {
 				assert.EqualError(t, err, tt.wantErr)
 			} else {
@@ -52,19 +52,19 @@ func Test_FindFileDiff(t *testing.T) {
 	}
 
 	t.Run("match by NewPath", func(t *testing.T) {
-		d, err := FindFileDiff(version, "src/main.go")
+		d, err := findFileDiff(version, "src/main.go")
 		require.NoError(t, err)
 		assert.Equal(t, "src/main.go", d.NewPath)
 	})
 
 	t.Run("match by OldPath", func(t *testing.T) {
-		d, err := FindFileDiff(version, "src/old.go")
+		d, err := findFileDiff(version, "src/old.go")
 		require.NoError(t, err)
 		assert.Equal(t, "src/new.go", d.NewPath)
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		_, err := FindFileDiff(version, "nonexistent.go")
+		_, err := findFileDiff(version, "nonexistent.go")
 		assert.EqualError(t, err, `file "nonexistent.go" not found in MR diff`)
 	})
 }
@@ -91,7 +91,7 @@ func Test_BuildDiffPosition(t *testing.T) {
 	}
 
 	t.Run("new-side single line on added line", func(t *testing.T) {
-		pos, err := BuildDiffPosition(version, fileDiff, 2, 2, 0)
+		pos, err := buildDiffPosition(version, fileDiff, 2, 2, 0)
 		require.NoError(t, err)
 		assert.Equal(t, "base123", *pos.BaseSHA)
 		assert.Equal(t, "head456", *pos.HeadSHA)
@@ -104,7 +104,7 @@ func Test_BuildDiffPosition(t *testing.T) {
 	})
 
 	t.Run("new-side single line on unchanged line", func(t *testing.T) {
-		pos, err := BuildDiffPosition(version, fileDiff, 1, 1, 0)
+		pos, err := buildDiffPosition(version, fileDiff, 1, 1, 0)
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), *pos.NewLine)
 		assert.Equal(t, int64(1), *pos.OldLine) // Unchanged => both sides
@@ -112,7 +112,7 @@ func Test_BuildDiffPosition(t *testing.T) {
 	})
 
 	t.Run("new-side multiline range", func(t *testing.T) {
-		pos, err := BuildDiffPosition(version, fileDiff, 1, 3, 0)
+		pos, err := buildDiffPosition(version, fileDiff, 1, 3, 0)
 		require.NoError(t, err)
 		// NewLine anchors on the end of the range (line 3)
 		assert.Equal(t, int64(3), *pos.NewLine)
@@ -133,38 +133,38 @@ func Test_BuildDiffPosition(t *testing.T) {
 	})
 
 	t.Run("old-side line on removed line", func(t *testing.T) {
-		pos, err := BuildDiffPosition(version, fileDiff, 0, 0, 2)
+		pos, err := buildDiffPosition(version, fileDiff, 0, 0, 2)
 		require.NoError(t, err)
 		assert.Equal(t, int64(2), *pos.OldLine)
 		assert.Nil(t, pos.NewLine) // Removed line => no new side
 	})
 
 	t.Run("old-side line on unchanged line", func(t *testing.T) {
-		pos, err := BuildDiffPosition(version, fileDiff, 0, 0, 1)
+		pos, err := buildDiffPosition(version, fileDiff, 0, 0, 1)
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), *pos.OldLine)
 		assert.Equal(t, int64(1), *pos.NewLine) // Unchanged => both sides
 	})
 
 	t.Run("file-level comment", func(t *testing.T) {
-		pos, err := BuildDiffPosition(version, fileDiff, 0, 0, 0)
+		pos, err := buildDiffPosition(version, fileDiff, 0, 0, 0)
 		require.NoError(t, err)
 		// Should target first line in diff (unchanged line 1)
 		require.NotNil(t, pos.NewLine)
 	})
 
 	t.Run("line not in diff", func(t *testing.T) {
-		_, err := BuildDiffPosition(version, fileDiff, 999, 999, 0)
+		_, err := buildDiffPosition(version, fileDiff, 999, 999, 0)
 		assert.ErrorContains(t, err, "line 999 not found in diff")
 	})
 
 	t.Run("old line not in diff", func(t *testing.T) {
-		_, err := BuildDiffPosition(version, fileDiff, 0, 0, 999)
+		_, err := buildDiffPosition(version, fileDiff, 0, 0, 999)
 		assert.ErrorContains(t, err, "old line 999 not found in diff")
 	})
 
 	t.Run("multiline range end not in diff", func(t *testing.T) {
-		_, err := BuildDiffPosition(version, fileDiff, 1, 999, 0)
+		_, err := buildDiffPosition(version, fileDiff, 1, 999, 0)
 		assert.ErrorContains(t, err, "line 999 not found in diff")
 	})
 
@@ -174,7 +174,7 @@ func Test_BuildDiffPosition(t *testing.T) {
 			OldPath: "deleted.go",
 			Diff:    "@@ -1,2 +1 @@\n-removed1\n-removed2\n",
 		}
-		pos, err := BuildDiffPosition(version, deleteDiff, 0, 0, 0)
+		pos, err := buildDiffPosition(version, deleteDiff, 0, 0, 0)
 		require.NoError(t, err)
 		require.NotNil(t, pos.OldLine)
 		assert.Equal(t, int64(1), *pos.OldLine)
@@ -187,7 +187,7 @@ func Test_BuildDiffPosition(t *testing.T) {
 			OldPath: "empty.go",
 			Diff:    "",
 		}
-		_, err := BuildDiffPosition(version, emptyDiff, 0, 0, 0)
+		_, err := buildDiffPosition(version, emptyDiff, 0, 0, 0)
 		assert.ErrorContains(t, err, "diff for empty.go is empty")
 	})
 }

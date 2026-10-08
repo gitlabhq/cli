@@ -136,7 +136,7 @@ func (o *updateOptions) complete(cmd *cobra.Command, args []string) error {
 	switch {
 	case strings.TrimSpace(body) != "":
 	case len(o.attach) == 0:
-		body, err = getBodyFromStdinOrEditor(o.factory, cmd)
+		body, err = mrutils.NoteBodyFromStdinOrEditor(cmd.Context(), o.io, o.factory.Config)
 		if err != nil {
 			return err
 		}
