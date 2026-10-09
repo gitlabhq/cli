@@ -222,9 +222,8 @@ lint: bin/golangci-lint ## Run linter
 
 .PHONY: fix
 fix: bin/golangci-lint ## Fix lint violations
+	$(GOLINT) fmt
 	$(GOLINT) run --fix
-	gofmt -s -w .
-	goimports -w .
 
 .PHONY: generate
 generate: ## Run go generate
