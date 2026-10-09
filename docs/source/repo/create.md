@@ -21,6 +21,8 @@ provide either:
 - A `GITLAB_HOST` environment variable.
 - A full URL for the project.
 
+If you don't pass `--private`, `--internal`, or `--public`, the project uses the default project visibility of your GitLab instance.
+
 ```plaintext
 glab repo create [path] [flags]
 ```
@@ -51,7 +53,7 @@ glab repo create <host>/path/to/repository
       --defaultBranch string   Branch name for the new project, overriding both the GitLab instance default and your local git configuration.
   -d, --description string     Description of the new project. Set to "-" to open an editor.
   -g, --group string           Namespace or group for the new project. Defaults to the current user's namespace.
-      --internal               Make project internal: visible to any authenticated user. Default.
+      --internal               Make project internal: visible to any authenticated user.
   -n, --name string            Name of the new project.
   -p, --private                Make project private: visible only to project members.
   -P, --public                 Make project public: visible without any authentication.

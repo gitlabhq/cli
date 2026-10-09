@@ -58,6 +58,8 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 
 	- A %[1]sGITLAB_HOST%[1]s environment variable.
 	- A full URL for the project.
+
+	If you don't pass %[1]s--private%[1]s, %[1]s--internal%[1]s, or %[1]s--public%[1]s, the project uses the default project visibility of your GitLab instance.
 	`, "`"),
 		Args: cobra.MaximumNArgs(1),
 		Annotations: map[string]string{
@@ -90,7 +92,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	projectCreateCmd.Flags().String("defaultBranch", "", "Branch name for the new project, overriding both the GitLab instance default and your local git configuration.")
 	projectCreateCmd.Flags().String("remoteName", "origin", "Remote name for the Git repository you're in. Defaults to `origin` if not provided.")
 	projectCreateCmd.Flags().StringArrayP("tag", "t", []string{}, "The list of tags for the project.")
-	projectCreateCmd.Flags().Bool("internal", false, "Make project internal: visible to any authenticated user. Default.")
+	projectCreateCmd.Flags().Bool("internal", false, "Make project internal: visible to any authenticated user.")
 	projectCreateCmd.Flags().BoolP("private", "p", false, "Make project private: visible only to project members.")
 	projectCreateCmd.Flags().BoolP("public", "P", false, "Make project public: visible without any authentication.")
 	projectCreateCmd.Flags().Bool("readme", false, "Initialize project with `README.md`. The repository is cloned locally after creation to ensure the local branch matches the remote.")
