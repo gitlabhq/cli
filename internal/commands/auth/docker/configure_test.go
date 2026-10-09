@@ -224,7 +224,9 @@ hosts:
 `)
 	ios, _, _, _ := cmdtest.TestIOStreams()
 
-	require.ErrorContains(t, configureDocker(ios, cfg), "no hosts were configured")
+	err := configureDocker(ios, cfg)
+	require.ErrorContains(t, err, "no container registry domains are configured")
+	assert.ErrorContains(t, err, "glab config set container_registry_domains")
 }
 
 // TestConfigureDocker_RefusesToReplaceAnotherHelper checks that the guard in

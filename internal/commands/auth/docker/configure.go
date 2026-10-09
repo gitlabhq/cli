@@ -46,9 +46,9 @@ func configureDocker(iostreams *iostreams.IOStreams, cfg config.Config) error {
 			return readErr
 		}
 		return fmt.Errorf(
-			"no hosts were configured - " +
-				"ensure you've logged in via oauth2 and configured " +
-				"at least one container registry domain for a host")
+			"no container registry domains are configured for any host - " +
+				"set them with `glab config set container_registry_domains <domains> --host <hostname>`, " +
+				"or log in again with `glab auth login --container-registry-domains <domains>`")
 	}
 
 	dir, err := dockercredhelper.ConfigDir()

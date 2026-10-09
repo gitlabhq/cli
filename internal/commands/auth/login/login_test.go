@@ -734,6 +734,64 @@ func Test_tokenLogin_persistsUsername(t *testing.T) {
 	})
 }
 
+func Test_tokenLogin_persistsContainerRegistryDomains(t *testing.T) {
+	for _, storageFlag := range []string{"--use-keyring", "--insecure-storage"} {
+		for _, tt := range []struct {
+			name  string
+			saved string
+			flag  string
+			want  string
+		}{
+			{
+				name: "explicit domains",
+				flag: "registry.example.com,registry.example.com:5000",
+				want: "registry.example.com,registry.example.com:5000",
+			},
+			{
+				name:  "flag overrides saved domains",
+				saved: "old.example.com",
+				flag:  "registry.example.com",
+				want:  "registry.example.com",
+			},
+			{
+				name:  "preserves saved domains without flag",
+				saved: "saved.example.com",
+				want:  "saved.example.com",
+			},
+			{
+				name: "defaults without flag",
+				want: "gitlab.example.com,gitlab.example.com:443,registry.gitlab.example.com",
+			},
+		} {
+			t.Run(storageFlag+"/"+tt.name, func(t *testing.T) {
+				keyring.MockInit()
+				dir := t.TempDir()
+				t.Setenv("GLAB_CONFIG_DIR", dir)
+				cfg := config.NewBlankConfigInDir(dir)
+				if tt.saved != "" {
+					require.NoError(t, cfg.Set("gitlab.example.com", "container_registry_domains", tt.saved))
+				}
+
+				exec := cmdtest.SetupCmdForTest(t, NewCmdLogin, false,
+					cmdtest.WithConfig(cfg), currentUserFactoryOption(t))
+				args := "--hostname gitlab.example.com --token test-token " + storageFlag
+				if tt.flag != "" {
+					args += " --container-registry-domains " + tt.flag
+				}
+				_, err := exec(args)
+				require.NoError(t, err)
+
+				data, err := os.ReadFile(filepath.Join(dir, "config.yml"))
+				require.NoError(t, err)
+				saved := config.NewFromString(string(data))
+				domains, err := saved.Get("gitlab.example.com", "container_registry_domains")
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, domains)
+			})
+		}
+	}
+}
+
 func Test_tokenLogin_warnsWhenEnvTokenTakesPrecedence(t *testing.T) {
 	keyring.MockInit()
 

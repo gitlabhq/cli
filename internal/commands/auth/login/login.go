@@ -323,6 +323,11 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {
 			opts.IO.LogErrorf("%s Logged in as %s\n", c.GreenCheck(), c.Bold(username))
 		}
 
+		domains := initialContainerRegistryDomains(cfg, hostname, opts.ContainerRegistryDomains)
+		if err := setContainerRegistryDomains(cfg, hostname, domains); err != nil {
+			return err
+		}
+
 		if err := cfg.Write(); err != nil {
 			return err
 		}
