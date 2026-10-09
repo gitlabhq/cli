@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -263,18 +264,44 @@ func TestRunUninstall_NothingInstalled(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
-	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "systemctl", gomock.Any(), nil).Return(nil, errors.New("unit not loaded"))
+	mExec.EXPECT().
+		ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "is-active", "--quiet", "glab-govern-audit-sync.timer"}, nil).
+		Return(nil, &exec.ExitError{})
 
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
 	opts := &options{
 		io:       ios,
 		executor: mExec,
 		goos:     "linux",
-		yes:      true,
+		// Without --yes and without a terminal, prompting would fail.
+		yes: false,
 	}
 
-	require.NoError(t, runUninstall(t.Context(), opts))
+	require.NoError(t, runUninstall(t.Context(), opts), "nothing to remove means nothing to confirm")
 	assert.Contains(t, stdout.String(), "No fallback periodic sync job found")
+}
+
+func TestRunUninstall_LoadedJobWithoutFiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	gomock.InOrder(
+		mExec.EXPECT().
+			ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "is-active", "--quiet", "glab-govern-audit-sync.timer"}, nil).
+			Return(nil, nil),
+		mExec.EXPECT().
+			ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "show", "glab-govern-audit-sync.service", "--property=ExecMainStartTimestampMonotonic,ExecMainStatus"}, nil).
+			Return([]byte("ExecMainStartTimestampMonotonic=0\nExecMainStatus=0\n"), nil),
+		mExec.EXPECT().
+			ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "disable", "--now", "glab-govern-audit-sync.timer"}, nil).
+			Return(nil, nil),
+	)
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	opts := &options{io: ios, executor: mExec, goos: "linux", yes: true}
+
+	require.NoError(t, runUninstall(t.Context(), opts), "a loaded job is unloaded even when its files are gone")
 }
 
 func TestGlabBinaryPath(t *testing.T) {
@@ -344,6 +371,49 @@ func TestRunSetup_NonInteractiveWithoutYesFlag(t *testing.T) {
 
 	_, statErr := os.Stat(path)
 	assert.True(t, os.IsNotExist(statErr), "settings file should not have been created")
+}
+
+func TestInstallClaudeHooks_PreservesExistingHookFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	existing := `{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/print-mr-link.sh",
+            "if": "Bash(git push*)",
+            "statusMessage": "Checking for MR link"
+          }
+        ]
+      }
+    ]
+  }
+}`
+	require.NoError(t, os.WriteFile(path, []byte(existing), 0o644))
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	require.NoError(t, installClaudeHooks(&options{io: ios, settingsPathOverride: path}))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var settings struct {
+		Hooks map[string][]struct {
+			Matcher string           `json:"matcher"`
+			Hooks   []map[string]any `json:"hooks"`
+		} `json:"hooks"`
+	}
+	require.NoError(t, json.Unmarshal(data, &settings))
+
+	entry := settings.Hooks["PostToolUse"][0].Hooks[0]
+	assert.Equal(t, "Bash(git push*)", entry["if"], "dropping if would run the hook after every Bash call")
+	assert.Equal(t, "Checking for MR link", entry["statusMessage"])
+	assert.Len(t, settings.Hooks["Stop"], 1)
+	assert.Contains(t, string(data), `>/dev/null 2>&1 &`)
 }
 
 func TestInstallClaudeHooks_PreservesAllSettingsKeys(t *testing.T) {

@@ -1,17 +1,19 @@
 package sync
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
 // openCode syncs OpenCode sessions. Their transcript locator is the path of
@@ -44,11 +46,12 @@ func (o openCode) recorded(sessionID, binary string) (transcript, string, error)
 	return &openCodeTranscript{sessionID: sessionID, binary: use, executor: o.executor}, binary, nil
 }
 
-// deleted never reports an OpenCode session as deleted, because the only
-// existence check is a full opencode export, and its "Session not found" may
-// mean the job sees a different OpenCode data directory.
-func (openCode) deleted(transcript) (bool, error) {
-	return false, nil
+// canForget allows forgetting a completed OpenCode session only a fixed time
+// after completion. Checking whether the session still exists would need a
+// full opencode export, and its "Session not found" may mean the job sees a
+// different OpenCode data directory.
+func (openCode) canForget(_ transcript, completedAt time.Time) (bool, error) {
+	return time.Since(completedAt) > forgetUnfoundAfter, nil
 }
 
 // pausedReason never pauses OpenCode, because glab installs nothing in
@@ -68,6 +71,8 @@ type openCodeTranscript struct {
 	sessionID string
 	binary    string
 	executor  cmdutils.Executor
+	// timeout overrides openCodeExportTimeout in tests.
+	timeout time.Duration
 
 	raw    []byte
 	export *openCodeExport
@@ -124,24 +129,83 @@ func (t *openCodeTranscript) load(ctx context.Context) error {
 		binary = path
 	}
 
-	var stdout, stderr bytes.Buffer
-	if err := t.executor.ExecWithIO(ctx, binary, []string{"export", t.sessionID}, nil, nil, &stdout, &stderr); err != nil {
+	stdout, stderr, err := t.runExport(ctx, binary)
+	if err != nil {
 		// opencode reports a deleted session only through this message. It is
 		// not proof that the session was deleted: the job may see a different
 		// OpenCode data directory from the agent.
-		if strings.Contains(stderr.String(), "Session not found") {
+		if strings.Contains(string(stderr), "Session not found") {
 			return fmt.Errorf("opencode export %s: %w", t.sessionID, errAgentSessionNotFound)
 		}
-		return fmt.Errorf("opencode export %s: %w: %s", t.sessionID, err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("opencode export %s: %w: %s", t.sessionID, err, strings.TrimSpace(string(stderr)))
 	}
 
 	var export openCodeExport
-	if err := json.Unmarshal(stdout.Bytes(), &export); err != nil {
+	if err := json.Unmarshal(stdout, &export); err != nil {
 		return fmt.Errorf("could not parse opencode export: %w", err)
 	}
-	t.raw = stdout.Bytes()
+	t.raw = stdout
 	t.export = &export
 	return nil
+}
+
+// openCodeExportTimeout bounds one opencode export. launchd and systemd do not
+// start a run while the previous one is still going, so a hung export would
+// otherwise stop all later syncing.
+const openCodeExportTimeout = 2 * time.Minute
+
+// runExport runs opencode export with its output in temporary files rather
+// than buffers. With a buffer, exec copies the output through a pipe and
+// waits for the pipe to close, so a child process of opencode that inherits
+// it keeps the wait blocked even after opencode is killed.
+func (t *openCodeTranscript) runExport(ctx context.Context, binary string) ([]byte, []byte, error) {
+	timeout := t.timeout
+	if timeout == 0 {
+		timeout = openCodeExportTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	dir, err := os.MkdirTemp("", "glab-opencode-export-*")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			dbg.Debugf("could not remove %s: %v", dir, err)
+		}
+	}()
+	outPath, errPath := filepath.Join(dir, "stdout"), filepath.Join(dir, "stderr")
+
+	runErr := t.exportToFiles(ctx, binary, outPath, errPath)
+	if runErr != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		runErr = fmt.Errorf("timed out after %s", timeout)
+	}
+
+	stdout, err := os.ReadFile(outPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	stderr, err := os.ReadFile(errPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stdout, stderr, runErr
+}
+
+func (t *openCodeTranscript) exportToFiles(ctx context.Context, binary, outPath, errPath string) (err error) {
+	outFile, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, outFile.Close()) }()
+	errFile, err := os.Create(errPath)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, errFile.Close()) }()
+
+	return t.executor.ExecWithIO(ctx, binary, []string{"export", t.sessionID}, nil, nil, outFile, errFile)
 }
 
 func (t *openCodeTranscript) read(ctx context.Context, cursor int64) (*sessionData, int64, error) {

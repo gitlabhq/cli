@@ -346,11 +346,27 @@ func checkFallbackSync(ctx context.Context, executor cmdutils.Executor, goos str
 		return checkResult{name: name, ok: true, message: fmt.Sprintf("installed (%s); could not read last run: %v", glabPath, err)}
 	}
 
+	if len(status.Errors) > 0 && status.SessionsSynced == 0 && status.SessionsCompleted == 0 {
+		return checkResult{
+			name:    name,
+			ok:      false,
+			message: fmt.Sprintf("installed (%s), but the last run synced nothing; %s", glabPath, describeLastRun(status, now)),
+			fix:     fmt.Sprintf("Run '%s govern audit sync --all' to see the errors", glabPath),
+		}
+	}
+
 	return checkResult{
 		name:    name,
 		ok:      true,
 		message: fmt.Sprintf("installed (%s); %s", glabPath, describeLastRun(status, now)),
 	}
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func describeLastRun(s *fallbacksync.Status, now time.Time) string {
@@ -359,12 +375,15 @@ func describeLastRun(s *fallbacksync.Status, now time.Time) string {
 	if ago > 2*fallbacksync.Interval {
 		desc += fmt.Sprintf(" (expected every %d minutes; the job may not be running)", int(fallbacksync.Interval.Minutes()))
 	}
-	desc += fmt.Sprintf(": %d sessions synced, %d completed, %d events posted", s.SessionsSynced, s.SessionsCompleted, s.EventsPosted)
+	desc += fmt.Sprintf(": %s synced, %d completed, %s posted", plural(s.SessionsSynced, "session"), s.SessionsCompleted, plural(s.EventsPosted, "event"))
 	if len(s.Errors) > 0 {
-		desc += fmt.Sprintf(", %d errors (first: %s)", len(s.Errors), s.Errors[0])
+		desc += fmt.Sprintf(", %s (first: %s)", plural(len(s.Errors), "error"), s.Errors[0])
 	}
 	if len(s.Paused) > 0 {
 		desc += "; paused for " + strings.Join(s.Paused, "; ")
+	}
+	if n := len(s.GovernanceNotEnabled); n > 0 {
+		desc += fmt.Sprintf("; governance not enabled for %s (%s)", plural(n, "project"), strings.Join(s.GovernanceNotEnabled, ", "))
 	}
 	return desc
 }

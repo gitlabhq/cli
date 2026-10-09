@@ -261,8 +261,66 @@ func TestCheckFallbackSync_LastRun(t *testing.T) {
 
 	assert.True(t, result.ok)
 	assert.Equal(t,
-		fmt.Sprintf("installed (%s); last run 10m0s ago: 2 sessions synced, 1 completed, 9 events posted, 1 errors (first: session a: could not resolve project)", glab),
+		fmt.Sprintf("installed (%s); last run 10m0s ago: 2 sessions synced, 1 completed, 9 events posted, 1 error (first: session a: could not resolve project)", glab),
 		result.message)
+}
+
+func TestCheckFallbackSync_LastRunOnlyFailed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GLAB_CONFIG_DIR", home)
+	glab, err := os.Executable()
+	require.NoError(t, err)
+	installTestJob(t, home, glab)
+
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, fallbacksync.WriteStatus(fallbacksync.Status{
+		FinishedAt: now.Add(-5 * time.Minute),
+		Errors: []string{
+			"session a: could not create session: 404 Not Found",
+			"session b: could not create session: 404 Not Found",
+		},
+	}))
+
+	result := checkFallbackSync(t.Context(), linuxJobState(t, true, "ExecMainStartTimestampMonotonic=1234\nExecMainStatus=0\n"), "linux", now)
+
+	assert.False(t, result.ok, "a run where every session failed must not look healthy")
+	assert.Equal(t,
+		fmt.Sprintf("installed (%s), but the last run synced nothing; last run 5m0s ago: 0 sessions synced, 0 completed, 0 events posted, 2 errors (first: session a: could not create session: 404 Not Found)", glab),
+		result.message)
+	assert.Equal(t, fmt.Sprintf("Run '%s govern audit sync --all' to see the errors", glab), result.fix)
+}
+
+func TestDescribeLastRun_Singular(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	got := describeLastRun(&fallbacksync.Status{
+		FinishedAt:     now,
+		SessionsSynced: 1,
+		EventsPosted:   1,
+		Errors:         []string{"session a: boom"},
+	}, now)
+	assert.Equal(t, "last run 0s ago: 1 session synced, 0 completed, 1 event posted, 1 error (first: session a: boom)", got)
+}
+
+func TestCheckFallbackSync_GovernanceNotEnabledStaysHealthy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GLAB_CONFIG_DIR", home)
+	glab, err := os.Executable()
+	require.NoError(t, err)
+	installTestJob(t, home, glab)
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, fallbacksync.WriteStatus(fallbacksync.Status{
+		FinishedAt:           now,
+		GovernanceNotEnabled: []string{"gitlab.com/me/dotfiles", "gitlab.com/gitlab-org/cli"},
+	}))
+
+	result := checkFallbackSync(t.Context(), linuxJobState(t, true, "ExecMainStartTimestampMonotonic=1234\nExecMainStatus=0\n"), "linux", now)
+
+	assert.True(t, result.ok, "sessions in projects without governance are expected")
+	assert.Contains(t, result.message, "governance not enabled for 2 projects (gitlab.com/me/dotfiles, gitlab.com/gitlab-org/cli)")
 }
 
 func TestCheckFallbackSync_Overdue(t *testing.T) {
