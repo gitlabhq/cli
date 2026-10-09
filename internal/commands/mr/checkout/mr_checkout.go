@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -105,7 +106,19 @@ func (o *options) complete(ctx context.Context, args []string) error {
 	if o.branch == "" {
 		o.branch = o.mr.SourceBranch
 	}
+	if err := validateBranchName(o.branch); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func validateBranchName(name string) error {
+	if name == "" || strings.HasPrefix(name, "-") || strings.ContainsFunc(name, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	}) {
+		return fmt.Errorf("invalid branch name %q", name)
+	}
 	return nil
 }
 
@@ -155,7 +168,10 @@ func (o *options) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	repoURL := glrepo.RemoteURL(mrProject, gitProtocol)
+	repoURL, err := glrepo.RemoteURL(mrProject, gitProtocol)
+	if err != nil {
+		return err
+	}
 
 	localSHA := o.localBranchSHA()
 	switch {
@@ -168,9 +184,9 @@ func (o *options) run(ctx context.Context) error {
 		o.io.LogInfof("Created branch %q from local commit, skipping fetch.\n", o.branch)
 	default:
 		fetchRefSpec := fmt.Sprintf("%s:%s", mrRef, o.branch)
-		if err := o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "fetch", repoURL, fetchRefSpec); err != nil {
+		if err := o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "fetch", "--", repoURL, fetchRefSpec); err != nil {
 			// Remote diverged from local. Fall back to fetching just the ref (FETCH_HEAD only).
-			if err := o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "fetch", repoURL, mrRef); err != nil {
+			if err := o.gr.GitWithIO(o.io.StdOut, o.io.StdErr, "fetch", "--", repoURL, mrRef); err != nil {
 				return err
 			}
 			if err := o.resolveDivergence(ctx); err != nil {

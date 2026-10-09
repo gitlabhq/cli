@@ -3,6 +3,8 @@
 package checkout
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,8 +29,8 @@ import (
 // gr.GitWithIO) reaches the user end-to-end, not just at the mock boundary.
 //
 // No GitLab test host is required: the project's clone URL returned by the
-// mocked API points at a local bare repo prepared in t.TempDir(), and `git`
-// fetches happily from a local path.
+// mocked API points at a bare repo prepared in t.TempDir() and served over
+// HTTP by httptest.
 func Test_MRCheckout_RealGitOutput_Integration(t *testing.T) {
 	originDir := filepath.Join(t.TempDir(), "origin.git")
 	seedDir := filepath.Join(t.TempDir(), "seed")
@@ -47,6 +49,7 @@ func Test_MRCheckout_RealGitOutput_Integration(t *testing.T) {
 	runGit(t, seedDir, "commit", "-m", "seed commit")
 	runGit(t, seedDir, "push", originDir, "feat-new-mr")
 	remoteSHA := gitOutput(t, seedDir, "rev-parse", "HEAD")
+	originURL := serveOrigin(t, originDir)
 
 	// Work dir: a normal (non-bare) repo with one commit on main. This is
 	// where the command will fetch/checkout. cwd must point here for git
@@ -78,8 +81,8 @@ func Test_MRCheckout_RealGitOutput_Integration(t *testing.T) {
 		GetProject(gomock.Any(), gomock.Any()).
 		Return(&gitlab.Project{
 			ID:            3,
-			SSHURLToRepo:  originDir,
-			HTTPURLToRepo: originDir,
+			SSHURLToRepo:  originURL,
+			HTTPURLToRepo: originURL,
 		}, nil, nil)
 
 	ios, _, stdout, stderr := cmdtest.TestIOStreams()
@@ -103,6 +106,16 @@ func Test_MRCheckout_RealGitOutput_Integration(t *testing.T) {
 	// did more than just print, it actually performed the checkout.
 	headRef := strings.TrimSpace(readFile(t, filepath.Join(workDir, ".git", "HEAD")))
 	assert.Equal(t, "ref: refs/heads/feat-new-mr", headRef)
+}
+
+// serveOrigin serves the bare repo over dumb HTTP; update-server-info writes the
+// info/refs file that protocol requires.
+func serveOrigin(t *testing.T, originDir string) string {
+	t.Helper()
+	runGit(t, originDir, "update-server-info")
+	srv := httptest.NewServer(http.FileServer(http.Dir(originDir)))
+	t.Cleanup(srv.Close)
+	return srv.URL + "/"
 }
 
 func runGit(t *testing.T, cwd string, args ...string) {
@@ -172,6 +185,7 @@ func setupDivergedRepo(t *testing.T) (originDir, workDir, remoteSHA, localSHA st
 func mockCheckoutMR(t *testing.T, originDir string) *gitlabtesting.TestClient {
 	t.Helper()
 	remoteSHA := gitOutput(t, originDir, "rev-parse", "refs/heads/feat-new-mr")
+	originURL := serveOrigin(t, originDir)
 	testClient := gitlabtesting.NewTestClient(t)
 	testClient.MockMergeRequests.EXPECT().
 		GetMergeRequest("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
@@ -190,8 +204,8 @@ func mockCheckoutMR(t *testing.T, originDir string) *gitlabtesting.TestClient {
 		GetProject(gomock.Any(), gomock.Any()).
 		Return(&gitlab.Project{
 			ID:            3,
-			SSHURLToRepo:  originDir,
-			HTTPURLToRepo: originDir,
+			SSHURLToRepo:  originURL,
+			HTTPURLToRepo: originURL,
 		}, nil, nil)
 	return testClient
 }

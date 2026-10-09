@@ -27,13 +27,13 @@ import (
 
 func TestProjectFork(t *testing.T) {
 	cloneShelloutStubs := []string{
-		"git clone git@gitlab.com:OWNER/baz.git REPO",
-		"git -C REPO remote add -f upstream git@gitlab.com:OWNER/REPO.git",
+		"git clone -- git@gitlab.com:OWNER/baz.git REPO",
+		"git -C REPO remote add -f upstream -- git@gitlab.com:OWNER/REPO.git",
 	}
 
 	expectedCloneShellouts := []string{
-		"git clone ",
-		"git -C . remote add -f upstream git@gitlab.com:OWNER/REPO.git",
+		"git clone -- git@gitlab.com:OWNER/baz.git",
+		"git -C baz remote add -f upstream -- git@gitlab.com:OWNER/REPO.git",
 	}
 
 	tests := []struct {
@@ -85,6 +85,8 @@ func TestProjectFork(t *testing.T) {
 				Return(&gitlab.Project{
 					ID:                99,
 					PathWithNamespace: "OWNER/baz",
+					HTTPURLToRepo:     "https://gitlab.com/OWNER/baz.git",
+					SSHURLToRepo:      "git@gitlab.com:OWNER/baz.git",
 				}, nil, nil)
 			if tt.expectClone {
 				tc.MockProjects.EXPECT().
@@ -210,7 +212,7 @@ func TestProjectForkExistingRepo(t *testing.T) {
 
 	expectedShellouts := []string{
 		"git remote rename origin upstream",
-		"git remote add -f origin git@gitlab.com:OWNER/REPO.git",
+		"git remote add -f origin -- git@gitlab.com:OWNER/REPO.git",
 	}
 
 	tests := []struct {

@@ -390,6 +390,7 @@ func Test_projectCreateCmd_InCurrentDirectory(t *testing.T) {
 						Name:              "test-project",
 						NameWithNamespace: "username/test-project",
 						WebURL:            "https://gitlab.com/username/test-project",
+						SSHURLToRepo:      "git@gitlab.com:username/test-project.git",
 					}, nil
 				}
 				currentUser = func(client *gitlab.Client) (*gitlab.User, error) {
@@ -424,6 +425,7 @@ func Test_projectCreateCmd_InCurrentDirectory(t *testing.T) {
 						Name:              "test-project",
 						NameWithNamespace: "username/test-project",
 						WebURL:            "https://gitlab.com/username/test-project",
+						SSHURLToRepo:      "git@gitlab.com:username/test-project.git",
 					}, nil
 				}
 				currentUser = func(client *gitlab.Client) (*gitlab.User, error) {
@@ -558,6 +560,7 @@ func Test_projectCreateCmd_SkipGitInit(t *testing.T) {
 				Path:              "test-project",
 				NameWithNamespace: "username/test-project",
 				WebURL:            "https://gitlab.com/username/test-project",
+				SSHURLToRepo:      "git@gitlab.com:username/test-project.git",
 			}, nil
 		}
 		currentUser = func(client *gitlab.Client) (*gitlab.User, error) {

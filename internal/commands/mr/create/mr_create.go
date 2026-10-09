@@ -1039,7 +1039,10 @@ func repoRemote(opts *options, repo glrepo.Interface, project *gitlab.Project, r
 	if repoRemote == nil {
 		cfg := opts.config()
 		gitProtocol, _ := cfg.Get(repo.RepoHost(), "git_protocol")
-		repoURL := glrepo.RemoteURL(project, gitProtocol)
+		repoURL, err := glrepo.RemoteURL(project, gitProtocol)
+		if err != nil {
+			return nil, err
+		}
 
 		gitRemote, err := git.AddRemote(remoteName, repoURL)
 		if err != nil {

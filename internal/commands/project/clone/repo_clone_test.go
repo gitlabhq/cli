@@ -250,7 +250,7 @@ func TestCloneWikiRepository(t *testing.T) {
 
 	require.NoError(t, cloneRun(opts, ctxOpts))
 	require.Len(t, cs.Calls, 1)
-	assert.Equal(t, "git clone git@gitlab.com:OWNER/REPO.wiki.git", strings.Join(cs.Calls[0].Args, " "))
+	assert.Equal(t, "git clone -- git@gitlab.com:OWNER/REPO.wiki.git", strings.Join(cs.Calls[0].Args, " "))
 }
 
 func TestCloneWikiRepositoryRejectsDisabledWiki(t *testing.T) {
@@ -275,6 +275,28 @@ func TestCloneWikiRepositoryRejectsDisabledWiki(t *testing.T) {
 	require.EqualError(t, err, "wiki is not enabled for OWNER/REPO")
 }
 
+func TestCloneRejectsInvalidRemoteURL(t *testing.T) {
+	opts := &options{
+		currentUser: &gitlab.User{Username: "OWNER"},
+		protocol:    "https",
+	}
+	ctxOpts := &ContextOpts{
+		Project: &gitlab.Project{
+			PathWithNamespace: "OWNER/REPO",
+			HTTPURLToRepo:     "--upload-pack=touch x",
+		},
+		Repo: "OWNER/REPO",
+	}
+
+	cs, restore := test.InitCmdStubber()
+	defer restore()
+
+	err := cloneRun(opts, ctxOpts)
+
+	require.ErrorContains(t, err, "invalid git remote URL")
+	assert.Zero(t, cs.Count)
+}
+
 func TestCloneProjectNamedWiki(t *testing.T) {
 	opts := &options{
 		currentUser: &gitlab.User{Username: "OWNER"},
@@ -294,5 +316,102 @@ func TestCloneProjectNamedWiki(t *testing.T) {
 
 	require.NoError(t, cloneRun(opts, ctxOpts))
 	require.Len(t, cs.Calls, 1)
-	assert.Equal(t, "git clone git@gitlab.com:OWNER/docs.wiki.git", strings.Join(cs.Calls[0].Args, " "))
+	assert.Equal(t, "git clone -- git@gitlab.com:OWNER/docs.wiki.git", strings.Join(cs.Calls[0].Args, " "))
+}
+
+func TestCloneRejectsInvalidAPIPaths(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    *options
+		project *gitlab.Project
+	}{
+		{
+			name: "preserve namespace with traversal",
+			opts: &options{
+				currentUser:       &gitlab.User{Username: "OWNER"},
+				protocol:          "https",
+				preserveNamespace: true,
+				dir:               "work",
+			},
+			project: &gitlab.Project{
+				PathWithNamespace: "../../evil",
+				Path:              "evil",
+				HTTPURLToRepo:     "https://gitlab.com/OWNER/REPO.git",
+			},
+		},
+		{
+			name: "group clone with dir and dotdot path",
+			opts: &options{
+				currentUser: &gitlab.User{Username: "OWNER"},
+				protocol:    "https",
+				groupName:   "group",
+				dir:         "work",
+			},
+			project: &gitlab.Project{
+				PathWithNamespace: "group/evil",
+				Path:              "..",
+				HTTPURLToRepo:     "https://gitlab.com/group/evil.git",
+			},
+		},
+		{
+			name: "fork upstream dir with absolute path",
+			opts: &options{
+				currentUser: &gitlab.User{Username: "OWNER"},
+				protocol:    "https",
+			},
+			project: &gitlab.Project{
+				PathWithNamespace: "OWNER/evil",
+				Path:              "/abs",
+				HTTPURLToRepo:     "https://gitlab.com/OWNER/evil.git",
+				ForkedFromProject: &gitlab.ForkParent{PathWithNamespace: "up/evil"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs, restore := test.InitCmdStubber()
+			defer restore()
+
+			err := cloneRun(tt.opts, &ContextOpts{Project: tt.project, Repo: "OWNER/REPO"})
+
+			require.ErrorContains(t, err, "invalid project path")
+			assert.Zero(t, cs.Count)
+		})
+	}
+}
+
+func TestValidateAPIPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path string
+		ok   bool
+	}{
+		{"gitlab-org/cli", true},
+		{"group/sub/project", true},
+		{"my.project", true},
+		{"", false},
+		{"/abs", false},
+		{"..", false},
+		{".", false},
+		{"../../x", false},
+		{"a/../b", false},
+		{"a//b", false},
+		{"a/", false},
+		{`a\b`, false},
+		{"C:/x", false},
+		{"-flag", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
+			err := validateAPIPath(tt.path)
+			if tt.ok {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "invalid project path")
+			}
+		})
+	}
 }

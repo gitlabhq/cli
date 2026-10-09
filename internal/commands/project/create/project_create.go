@@ -265,7 +265,10 @@ func runCreateProject(cmd *cobra.Command, args []string, f cmdutils.Factory) err
 		return fmt.Errorf("project created but GitLab returned an invalid web URL %q: %w", project.WebURL, err)
 	}
 	protocol, _ := cfg.Get(webURL.Host, "git_protocol")
-	remote := glrepo.RemoteURL(project, protocol)
+	remote, err := glrepo.RemoteURL(project, protocol)
+	if err != nil {
+		return fmt.Errorf("project created but GitLab returned an invalid repository URL: %w", err)
+	}
 
 	if isPath {
 		if needsGitInit {
@@ -365,7 +368,7 @@ func initializeRepo(projectPath, remoteURL string) error {
 	if err != nil {
 		return err
 	}
-	gitRemoteAdd := git.GitCommand("-C", projectPath, "remote", "add", "origin", remoteURL)
+	gitRemoteAdd := git.GitCommand("-C", projectPath, "remote", "add", "origin", "--", remoteURL)
 	gitRemoteAdd.Stdout = os.Stdout
 	gitRemoteAdd.Stderr = os.Stderr
 	err = run.PrepareCmd(gitRemoteAdd).Run()

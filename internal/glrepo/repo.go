@@ -18,16 +18,24 @@ import (
 
 // RemoteURL returns correct git clone URL of a repo
 // based on the user's git_protocol preference
-func RemoteURL(project *gitlab.Project, protocol string) string {
+func RemoteURL(project *gitlab.Project, protocol string) (string, error) {
+	remoteURL := project.HTTPURLToRepo
 	if protocol == "ssh" {
-		return project.SSHURLToRepo
+		remoteURL = project.SSHURLToRepo
 	}
-	return project.HTTPURLToRepo
+	if err := git.ValidateRemoteURL(remoteURL); err != nil {
+		return "", err
+	}
+	return remoteURL, nil
 }
 
 // WikiRemoteURL returns the clone URL for a project's wiki repository.
-func WikiRemoteURL(project *gitlab.Project, protocol string) string {
-	return strings.TrimSuffix(RemoteURL(project, protocol), ".git") + ".wiki.git"
+func WikiRemoteURL(project *gitlab.Project, protocol string) (string, error) {
+	remoteURL, err := RemoteURL(project, protocol)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(remoteURL, ".git") + ".wiki.git", nil
 }
 
 // FullName returns the repo with its namespace (like profclems/glab). Respects group and subgroups names

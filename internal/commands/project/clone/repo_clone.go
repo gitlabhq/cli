@@ -283,6 +283,18 @@ func groupClone(opts *options, ctxOpts *ContextOpts) error {
 	return nil
 }
 
+func validateAPIPath(p string) error {
+	if p == "" || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "-") || strings.ContainsAny(p, `\:`) {
+		return fmt.Errorf("invalid project path %q", p)
+	}
+	for seg := range strings.SplitSeq(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return fmt.Errorf("invalid project path %q", p)
+		}
+	}
+	return nil
+}
+
 func cloneRun(opts *options, ctxOpts *ContextOpts) error {
 	localDir := opts.dir
 	if !git.IsValidURL(ctxOpts.Repo) {
@@ -300,10 +312,20 @@ func cloneRun(opts *options, ctxOpts *ContextOpts) error {
 			}
 			ctxOpts.Project = p
 		}
-		ctxOpts.Repo = glrepo.RemoteURL(ctxOpts.Project, opts.protocol)
+		repoURL, err := glrepo.RemoteURL(ctxOpts.Project, opts.protocol)
+		if err != nil {
+			return err
+		}
+		ctxOpts.Repo = repoURL
 		if opts.preserveNamespace {
+			if err := validateAPIPath(ctxOpts.Project.PathWithNamespace); err != nil {
+				return err
+			}
 			localDir = filepath.Join(opts.dir, filepath.FromSlash(ctxOpts.Project.PathWithNamespace))
 		} else if opts.dir != "" && opts.groupName != "" {
+			if err := validateAPIPath(ctxOpts.Project.Path); err != nil {
+				return err
+			}
 			localDir = filepath.Join(opts.dir, ctxOpts.Project.Path)
 		}
 	} else if !strings.HasSuffix(ctxOpts.Repo, ".git") {
@@ -323,7 +345,18 @@ func cloneRun(opts *options, ctxOpts *ContextOpts) error {
 		if ctxOpts.Project.WikiAccessLevel == gitlab.DisabledAccessControl {
 			return fmt.Errorf("wiki is not enabled for %s", ctxOpts.Project.PathWithNamespace)
 		}
-		ctxOpts.Repo = glrepo.WikiRemoteURL(ctxOpts.Project, opts.protocol)
+		wikiURL, err := glrepo.WikiRemoteURL(ctxOpts.Project, opts.protocol)
+		if err != nil {
+			return err
+		}
+		ctxOpts.Repo = wikiURL
+	}
+	isUserFork := ctxOpts.Project != nil && ctxOpts.Project.ForkedFromProject != nil &&
+		strings.Contains(ctxOpts.Project.PathWithNamespace, opts.currentUser.Username)
+	if isUserFork && localDir == "" {
+		if err := validateAPIPath(ctxOpts.Project.Path); err != nil {
+			return err
+		}
 	}
 	_, err := git.RunClone(ctxOpts.Repo, localDir, opts.gitFlags)
 	if err != nil {
@@ -333,7 +366,7 @@ func cloneRun(opts *options, ctxOpts *ContextOpts) error {
 	// treating fork's ssh/https url as origin. Add upstream as remote pointing
 	// to forked repo's ssh/https url depending on the users preferred protocol
 	if ctxOpts.Project != nil {
-		if ctxOpts.Project.ForkedFromProject != nil && strings.Contains(ctxOpts.Project.PathWithNamespace, opts.currentUser.Username) {
+		if isUserFork {
 			if localDir == "" {
 				localDir = "./" + ctxOpts.Project.Path
 			}
@@ -341,7 +374,10 @@ func cloneRun(opts *options, ctxOpts *ContextOpts) error {
 			if err != nil {
 				return err
 			}
-			repoURL := glrepo.RemoteURL(fProject, opts.protocol)
+			repoURL, err := glrepo.RemoteURL(fProject, opts.protocol)
+			if err != nil {
+				return err
+			}
 			err = git.AddUpstreamRemote(repoURL, localDir)
 			if err != nil {
 				return err
