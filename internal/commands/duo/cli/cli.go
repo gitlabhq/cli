@@ -34,9 +34,13 @@ func AppendBinaryStatusFooter(cmd *cobra.Command, f cmdutils.Factory) {
 
 		path, version, installed := binaryStatus(f.Config())
 		if installed {
+			installedText := path
+			if version != "" {
+				installedText = version + " (" + path + ")"
+			}
 			io.LogInfo(utils.Indent(heredoc.Docf(`
-			  Installed: %s (%s)
-			  Run 'glab duo cli help' for the GitLab Duo CLI commands and flags.`, version, path), "  "))
+			  Installed: %s
+			  Run 'glab duo cli help' for the GitLab Duo CLI commands and flags.`, installedText), "  "))
 			return
 		}
 
