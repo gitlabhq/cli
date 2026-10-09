@@ -32,6 +32,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
+	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -45,8 +46,10 @@ type fakeGitLab struct {
 	projects         map[string]int64
 	projectLookups   map[string]int
 	sessionsCreated  []string
+	agentTypes       []string
 	identityRequests int
 	eventBatches     []int
+	events           []auditEventRequest
 	eventsPosted     int
 	completed        int
 	// noSessionID makes session creation succeed without returning an ID.
@@ -56,6 +59,8 @@ type fakeGitLab struct {
 	// for the project.
 	identityStatus int
 	sessionStatus  int
+	// identityBody, when set, is the body sent with identityStatus.
+	identityBody string
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +85,11 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/ai_agent/identities"):
 		f.identityRequests++
 		if f.identityStatus != 0 {
+			if f.identityBody != "" {
+				w.WriteHeader(f.identityStatus)
+				_, _ = io.WriteString(w, f.identityBody)
+				return
+			}
 			writeStatus(w, f.identityStatus)
 			return
 		}
@@ -92,6 +102,7 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body sessionRequest
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.sessionsCreated = append(f.sessionsCreated, body.IdempotencyKey)
+		f.agentTypes = append(f.agentTypes, body.AgentType)
 		if f.noSessionID {
 			_, _ = io.WriteString(w, `{}`)
 			return
@@ -106,6 +117,7 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.eventBatches = append(f.eventBatches, len(body.Events))
+		f.events = append(f.events, body.Events...)
 		f.eventsPosted += len(body.Events)
 		_, _ = io.WriteString(w, `{}`)
 	case r.Method == http.MethodPatch && strings.HasSuffix(path, "/ai_agent/sessions/99"):
@@ -114,6 +126,14 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+func eventNames(events []auditEventRequest) []string {
+	names := make([]string, 0, len(events))
+	for _, e := range events {
+		names = append(names, e.EventName)
+	}
+	return names
 }
 
 func writeStatus(w http.ResponseWriter, code int) {
@@ -161,6 +181,7 @@ func newSyncAllEnv(t *testing.T, hooksInstalled bool) *syncAllEnv {
 		false,
 		cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "test-token", testHost, api.WithGitLabClient(client))),
 		cmdtest.WithExecutor(mExec),
+		cmdtest.WithConfig(config.NewFromString("hosts:\n  "+testHost+":\n    token: test-token\n")),
 	)
 
 	return &syncAllEnv{home: home, fake: fake, exec: exec, mExec: mExec}
@@ -590,7 +611,8 @@ func TestSyncAll_UploadsOpenCodeSession(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"ses_1"}, env.fake.sessionsCreated)
-	assert.Equal(t, 2, env.fake.eventsPosted)
+	assert.Equal(t, []string{eventToolInvoked, eventToolInvoked, eventToolResponse, eventToolResponse}, eventNames(env.fake.events),
+		"completed OpenCode tool calls also record their result")
 	cursor, err := readCursor("ses_1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), cursor)

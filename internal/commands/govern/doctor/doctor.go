@@ -358,7 +358,19 @@ func checkFallbackSync(ctx context.Context, executor cmdutils.Executor, goos str
 	return checkResult{
 		name:    name,
 		ok:      true,
-		message: fmt.Sprintf("installed (%s); %s", glabPath, describeLastRun(status, now)),
+		message: fmt.Sprintf("installed (%s); %s%s", glabPath, describeLastRun(status, now), describeDiscoveredAgents()),
+	}
+}
+
+func describeDiscoveredAgents() string {
+	agents, err := fallbacksync.DiscoveredAgents()
+	switch {
+	case err != nil:
+		return fmt.Sprintf("; could not read which agents are synced without hooks: %v", err)
+	case len(agents) == 0:
+		return ""
+	default:
+		return "; also syncing " + strings.Join(agents, ", ") + " sessions"
 	}
 }
 
@@ -381,6 +393,12 @@ func describeLastRun(s *fallbacksync.Status, now time.Time) string {
 	}
 	if len(s.Paused) > 0 {
 		desc += "; paused for " + strings.Join(s.Paused, "; ")
+	}
+	if len(s.AgentTypeNotSupported) > 0 {
+		desc += "; not supported by GitLab yet: " + strings.Join(s.AgentTypeNotSupported, ", ")
+	}
+	if len(s.Skipped) > 0 {
+		desc += "; not synced: " + strings.Join(s.Skipped, "; ")
 	}
 	if n := len(s.GovernanceNotEnabled); n > 0 {
 		desc += fmt.Sprintf("; governance not enabled for %s (%s)", plural(n, "project"), strings.Join(s.GovernanceNotEnabled, ", "))

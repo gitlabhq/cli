@@ -18,6 +18,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -214,6 +215,63 @@ func TestSetup_NoFallbackSync(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dir, ".claude", "settings.json"))
 	assert.NotContains(t, out.String(), "Fallback periodic sync")
 	assert.Contains(t, out.String(), "Hooks installed")
+}
+
+func TestSetup_Agents(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+
+	run := func(t *testing.T, args string) (string, error) {
+		t.Helper()
+		mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+		mExec.EXPECT().LookPath("glab").Return("", errors.New("not found")).AnyTimes()
+		mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil, nil).AnyTimes()
+		exec := cmdtest.SetupCmdForTest(t, NewCmd, false, cmdtest.WithExecutor(mExec))
+		out, err := exec("--yes " + args)
+		if out == nil {
+			return "", err
+		}
+		return out.String(), err
+	}
+
+	out, err := run(t, "--agents codex,cursor")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Syncing sessions from: codex, cursor.")
+	agents, err := fallbacksync.DiscoveredAgents()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex", "cursor"}, agents)
+
+	_, err = run(t, "")
+	require.NoError(t, err)
+	agents, err = fallbacksync.DiscoveredAgents()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex", "cursor"}, agents, "setup without --agents keeps the earlier choice")
+
+	out, err = run(t, `--agents ""`)
+	require.NoError(t, err)
+	assert.Contains(t, out, "Session discovery turned off.")
+	agents, err = fallbacksync.DiscoveredAgents()
+	require.NoError(t, err)
+	assert.Empty(t, agents)
+}
+
+func TestSetup_AgentsValidation(t *testing.T) {
+	t.Parallel()
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+
+	_, err := exec("--yes --agents claude-code")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unsupported agent "claude-code" in --agents; use codex, cursor`)
+
+	_, err = exec("--yes --agents codex --no-fallback-sync")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "none of the others can be")
+
+	_, err = exec("--yes --agents codex --uninstall")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "none of the others can be")
 }
 
 func TestSetup_UninstallConflictsWithNoFallbackSync(t *testing.T) {
@@ -469,4 +527,93 @@ func TestMCPDestructiveAnnotation(t *testing.T) {
 	f := cmdtest.NewTestFactory(ios)
 	cmd := NewCmd(f)
 	assert.Equal(t, "true", cmd.Annotations[mcpannotations.Destructive])
+}
+
+func TestSetupPrompt(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t,
+		"glab will install Claude Code hooks in ~/.claude/settings.json and a systemd user timer (~/.config/systemd/user/glab-govern-audit-sync.timer) that syncs sessions in the background every 30 minutes, replacing any existing job. "+
+			"Claude Code sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and file edits. Do you wish to continue?",
+		setupPrompt("linux", false, nil), "every setup says what is uploaded, not only --agents")
+
+	withAgents := setupPrompt("linux", false, []string{"codex", "cursor"})
+	assert.Contains(t, withAgents, "including your prompts and each tool call's arguments, such as commands and file edits")
+	assert.Contains(t, withAgents, "The job will also upload your codex and cursor sessions the same way, from the last 89 days and from now on")
+
+	hooksOnly := setupPrompt("linux", true, []string{"codex"})
+	assert.Contains(t, hooksOnly, "including your prompts and each tool call's arguments")
+	assert.NotContains(t, hooksOnly, "codex", "without the job, enabled agents are not synced")
+}
+
+func TestUninstallPrompt(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "glab will remove the fallback periodic sync job. Do you wish to continue?", uninstallPrompt(nil))
+	assert.Equal(t, "glab will remove the fallback periodic sync job and stop syncing codex and cursor sessions. Do you wish to continue?",
+		uninstallPrompt([]string{"codex", "cursor"}))
+}
+
+func TestRunSetup_NamesAgentsEnabledEarlier(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"cursor"}))
+
+	// Not a terminal and no --yes, so setup stops at the prompt it would show.
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	err := runSetup(t.Context(), &options{io: ios, goos: "linux", settingsPathOverride: filepath.Join(dir, ".claude", "settings.json")})
+	require.Error(t, err)
+
+	agents, err := fallbacksync.DiscoveredAgents()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"cursor"}, agents, "a plain setup keeps the earlier choice, which its prompt names")
+}
+
+func TestRunUninstall_StopsDiscovery(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex", "cursor"}))
+
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	mExec.EXPECT().
+		ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "is-active", "--quiet", "glab-govern-audit-sync.timer"}, nil).
+		Return(nil, &exec.ExitError{})
+
+	ios, _, stdout, _ := cmdtest.TestIOStreams()
+	require.NoError(t, runUninstall(t.Context(), &options{io: ios, executor: mExec, goos: "linux", yes: true}))
+
+	agents, err := fallbacksync.DiscoveredAgents()
+	require.NoError(t, err)
+	assert.Empty(t, agents, "a later setup does not bring discovery back on its own")
+	assert.Contains(t, stdout.String(), "Stopped syncing codex, cursor sessions.")
+}
+
+func TestRunUninstall_CorruptAgentList(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	configDir := filepath.Join(dir, "glab")
+	t.Setenv("GLAB_CONFIG_DIR", configDir)
+	opts := &options{executor: expectLinuxInstall(t, "/usr/bin/glab"), buildInfo: testBuild, goos: "linux", yes: true}
+	ios, _, stdout, _ := cmdtest.TestIOStreams()
+	opts.io = ios
+	opts.settingsPathOverride = filepath.Join(dir, ".claude", "settings.json")
+	require.NoError(t, runSetup(t.Context(), opts))
+
+	agentsFile := filepath.Join(configDir, "gaig", "discovered-agents.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(agentsFile), 0o755))
+	require.NoError(t, os.WriteFile(agentsFile, []byte("{not json"), 0o600))
+
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "disable", "--now", "glab-govern-audit-sync.timer"}, nil).Return(nil, nil)
+	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "daemon-reload"}, nil).Return(nil, nil)
+	opts.executor = mExec
+
+	require.NoError(t, runUninstall(t.Context(), opts), "a corrupt agent list does not block uninstall")
+
+	assert.Contains(t, stdout.String(), "Fallback periodic sync removed")
+	agents, err := fallbacksync.DiscoveredAgents()
+	require.NoError(t, err, "the list is reset")
+	assert.Empty(t, agents)
 }

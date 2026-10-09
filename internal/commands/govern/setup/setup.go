@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -33,6 +34,8 @@ type options struct {
 	goos                 string
 	yes                  bool
 	noFallbackSync       bool
+	agents               []string
+	agentsChanged        bool
 	uninstall            bool
 	settingsPathOverride string
 }
@@ -57,7 +60,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			- SessionEnd hook in %[1]s~/.claude/settings.json%[1]s, which syncs the session and marks it completed.
 			- Fallback periodic sync: a launchd agent (%[1]s~/Library/LaunchAgents/com.gitlab.glab-govern-audit-sync.plist%[1]s) on macOS, or a systemd user timer (%[1]s~/.config/systemd/user/glab-govern-audit-sync.timer%[1]s) on Linux.
 
-			The fallback periodic sync runs %[1]sglab govern audit sync --all%[1]s every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded, using your stored glab credentials and the glab configuration directory in use when you run setup. Each session goes to the project and host of the Git repository the agent ran in. It also marks sessions completed once they have been idle for 24 hours. It pauses Claude Code sessions while the hooks are not installed. Pass %[1]s--no-fallback-sync%[1]s to install only the hooks. The fallback periodic sync is not available on Windows.
+			The fallback periodic sync runs %[1]sglab govern audit sync --all%[1]s every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see %[1]sglab govern audit sync --help%[1]s for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. Each session goes to the project and host of the Git repository the agent ran in. It also marks sessions completed once they have been idle for 24 hours. It pauses Claude Code sessions while the hooks are not installed. Pass %[1]s--no-fallback-sync%[1]s to install only the hooks. The fallback periodic sync is not available on Windows.
+
+			Pass %[1]s--agents codex,cursor%[1]s to also sync Codex and Cursor sessions. glab installs no hooks for those agents: the fallback periodic sync finds their sessions by scanning their transcripts in %[1]s~/.codex/sessions%[1]s and %[1]s~/.cursor/projects%[1]s, including sessions from before you enabled them, and uploads those from repositories on GitLab hosts you are logged in to with glab. Their sessions are marked completed once they have been idle for 24 hours. Run setup again with a different %[1]s--agents%[1]s list to change which agents are synced, or with %[1]s--agents ""%[1]s to stop. Every setup prompt names the agents that are synced, and %[1]s--uninstall%[1]s also stops syncing them.
 
 			Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run %[1]sglab govern doctor%[1]s afterwards to verify the setup.
 
@@ -70,6 +75,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Configure only the hooks
 			$ glab govern setup --no-fallback-sync
 
+			# Also sync Codex and Cursor sessions through the fallback periodic sync
+			$ glab govern setup --agents codex,cursor
+
 			# Remove the fallback periodic sync
 			$ glab govern setup --uninstall
 		`),
@@ -79,6 +87,10 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.agentsChanged = cmd.Flags().Changed("agents")
+			if err := validateAgents(opts.agents); err != nil {
+				return err
+			}
 			if opts.uninstall {
 				return runUninstall(cmd.Context(), opts)
 			}
@@ -89,10 +101,42 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl := cmd.Flags()
 	fl.BoolVarP(&opts.yes, "yes", "y", false, "Skip confirmation prompt.")
 	fl.BoolVar(&opts.noFallbackSync, "no-fallback-sync", false, "Install only the hooks, without the fallback periodic sync job.")
-	fl.BoolVar(&opts.uninstall, "uninstall", false, "Remove the fallback periodic sync job. The hooks are left in place.")
+	fl.BoolVar(&opts.uninstall, "uninstall", false, "Remove the fallback periodic sync job and stop syncing Codex and Cursor sessions. The hooks are left in place.")
+	fl.StringSliceVar(&opts.agents, "agents", nil, fmt.Sprintf("Also sync sessions from these agents, found by the fallback periodic sync without hooks: %s. Replaces the agents enabled by an earlier run. Multiple agents can be comma-separated or specified by repeating the flag.", strings.Join(fallbacksync.DiscoverableAgents, ", ")))
 	cmd.MarkFlagsMutuallyExclusive("uninstall", "no-fallback-sync")
+	cmd.MarkFlagsMutuallyExclusive("agents", "no-fallback-sync")
+	cmd.MarkFlagsMutuallyExclusive("agents", "uninstall")
 
 	return cmd
+}
+
+func setupPrompt(goos string, noFallbackSync bool, agents []string) string {
+	prompt := "glab will install Claude Code hooks in ~/.claude/settings.json"
+	if !noFallbackSync {
+		prompt += fmt.Sprintf(" and %s that syncs sessions in the background every %d minutes, replacing any existing job", fallbacksync.Description(goos), int(fallbacksync.Interval.Minutes()))
+	}
+	prompt += ". Claude Code sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and file edits"
+	if !noFallbackSync && len(agents) > 0 {
+		prompt += fmt.Sprintf(". The job will also upload your %s sessions the same way, from the last 89 days and from now on", strings.Join(agents, " and "))
+	}
+	return prompt + ". Do you wish to continue?"
+}
+
+func uninstallPrompt(agents []string) string {
+	prompt := "glab will remove the fallback periodic sync job"
+	if len(agents) > 0 {
+		prompt += fmt.Sprintf(" and stop syncing %s sessions", strings.Join(agents, " and "))
+	}
+	return prompt + ". Do you wish to continue?"
+}
+
+func validateAgents(agents []string) error {
+	for _, a := range agents {
+		if !slices.Contains(fallbacksync.DiscoverableAgents, a) {
+			return cmdutils.FlagError{Err: fmt.Errorf("unsupported agent %q in --agents; use %s", a, strings.Join(fallbacksync.DiscoverableAgents, ", "))}
+		}
+	}
+	return nil
 }
 
 func confirm(ctx context.Context, opts *options, prompt string) (bool, error) {
@@ -114,11 +158,17 @@ func runSetup(ctx context.Context, opts *options) error {
 	io := opts.io
 	c := io.Color()
 
-	prompt := "glab will install Claude Code hooks in ~/.claude/settings.json"
-	if !opts.noFallbackSync {
-		prompt += fmt.Sprintf(" and %s that syncs sessions in the background every %d minutes, replacing any existing job", fallbacksync.Description(opts.goos), int(fallbacksync.Interval.Minutes()))
+	// The agents already enabled are named too, because re-running setup
+	// brings their discovery back with the job.
+	agents := opts.agents
+	if !opts.agentsChanged {
+		enabled, err := fallbacksync.DiscoveredAgents()
+		if err != nil {
+			return fmt.Errorf("could not read which agents are synced: %w", err)
+		}
+		agents = enabled
 	}
-	confirmed, err := confirm(ctx, opts, prompt+". Do you wish to continue?")
+	confirmed, err := confirm(ctx, opts, setupPrompt(opts.goos, opts.noFallbackSync, agents))
 	if err != nil {
 		return err
 	}
@@ -141,6 +191,17 @@ func runSetup(ctx context.Context, opts *options) error {
 		}
 	}
 
+	if opts.agentsChanged {
+		if err := fallbacksync.SetDiscoveredAgents(opts.agents); err != nil {
+			return fmt.Errorf("failed to enable session discovery: %w", err)
+		}
+		if len(opts.agents) > 0 {
+			io.LogInfof("%s Syncing sessions from: %s.\n", c.GreenCheck(), strings.Join(opts.agents, ", "))
+		} else {
+			io.LogInfo("Session discovery turned off.")
+		}
+	}
+
 	io.LogInfo("\nSetup complete. Run 'glab govern doctor' to verify.")
 	return nil
 }
@@ -153,12 +214,20 @@ func runUninstall(ctx context.Context, opts *options) error {
 	if err != nil {
 		return err
 	}
-	if !jobMayBePresent(ctx, opts, home) {
+	// An unreadable list must not block uninstall, which is the way to
+	// recover from it. It is reset with the rest.
+	agents, err := fallbacksync.DiscoveredAgents()
+	unreadable := err != nil
+	if unreadable {
+		dbg.Debugf("could not read which agents are synced: %v", err)
+	}
+	jobPresent := jobMayBePresent(ctx, opts, home)
+	if !jobPresent && len(agents) == 0 && !unreadable {
 		io.LogInfo("No fallback periodic sync job found.")
 		return nil
 	}
 
-	confirmed, err := confirm(ctx, opts, "glab will remove the fallback periodic sync job. Do you wish to continue?")
+	confirmed, err := confirm(ctx, opts, uninstallPrompt(agents))
 	if err != nil {
 		return err
 	}
@@ -167,6 +236,20 @@ func runUninstall(ctx context.Context, opts *options) error {
 		return nil
 	}
 
+	// Discovery is turned off too, so a later setup does not bring it back
+	// without the user choosing it again.
+	if len(agents) > 0 || unreadable {
+		if err := fallbacksync.SetDiscoveredAgents(nil); err != nil {
+			return fmt.Errorf("failed to turn off session discovery: %w", err)
+		}
+	}
+	if len(agents) > 0 {
+		io.LogInfof("%s Stopped syncing %s sessions.\n", c.GreenCheck(), strings.Join(agents, ", "))
+	}
+
+	if !jobPresent {
+		return nil
+	}
 	removed, err := fallbacksync.Uninstall(ctx, opts.executor, opts.goos, home, os.Getuid())
 	switch {
 	case err != nil:

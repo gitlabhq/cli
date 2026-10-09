@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -321,6 +322,44 @@ func TestCheckFallbackSync_GovernanceNotEnabledStaysHealthy(t *testing.T) {
 
 	assert.True(t, result.ok, "sessions in projects without governance are expected")
 	assert.Contains(t, result.message, "governance not enabled for 2 projects (gitlab.com/me/dotfiles, gitlab.com/gitlab-org/cli)")
+}
+
+func TestCheckFallbackSync_AgentTypeNotSupportedStaysHealthy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GLAB_CONFIG_DIR", home)
+	glab, err := os.Executable()
+	require.NoError(t, err)
+	installTestJob(t, home, glab)
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, fallbacksync.WriteStatus(fallbacksync.Status{
+		FinishedAt:            now,
+		AgentTypeNotSupported: []string{"codex on gitlab.example.com"},
+		Skipped:               []string{"the Cursor workspace x matches 2 directories (a, b), and its sessions do not show which"},
+	}))
+
+	result := checkFallbackSync(t.Context(), linuxJobState(t, true, "ExecMainStartTimestampMonotonic=1234\nExecMainStatus=0\n"), "linux", now)
+
+	assert.True(t, result.ok)
+	assert.Contains(t, result.message, "not supported by GitLab yet: codex on gitlab.example.com")
+	assert.Contains(t, result.message, "not synced: the Cursor workspace x matches 2 directories")
+}
+
+func TestCheckFallbackSync_ShowsDiscoveredAgents(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GLAB_CONFIG_DIR", home)
+	glab, err := os.Executable()
+	require.NoError(t, err)
+	installTestJob(t, home, glab)
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, fallbacksync.WriteStatus(fallbacksync.Status{FinishedAt: now}))
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex", "cursor"}))
+
+	result := checkFallbackSync(t.Context(), linuxJobState(t, true, "ExecMainStartTimestampMonotonic=1234\nExecMainStatus=0\n"), "linux", now)
+
+	assert.True(t, result.ok)
+	assert.True(t, strings.HasSuffix(result.message, "; also syncing codex, cursor sessions"), result.message)
 }
 
 func TestCheckFallbackSync_Overdue(t *testing.T) {
