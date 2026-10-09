@@ -128,7 +128,10 @@ func (o *options) run() error {
 		return fmt.Errorf("failed to find project %q: %w", o.projectID, err)
 	}
 
-	remoteURL := glrepo.RemoteURL(project, o.protocol)
+	remoteURL, err := glrepo.RemoteURL(project, o.protocol)
+	if err != nil {
+		return err
+	}
 
 	if _, err = git.AddRemote(o.remoteName, remoteURL); err != nil {
 		return cmdutils.WrapError(err, "failed to add remote")

@@ -217,7 +217,10 @@ func (o *options) run(ctx context.Context) error {
 						protocol = glinstance.DefaultProtocol
 					}
 
-					forkedRepoCloneURL := glrepo.RemoteURL(forkedProject, protocol)
+					forkedRepoCloneURL, err := glrepo.RemoteURL(forkedProject, protocol)
+					if err != nil {
+						return err
+					}
 					if err := o.addOrReplaceRemote(remoteName, "upstream", forkedRepoCloneURL); err != nil {
 						return err
 					}
@@ -382,7 +385,10 @@ func (o *options) run(ctx context.Context) error {
 		}
 		if remoteDesired {
 			remoteName := "origin"
-			forkedRepoCloneURL := glrepo.RemoteURL(forkedProject, protocol)
+			forkedRepoCloneURL, err := glrepo.RemoteURL(forkedProject, protocol)
+			if err != nil {
+				return err
+			}
 			if err := o.addOrReplaceRemote(remoteName, "upstream", forkedRepoCloneURL); err != nil {
 				return err
 			}
@@ -405,12 +411,18 @@ func (o *options) run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			forkedRepoURL := glrepo.RemoteURL(forkedProject, protocol)
+			forkedRepoURL, err := glrepo.RemoteURL(forkedProject, protocol)
+			if err != nil {
+				return err
+			}
 			cloneDir, err := git.RunClone(forkedRepoURL, "", []string{})
 			if err != nil {
 				return fmt.Errorf("failed to clone fork: %w", err)
 			}
-			upstreamURL := glrepo.RemoteURL(repoToFork, protocol)
+			upstreamURL, err := glrepo.RemoteURL(repoToFork, protocol)
+			if err != nil {
+				return err
+			}
 			err = git.AddUpstreamRemote(upstreamURL, cloneDir)
 			if err != nil {
 				return err

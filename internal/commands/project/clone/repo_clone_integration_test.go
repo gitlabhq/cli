@@ -54,40 +54,40 @@ func runCommand(cmd *cobra.Command, cli string, stds ...*bytes.Buffer) (*test.Cm
 
 func Test_repoClone_Integration(t *testing.T) {
 	name := "gitlab-org/cli"
-	url := "git clone git@gitlab.com:gitlab-org/cli.git"
+	url := "git clone -- git@gitlab.com:gitlab-org/cli.git"
 	repoCloneTest(t, name, url, "")
 }
 
 func Test_repoClone_preserve_Integration(t *testing.T) {
 	name := "gitlab-org/cli"
-	url := "git clone git@gitlab.com:gitlab-org/cli.git gitlab-org/cli"
+	url := "git clone -- git@gitlab.com:gitlab-org/cli.git gitlab-org/cli"
 	additionalCli := "-p"
 	repoCloneTest(t, name, url, additionalCli)
 }
 
 func Test_repoClone_http__Integration(t *testing.T) {
 	name := "https://gitlab.com/gitlab-org/cli"
-	url := "git clone https://gitlab.com/gitlab-org/cli.git"
+	url := "git clone -- https://gitlab.com/gitlab-org/cli.git"
 	repoCloneTest(t, name, url, "")
 }
 
 func Test_repoClone_http__preserve_Integration(t *testing.T) {
 	name := "https://gitlab.com/gitlab-org/cli"
-	url := "git clone https://gitlab.com/gitlab-org/cli.git"
+	url := "git clone -- https://gitlab.com/gitlab-org/cli.git"
 	additionalCli := "-p"
 	repoCloneTest(t, name, url, additionalCli)
 }
 
 func Test_repoClone_dir_Integration(t *testing.T) {
 	name := "gitlab-org/cli"
-	url := "git clone git@gitlab.com:gitlab-org/cli.git tmp"
+	url := "git clone -- git@gitlab.com:gitlab-org/cli.git tmp"
 	additionalCli := "tmp"
 	repoCloneTest(t, name, url, additionalCli)
 }
 
 func Test_repoClone_preserve_dir_Integration(t *testing.T) {
 	name := "gitlab-org/cli"
-	url := "git clone git@gitlab.com:gitlab-org/cli.git tmp/gitlab-org/cli"
+	url := "git clone -- git@gitlab.com:gitlab-org/cli.git tmp/gitlab-org/cli"
 	additionalCli := "-p tmp"
 	repoCloneTest(t, name, url, additionalCli)
 }
@@ -210,6 +210,6 @@ func repoCloneGroupTest(t *testing.T, expectedRepoNames []string, expectedRepoUr
 	assert.Equal(t, len(expectedRepoUrls), cs.Count)
 
 	for i := range expectedRepoUrls {
-		assert.Equal(t, fmt.Sprintf("git clone %s", expectedRepoUrls[i]), strings.Join(cs.Calls[i].Args, " "))
+		assert.Equal(t, fmt.Sprintf("git clone -- %s", expectedRepoUrls[i]), strings.Join(cs.Calls[i].Args, " "))
 	}
 }

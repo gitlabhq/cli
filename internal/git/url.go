@@ -1,8 +1,12 @@
 package git
 
 import (
+	"fmt"
 	"net/url"
+	"regexp"
+	"slices"
 	"strings"
+	"unicode"
 )
 
 func isSupportedProtocol(u string) bool {
@@ -57,6 +61,30 @@ func ParseURL(rawURL string) (*url.URL, error) {
 	}
 
 	return u, nil
+}
+
+var remoteSchemes = []string{"ssh", "git+ssh", "git", "http", "https"}
+
+// scpLikeURL matches [user@]host:path and [user@host]:path (IPv6). The path
+// must not start with ":", which would make it git's <transport>::<address>
+// remote-helper syntax.
+var scpLikeURL = regexp.MustCompile(`^(?:\w[\w.-]*@)?(?:\w[\w.-]*|\[(?:\w[\w.-]*@)?[0-9A-Fa-f:.]+\]):[^:\s]`)
+
+// ValidateRemoteURL reports whether u, taken from an API response, is safe to
+// hand to git as a remote: a supported URL scheme or scp-like SSH syntax.
+// It rejects values git would read as an option or a remote-helper transport.
+func ValidateRemoteURL(u string) error {
+	if strings.ContainsFunc(u, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return fmt.Errorf("invalid git remote URL %q", u)
+	}
+	scheme, _, hasAuthority := strings.Cut(u, "://")
+	if hasAuthority && slices.Contains(remoteSchemes, strings.ToLower(scheme)) {
+		return nil
+	}
+	if scpLikeURL.MatchString(u) && !hasAuthority {
+		return nil
+	}
+	return fmt.Errorf("invalid git remote URL %q", u)
 }
 
 // IsValidUrl tests a string to determine if it is a valid Git url or not.

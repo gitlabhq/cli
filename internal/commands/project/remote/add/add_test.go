@@ -84,7 +84,7 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 					GetProject("alice/my-project", gomock.Any(), gomock.Any()).
 					Return(testProject, nil, nil)
 			},
-			expectedShellouts: []string{"git remote add -f alice git@gitlab.com:alice/my-project.git"},
+			expectedShellouts: []string{"git remote add -f alice -- git@gitlab.com:alice/my-project.git"},
 			wantOut:           "✓ Remote \"alice\" added using ssh protocol.\n",
 		},
 		{
@@ -96,7 +96,7 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 					GetProject("alice/my-project", gomock.Any(), gomock.Any()).
 					Return(testProject, nil, nil)
 			},
-			expectedShellouts: []string{"git remote add -f upstream git@gitlab.com:alice/my-project.git"},
+			expectedShellouts: []string{"git remote add -f upstream -- git@gitlab.com:alice/my-project.git"},
 			wantOut:           "✓ Remote \"upstream\" added using ssh protocol.\n",
 		},
 		{
@@ -113,7 +113,7 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 						SSHURLToRepo:      "git@gitlab.com:group/subgroup/project.git",
 					}, nil, nil)
 			},
-			expectedShellouts: []string{"git remote add -f group git@gitlab.com:group/subgroup/project.git"},
+			expectedShellouts: []string{"git remote add -f group -- git@gitlab.com:group/subgroup/project.git"},
 			wantOut:           "✓ Remote \"group\" added using ssh protocol.\n",
 		},
 		{
@@ -125,7 +125,7 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 					GetProject("alice/my-project", gomock.Any(), gomock.Any()).
 					Return(testProject, nil, nil)
 			},
-			expectedShellouts: []string{"git remote add -f alice https://gitlab.com/alice/my-project.git"},
+			expectedShellouts: []string{"git remote add -f alice -- https://gitlab.com/alice/my-project.git"},
 			wantOut:           "✓ Remote \"alice\" added using https protocol.\n",
 		},
 		{
@@ -137,7 +137,7 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 					GetProject("alice/my-project", gomock.Any(), gomock.Any()).
 					Return(testProject, nil, nil)
 			},
-			expectedShellouts: []string{"git remote add -f alice git@gitlab.com:alice/my-project.git"},
+			expectedShellouts: []string{"git remote add -f alice -- git@gitlab.com:alice/my-project.git"},
 			wantOut:           "✓ Remote \"alice\" added using ssh protocol.\n",
 		},
 		{
@@ -178,6 +178,21 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 			wantErr: `failed to find project "alice/missing-project": 404 Not Found`,
 		},
 		{
+			name:    "fails when the API returns an option-like clone URL",
+			args:    "alice/my-project",
+			remotes: glrepo.Remotes{},
+			mockSetup: func(tc *gitlabtesting.TestClient) {
+				tc.MockProjects.EXPECT().
+					GetProject("alice/my-project", gomock.Any(), gomock.Any()).
+					Return(&gitlab.Project{
+						ID:                1,
+						PathWithNamespace: "alice/my-project",
+						SSHURLToRepo:      "--upload-pack=touch x",
+					}, nil, nil)
+			},
+			wantErr: "invalid git remote URL",
+		},
+		{
 			name:    "works in empty repo with no remotes",
 			args:    "alice/my-project",
 			remotes: nil,
@@ -186,7 +201,7 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 					GetProject("alice/my-project", gomock.Any(), gomock.Any()).
 					Return(testProject, nil, nil)
 			},
-			expectedShellouts: []string{"git remote add -f alice git@gitlab.com:alice/my-project.git"},
+			expectedShellouts: []string{"git remote add -f alice -- git@gitlab.com:alice/my-project.git"},
 			wantOut:           "✓ Remote \"alice\" added using ssh protocol.\n",
 		},
 	}
@@ -219,6 +234,7 @@ func TestNewCmdRemoteAdd(t *testing.T) {
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
+				assert.Zero(t, cs.Count)
 				return
 			}
 

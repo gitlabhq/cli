@@ -306,7 +306,7 @@ func CheckoutNewBranch(branch string) error {
 }
 
 func RunClone(cloneURL string, target string, args []string) (string, error) {
-	cloneArgs := append(slices.Clone(args), cloneURL)
+	cloneArgs := append(slices.Clone(args), "--", cloneURL)
 
 	// If the args contain an explicit target, pass it to clone
 	//    otherwise, parse the URL to determine where git cloned it to so we can return it
@@ -342,7 +342,7 @@ func StripDotGit(value string) string {
 }
 
 func AddUpstreamRemote(upstreamURL, cloneDir string) error {
-	cloneCmd := GitCommand("-C", cloneDir, "remote", "add", "-f", "upstream", upstreamURL)
+	cloneCmd := GitCommand("-C", cloneDir, "remote", "add", "-f", "upstream", "--", upstreamURL)
 	cloneCmd.Stdout = os.Stdout
 	cloneCmd.Stderr = os.Stderr
 	return run.PrepareCmd(cloneCmd).Run()
@@ -534,7 +534,7 @@ func parseRemotes(gitRemotes []string) RemoteSet {
 
 // AddRemote adds a new git remote and auto-fetches objects from it
 func AddRemote(name, u string) (*Remote, error) {
-	addCmd := exec.Command("git", "remote", "add", "-f", name, u)
+	addCmd := exec.Command("git", "remote", "add", "-f", name, "--", u)
 	addCmd.Stderr = os.Stderr
 	err := run.PrepareCmd(addCmd).Run()
 	if err != nil {

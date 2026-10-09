@@ -226,3 +226,42 @@ func TestParseURL(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateRemoteURL(t *testing.T) {
+	tests := []struct {
+		url     string
+		wantErr bool
+	}{
+		{url: "", wantErr: true},
+		{url: "ext::touch x", wantErr: true},
+		{url: "ext::sh -c touch% /tmp/x", wantErr: true},
+		{url: "fd::3", wantErr: true},
+		{url: "--upload-pack=touch x", wantErr: true},
+		{url: "-oProxyCommand=x", wantErr: true},
+		{url: "file:///tmp/x", wantErr: true},
+		{url: "/tmp/x", wantErr: true},
+		{url: "-host:g/p.git", wantErr: true},
+		{url: "git@-host:g/p.git", wantErr: true},
+		{url: "http::http://x/p.git", wantErr: true},
+		{url: "git@host:g/p.git\n--upload-pack=x", wantErr: true},
+		{url: "https://gitlab.com/g/p.git ", wantErr: true},
+		{url: "ssh://git@host/g\n", wantErr: true},
+		{url: "gitlab_web:g/p.git"},
+		{url: "git@my_host.local:g/p.git"},
+		{url: "git@gitlab.com:g/p.git"},
+		{url: "gitlab.example.com:g/p.git"},
+		{url: "gitlab@host.example.com:g/p.git"},
+		{url: "[git@2001:db8::1]:g/p.git"},
+		{url: "https://gitlab.com/g/p.git"},
+		{url: "HTTPS://gitlab.com/g/p.git"},
+		{url: "ssh://git@host:2222/g/p.git"},
+		{url: "http://localhost:3000/g/p.git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			if err := ValidateRemoteURL(tt.url); (err != nil) != tt.wantErr {
+				t.Errorf("ValidateRemoteURL(%q) error = %v, wantErr %v", tt.url, err, tt.wantErr)
+			}
+		})
+	}
+}

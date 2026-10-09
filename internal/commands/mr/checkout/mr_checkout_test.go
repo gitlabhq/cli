@@ -96,7 +96,7 @@ func TestMrCheckout(t *testing.T) {
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr:feat-new-mr"))
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
@@ -110,6 +110,68 @@ func TestMrCheckout(t *testing.T) {
 		assert.Contains(t, output.Stderr(), "Counting objects")
 		assert.Contains(t, output.Stderr(), "[new branch] refs/heads/feat-new-mr:feat-new-mr")
 		assert.Contains(t, output.Stderr(), "Switched to a new branch 'feat-new-mr'")
+	})
+
+	t.Run("when the API returns a repository URL that is not a valid remote", func(t *testing.T) {
+		t.Parallel()
+		testClient := gitlabtesting.NewTestClient(t)
+
+		testClient.MockMergeRequests.EXPECT().
+			GetMergeRequest("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+			Return(&gitlab.MergeRequest{
+				BasicMergeRequest: gitlab.BasicMergeRequest{
+					ID:              123,
+					IID:             123,
+					ProjectID:       3,
+					SourceProjectID: 3,
+					SourceBranch:    "feat-new-mr",
+					State:           "opened",
+					SHA:             "abc123",
+				},
+			}, nil, nil)
+
+		testClient.MockProjects.EXPECT().
+			GetProject(gomock.Any(), gomock.Any()).
+			Return(&gitlab.Project{
+				ID:            3,
+				SSHURLToRepo:  "--upload-pack=touch x",
+				HTTPURLToRepo: "--upload-pack=touch x",
+			}, nil, nil)
+
+		// No git expectations: any fetch or config call fails the test.
+		mockGit := git_testing.NewMockGitRunner(gomock.NewController(t))
+
+		exec := setupTest(t, testClient, cmdtest.WithGitRunner(mockGit))
+		_, err := exec("123")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--upload-pack=touch x")
+	})
+
+	t.Run("when the API returns a source branch that looks like a git option", func(t *testing.T) {
+		t.Parallel()
+		testClient := gitlabtesting.NewTestClient(t)
+
+		testClient.MockMergeRequests.EXPECT().
+			GetMergeRequest("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+			Return(&gitlab.MergeRequest{
+				BasicMergeRequest: gitlab.BasicMergeRequest{
+					ID:              123,
+					IID:             123,
+					ProjectID:       3,
+					SourceProjectID: 3,
+					SourceBranch:    "--orphan=x",
+					State:           "opened",
+					SHA:             "abc123",
+				},
+			}, nil, nil)
+
+		mockGit := git_testing.NewMockGitRunner(gomock.NewController(t))
+
+		exec := setupTest(t, testClient, cmdtest.WithGitRunner(mockGit))
+		_, err := exec("123")
+
+		require.EqualError(t, err, `invalid branch name "--orphan=x"`)
 	})
 
 	t.Run("when a valid MR comes from a forked private project", func(t *testing.T) {
@@ -149,7 +211,7 @@ func TestMrCheckout(t *testing.T) {
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/merge-requests/123/head:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/merge-requests/123/head:feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/merge-requests/123/head:feat-new-mr"))
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/merge-requests/123/head").Return("", nil)
@@ -196,7 +258,7 @@ func TestMrCheckout(t *testing.T) {
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/foo").Return("", errors.New("not found"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:FORK_OWNER/REPO.git", "refs/heads/feat-new-mr:foo").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:FORK_OWNER/REPO.git", "refs/heads/feat-new-mr:foo").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr:foo"))
 		mockGit.EXPECT().Git("config", "branch.foo.remote", "git@gitlab.com:FORK_OWNER/REPO.git").Return("", nil)
 		mockGit.EXPECT().Git("config", "branch.foo.pushRemote", "git@gitlab.com:FORK_OWNER/REPO.git").Return("", nil)
@@ -239,9 +301,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "couldn't find remote ref"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found")).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
@@ -288,9 +350,9 @@ func TestMrCheckout(t *testing.T) {
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "fetch failed"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr", "fetch failed"))
 
 		exec := setupTest(t, testClient, cmdtest.WithGitRunner(mockGit))
@@ -332,7 +394,7 @@ func TestMrCheckout(t *testing.T) {
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr:feat-new-mr"))
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
@@ -378,7 +440,7 @@ func TestMrCheckout(t *testing.T) {
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr:feat-new-mr"))
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").
 			Return("", errors.New("could not set config"))
@@ -399,9 +461,9 @@ func TestMrCheckout(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		// git refuses to fetch into the branch that is checked out, whatever the history.
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "refusing to fetch into branch 'refs/heads/feat-new-mr' checked out at '/repo'"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -425,9 +487,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -451,9 +513,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "refusing to fetch into branch 'refs/heads/feat-new-mr' checked out at '/repo'"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -481,9 +543,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -506,9 +568,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -530,9 +592,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -558,9 +620,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -581,9 +643,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -606,9 +668,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -635,9 +697,9 @@ func TestMrCheckout(t *testing.T) {
 
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FailingFetchStub("refs/heads/feat-new-mr:feat-new-mr", "non-fast-forward"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("old\n", nil).Times(2)
 		mockGit.EXPECT().Git("rev-parse", "FETCH_HEAD^{commit}").Return("new\n", nil)
@@ -683,7 +745,7 @@ func TestMrCheckout(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("abc123\n", nil)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", gomock.Any(), gomock.Any()).Times(0)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", gomock.Any(), gomock.Any()).Times(0)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
 		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "checkout", "feat-new-mr").
@@ -725,7 +787,7 @@ func TestMrCheckout(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("stale000\n", nil)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr:feat-new-mr"))
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
@@ -770,7 +832,7 @@ func TestMrCheckout(t *testing.T) {
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("abc123\n", nil)
 		mockGit.EXPECT().Git("branch", "feat-new-mr", "abc123").Return("", nil)
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", gomock.Any(), gomock.Any()).Times(0)
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", gomock.Any(), gomock.Any()).Times(0)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
 		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "checkout", "feat-new-mr").
@@ -813,7 +875,7 @@ func TestMrCheckout(t *testing.T) {
 		mockGit := git_testing.NewMockGitRunner(ctrl)
 		mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 		mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
-		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+		mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 			DoAndReturn(git.FetchStub("refs/heads/feat-new-mr:feat-new-mr"))
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
 		mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
@@ -1018,7 +1080,7 @@ func TestMrCheckout_SetUpstreamTo(t *testing.T) {
 	mockGit := git_testing.NewMockGitRunner(ctrl)
 	mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 	mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
-	mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+	mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "git@gitlab.com:OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 		DoAndReturn(git.FetchStub("refs/heads/feat-new-mr:feat-new-mr"))
 	mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "git@gitlab.com:OWNER/REPO.git").Return("", nil)
 	mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
@@ -1067,7 +1129,7 @@ func TestMrCheckout_HTTPSProtocolConfiguration(t *testing.T) {
 	mockGit := git_testing.NewMockGitRunner(ctrl)
 	mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 	mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
-	mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "https://gitlab.com/OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+	mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "https://gitlab.com/OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 		DoAndReturn(git.FetchStub("refs/heads/feat-new-mr:feat-new-mr"))
 	mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "https://gitlab.com/OWNER/REPO.git").Return("", nil)
 	mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)
@@ -1123,7 +1185,7 @@ func TestMrCheckout_CrossHostURLUsesURLHostProtocol(t *testing.T) {
 	mockGit.EXPECT().Git("rev-parse", "--verify", "refs/heads/feat-new-mr").Return("", errors.New("not found"))
 	mockGit.EXPECT().Git("rev-parse", "--verify", "abc123^{commit}").Return("", errors.New("not found"))
 	// The fetch URL must use HTTPS (from custom.host.com's config), not SSH (from gitlab.com's config).
-	mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "https://custom.host.com/OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
+	mockGit.EXPECT().GitWithIO(gomock.Any(), gomock.Any(), "fetch", "--", "https://custom.host.com/OWNER/REPO.git", "refs/heads/feat-new-mr:feat-new-mr").
 		DoAndReturn(git.FetchStub("refs/heads/feat-new-mr:feat-new-mr"))
 	mockGit.EXPECT().Git("config", "branch.feat-new-mr.remote", "https://custom.host.com/OWNER/REPO.git").Return("", nil)
 	mockGit.EXPECT().Git("config", "branch.feat-new-mr.merge", "refs/heads/feat-new-mr").Return("", nil)

@@ -64,9 +64,30 @@ func Test_RemoteURL(t *testing.T) {
 			},
 			want: "git@gitlab.com:profclems/glab.git",
 		},
+		{
+			name: "malicious_https",
+			args: args{
+				project:  &gitlab.Project{HTTPURLToRepo: "--upload-pack=touch x"},
+				protocol: "https",
+			},
+			wantErr: true,
+		},
+		{
+			name: "malicious_ssh",
+			args: args{
+				project:  &gitlab.Project{SSHURLToRepo: "ext::sh -c touch% /tmp/x"},
+				protocol: "ssh",
+			},
+			wantErr: true,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got := RemoteURL(tt.args.project, tt.args.protocol)
+			got, err := RemoteURL(tt.args.project, tt.args.protocol)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
 			if got != tt.want {
 				t.Errorf("RemoteURL() got = %v, want %v", got, tt.want)
 			}
@@ -82,8 +103,21 @@ func TestWikiRemoteURL(t *testing.T) {
 		HTTPURLToRepo: "https://gitlab.com/profclems/docs.wiki.git",
 	}
 
-	assert.Equal(t, "git@gitlab.com:profclems/docs.wiki.wiki.git", WikiRemoteURL(project, "ssh"))
-	assert.Equal(t, "https://gitlab.com/profclems/docs.wiki.wiki.git", WikiRemoteURL(project, "https"))
+	got, err := WikiRemoteURL(project, "ssh")
+	require.NoError(t, err)
+	assert.Equal(t, "git@gitlab.com:profclems/docs.wiki.wiki.git", got)
+	got, err = WikiRemoteURL(project, "https")
+	require.NoError(t, err)
+	assert.Equal(t, "https://gitlab.com/profclems/docs.wiki.wiki.git", got)
+
+	malicious := &gitlab.Project{
+		SSHURLToRepo:  "ext::sh -c touch% /tmp/x",
+		HTTPURLToRepo: "--upload-pack=touch x",
+	}
+	_, err = WikiRemoteURL(malicious, "ssh")
+	require.Error(t, err)
+	_, err = WikiRemoteURL(malicious, "https")
+	require.Error(t, err)
 }
 
 func Test_repoFromURL(t *testing.T) {
