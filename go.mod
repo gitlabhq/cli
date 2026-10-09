@@ -1,6 +1,6 @@
 module gitlab.com/gitlab-org/cli
 
-go 1.27.0
+go 1.27.2
 
 require (
 	charm.land/bubbletea/v2 v2.0.9
@@ -141,7 +141,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/exp v0.0.0-20250813145105-42675adae3e6 // indirect
 	golang.org/x/image v0.45.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect

@@ -10,7 +10,7 @@ spec:
       description: "toggle release jobs on/off; set by pipeline schedules only!"
 ---
 variables:
-  GO_VERSION: "1.27.0"
+  GO_VERSION: "1.27.2"
   GITLAB_ADVANCED_SAST_ENABLED: "true"
   # glab image version for the weekly tag-release job. Defaults to latest
   # (dogfooding); override on the release schedule to pin a known-good version
@@ -553,6 +553,7 @@ build_test:
       -e APPSTORE_CONNECT_API_KEY_FILE=$APPSTORE_CONNECT_API_KEY_FILE \
       -e GCLOUD_PROJECT=$GCLOUD_PROJECT \
       -e GO_VERSION="$GO_VERSION" \
+      -e GOTOOLCHAIN="go$GO_VERSION" \
       -e GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS \
       -e HOST_PWD=$PWD \
       -v $PWD:/go/src/gitlab.com/gitlab-org/cli \
@@ -610,6 +611,7 @@ release:
       -e APPSTORE_CONNECT_API_KEY_FILE=$APPSTORE_CONNECT_API_KEY_FILE \
       -e GCLOUD_PROJECT=$GCLOUD_PROJECT \
       -e GO_VERSION="$GO_VERSION" \
+      -e GOTOOLCHAIN="go$GO_VERSION" \
       -e GITLAB_TOKEN=$GITLAB_TOKEN_RELEASE \
       -e GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS \
       -e HOST_PWD=$PWD \

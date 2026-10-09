@@ -15,10 +15,7 @@ setup_script:
   # Install mise — the project's tool version manager
   - curl -fsSL https://mise.run | sh
   - export PATH="$HOME/.local/bin:$PATH"
-  # Install all tools pinned in .tool-versions:
-  #   Go 1.26.3, golangci-lint 2.12.2, shellcheck 0.11.0,
-  #   markdownlint-cli2 0.22.1, vale 3.14.1, lychee 0.24.2,
-  #   Node.js 24.15.0, lefthook 2.0.2
+  # Install all tools pinned in .tool-versions
   - mise install
   - eval "$(mise activate bash)"
   # Install commitlint dependencies (validates conventional commit messages)
