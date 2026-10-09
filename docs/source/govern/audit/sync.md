@@ -14,13 +14,15 @@ Sync agent session data to GitLab. (EXPERIMENTAL)
 
 ## Synopsis
 
-Read new entries from the local agent transcript since the last sync
-and POST them to GitLab as audit events.
+Read new entries from the local agent transcript since the last sync and POST them to GitLab as audit events.
 
-Called by the Stop hook after every agent turn. Also used by the
-SessionEnd hook (with --complete) to mark the session as complete.
+Called by the Stop hook after every agent turn. Also used by the SessionEnd hook (with `--complete`) to mark the session as complete. The hooks also record the session's project, host, and transcript location so that `--all` can sync it later.
 
-Project is resolved from the Git remote of the current directory, or overridden with -R/--repo.
+Project is resolved from the Git remote of the current directory, or overridden with `-R/--repo`.
+
+With `--all`, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Claude Code sessions are skipped while the glab Stop hook is missing from `~/.claude/settings.json`, so removing the hooks pauses them. The fallback periodic sync installed by `glab govern setup` runs this, and `glab govern doctor` shows the result of its last run.
+
+Supports Claude Code and OpenCode sessions. OpenCode sessions are read with `opencode export`.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
@@ -43,11 +45,15 @@ $ glab govern audit sync --complete
 # Sync against a specific project
 $ glab govern audit sync -R my-group/my-project
 
+# Sync every recorded session that has unsynced activity
+$ glab govern audit sync --all
+
 ```
 
 ## Options
 
 ```plaintext
+      --all           Sync all sessions recorded by the hooks. Used by the fallback periodic sync.
       --complete      Mark the session as completed. Used by the SessionEnd hook.
   -R, --repo string   Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
       --silent        Suppress all output. Used when invoked from hooks.

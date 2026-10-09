@@ -152,3 +152,17 @@ func AddHook(hooks map[string][]HookGroup, event, command string) bool {
 	})
 	return true
 }
+
+// SyncHookInstalled reports whether the glab Stop hook is present in the
+// Claude Code settings file at path.
+func SyncHookInstalled(path string) (bool, error) {
+	raw, err := LoadRawSettings(path)
+	if err != nil {
+		return false, err
+	}
+	hooks, err := HooksFromRaw(raw)
+	if err != nil {
+		return false, err
+	}
+	return HookPresent(hooks, "Stop", StopHookCommand), nil
+}

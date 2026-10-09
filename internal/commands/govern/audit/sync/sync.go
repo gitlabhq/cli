@@ -2,9 +2,9 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -15,6 +15,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -26,30 +27,45 @@ type options struct {
 	io        *iostreams.IOStreams
 	apiClient func(repoHost string) (*api.Client, error)
 	baseRepo  func() (glrepo.Interface, error)
+	executor  cmdutils.Executor
 	silent    bool
 	complete  bool
 	agentType string
+	all       bool
 }
+
+const (
+	// idleCompleteAfter is how long a session must be inactive before
+	// `--all` marks it completed on behalf of a SessionEnd hook that never ran.
+	idleCompleteAfter = 24 * time.Hour
+	// forgetUnfoundAfter is how long --all keeps reporting a session the
+	// agent says it does not have, before forgetting it.
+	forgetUnfoundAfter = 30 * 24 * time.Hour
+	maxStatusErrors    = 20
+)
 
 func NewCmd(f cmdutils.Factory) *cobra.Command {
 	opts := &options{
 		io:        f.IO(),
 		apiClient: f.ApiClient,
 		baseRepo:  f.BaseRepo,
+		executor:  f.Executor(),
 	}
 
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Sync agent session data to GitLab. (EXPERIMENTAL)",
-		Long: heredoc.Doc(`
-			Read new entries from the local agent transcript since the last sync
-			and POST them to GitLab as audit events.
+		Long: heredoc.Docf(`
+			Read new entries from the local agent transcript since the last sync and POST them to GitLab as audit events.
 
-			Called by the Stop hook after every agent turn. Also used by the
-			SessionEnd hook (with --complete) to mark the session as complete.
+			Called by the Stop hook after every agent turn. Also used by the SessionEnd hook (with %[1]s--complete%[1]s) to mark the session as complete. The hooks also record the session's project, host, and transcript location so that %[1]s--all%[1]s can sync it later.
 
-			Project is resolved from the Git remote of the current directory, or overridden with -R/--repo.
-		`) + text.ExperimentalString,
+			Project is resolved from the Git remote of the current directory, or overridden with %[1]s-R/--repo%[1]s.
+
+			With %[1]s--all%[1]s, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Claude Code sessions are skipped while the glab Stop hook is missing from %[1]s~/.claude/settings.json%[1]s, so removing the hooks pauses them. The fallback periodic sync installed by %[1]sglab govern setup%[1]s runs this, and %[1]sglab govern doctor%[1]s shows the result of its last run.
+
+			Supports Claude Code and OpenCode sessions. OpenCode sessions are read with %[1]sopencode export%[1]s.
+		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Sync the current agent session to GitLab
 			$ glab govern audit sync
@@ -59,6 +75,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Sync against a specific project
 			$ glab govern audit sync -R my-group/my-project
+
+			# Sync every recorded session that has unsynced activity
+			$ glab govern audit sync --all
 		`),
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
@@ -66,36 +85,46 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.agentType = detectAgentType()
 			return runSync(cmd.Context(), opts)
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Suppress all output. Used when invoked from hooks.")
-	cmd.Flags().BoolVar(&opts.complete, "complete", false, "Mark the session as completed. Used by the SessionEnd hook.")
+	fl := cmd.Flags()
+	fl.BoolVar(&opts.silent, "silent", false, "Suppress all output. Used when invoked from hooks.")
+	fl.BoolVar(&opts.complete, "complete", false, "Mark the session as completed. Used by the SessionEnd hook.")
+	fl.BoolVar(&opts.all, "all", false, "Sync all sessions recorded by the hooks. Used by the fallback periodic sync.")
 
 	cmdutils.EnableRepoOverride(cmd, f)
+	cmd.MarkFlagsMutuallyExclusive("all", "repo")
+	cmd.MarkFlagsMutuallyExclusive("all", "complete")
 
 	return cmd
 }
 
-func detectAgentType() string {
-	if os.Getenv("CLAUDE_CODE_SESSION_ID") != "" {
-		return "claude-code"
-	}
-	if os.Getenv("OPENCODE_SESSION_ID") != "" {
-		return "opencode"
-	}
-	return ""
-}
-
 func runSync(ctx context.Context, opts *options) error {
-	// Resolve project and client
-	var project *gitlab.Project
-	var client *api.Client
-	var err error
+	if opts.all {
+		return syncAllSessions(ctx, opts)
+	}
 
-	project, client, err = gaig.ResolveProject(opts.baseRepo, opts.apiClient)
+	ag, sessionID := detectAgent(supportedAgents(opts.executor))
+
+	var src transcript
+	if ag != nil {
+		opts.agentType = ag.name()
+		var locator string
+		var err error
+		src, locator, err = ag.current(sessionID)
+		if err != nil {
+			return err
+		}
+		// Written before ResolveProject so a failed project lookup still
+		// leaves enough context for --all to retry this session later.
+		if err := recordSessionMeta(opts, sessionID, locator); err != nil && !opts.silent {
+			opts.io.LogErrorf("warning: could not record session metadata: %v\n", err)
+		}
+	}
+
+	project, client, err := gaig.ResolveProject(opts.baseRepo, opts.apiClient)
 	if err != nil {
 		if !opts.silent {
 			opts.io.LogErrorf("error: could not resolve project: %v\n", err)
@@ -107,26 +136,20 @@ func runSync(ctx context.Context, opts *options) error {
 		opts.io.LogInfof("Project: %s (ID: %d)\n", project.PathWithNamespace, project.ID)
 	}
 
-	// Register or load cached agent identity
-	var identityID int
+	t := target{client: client, project: project}
 	if opts.agentType != "" {
 		identity, err := gaig.RegisterIdentity(client, project.ID, opts.agentType)
 		if err != nil && !opts.silent {
 			opts.io.LogErrorf("warning: could not cache agent identity: %v\n", err)
 		}
 		if identity != nil {
-			identityID = identity.ID
+			t.identityID = identity.ID
 			if !opts.silent {
-				opts.io.LogInfof("Agent identity: %d (type: %s)\n", identity.ID, identity.AgentType)
+				opts.io.LogInfof("Agent identity: %d\n", identity.ID)
 			}
 		}
 	}
 
-	// Single-session mode: get session ID from environment
-	sessionID := os.Getenv("CLAUDE_CODE_SESSION_ID")
-	if sessionID == "" {
-		sessionID = os.Getenv("OPENCODE_SESSION_ID")
-	}
 	if sessionID == "" {
 		if !opts.silent {
 			opts.io.LogInfo("No active agent session detected.")
@@ -134,50 +157,61 @@ func runSync(ctx context.Context, opts *options) error {
 		return nil
 	}
 
-	cwd, err := currentCWD()
-	if err != nil {
-		return fmt.Errorf("could not get current directory: %w", err)
-	}
+	return syncSession(ctx, t, sessionID, src, opts)
+}
 
-	transcriptFile, err := transcriptPath(sessionID, cwd)
-	if err != nil {
-		return fmt.Errorf("could not resolve transcript path: %w", err)
+func recordSessionMeta(opts *options, sessionID, locator string) error {
+	if opts.baseRepo == nil {
+		return nil
 	}
+	repo, err := opts.baseRepo()
+	if err != nil {
+		return err
+	}
+	return writeSessionMeta(sessionID, sessionMeta{
+		AgentType:         opts.agentType,
+		PathWithNamespace: repo.FullName(),
+		Host:              repo.RepoHost(),
+		Transcript:        locator,
+	})
+}
 
-	return syncSession(ctx, client, project, identityID, sessionID, transcriptFile, opts)
+// target is the project a session is synced to.
+type target struct {
+	client     *api.Client
+	project    *gitlab.Project
+	identityID int
 }
 
 // syncSession syncs a single session transcript to GitLab.
-func syncSession(ctx context.Context, client *api.Client, project *gitlab.Project, identityID int, sessionID, transcriptFile string, opts *options) error {
-	if _, err := os.Stat(transcriptFile); err != nil {
-		if !opts.silent {
-			opts.io.LogInfof("No transcript found at %s\n", transcriptFile)
-		}
-		return nil
-	}
-
+func syncSession(ctx context.Context, t target, sessionID string, src transcript, opts *options) error {
 	offset, err := readCursor(sessionID)
 	if err != nil && !opts.silent {
 		opts.io.LogErrorf("warning: could not read cursor: %v\n", err)
 	}
 
-	data, newOffset, err := parseTranscript(transcriptFile, offset)
+	data, newOffset, err := src.read(ctx, offset)
+	if errors.Is(err, errTranscriptNotFound) {
+		if !opts.silent {
+			opts.io.LogInfof("No transcript found at %s\n", src)
+		}
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("could not parse transcript: %w", err)
 	}
 
-	if data == nil || (len(data.ToolCalls) == 0 && !opts.complete) {
+	if len(data.ToolCalls) == 0 && !opts.complete {
 		if !opts.silent {
 			opts.io.LogInfo("No new entries to sync.")
 		}
 		return nil
 	}
 
-	if client == nil || project == nil {
+	if t.client == nil || t.project == nil {
 		return fmt.Errorf("client and project are required")
 	}
 
-	// Agent type is required for session creation
 	if opts.agentType == "" {
 		if !opts.silent {
 			opts.io.LogInfo("No agent type detected -- skipping session sync.")
@@ -185,56 +219,258 @@ func syncSession(ctx context.Context, client *api.Client, project *gitlab.Projec
 		return nil
 	}
 
-	// Create or find the session on GitLab
-	glSessionID, err := ensureSession(ctx, client, project.ID, identityID, sessionID, opts, data)
+	if _, err := pushSession(ctx, t, sessionID, opts.agentType, src, data, newOffset, opts.complete, opts); err != nil && !opts.silent {
+		opts.io.LogErrorf("warning: %v\n", err)
+	}
+	return nil
+}
+
+type pushResult struct {
+	eventsPosted int
+	completed    bool
+}
+
+// pushSession uploads data to GitLab, advances the cursor to newCursor once
+// the events are posted, and marks the session completed if requested.
+func pushSession(ctx context.Context, t target, sessionID, agentType string, src transcript, data *sessionData, newCursor int64, complete bool, opts *options) (pushResult, error) {
+	var res pushResult
+
+	glSessionID, err := ensureSession(ctx, t.client, t.project.ID, t.identityID, sessionID, agentType, data)
 	if err != nil {
-		if !opts.silent {
-			opts.io.LogErrorf("warning: could not create session: %v\n", err)
-		}
-		return nil
+		return res, fmt.Errorf("could not create session: %w", err)
+	}
+	if glSessionID <= 0 {
+		return res, errors.New("could not create session: GitLab returned no session ID")
 	}
 	if !opts.silent {
 		opts.io.LogInfof("Session: %d\n", glSessionID)
 	}
 
-	// Post audit events -- only advance cursor on success
-	posted := false
-	if len(data.ToolCalls) > 0 && glSessionID > 0 {
-		if err := postAuditEvents(ctx, client, project.ID, glSessionID, data.ToolCalls); err != nil {
-			if !opts.silent {
-				opts.io.LogErrorf("warning: could not post audit events: %v\n", err)
-			}
-			return nil // do not advance cursor on failure
+	if len(data.ToolCalls) > 0 {
+		if err := postAuditEvents(ctx, t.client, t.project.ID, glSessionID, data.ToolCalls); err != nil {
+			return res, fmt.Errorf("could not post audit events: %w", err)
 		}
-		posted = true
+		res.eventsPosted = len(data.ToolCalls)
 		if !opts.silent {
 			opts.io.LogInfof("Posted %d audit events\n", len(data.ToolCalls))
 		}
 	}
 
-	// Complete the session if requested
-	if opts.complete && glSessionID > 0 {
-		sha256, sha256Err := sha256File(transcriptFile)
-		if sha256Err != nil && !opts.silent {
-			opts.io.LogErrorf("warning: could not compute transcript checksum: %v\n", sha256Err)
+	if err := writeCursor(sessionID, newCursor); err != nil && !opts.silent {
+		opts.io.LogErrorf("warning: could not update cursor: %v\n", err)
+	}
+
+	if !complete {
+		return res, nil
+	}
+
+	sum, err := src.checksum(ctx)
+	if err != nil && !opts.silent {
+		opts.io.LogErrorf("warning: could not compute transcript checksum: %v\n", err)
+	}
+	if err := completeSession(ctx, t.client, t.project.ID, glSessionID, sum); err != nil {
+		return res, fmt.Errorf("could not complete session: %w", err)
+	}
+	res.completed = true
+	if !opts.silent {
+		opts.io.LogInfo("Session marked as completed.")
+	}
+	if err := markSessionCompleted(sessionID, time.Now()); err != nil && !opts.silent {
+		opts.io.LogErrorf("warning: could not record session completion: %v\n", err)
+	}
+	return res, nil
+}
+
+func syncAllSessions(ctx context.Context, opts *options) error {
+	now := time.Now()
+	status := fallbacksync.Status{StartedAt: now}
+	defer func() {
+		status.FinishedAt = time.Now()
+		if err := fallbacksync.WriteStatus(status); err != nil && !opts.silent {
+			opts.io.LogErrorf("warning: could not record sync status: %v\n", err)
 		}
-		if err := completeSession(ctx, client, project.ID, glSessionID, sha256); err != nil {
+	}()
+	recordErr := func(sessionID string, err error) {
+		if !opts.silent {
+			opts.io.LogErrorf("warning: session %s: %v\n", sessionID, err)
+		}
+		if len(status.Errors) < maxStatusErrors {
+			status.Errors = append(status.Errors, fmt.Sprintf("session %s: %v", sessionID, err))
+		}
+	}
+
+	sessionIDs, err := listSessionMetas()
+	if err != nil {
+		status.Errors = append(status.Errors, err.Error())
+		return err
+	}
+
+	agents := supportedAgents(opts.executor)
+	// paused caches each agent's pause check for the run. A failed check
+	// pauses the agent, because uploading is not safe when it is unclear
+	// whether the user turned syncing off.
+	paused := map[string]bool{}
+	isPaused := func(a agent) bool {
+		if p, ok := paused[a.name()]; ok {
+			return p
+		}
+		reason, err := a.pausedReason()
+		if err != nil {
+			reason = fmt.Sprintf("could not check whether syncing is paused: %v", err)
+		}
+		paused[a.name()] = reason != ""
+		if reason != "" {
+			status.Paused = append(status.Paused, a.name()+": "+reason)
 			if !opts.silent {
-				opts.io.LogErrorf("warning: could not complete session: %v\n", err)
+				opts.io.LogInfof("Skipping %s sessions: %s.\n", a.name(), reason)
 			}
-		} else if !opts.silent {
-			opts.io.LogInfo("Session marked as completed.")
 		}
+		return reason != ""
 	}
 
-	// Only advance cursor if we successfully posted events (or had nothing to post)
-	if posted || len(data.ToolCalls) == 0 {
-		if err := writeCursor(sessionID, newOffset); err != nil && !opts.silent {
-			opts.io.LogErrorf("warning: could not update cursor: %v\n", err)
+	targets := map[string]targetLookup{}
+	for _, sessionID := range sessionIDs {
+		meta, err := readSessionMeta(sessionID)
+		if err != nil {
+			recordErr(sessionID, err)
+			continue
+		}
+
+		ag := agentByName(agents, meta.AgentType)
+		if ag == nil {
+			recordErr(sessionID, fmt.Errorf("unsupported agent %q", meta.AgentType))
+			continue
+		}
+
+		src, locator, err := ag.recorded(sessionID, meta.Transcript)
+		if err != nil {
+			recordErr(sessionID, err)
+			continue
+		}
+		if locator != meta.Transcript {
+			meta.Transcript = locator
+			if err := writeSessionMeta(sessionID, *meta); err != nil {
+				recordErr(sessionID, err)
+			}
+		}
+
+		if meta.CompletedAt != nil {
+			// Local state is kept while the agent can still resume the session.
+			deleted, err := ag.deleted(src)
+			if err != nil {
+				recordErr(sessionID, err)
+			} else if deleted {
+				if err := forgetSession(sessionID); err != nil {
+					recordErr(sessionID, err)
+				}
+			}
+			continue
+		}
+
+		if isPaused(ag) {
+			continue
+		}
+		offset, err := readCursor(sessionID)
+		if err != nil {
+			recordErr(sessionID, err)
+			continue
+		}
+		data, newOffset, err := src.read(ctx, offset)
+		if errors.Is(err, errTranscriptNotFound) {
+			// The agent has deleted the transcript, so there is nothing left
+			// to sync. Forgetting the session stops later runs searching for it.
+			if err := forgetSession(sessionID); err != nil {
+				recordErr(sessionID, err)
+			}
+			continue
+		}
+		if errors.Is(err, errAgentSessionNotFound) {
+			if recorded, statErr := sessionMetaModTime(sessionID); statErr == nil && now.Sub(recorded) > forgetUnfoundAfter {
+				if err := forgetSession(sessionID); err != nil {
+					recordErr(sessionID, err)
+				}
+				continue
+			}
+		}
+		if err != nil {
+			recordErr(sessionID, err)
+			continue
+		}
+
+		last, err := src.lastActivity(ctx)
+		if err != nil {
+			recordErr(sessionID, err)
+			continue
+		}
+		idle := now.Sub(last) > idleCompleteAfter
+		if len(data.ToolCalls) == 0 && !idle {
+			continue
+		}
+
+		t, err := lookupTarget(targets, meta, opts)
+		if err != nil {
+			recordErr(sessionID, err)
+			continue
+		}
+
+		res, err := pushSession(ctx, t, sessionID, meta.AgentType, src, data, newOffset, idle, opts)
+		status.EventsPosted += res.eventsPosted
+		if res.eventsPosted > 0 {
+			status.SessionsSynced++
+		}
+		if res.completed {
+			status.SessionsCompleted++
+		}
+		if err != nil {
+			recordErr(sessionID, err)
 		}
 	}
-
 	return nil
+}
+
+type targetLookup struct {
+	target target
+	err    error
+}
+
+// lookupTarget resolves the project a session was recorded with, caching the
+// result per host and project so each is looked up once per run.
+func lookupTarget(cache map[string]targetLookup, meta *sessionMeta, opts *options) (target, error) {
+	if meta.Host == "" || meta.PathWithNamespace == "" {
+		return target{}, errors.New("session metadata has no project")
+	}
+
+	key := meta.Host + "/" + meta.PathWithNamespace
+	lookup, ok := cache[key]
+	if !ok {
+		lookup = resolveTarget(meta, opts)
+		cache[key] = lookup
+	}
+	if lookup.err != nil {
+		return target{}, lookup.err
+	}
+
+	t := lookup.target
+	identity, err := gaig.RegisterIdentity(t.client, t.project.ID, meta.AgentType)
+	if err != nil && !opts.silent {
+		opts.io.LogErrorf("warning: could not cache agent identity: %v\n", err)
+	}
+	if identity != nil {
+		t.identityID = identity.ID
+	}
+	return t, nil
+}
+
+func resolveTarget(meta *sessionMeta, opts *options) targetLookup {
+	client, err := opts.apiClient(meta.Host)
+	if err != nil {
+		return targetLookup{err: fmt.Errorf("could not create client for %s: %w", meta.Host, err)}
+	}
+	project, err := api.GetProject(client.Lab(), meta.PathWithNamespace)
+	if err != nil {
+		return targetLookup{err: fmt.Errorf("could not resolve project %s on %s: %w", meta.PathWithNamespace, meta.Host, err)}
+	}
+	return targetLookup{target: target{client: client, project: project}}
 }
 
 // sessionRequest is the body for POST /ai_agent/sessions.
@@ -253,8 +489,7 @@ type sessionResponse struct {
 }
 
 // ensureSession creates a session on GitLab or returns the existing one via idempotency key.
-func ensureSession(ctx context.Context, client *api.Client, projectID int64, identityID int, sessionID string, opts *options, data *sessionData) (int, error) {
-	agentType := opts.agentType
+func ensureSession(ctx context.Context, client *api.Client, projectID int64, identityID int, sessionID, agentType string, data *sessionData) (int, error) {
 	if agentType == "" {
 		agentType = "unknown"
 	}
