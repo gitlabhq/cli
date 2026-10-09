@@ -290,3 +290,16 @@ func TestState_Linux(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, JobState{Loaded: true}, state, "a start timestamp of 0 means the service has not run since boot")
 }
+
+func TestDiscoveredAgents_RoundTrip(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+
+	agents, err := DiscoveredAgents()
+	require.NoError(t, err)
+	assert.Empty(t, agents, "no agents are discovered until setup enables them")
+
+	require.NoError(t, SetDiscoveredAgents([]string{"codex"}))
+	agents, err = DiscoveredAgents()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex"}, agents)
+}

@@ -114,7 +114,17 @@ type transcriptEntry struct {
 
 // assistantMessage represents the message field of an assistant entry.
 type assistantMessage struct {
+	ID      string         `json:"id"`
+	Model   string         `json:"model"`
 	Content []contentBlock `json:"content"`
+	Usage   tokenUsage     `json:"usage"`
+}
+
+type tokenUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 }
 
 // contentBlock represents a single content block in an assistant message.
@@ -124,22 +134,65 @@ type contentBlock struct {
 	Name  string          `json:"name"`
 	Input json.RawMessage `json:"input"`
 	Text  string          `json:"text"`
+
+	// tool_result fields
+	ToolUseID string          `json:"tool_use_id"`
+	IsError   bool            `json:"is_error"`
+	Content   json.RawMessage `json:"content"`
 }
 
 // sessionData holds extracted data from the transcript for a single session.
 type sessionData struct {
-	SessionID  string
-	Goal       string
-	StartedAt  time.Time
-	ToolCalls  []toolCall
-	EndedAt    time.Time
-	IsComplete bool
+	SessionID   string
+	Goal        string
+	StartedAt   time.Time
+	ToolCalls   []toolCall
+	ToolResults []toolResult
+	Prompts     []prompt
+	Responses   []llmResponse
+	EndedAt     time.Time
+	IsComplete  bool
+}
+
+// empty reports whether there is nothing to post.
+func (d *sessionData) empty() bool {
+	return len(d.ToolCalls) == 0 && len(d.ToolResults) == 0 && len(d.Prompts) == 0 && len(d.Responses) == 0
 }
 
 // toolCall represents a single tool invocation extracted from the transcript.
 type toolCall struct {
 	ID        string
 	Name      string
+	Input     json.RawMessage
+	Timestamp time.Time
+}
+
+// toolResult is the outcome of a tool call. Name and Duration are empty when
+// the call was synced in an earlier run.
+type toolResult struct {
+	CallID string
+	Name   string
+	// Outcome overrides the outcome derived from IsError, for agents that do
+	// not record whether a call succeeded.
+	Outcome   string
+	IsError   bool
+	Error     string
+	Duration  time.Duration
+	Timestamp time.Time
+}
+
+// prompt is a prompt the user typed.
+type prompt struct {
+	ID        string
+	Text      string
+	Timestamp time.Time
+}
+
+// llmResponse is the metadata of one model response, without its content.
+type llmResponse struct {
+	ID        string
+	Model     string
+	Usage     tokenUsage
 	Timestamp time.Time
 }
 
@@ -154,10 +207,9 @@ type sessionMeta struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
-// extractGoal attempts to extract a human-readable goal from a user message.
-// Returns empty string if the message is a bash input, tool result, or other
-// non-goal content.
-func extractGoal(raw json.RawMessage) string {
+// extractPrompt returns the text the user typed in a user message, or an
+// empty string for bash inputs, tool results, and other non-prompt content.
+func extractPrompt(raw json.RawMessage) string {
 	// Try array content format: {"role":"user","content":[{"type":"text","text":"..."}]}
 	var msgArray struct {
 		Content []struct {
@@ -168,7 +220,10 @@ func extractGoal(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &msgArray); err == nil {
 		for _, block := range msgArray.Content {
 			if block.Type == "text" && block.Text != "" {
-				return goalFromText(block.Text)
+				if skipPrompt(block.Text) {
+					return ""
+				}
+				return block.Text
 			}
 		}
 	}
@@ -178,18 +233,28 @@ func extractGoal(raw json.RawMessage) string {
 		Content string `json:"content"`
 	}
 	if err := json.Unmarshal(raw, &msgString); err == nil && msgString.Content != "" {
-		return goalFromText(strings.TrimSpace(msgString.Content))
+		content := strings.TrimSpace(msgString.Content)
+		if skipPrompt(content) {
+			return ""
+		}
+		return content
 	}
 
 	return ""
 }
 
+// skipPrompt reports whether text is a bash input or XML-tagged content
+// injected by the agent rather than typed by the user.
+func skipPrompt(text string) bool {
+	return strings.Contains(text, "<bash-input>") ||
+		strings.Contains(text, "<bash-output>") ||
+		strings.HasPrefix(strings.TrimSpace(text), "<")
+}
+
 // goalFromText returns text truncated for use as a session goal, or an empty
 // string for bash inputs and XML-tagged content.
 func goalFromText(text string) string {
-	if strings.Contains(text, "<bash-input>") ||
-		strings.Contains(text, "<bash-output>") ||
-		strings.HasPrefix(strings.TrimSpace(text), "<") {
+	if skipPrompt(text) {
 		return ""
 	}
 	if len(text) > 256 {
@@ -219,6 +284,8 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 
 	var currentOffset int64 = startOffset
 	goalFound := startOffset > 0 // if we have a cursor, we already captured the goal
+	calls := map[string]toolCall{}
+	responses := map[string]int{}
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -233,38 +300,71 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 			data.SessionID = entry.SessionID
 		}
 
+		ts, err := time.Parse(time.RFC3339Nano, entry.Timestamp)
+		if err != nil {
+			ts = time.Now() // fallback: use current time if timestamp is malformed
+		}
+
 		switch entry.Type {
 		case "user":
-			if !entry.IsMeta && !goalFound && entry.PromptID != "" {
-				goal := extractGoal(entry.Message)
-				if goal != "" {
-					data.Goal = goal
-					if ts, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil {
-						data.StartedAt = ts
-					}
-					goalFound = true
+			var msg assistantMessage
+			// A prompt's content can be a plain string, which fails to decode
+			// as blocks and holds no tool results.
+			_ = json.Unmarshal(entry.Message, &msg)
+			hasResults := false
+			for _, block := range msg.Content {
+				if block.Type != "tool_result" {
+					continue
 				}
-				// If goal is empty (bash input etc), keep looking
+				hasResults = true
+				result := toolResult{CallID: block.ToolUseID, IsError: block.IsError, Timestamp: ts}
+				if call, ok := calls[block.ToolUseID]; ok {
+					result.Name = call.Name
+					result.Duration = ts.Sub(call.Timestamp)
+				}
+				if block.IsError {
+					result.Error = toolResultText(block.Content)
+				}
+				data.ToolResults = append(data.ToolResults, result)
+			}
+			if entry.IsMeta || entry.PromptID == "" || hasResults {
+				continue
+			}
+			text := extractPrompt(entry.Message)
+			if text == "" {
+				continue
+			}
+			data.Prompts = append(data.Prompts, prompt{ID: entry.UUID, Text: text, Timestamp: ts})
+			if !goalFound {
+				data.Goal = goalFromText(text)
+				data.StartedAt = ts
+				goalFound = true
 			}
 
 		case "assistant":
-			// Extract tool calls from assistant messages
 			var msg assistantMessage
 			if err := json.Unmarshal(entry.Message, &msg); err != nil {
 				continue
 			}
-			ts, err := time.Parse(time.RFC3339Nano, entry.Timestamp)
-			if err != nil {
-				ts = time.Now() // fallback: use current time if timestamp is malformed
-			}
 
 			for _, block := range msg.Content {
 				if block.Type == "tool_use" {
-					data.ToolCalls = append(data.ToolCalls, toolCall{
-						ID:        block.ID,
-						Name:      block.Name,
-						Timestamp: ts,
-					})
+					call := toolCall{ID: block.ID, Name: block.Name, Input: block.Input, Timestamp: ts}
+					calls[block.ID] = call
+					data.ToolCalls = append(data.ToolCalls, call)
+				}
+			}
+
+			// A response is streamed as several entries with the same message
+			// ID. The usage of the latest entry is the most complete.
+			if msg.ID != "" {
+				response := llmResponse{ID: msg.ID, Model: msg.Model, Usage: msg.Usage, Timestamp: ts}
+				if i, ok := responses[msg.ID]; ok {
+					response.Timestamp = data.Responses[i].Timestamp
+					data.Responses[i] = response
+				} else {
+					responses[msg.ID] = len(data.Responses)
+					data.Responses = append(data.Responses, response)
 				}
 			}
 
@@ -284,6 +384,26 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 	}
 
 	return data, currentOffset, nil
+}
+
+// toolResultText returns the text of a tool_result content, which is either a
+// string or a list of content blocks.
+func toolResultText(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var blocks []contentBlock
+	if json.Unmarshal(raw, &blocks) != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type == "text" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // sha256File computes the SHA-256 hex string of a file's contents.
@@ -538,11 +658,57 @@ func (claudeCode) canForget(src transcript, _ time.Time) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("unexpected Claude Code transcript type %T", src)
 	}
-	_, err := os.Stat(t.path)
+	return fileDeleted(t.path)
+}
+
+func (claudeCode) discover(context.Context, func(string) bool) ([]discoveredSession, error) {
+	return nil, nil
+}
+
+func fileDeleted(path string) (bool, error) {
+	_, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return true, nil
 	}
 	return false, err
+}
+
+func fileModTime(path string) (time.Time, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return time.Time{}, errTranscriptNotFound
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
+}
+
+// scanJSONL calls fn for each complete line of the file at path after
+// offset, with the offset where the line starts. It returns the offset after
+// the last complete line, so a line still being written is read next time.
+func scanJSONL(path string, offset int64, fn func(line []byte, lineOffset int64)) (int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return offset, fmt.Errorf("could not open transcript: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return offset, fmt.Errorf("could not seek transcript: %w", err)
+	}
+
+	r := bufio.NewReaderSize(f, 1024*1024)
+	for {
+		line, err := r.ReadBytes('\n')
+		if errors.Is(err, io.EOF) {
+			return offset, nil
+		}
+		if err != nil {
+			return offset, fmt.Errorf("error reading transcript: %w", err)
+		}
+		fn(line[:len(line)-1], offset)
+		offset += int64(len(line))
+	}
 }
 
 func (claudeCode) pausedReason() (string, error) {

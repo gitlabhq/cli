@@ -54,6 +54,10 @@ func (openCode) canForget(_ transcript, completedAt time.Time) (bool, error) {
 	return time.Since(completedAt) > forgetUnfoundAfter, nil
 }
 
+func (openCode) discover(context.Context, func(string) bool) ([]discoveredSession, error) {
+	return nil, nil
+}
+
 // pausedReason never pauses OpenCode, because glab installs nothing in
 // OpenCode that the user could remove to pause syncing.
 func (openCode) pausedReason() (string, error) {
@@ -105,8 +109,12 @@ type openCodePart struct {
 	CallID    string `json:"callID"`
 	Tool      string `json:"tool"`
 	State     struct {
-		Time struct {
+		Status string          `json:"status"`
+		Input  json.RawMessage `json:"input"`
+		Error  string          `json:"error"`
+		Time   struct {
 			Start int64 `json:"start"`
+			End   int64 `json:"end"`
 		} `json:"time"`
 	} `json:"state"`
 }
@@ -239,8 +247,27 @@ func (t *openCodeTranscript) read(ctx context.Context, cursor int64) (*sessionDa
 					data.ToolCalls = append(data.ToolCalls, toolCall{
 						ID:        id,
 						Name:      part.Tool,
+						Input:     part.State.Input,
 						Timestamp: time.UnixMilli(started),
 					})
+					// The cursor counts tool calls, so a result is only
+					// recorded when the call has finished by the time it is
+					// first synced, which is usual as syncs follow each turn.
+					if status := part.State.Status; status == "completed" || status == "error" {
+						result := toolResult{
+							CallID:    id,
+							Name:      part.Tool,
+							IsError:   status == "error",
+							Error:     part.State.Error,
+							Timestamp: time.UnixMilli(part.State.Time.End),
+						}
+						if end, start := part.State.Time.End, part.State.Time.Start; end > 0 && start > 0 {
+							result.Duration = time.Duration(end-start) * time.Millisecond
+						} else {
+							result.Timestamp = time.UnixMilli(started)
+						}
+						data.ToolResults = append(data.ToolResults, result)
+					}
 				}
 				seen++
 			}

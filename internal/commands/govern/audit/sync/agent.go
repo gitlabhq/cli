@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"time"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
@@ -25,13 +26,17 @@ type agent interface {
 	// completedAt can be removed, because the agent can no longer resume it.
 	// It must be cheap, because --all calls it for every completed session.
 	canForget(src transcript, completedAt time.Time) (bool, error)
+	// discover finds sessions that no hook records, for the scheduled job to
+	// sync. It skips sessions for which known returns true, because they are
+	// already recorded.
+	discover(ctx context.Context, known func(sessionID string) bool) ([]discoveredSession, error)
 	// pausedReason explains why the user has paused syncing for this agent,
 	// or returns an empty string when syncing is not paused.
 	pausedReason() (string, error)
 }
 
 func supportedAgents(executor cmdutils.Executor) []agent {
-	return []agent{claudeCode{}, openCode{executor: executor}}
+	return []agent{claudeCode{}, openCode{executor: executor}, codex{executor: executor}, cursor{executor: executor}}
 }
 
 // detectAgent returns the agent the hook is running in and its session ID.

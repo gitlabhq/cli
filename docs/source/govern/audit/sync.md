@@ -16,13 +16,23 @@ Sync agent session data to GitLab. (EXPERIMENTAL)
 
 Read new entries from the local agent transcript since the last sync and POST them to GitLab as audit events.
 
+The audit events contain the prompts you type, each tool call with its arguments (such as commands, file paths, and edits, replaced with a marker when over 8 KB), each tool call's outcome, duration, and error message, and the model and token usage of each response. Tool output and the text of responses are not sent. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old.
+
+Some agents record less:
+
+- OpenCode: prompts and responses are not sent, and a tool call's outcome is sent only if the call had finished when it was first synced.
+- Codex: a tool call's outcome is "completed", because Codex does not record whether it succeeded.
+- Cursor: only prompts and tool calls are sent, timed by the transcript's last modification, because Cursor records no results, token usage, or timestamps. A Cursor session is not synced if the files its tool calls read or write are outside the workspace glab finds, or if several directories match the workspace's name and those files don't show which, so that it is not uploaded to the wrong project.
+
+If a GitLab instance does not accept an agent's sessions yet, they are not uploaded, then or after the instance is upgraded. Sessions from after the upgrade are.
+
 Called by the Stop hook after every agent turn. Also used by the SessionEnd hook (with `--complete`) to mark the session as complete. The hooks also record the session's project, host, and transcript location so that `--all` can sync it later.
 
 Project is resolved from the Git remote of the current directory, or overridden with `-R/--repo`.
 
 With `--all`, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Claude Code sessions are skipped while the glab Stop hook is missing from `~/.claude/settings.json`, so removing the hooks pauses them. The fallback periodic sync installed by `glab govern setup` runs this, and `glab govern doctor` shows the result of its last run.
 
-Supports Claude Code and OpenCode sessions. OpenCode sessions are read with `opencode export`.
+Supports Claude Code and OpenCode sessions recorded by hooks. OpenCode sessions are read with `opencode export`. With `--all`, it also finds and syncs the sessions of agents enabled with `glab govern setup --agents` (Codex and Cursor) by scanning their transcripts, for repositories on GitLab hosts glab is logged in to.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.

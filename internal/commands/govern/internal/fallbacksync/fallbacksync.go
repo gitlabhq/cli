@@ -393,10 +393,17 @@ type Status struct {
 	// them. These are expected for a user who works in many projects, so they
 	// are not errors.
 	GovernanceNotEnabled []string `json:"governance_not_enabled,omitempty"`
-	SessionsSynced       int      `json:"sessions_synced"`
-	SessionsCompleted    int      `json:"sessions_completed"`
-	EventsPosted         int      `json:"events_posted"`
-	Errors               []string `json:"errors,omitempty"`
+	// AgentTypeNotSupported lists agent types a GitLab host does not accept
+	// yet, as "<agent> on <host>". Their sessions are not uploaded, then or
+	// after an upgrade.
+	AgentTypeNotSupported []string `json:"agent_type_not_supported,omitempty"`
+	// Skipped explains why discovered sessions were not synced, for example
+	// a Cursor workspace that matches several directories.
+	Skipped           []string `json:"skipped,omitempty"`
+	SessionsSynced    int      `json:"sessions_synced"`
+	SessionsCompleted int      `json:"sessions_completed"`
+	EventsPosted      int      `json:"events_posted"`
+	Errors            []string `json:"errors,omitempty"`
 }
 
 // ErrNoStatus is returned by ReadStatus when no run has been recorded.
@@ -433,4 +440,43 @@ func ReadStatus() (*Status, error) {
 		return nil, fmt.Errorf("could not parse fallback sync status: %w", err)
 	}
 	return &s, nil
+}
+
+// DiscoverableAgents are the agents whose sessions the scheduled job can find
+// by scanning their transcripts, without hooks.
+var DiscoverableAgents = []string{"codex", "cursor"}
+
+func discoveredAgentsPath() string {
+	return filepath.Join(config.ConfigDir(), "gaig", "discovered-agents.json")
+}
+
+// SetDiscoveredAgents replaces the agents whose sessions the scheduled job
+// discovers.
+func SetDiscoveredAgents(agents []string) error {
+	path := discoveredAgentsPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(agents) //nolint:forbidigo // writing to disk, not stdout
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+// DiscoveredAgents returns the agents whose sessions the scheduled job
+// discovers. None are discovered until setup enables them.
+func DiscoveredAgents() ([]string, error) {
+	data, err := os.ReadFile(discoveredAgentsPath())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var agents []string
+	if err := json.Unmarshal(data, &agents); err != nil {
+		return nil, fmt.Errorf("could not parse discovered agents: %w", err)
+	}
+	return agents, nil
 }
