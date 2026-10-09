@@ -62,8 +62,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 		baseRepo:     f.BaseRepo,
 	}
 	snippetCreateCmd := &cobra.Command{
-		Use: `create [flags] -t <title> <file1> [<file2>...]
-glab snippet create [flags] -t <title> -f <filename>  # reads from stdin`,
+		Use:   `create -t <title> <file1> [<file2>...] [flags]`,
 		Short: `Create a new snippet.`,
 		Long: heredoc.Docf(`
 			Provide one or more file paths to upload, or pass %[1]s--filename%[1]s and

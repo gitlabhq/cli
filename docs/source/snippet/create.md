@@ -22,8 +22,7 @@ Snippets are created in the current project by default. Use
 and `--visibility` to control who can see it.
 
 ```plaintext
-glab snippet create [flags] -t <title> <file1> [<file2>...]
-glab snippet create [flags] -t <title> -f <filename>  # reads from stdin
+glab snippet create -t <title> <file1> [<file2>...] [flags]
 ```
 
 ## Aliases
