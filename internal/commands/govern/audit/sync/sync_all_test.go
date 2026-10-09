@@ -7,12 +7,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	osexec "os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	gosync "sync"
 	"testing"
@@ -26,6 +29,7 @@ import (
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
+	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -37,14 +41,21 @@ const testHost = "gitlab.example.com"
 // It is an HTTP server rather than a client-go mock because the governance
 // endpoints are raw requests that client-go has no service for.
 type fakeGitLab struct {
-	mu              gosync.Mutex
-	projects        map[string]int64
-	projectLookups  map[string]int
-	sessionsCreated []string
-	eventsPosted    int
-	completed       int
+	mu               gosync.Mutex
+	projects         map[string]int64
+	projectLookups   map[string]int
+	sessionsCreated  []string
+	identityRequests int
+	eventBatches     []int
+	eventsPosted     int
+	completed        int
 	// noSessionID makes session creation succeed without returning an ID.
 	noSessionID bool
+	// identityStatus and sessionStatus, when set, answer those endpoints with
+	// that HTTP status. GitLab answers 404 while AI agent governance is off
+	// for the project.
+	identityStatus int
+	sessionStatus  int
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -67,8 +78,17 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "path_with_namespace": name})
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/ai_agent/identities"):
+		f.identityRequests++
+		if f.identityStatus != 0 {
+			writeStatus(w, f.identityStatus)
+			return
+		}
 		_, _ = io.WriteString(w, `{"id": 7}`)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/ai_agent/sessions"):
+		if f.sessionStatus != 0 {
+			writeStatus(w, f.sessionStatus)
+			return
+		}
 		var body sessionRequest
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.sessionsCreated = append(f.sessionsCreated, body.IdempotencyKey)
@@ -80,6 +100,12 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/ai_agent/audit_events"):
 		var body auditEventsRequest
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		// GitLab rejects batches over its limit, as the real endpoint does.
+		if len(body.Events) > maxEventsPerRequest {
+			writeStatus(w, http.StatusBadRequest)
+			return
+		}
+		f.eventBatches = append(f.eventBatches, len(body.Events))
 		f.eventsPosted += len(body.Events)
 		_, _ = io.WriteString(w, `{}`)
 	case r.Method == http.MethodPatch && strings.HasSuffix(path, "/ai_agent/sessions/99"):
@@ -88,6 +114,11 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+func writeStatus(w http.ResponseWriter, code int) {
+	w.WriteHeader(code)
+	_, _ = fmt.Fprintf(w, `{"message":"%d %s"}`, code, http.StatusText(code))
 }
 
 type syncAllEnv struct {
@@ -213,6 +244,115 @@ func TestSyncAll_KeepsCursorWhenSessionHasNoID(t *testing.T) {
 	status := readStatus(t)
 	require.Len(t, status.Errors, 1)
 	assert.Contains(t, status.Errors[0], "no session ID")
+}
+
+func TestSyncAll_RecordsFailedIdentityRegistration(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.fake.identityStatus = http.StatusForbidden
+	env.writeClaudeSession(t, "sess-1", "my-group/my-project", "toolu_1")
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	assert.Empty(t, env.fake.sessionsCreated, "GitLab requires an agent identity to create a session")
+	cursor, err := readCursor("sess-1")
+	require.NoError(t, err)
+	assert.Zero(t, cursor, "the session is retried on the next run")
+	status := readStatus(t)
+	assert.Zero(t, status.SessionsSynced)
+	require.Len(t, status.Errors, 1)
+	assert.Contains(t, status.Errors[0], "session sess-1: could not register agent identity")
+}
+
+func TestSyncAll_RegistersIdentityOncePerProject(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.fake.identityStatus = http.StatusForbidden
+	for _, id := range []string{"sess-1", "sess-2", "sess-3"} {
+		env.writeClaudeSession(t, id, "my-group/my-project", "toolu_"+id)
+	}
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, env.fake.identityRequests, "a failed registration is not repeated for each session")
+	assert.Empty(t, env.fake.sessionsCreated)
+	assert.Len(t, readStatus(t).Errors, 1)
+}
+
+func TestSyncAll_RecordsFailedProjectOnce(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.writeClaudeSession(t, "sess-1", "gone/project", "toolu_1")
+	env.writeClaudeSession(t, "sess-2", "gone/project", "toolu_2")
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, env.fake.projectLookups["gone/project"])
+	status := readStatus(t)
+	require.Len(t, status.Errors, 1)
+	assert.Contains(t, status.Errors[0], "gone/project")
+}
+
+func TestSyncAll_GovernanceNotEnabledIsNotAnError(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		identity int
+		session  int
+	}{
+		{name: "identity registration", identity: http.StatusNotFound},
+		{name: "session creation", session: http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newSyncAllEnv(t, true)
+			env.fake.identityStatus = tc.identity
+			env.fake.sessionStatus = tc.session
+			env.writeClaudeSession(t, "sess-1", "my-group/my-project", "toolu_1")
+			env.writeClaudeSession(t, "sess-2", "my-group/my-project", "toolu_2")
+
+			_, err := env.exec("--all")
+			require.NoError(t, err)
+
+			status := readStatus(t)
+			assert.Empty(t, status.Errors, "a project without governance is expected, not a failure")
+			assert.Equal(t, []string{testHost + "/my-group/my-project"}, status.GovernanceNotEnabled)
+			cursor, err := readCursor("sess-1")
+			require.NoError(t, err)
+			assert.Zero(t, cursor, "the session syncs once governance is enabled")
+		})
+	}
+}
+
+func TestSyncAll_RejectedSessionErrorIsNotRepeated(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.fake.sessionStatus = http.StatusForbidden
+	env.writeClaudeSession(t, "sess-1", "my-group/my-project", "toolu_1")
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	status := readStatus(t)
+	require.Len(t, status.Errors, 1)
+	assert.Equal(t, 1, strings.Count(status.Errors[0], "could not create session"), status.Errors[0])
+}
+
+func TestSyncAll_PostsLargeSessionsInBatches(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	ids := make([]string, 1201)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("toolu_%d", i)
+	}
+	path := env.writeClaudeSession(t, "sess-1", "my-group/my-project", ids...)
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	assert.Equal(t, []int{500, 500, 201}, env.fake.eventBatches)
+	assert.Equal(t, 1201, env.fake.eventsPosted)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	cursor, err := readCursor("sess-1")
+	require.NoError(t, err)
+	assert.Equal(t, info.Size(), cursor, "a session over GitLab's batch limit is not stuck")
 }
 
 func TestSyncAll_SkipsSessionsWithNothingNew(t *testing.T) {
@@ -535,6 +675,27 @@ func TestSyncAll_ForgetsLongUnfoundOpenCodeSession(t *testing.T) {
 	assert.Empty(t, readStatus(t).Errors)
 }
 
+func TestSyncAll_ForgetsLongCompletedOpenCodeSession(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	require.NoError(t, writeSessionMeta("ses_old", sessionMeta{
+		AgentType:         "opencode",
+		PathWithNamespace: "my-group/my-project",
+		Host:              testHost,
+		Transcript:        "/opencode/that/was/removed",
+	}))
+	require.NoError(t, markSessionCompleted("ses_old", time.Now().Add(-forgetUnfoundAfter-time.Hour)))
+
+	// The executor has no expectations: forgetting must not run opencode export.
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	_, err = readSessionMeta("ses_old")
+	require.ErrorIs(t, err, errNoSessionMeta)
+	cp, err := cursorPath("ses_old")
+	require.NoError(t, err)
+	assert.NoFileExists(t, cp)
+}
+
 func TestOpenCode_RecordedFallsBackToPATH(t *testing.T) {
 	t.Parallel()
 
@@ -739,4 +900,60 @@ func TestGoalFromText(t *testing.T) {
 	assert.Empty(t, goalFromText("<bash-input>ls</bash-input>"))
 	assert.Equal(t, strings.Repeat("a", 256)+"...", goalFromText(strings.Repeat("a", 300)))
 	assert.Empty(t, goalFromText(string(bytes.Repeat([]byte(" "), 2))+"<tag>"))
+}
+
+// processExecutor runs commands the same way as the production executor in
+// internal/cmdutils, so tests can observe real process and pipe behavior.
+type processExecutor struct {
+	cmdutils.Executor
+}
+
+func (processExecutor) ExecWithIO(ctx context.Context, name string, args []string, env []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	cmd := osexec.CommandContext(ctx, name, args...)
+	cmd.Env = env
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
+}
+
+// fakeOpenCode writes a shell script that stands in for opencode.
+func fakeOpenCode(t *testing.T, script string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a POSIX shell")
+	}
+	path := filepath.Join(t.TempDir(), "opencode")
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o755))
+	return path
+}
+
+func TestOpenCodeTranscript_ChildKeepingOutputOpen(t *testing.T) {
+	t.Parallel()
+
+	// The background sleep inherits stdout and outlives opencode. Reading
+	// stdout through a pipe would block until the sleep exits.
+	binary := fakeOpenCode(t, `sleep 20 &
+printf '%s' '{"info":{"time":{"created":1000,"updated":2000}},"messages":[]}'`)
+	src := &openCodeTranscript{sessionID: "ses_1", binary: binary, executor: processExecutor{}}
+
+	start := time.Now()
+	last, err := src.lastActivity(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, time.UnixMilli(2000), last)
+	assert.Less(t, time.Since(start), 5*time.Second, "export must not wait for opencode's child process")
+}
+
+func TestOpenCodeTranscript_ExportTimesOut(t *testing.T) {
+	t.Parallel()
+
+	binary := fakeOpenCode(t, `sleep 20 &
+sleep 20`)
+	src := &openCodeTranscript{sessionID: "ses_1", binary: binary, executor: processExecutor{}, timeout: 300 * time.Millisecond}
+
+	start := time.Now()
+	_, _, err := src.read(t.Context(), 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timed out after 300ms")
+	assert.Less(t, time.Since(start), 5*time.Second, "a hung export must not block the run")
 }

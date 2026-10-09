@@ -385,13 +385,18 @@ func systemdState(out string) JobState {
 
 // Status records the outcome of the most recent `glab govern audit sync --all` run.
 type Status struct {
-	StartedAt         time.Time `json:"started_at"`
-	FinishedAt        time.Time `json:"finished_at"`
-	Paused            []string  `json:"paused,omitempty"`
-	SessionsSynced    int       `json:"sessions_synced"`
-	SessionsCompleted int       `json:"sessions_completed"`
-	EventsPosted      int       `json:"events_posted"`
-	Errors            []string  `json:"errors,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+	Paused     []string  `json:"paused,omitempty"`
+	// GovernanceNotEnabled lists the projects, as host/path, whose sessions
+	// were not synced because GitLab has AI agent governance turned off for
+	// them. These are expected for a user who works in many projects, so they
+	// are not errors.
+	GovernanceNotEnabled []string `json:"governance_not_enabled,omitempty"`
+	SessionsSynced       int      `json:"sessions_synced"`
+	SessionsCompleted    int      `json:"sessions_completed"`
+	EventsPosted         int      `json:"events_posted"`
+	Errors               []string `json:"errors,omitempty"`
 }
 
 // ErrNoStatus is returned by ReadStatus when no run has been recorded.

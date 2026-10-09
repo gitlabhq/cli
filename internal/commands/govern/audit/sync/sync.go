@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -39,7 +40,8 @@ const (
 	// `--all` marks it completed on behalf of a SessionEnd hook that never ran.
 	idleCompleteAfter = 24 * time.Hour
 	// forgetUnfoundAfter is how long --all keeps reporting a session the
-	// agent says it does not have, before forgetting it.
+	// agent says it does not have, and keeps a completed session it cannot
+	// check, before forgetting it.
 	forgetUnfoundAfter = 30 * 24 * time.Hour
 	maxStatusErrors    = 20
 )
@@ -140,7 +142,7 @@ func runSync(ctx context.Context, opts *options) error {
 	if opts.agentType != "" {
 		identity, err := gaig.RegisterIdentity(client, project.ID, opts.agentType)
 		if err != nil && !opts.silent {
-			opts.io.LogErrorf("warning: could not cache agent identity: %v\n", err)
+			opts.io.LogErrorf("warning: %v\n", err)
 		}
 		if identity != nil {
 			t.identityID = identity.ID
@@ -237,7 +239,7 @@ func pushSession(ctx context.Context, t target, sessionID, agentType string, src
 
 	glSessionID, err := ensureSession(ctx, t.client, t.project.ID, t.identityID, sessionID, agentType, data)
 	if err != nil {
-		return res, fmt.Errorf("could not create session: %w", err)
+		return res, err
 	}
 	if glSessionID <= 0 {
 		return res, errors.New("could not create session: GitLab returned no session ID")
@@ -329,6 +331,22 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 	}
 
 	targets := map[string]targetLookup{}
+	identities := map[string]identityLookup{}
+	reported := map[string]struct{}{}
+	recordOnce := func(key, sessionID string, err error) {
+		if _, ok := reported[key]; ok {
+			return
+		}
+		reported[key] = struct{}{}
+		recordErr(sessionID, err)
+	}
+	// The governance endpoints answer 404 when the feature is off for a
+	// project that was found, which is expected rather than an error.
+	recordNotEnabled := func(projectKey string) {
+		if !slices.Contains(status.GovernanceNotEnabled, projectKey) {
+			status.GovernanceNotEnabled = append(status.GovernanceNotEnabled, projectKey)
+		}
+	}
 	for _, sessionID := range sessionIDs {
 		meta, err := readSessionMeta(sessionID)
 		if err != nil {
@@ -356,10 +374,10 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 
 		if meta.CompletedAt != nil {
 			// Local state is kept while the agent can still resume the session.
-			deleted, err := ag.deleted(src)
+			forget, err := ag.canForget(src, *meta.CompletedAt)
 			if err != nil {
 				recordErr(sessionID, err)
-			} else if deleted {
+			} else if forget {
 				if err := forgetSession(sessionID); err != nil {
 					recordErr(sessionID, err)
 				}
@@ -407,11 +425,35 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 			continue
 		}
 
+		// Lookups are cached per project for the run, and a failure is
+		// recorded once, so one unreachable project cannot fill the error
+		// list with a copy for each of its sessions.
+		projectKey := meta.Host + "/" + meta.PathWithNamespace
 		t, err := lookupTarget(targets, meta, opts)
 		if err != nil {
-			recordErr(sessionID, err)
+			recordOnce("project "+projectKey, sessionID, err)
 			continue
 		}
+		identityKey := projectKey + " " + meta.AgentType
+		identity, ok := identities[identityKey]
+		if !ok {
+			registered, err := gaig.RegisterIdentity(t.client, t.project.ID, meta.AgentType)
+			switch {
+			case errors.Is(err, gitlab.ErrNotFound):
+				recordNotEnabled(projectKey)
+			case err != nil:
+				recordOnce("identity "+identityKey, sessionID, err)
+			}
+			if registered != nil {
+				identity = identityLookup{id: registered.ID, ok: true}
+			}
+			identities[identityKey] = identity
+		}
+		if !identity.ok {
+			// GitLab requires an agent identity to create a session.
+			continue
+		}
+		t.identityID = identity.id
 
 		res, err := pushSession(ctx, t, sessionID, meta.AgentType, src, data, newOffset, idle, opts)
 		status.EventsPosted += res.eventsPosted
@@ -421,7 +463,10 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 		if res.completed {
 			status.SessionsCompleted++
 		}
-		if err != nil {
+		switch {
+		case errors.Is(err, gitlab.ErrNotFound) && res.eventsPosted == 0 && !res.completed:
+			recordNotEnabled(projectKey)
+		case err != nil:
 			recordErr(sessionID, err)
 		}
 	}
@@ -431,6 +476,11 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 type targetLookup struct {
 	target target
 	err    error
+}
+
+type identityLookup struct {
+	id int
+	ok bool
 }
 
 // lookupTarget resolves the project a session was recorded with, caching the
@@ -450,15 +500,7 @@ func lookupTarget(cache map[string]targetLookup, meta *sessionMeta, opts *option
 		return target{}, lookup.err
 	}
 
-	t := lookup.target
-	identity, err := gaig.RegisterIdentity(t.client, t.project.ID, meta.AgentType)
-	if err != nil && !opts.silent {
-		opts.io.LogErrorf("warning: could not cache agent identity: %v\n", err)
-	}
-	if identity != nil {
-		t.identityID = identity.ID
-	}
-	return t, nil
+	return lookup.target, nil
 }
 
 func resolveTarget(meta *sessionMeta, opts *options) targetLookup {
@@ -544,7 +586,22 @@ type auditEventsRequest struct {
 }
 
 // postAuditEvents posts tool call audit events to GitLab.
+// maxEventsPerRequest is the most events GitLab accepts in one request.
+const maxEventsPerRequest = 500
+
+// postAuditEvents posts tool call audit events to GitLab in batches of at
+// most maxEventsPerRequest. If a batch fails, earlier batches stay posted;
+// GitLab deduplicates them by cloud_event_id when they are retried.
 func postAuditEvents(ctx context.Context, client *api.Client, projectID int64, sessionID int, calls []toolCall) error {
+	for batch := range slices.Chunk(calls, maxEventsPerRequest) {
+		if err := postAuditEventBatch(ctx, client, projectID, sessionID, batch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func postAuditEventBatch(ctx context.Context, client *api.Client, projectID int64, sessionID int, calls []toolCall) error {
 	events := make([]auditEventRequest, 0, len(calls))
 	for _, call := range calls {
 		events = append(events, auditEventRequest{

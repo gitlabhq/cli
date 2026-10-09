@@ -1,6 +1,8 @@
 package sync
 
 import (
+	"time"
+
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 )
 
@@ -19,9 +21,10 @@ type agent interface {
 	// recorded reopens a transcript from its recorded locator, and returns
 	// the locator to record from now on if the transcript has moved.
 	recorded(sessionID, locator string) (transcript, string, error)
-	// deleted reports whether the transcript certainly no longer exists. It
-	// must be cheap, because --all calls it for every completed session.
-	deleted(src transcript) (bool, error)
+	// canForget reports whether the local state of a session completed at
+	// completedAt can be removed, because the agent can no longer resume it.
+	// It must be cheap, because --all calls it for every completed session.
+	canForget(src transcript, completedAt time.Time) (bool, error)
 	// pausedReason explains why the user has paused syncing for this agent,
 	// or returns an empty string when syncing is not paused.
 	pausedReason() (string, error)

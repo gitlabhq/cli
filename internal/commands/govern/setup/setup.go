@@ -3,7 +3,6 @@ package setup
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -150,6 +149,15 @@ func runUninstall(ctx context.Context, opts *options) error {
 	io := opts.io
 	c := io.Color()
 
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	if !jobMayBePresent(ctx, opts, home) {
+		io.LogInfo("No fallback periodic sync job found.")
+		return nil
+	}
+
 	confirmed, err := confirm(ctx, opts, "glab will remove the fallback periodic sync job. Do you wish to continue?")
 	if err != nil {
 		return err
@@ -159,14 +167,8 @@ func runUninstall(ctx context.Context, opts *options) error {
 		return nil
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
 	removed, err := fallbacksync.Uninstall(ctx, opts.executor, opts.goos, home, os.Getuid())
 	switch {
-	case errors.Is(err, fallbacksync.ErrUnsupportedOS):
-		io.LogInfo("No fallback periodic sync job found.")
 	case err != nil:
 		return fmt.Errorf("failed to remove fallback periodic sync: %w", err)
 	case removed:
@@ -175,6 +177,25 @@ func runUninstall(ctx context.Context, opts *options) error {
 		io.LogInfo("No fallback periodic sync job found.")
 	}
 	return nil
+}
+
+// jobMayBePresent reports whether uninstall has anything to remove: the job's
+// files, or a job still loaded after its files were deleted. When either
+// check fails, it errs towards true so that uninstall still runs.
+func jobMayBePresent(ctx context.Context, opts *options, home string) bool {
+	_, err := fallbacksync.InstalledBinary(opts.goos, home)
+	switch {
+	case errors.Is(err, fallbacksync.ErrUnsupportedOS):
+		return false
+	case !errors.Is(err, fallbacksync.ErrNotInstalled):
+		return true
+	}
+	state, err := fallbacksync.State(ctx, opts.executor, opts.goos, os.Getuid())
+	if err != nil {
+		dbg.Debugf("could not check whether the fallback job is loaded: %v", err)
+		return true
+	}
+	return state.Loaded
 }
 
 func settingsPath(opts *options) (string, error) {
@@ -212,7 +233,7 @@ func installClaudeHooks(opts *options) error {
 		return nil
 	}
 
-	hooksJSON, err := json.Marshal(hooks) //nolint:forbidigo // marshaling for embedding in raw map
+	hooksJSON, err := claudehooks.MarshalHooks(hooks)
 	if err != nil {
 		return fmt.Errorf("could not serialise hooks: %w", err)
 	}

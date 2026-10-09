@@ -28,6 +28,26 @@ type HookEntry struct {
 	Type    string `json:"type"`
 	Command string `json:"command"`
 	Timeout int    `json:"timeout,omitempty"`
+	// unknown keeps fields glab does not model, such as "if" and
+	// "statusMessage". Dropping "if" would widen the hook's scope.
+	unknown map[string]json.RawMessage
+}
+
+func (e *HookEntry) UnmarshalJSON(data []byte) error {
+	type known HookEntry
+	var k known
+	unknown, err := splitUnknown(data, &k)
+	if err != nil {
+		return err
+	}
+	*e = HookEntry(k)
+	e.unknown = unknown
+	return nil
+}
+
+func (e HookEntry) MarshalJSON() ([]byte, error) {
+	type known HookEntry
+	return joinUnknown(known(e), e.unknown)
 }
 
 // HookGroup mirrors the Claude Code hook group format.
@@ -36,6 +56,86 @@ type HookGroup struct {
 	// It must be preserved to avoid widening hook scope.
 	Matcher string      `json:"matcher,omitempty"`
 	Hooks   []HookEntry `json:"hooks"`
+	unknown map[string]json.RawMessage
+}
+
+func (g *HookGroup) UnmarshalJSON(data []byte) error {
+	type known HookGroup
+	var k known
+	unknown, err := splitUnknown(data, &k)
+	if err != nil {
+		return err
+	}
+	*g = HookGroup(k)
+	g.unknown = unknown
+	return nil
+}
+
+func (g HookGroup) MarshalJSON() ([]byte, error) {
+	type known HookGroup
+	return joinUnknown(known(g), g.unknown)
+}
+
+// splitUnknown decodes data into known and returns the fields that known
+// does not write back. A known field left at its zero value is omitted when
+// encoded, so it is kept here verbatim and written back unchanged.
+func splitUnknown(data []byte, known any) (map[string]json.RawMessage, error) {
+	if err := json.Unmarshal(data, known); err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	encoded, err := marshal(known)
+	if err != nil {
+		return nil, err
+	}
+	var written map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &written); err != nil {
+		return nil, err
+	}
+	for key := range written {
+		delete(fields, key)
+	}
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	return fields, nil
+}
+
+func joinUnknown(known any, unknown map[string]json.RawMessage) ([]byte, error) {
+	encoded, err := marshal(known)
+	if err != nil || len(unknown) == 0 {
+		return encoded, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	for key, value := range unknown {
+		if _, ok := fields[key]; !ok {
+			fields[key] = value
+		}
+	}
+	return marshal(fields)
+}
+
+// marshal encodes v without HTML escaping, so shell characters such as > and
+// & in hook commands stay readable in the settings file.
+func marshal(v any) ([]byte, error) {
+	buf := &bytes.Buffer{}
+	encoder := json.NewEncoder(buf) //nolint:forbidigo // serializing to disk, not stdout
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
+
+// MarshalHooks encodes hooks for the "hooks" key of the settings file.
+func MarshalHooks(hooks map[string][]HookGroup) (json.RawMessage, error) {
+	return marshal(hooks)
 }
 
 // SettingsPath returns the absolute path to the Claude Code settings file.

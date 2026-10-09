@@ -531,7 +531,9 @@ func (claudeCode) recorded(sessionID, path string) (transcript, string, error) {
 	return claudeTranscript{path: found}, found, nil
 }
 
-func (claudeCode) deleted(src transcript) (bool, error) {
+// canForget allows forgetting a completed Claude Code session once its
+// transcript is deleted, which Claude Code does after cleanupPeriodDays.
+func (claudeCode) canForget(src transcript, _ time.Time) (bool, error) {
 	t, ok := src.(claudeTranscript)
 	if !ok {
 		return false, fmt.Errorf("unexpected Claude Code transcript type %T", src)
