@@ -197,7 +197,7 @@ func TestSyncSession_NoTranscript(t *testing.T) {
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
 	opts := &options{io: ios}
 
-	err := syncSession(t.Context(), nil, nil, 0, "test-session", filepath.Join(dir, "nonexistent.jsonl"), opts)
+	err := syncSession(t.Context(), target{}, "test-session", claudeTranscript{path: filepath.Join(dir, "nonexistent.jsonl")}, opts)
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "No transcript found")
 }
@@ -212,7 +212,7 @@ func TestSyncSession_NoNewEntries(t *testing.T) {
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
 	opts := &options{io: ios}
 
-	err := syncSession(t.Context(), nil, nil, 0, "test-session", path, opts)
+	err := syncSession(t.Context(), target{}, "test-session", claudeTranscript{path: path}, opts)
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "No new entries to sync")
 }
@@ -220,6 +220,7 @@ func TestSyncSession_NoNewEntries(t *testing.T) {
 func TestSyncSession_CursorNotAdvancedOnSessionFailure(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", dir)
 	path := filepath.Join(dir, "session.jsonl")
 
 	// Write a transcript with a tool call
@@ -240,7 +241,7 @@ func TestSyncSession_CursorNotAdvancedOnSessionFailure(t *testing.T) {
 	ios, _, _, _ := cmdtest.TestIOStreams()
 	opts := &options{io: ios, silent: true}
 
-	_ = syncSession(t.Context(), nil, nil, 0, "sess-test", path, opts)
+	_ = syncSession(t.Context(), target{}, "sess-test", claudeTranscript{path: path}, opts)
 
 	// Cursor should NOT have advanced since session creation failed
 	cursor, err := readCursor("sess-test")
@@ -249,7 +250,9 @@ func TestSyncSession_CursorNotAdvancedOnSessionFailure(t *testing.T) {
 }
 
 func TestRunSync_RepoOverrideReachesResolveProject(t *testing.T) {
-	t.Parallel()
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("OPENCODE_SESSION_ID", "")
 
 	ctrl := gomock.NewController(t)
 	tc := gitlabtesting.NewTestClientWithCtrl(ctrl, gitlab.WithBaseURL("https://gitlab.example.com"))
@@ -278,4 +281,55 @@ func TestMCPDestructiveAnnotation(t *testing.T) {
 	f := cmdtest.NewTestFactory(ios)
 	cmd := NewCmd(f)
 	assert.Equal(t, "true", cmd.Annotations[mcpannotations.Destructive])
+}
+
+func TestFindTranscriptForSession(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	// Create a transcript in a project subdirectory
+	projectDir := filepath.Join(dir, ".claude", "projects", "-Users-jean-code-gaig-test")
+	require.NoError(t, os.MkdirAll(projectDir, 0o755))
+	transcriptPath := filepath.Join(projectDir, "test-session-123.jsonl")
+	require.NoError(t, os.WriteFile(transcriptPath, []byte("{}"), 0o644))
+
+	found, err := findTranscriptForSession("test-session-123")
+	require.NoError(t, err)
+	assert.Equal(t, transcriptPath, found)
+}
+
+func TestFindTranscriptForSession_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	found, err := findTranscriptForSession("nonexistent-session")
+	require.NoError(t, err)
+	assert.Empty(t, found)
+}
+
+func TestWriteReadSessionMeta(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", dir)
+
+	meta := sessionMeta{
+		AgentType:         "claude-code",
+		PathWithNamespace: "my-group/my-project",
+		Host:              "gitlab.com",
+	}
+	require.NoError(t, writeSessionMeta("test-session", meta))
+
+	got, err := readSessionMeta("test-session")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "claude-code", got.AgentType)
+	assert.Equal(t, "my-group/my-project", got.PathWithNamespace)
+	assert.Equal(t, "gitlab.com", got.Host)
+}
+
+func TestReadSessionMeta_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", dir)
+
+	_, err := readSessionMeta("nonexistent-session")
+	require.ErrorIs(t, err, errNoSessionMeta)
 }

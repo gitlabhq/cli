@@ -2,11 +2,14 @@ package sync
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
 	"gitlab.com/gitlab-org/cli/internal/config"
 )
 
@@ -139,6 +143,17 @@ type toolCall struct {
 	Timestamp time.Time
 }
 
+// sessionMeta is written by the hooks so that `--all` can sync the session
+// later without the agent's environment or working directory.
+type sessionMeta struct {
+	AgentType         string `json:"agent_type"`
+	PathWithNamespace string `json:"path_with_namespace"`
+	Host              string `json:"host"`
+	// Transcript is the agent's locator for the session transcript.
+	Transcript  string     `json:"transcript,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
 // extractGoal attempts to extract a human-readable goal from a user message.
 // Returns empty string if the message is a bash input, tool result, or other
 // non-goal content.
@@ -153,17 +168,7 @@ func extractGoal(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &msgArray); err == nil {
 		for _, block := range msgArray.Content {
 			if block.Type == "text" && block.Text != "" {
-				// Skip bash inputs and XML-tagged content
-				if strings.Contains(block.Text, "<bash-input>") ||
-					strings.Contains(block.Text, "<bash-output>") ||
-					strings.HasPrefix(strings.TrimSpace(block.Text), "<") {
-					return ""
-				}
-				goal := block.Text
-				if len(goal) > 256 {
-					goal = goal[:256] + "..."
-				}
-				return goal
+				return goalFromText(block.Text)
 			}
 		}
 	}
@@ -173,20 +178,24 @@ func extractGoal(raw json.RawMessage) string {
 		Content string `json:"content"`
 	}
 	if err := json.Unmarshal(raw, &msgString); err == nil && msgString.Content != "" {
-		content := strings.TrimSpace(msgString.Content)
-		// Skip bash inputs and XML-tagged content
-		if strings.Contains(content, "<bash-input>") ||
-			strings.Contains(content, "<bash-output>") ||
-			strings.HasPrefix(content, "<") {
-			return ""
-		}
-		if len(content) > 256 {
-			content = content[:256] + "..."
-		}
-		return content
+		return goalFromText(strings.TrimSpace(msgString.Content))
 	}
 
 	return ""
+}
+
+// goalFromText returns text truncated for use as a session goal, or an empty
+// string for bash inputs and XML-tagged content.
+func goalFromText(text string) string {
+	if strings.Contains(text, "<bash-input>") ||
+		strings.Contains(text, "<bash-output>") ||
+		strings.HasPrefix(strings.TrimSpace(text), "<") {
+		return ""
+	}
+	if len(text) > 256 {
+		return text[:256] + "..."
+	}
+	return text
 }
 
 // parseTranscript reads new entries from the transcript file starting at offset,
@@ -306,4 +315,245 @@ func currentCWD() (string, error) {
 		}
 	}
 	return cwd, nil
+}
+
+func findTranscriptForSession(sessionID string) (string, error) {
+	base, err := claudeProjectsDir()
+	if err != nil {
+		return "", err
+	}
+
+	dirs, err := os.ReadDir(base)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	for _, dir := range dirs {
+		if !dir.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(base, dir.Name(), sessionID+".jsonl")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", nil
+}
+
+func metaPath(sessionID string) (string, error) {
+	cp, err := cursorPath(sessionID)
+	if err != nil {
+		return "", err
+	}
+	return cp + ".meta", nil
+}
+
+func writeSessionMeta(sessionID string, meta sessionMeta) error {
+	path, err := metaPath(sessionID)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(meta) //nolint:forbidigo // writing to disk, not stdout
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("could not create meta directory: %w", err)
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+// errNoSessionMeta is returned by readSessionMeta when the session has no metadata.
+var errNoSessionMeta = errors.New("no session metadata")
+
+func readSessionMeta(sessionID string) (*sessionMeta, error) {
+	path, err := metaPath(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, errNoSessionMeta
+	}
+	if err != nil {
+		return nil, err
+	}
+	var meta sessionMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
+}
+
+// listSessionMetas returns the IDs of sessions that have metadata.
+func listSessionMetas() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(config.ConfigDir(), "gaig", "cursors"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("could not read cursors directory: %w", err)
+	}
+	var ids []string
+	for _, entry := range entries {
+		if id, ok := strings.CutSuffix(entry.Name(), ".meta"); ok && !entry.IsDir() {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// forgetSession removes the cursor and metadata of a session.
+func forgetSession(sessionID string) error {
+	cp, err := cursorPath(sessionID)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, path := range []string{cp, cp + ".meta"} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// sessionMetaModTime returns when a hook last recorded the session.
+func sessionMetaModTime(sessionID string) (time.Time, error) {
+	path, err := metaPath(sessionID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
+}
+
+func markSessionCompleted(sessionID string, at time.Time) error {
+	meta, err := readSessionMeta(sessionID)
+	if errors.Is(err, errNoSessionMeta) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	meta.CompletedAt = &at
+	return writeSessionMeta(sessionID, *meta)
+}
+
+// errTranscriptNotFound is returned when a session's transcript does not exist.
+var errTranscriptNotFound = errors.New("transcript not found")
+
+// errAgentSessionNotFound is returned when the agent reports that it has no
+// such session, which may also mean the job cannot see the agent's data.
+var errAgentSessionNotFound = errors.New("the agent reports no such session")
+
+// transcript is a source of agent session data.
+type transcript interface {
+	fmt.Stringer
+	// read returns the session data recorded after cursor, and the cursor
+	// to pass next time.
+	read(ctx context.Context, cursor int64) (*sessionData, int64, error)
+	lastActivity(ctx context.Context) (time.Time, error)
+	checksum(ctx context.Context) (string, error)
+}
+
+// claudeTranscript is a Claude Code JSONL transcript. Its cursor is a byte offset.
+type claudeTranscript struct {
+	path string
+}
+
+func (t claudeTranscript) String() string {
+	return t.path
+}
+
+func (t claudeTranscript) read(_ context.Context, cursor int64) (*sessionData, int64, error) {
+	if _, err := os.Stat(t.path); errors.Is(err, fs.ErrNotExist) {
+		return nil, cursor, errTranscriptNotFound
+	}
+	return parseTranscript(t.path, cursor)
+}
+
+func (t claudeTranscript) lastActivity(context.Context) (time.Time, error) {
+	info, err := os.Stat(t.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return time.Time{}, errTranscriptNotFound
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
+}
+
+func (t claudeTranscript) checksum(context.Context) (string, error) {
+	return sha256File(t.path)
+}
+
+// claudeCode syncs Claude Code sessions. Their transcript locator is the
+// JSONL file path.
+type claudeCode struct{}
+
+func (claudeCode) name() string { return "claude-code" }
+
+func (claudeCode) sessionID() string { return os.Getenv("CLAUDE_CODE_SESSION_ID") }
+
+func (claudeCode) current(sessionID string) (transcript, string, error) {
+	cwd, err := currentCWD()
+	if err != nil {
+		return nil, "", fmt.Errorf("could not get current directory: %w", err)
+	}
+	path, err := transcriptPath(sessionID, cwd)
+	if err != nil {
+		return nil, "", fmt.Errorf("could not resolve transcript path: %w", err)
+	}
+	return claudeTranscript{path: path}, path, nil
+}
+
+func (claudeCode) recorded(sessionID, path string) (transcript, string, error) {
+	if _, err := os.Stat(path); err == nil {
+		return claudeTranscript{path: path}, path, nil
+	}
+	// The recorded path is derived from the hook's working directory, which
+	// differs from the session's project directory if the agent changed
+	// directory.
+	found, err := findTranscriptForSession(sessionID)
+	if err != nil {
+		return nil, "", err
+	}
+	if found == "" {
+		return claudeTranscript{path: path}, path, nil
+	}
+	return claudeTranscript{path: found}, found, nil
+}
+
+func (claudeCode) deleted(src transcript) (bool, error) {
+	t, ok := src.(claudeTranscript)
+	if !ok {
+		return false, fmt.Errorf("unexpected Claude Code transcript type %T", src)
+	}
+	_, err := os.Stat(t.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	return false, err
+}
+
+func (claudeCode) pausedReason() (string, error) {
+	settings, err := claudehooks.SettingsPath()
+	if err != nil {
+		return "", err
+	}
+	installed, err := claudehooks.SyncHookInstalled(settings)
+	if err != nil {
+		return "", err
+	}
+	if !installed {
+		return "the glab Stop hook is not installed in ~/" + claudehooks.SettingsFile, nil
+	}
+	return "", nil
 }

@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -18,6 +20,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -36,6 +39,7 @@ type options struct {
 	io        *iostreams.IOStreams
 	config    func() config.Config
 	apiClient func(repoHost string) (*api.Client, error)
+	executor  cmdutils.Executor
 	hostname  string
 }
 
@@ -44,6 +48,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		io:        f.IO(),
 		config:    f.Config,
 		apiClient: f.ApiClient,
+		executor:  f.Executor(),
 		hostname:  f.DefaultHostname(),
 	}
 
@@ -59,6 +64,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			- glab in PATH: the binary is findable so hooks will work
 			- Claude Code hooks: Stop and SessionEnd hooks are installed
 			- API connectivity: can reach the GitLab API
+			- Fallback periodic sync: whether the scheduled job is installed and loaded, whether the glab binary it runs still exists, and the result of its last run
 
 			Outputs a clear remediation command for any check that fails.
 		`) + text.ExperimentalString,
@@ -88,6 +94,7 @@ func runDoctor(ctx context.Context, opts *options) error {
 		checkAuthentication(opts),
 		checkClaudeHooks(),
 		checkAPIConnectivity(ctx, opts),
+		checkFallbackSync(ctx, opts.executor, runtime.GOOS, time.Now()),
 	}
 
 	allPassed := true
@@ -163,7 +170,7 @@ func checkClaudeHooks() checkResult {
 		return checkResult{
 			name:    "Claude Code hooks",
 			ok:      false,
-			message: "could not determine home directory",
+			message: fmt.Sprintf("could not determine home directory: %v", err),
 		}
 	}
 
@@ -181,7 +188,7 @@ func checkClaudeHooks() checkResult {
 		return checkResult{
 			name:    "Claude Code hooks",
 			ok:      false,
-			message: "could not determine home directory",
+			message: fmt.Sprintf("could not determine home directory: %v", err),
 		}
 	}
 
@@ -264,4 +271,100 @@ func checkAPIConnectivity(ctx context.Context, opts *options) checkResult {
 		ok:      true,
 		message: fmt.Sprintf("connected to %s", opts.hostname),
 	}
+}
+
+func checkFallbackSync(ctx context.Context, executor cmdutils.Executor, goos string, now time.Time) checkResult {
+	const name = "Fallback periodic sync"
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return checkResult{name: name, ok: false, message: fmt.Sprintf("could not determine home directory: %v", err)}
+	}
+
+	glabPath, err := fallbacksync.InstalledBinary(goos, home)
+	switch {
+	case errors.Is(err, fallbacksync.ErrUnsupportedOS):
+		return checkResult{
+			name:    name,
+			ok:      true,
+			message: fmt.Sprintf("not supported on %s; sessions sync only through the hooks", goos),
+		}
+	case errors.Is(err, fallbacksync.ErrNotInstalled):
+		return checkResult{
+			name:    name,
+			ok:      true,
+			message: "not installed; sessions sync only through the hooks. Run 'glab govern setup' to install it",
+		}
+	case err != nil:
+		return checkResult{
+			name:    name,
+			ok:      false,
+			message: fmt.Sprintf("could not read the installed job: %v", err),
+			fix:     "Run: glab govern setup",
+		}
+	}
+
+	if _, err := os.Stat(glabPath); err != nil {
+		return checkResult{
+			name:    name,
+			ok:      false,
+			message: fmt.Sprintf("the job runs %s, which no longer exists", glabPath),
+			fix:     "Run: glab govern setup",
+		}
+	}
+
+	state, err := fallbacksync.State(ctx, executor, goos, os.Getuid())
+	switch {
+	case err != nil:
+		return checkResult{
+			name:    name,
+			ok:      false,
+			message: fmt.Sprintf("could not check whether the job is loaded: %v", err),
+			fix:     "Run: glab govern setup",
+		}
+	case !state.Loaded:
+		return checkResult{
+			name:    name,
+			ok:      false,
+			message: "the job is installed but not loaded, so it never runs",
+			fix:     "Run: glab govern setup",
+		}
+	case state.Ran && state.ExitCode != 0:
+		return checkResult{
+			name:    name,
+			ok:      false,
+			message: fmt.Sprintf("the job's last run exited with code %d", state.ExitCode),
+			fix:     fmt.Sprintf("Run '%s govern audit sync --all' to see the error, then 'glab govern setup' to reinstall the job", glabPath),
+		}
+	}
+
+	status, err := fallbacksync.ReadStatus()
+	switch {
+	case errors.Is(err, fallbacksync.ErrNoStatus):
+		return checkResult{name: name, ok: true, message: fmt.Sprintf("installed (%s); no run recorded yet", glabPath)}
+	case err != nil:
+		return checkResult{name: name, ok: true, message: fmt.Sprintf("installed (%s); could not read last run: %v", glabPath, err)}
+	}
+
+	return checkResult{
+		name:    name,
+		ok:      true,
+		message: fmt.Sprintf("installed (%s); %s", glabPath, describeLastRun(status, now)),
+	}
+}
+
+func describeLastRun(s *fallbacksync.Status, now time.Time) string {
+	ago := now.Sub(s.FinishedAt).Round(time.Minute)
+	desc := fmt.Sprintf("last run %s ago", ago)
+	if ago > 2*fallbacksync.Interval {
+		desc += fmt.Sprintf(" (expected every %d minutes; the job may not be running)", int(fallbacksync.Interval.Minutes()))
+	}
+	desc += fmt.Sprintf(": %d sessions synced, %d completed, %d events posted", s.SessionsSynced, s.SessionsCompleted, s.EventsPosted)
+	if len(s.Errors) > 0 {
+		desc += fmt.Sprintf(", %d errors (first: %s)", len(s.Errors), s.Errors[0])
+	}
+	if len(s.Paused) > 0 {
+		desc += "; paused for " + strings.Join(s.Paused, "; ")
+	}
+	return desc
 }
