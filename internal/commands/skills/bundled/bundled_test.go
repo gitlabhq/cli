@@ -98,34 +98,6 @@ func TestRelPath(t *testing.T) {
 	})
 }
 
-func TestParseFrontmatter(t *testing.T) {
-	t.Parallel()
-
-	t.Run("valid", func(t *testing.T) {
-		t.Parallel()
-
-		content := []byte("---\nname: foo\ndescription: bar baz\n---\nbody\n")
-		fm, err := parseFrontmatter(content)
-		require.NoError(t, err)
-		assert.Equal(t, "foo", fm.Name)
-		assert.Equal(t, "bar baz", fm.Description)
-	})
-
-	t.Run("missing leading delimiter", func(t *testing.T) {
-		t.Parallel()
-
-		_, err := parseFrontmatter([]byte("name: foo\n"))
-		require.Error(t, err)
-	})
-
-	t.Run("missing closing delimiter", func(t *testing.T) {
-		t.Parallel()
-
-		_, err := parseFrontmatter([]byte("---\nname: foo\n"))
-		require.Error(t, err)
-	})
-}
-
 // A bundled skill is instructions an agent follows literally, so an example that
 // names a placeholder `glab api` does not expand is not a typo -- the agent sends
 // it verbatim and gets HTTP 400. `:iid` shipped in five examples this way (#8531).

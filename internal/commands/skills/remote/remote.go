@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"sync"
 
@@ -32,9 +33,10 @@ const supportedRegistryVersion = 1
 var ErrNotFound = errors.New("not in remote registry")
 
 // Entry is a single row in registry.yaml — the curated pointer to a
-// remote skill. The frontmatter inside the fetched SKILL.md is the
-// source of truth at install time; the description here exists purely
-// so `skills list` can render without a network call.
+// remote skill. The description exists purely so `skills list` can
+// render without a network call. Name is the public skill name and
+// install directory; when the upstream SKILL.md frontmatter names the
+// skill differently, the fetcher rewrites it to Name at install time.
 type Entry struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
@@ -47,6 +49,9 @@ type registryFile struct {
 	Version int     `yaml:"version"`
 	Skills  []Entry `yaml:"skills"`
 }
+
+// skillNamePattern is the name format required by the Agent Skills spec.
+var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 var (
 	loadOnce sync.Once
@@ -130,6 +135,9 @@ func validateEntries(es []Entry) error {
 		if e.Name == "" {
 			errs = append(errs, fmt.Errorf("entry %d: missing 'name'", i))
 			continue
+		}
+		if !skillNamePattern.MatchString(e.Name) {
+			errs = append(errs, fmt.Errorf("entry %q: name must be lowercase letters, digits, and single hyphens", e.Name))
 		}
 		if e.Description == "" {
 			errs = append(errs, fmt.Errorf("entry %q: missing 'description'", e.Name))

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -78,12 +80,46 @@ func (f *fetcher) fetch(e Entry) (skill.Skill, error) {
 		return skill.Skill{}, fmt.Errorf("remote skill %q at %s@%s:%s has no %s", e.Name, e.Project, ref, e.Path, skill.FileName)
 	}
 
+	renamed, err := setFrontmatterName(files[skill.FileName], e.Name)
+	if err != nil {
+		return skill.Skill{}, fmt.Errorf("remote skill %q at %s@%s:%s: %w", e.Name, e.Project, ref, e.Path, err)
+	}
+	files[skill.FileName] = renamed
+
 	return skill.Skill{
 		Name:        e.Name,
 		Description: e.Description,
 		Source:      skill.SourceRemote,
 		Files:       files,
 	}, nil
+}
+
+var frontmatterNameLine = regexp.MustCompile(`(?m)^name:[^\r\n]*`)
+
+// setFrontmatterName rewrites the top-level `name:` of a SKILL.md
+// frontmatter so it matches the registry name, which is also the install
+// directory. The agent skills spec requires the two to be equal, and an
+// upstream skill may legitimately publish under a different name.
+func setFrontmatterName(content []byte, name string) ([]byte, error) {
+	parts, err := skill.SplitFrontmatter(content)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", skill.FileName, err)
+	}
+	loc := frontmatterNameLine.FindIndex(parts.Block)
+	if loc == nil {
+		return nil, fmt.Errorf("%s frontmatter is missing 'name'", skill.FileName)
+	}
+	parts.Block = slices.Concat(parts.Block[:loc[0]], []byte("name: "+name), parts.Block[loc[1]:])
+
+	rewritten := parts.Join()
+	fm, err := skill.ParseFrontmatter(rewritten)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", skill.FileName, err)
+	}
+	if fm.Name != name {
+		return nil, fmt.Errorf("%s frontmatter name is %q after rewrite, want %q", skill.FileName, fm.Name, name)
+	}
+	return rewritten, nil
 }
 
 // resolveRef expands the `latest` shortcut to the project's default

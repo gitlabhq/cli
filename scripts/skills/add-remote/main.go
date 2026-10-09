@@ -3,7 +3,12 @@
 //
 // Usage:
 //
-//	go run ./scripts/skills/add-remote <gitlab-url> [--replace]
+//	go run ./scripts/skills/add-remote <gitlab-url> [--replace] [--name <name>]
+//
+// By default the entry name is the SKILL.md frontmatter `name`, which must
+// match the skill directory. Pass --name to publish the skill under a
+// different public name; glab rewrites the frontmatter `name` to it at
+// install time.
 //
 // The URL can be either form:
 //
@@ -30,6 +35,8 @@ import (
 
 	"github.com/spf13/pflag"
 	"go.yaml.in/yaml/v3"
+
+	"gitlab.com/gitlab-org/cli/internal/commands/skills/skill"
 )
 
 const registryPath = "internal/commands/skills/remote/registry.yaml"
@@ -52,8 +59,9 @@ func main() {
 	// positional URL argument — `<url> --replace` and `--replace <url>`
 	// both work.
 	replace := pflag.Bool("replace", false, "Overwrite an existing entry with the same name.")
+	name := pflag.String("name", "", "Public skill name, when it differs from the upstream frontmatter name.")
 	pflag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: go run ./scripts/skills/add-remote <gitlab-url> [--replace]\n")
+		fmt.Fprintf(os.Stderr, "Usage: go run ./scripts/skills/add-remote <gitlab-url> [--replace] [--name <name>]\n")
 		pflag.PrintDefaults()
 	}
 	pflag.Parse()
@@ -62,13 +70,13 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(pflag.Arg(0), *replace); err != nil {
+	if err := run(pflag.Arg(0), *replace, *name); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(rawURL string, replace bool) error {
+func run(rawURL string, replace bool, nameOverride string) error {
 	project, ref, path, err := parseURL(rawURL)
 	if err != nil {
 		return err
@@ -84,8 +92,10 @@ func run(rawURL string, replace bool) error {
 		return fmt.Errorf("parsing SKILL.md frontmatter: %w", err)
 	}
 
-	if base := filepath.Base(path); base != name {
-		return fmt.Errorf("frontmatter name %q does not match skill directory %q", name, base)
+	if nameOverride != "" {
+		name = nameOverride
+	} else if base := filepath.Base(path); base != name {
+		return fmt.Errorf("frontmatter name %q does not match skill directory %q; pass --name to publish it under a different name", name, base)
 	}
 
 	rf, err := readRegistry()
@@ -182,26 +192,8 @@ func fetchSkillMD(project, ref, path string) ([]byte, error) {
 }
 
 func parseFrontmatter(content []byte) (string, string, error) {
-	const delim = "---"
-	trimmed := bytes.TrimLeft(content, " \t\r\n")
-	if !bytes.HasPrefix(trimmed, []byte(delim)) {
-		return "", "", fmt.Errorf("missing leading '---' delimiter")
-	}
-	rest := trimmed[len(delim):]
-	nl := bytes.IndexByte(rest, '\n')
-	if nl == -1 {
-		return "", "", fmt.Errorf("missing newline after opening '---'")
-	}
-	rest = rest[nl+1:]
-	before, _, ok := bytes.Cut(rest, []byte("\n"+delim))
-	if !ok {
-		return "", "", fmt.Errorf("missing closing '---' delimiter")
-	}
-	var fm struct {
-		Name        string `yaml:"name"`
-		Description string `yaml:"description"`
-	}
-	if err := yaml.Unmarshal(before, &fm); err != nil {
+	fm, err := skill.ParseFrontmatter(content)
+	if err != nil {
 		return "", "", err
 	}
 	if fm.Name == "" {
@@ -210,7 +202,7 @@ func parseFrontmatter(content []byte) (string, string, error) {
 	if fm.Description == "" {
 		return "", "", fmt.Errorf("frontmatter is missing 'description'")
 	}
-	return fm.Name, strings.TrimSpace(fm.Description), nil
+	return fm.Name, fm.Description, nil
 }
 
 func readRegistry() (registryFile, error) {
