@@ -1,4 +1,4 @@
-golang 1.27.0
+golang 1.27.2
 
 # For linting and formatting Go code (includes gofumpt and goimports)
 golangci-lint 2.14.0
