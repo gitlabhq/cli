@@ -147,7 +147,7 @@ func TestInstalledBinary(t *testing.T) {
 
 		status, err := InstalledBinary(cfg, testSpec())
 		require.NoError(t, err)
-		assert.Equal(t, InstallStatus{Path: custom, Version: "unknown version", Installed: true}, status)
+		assert.Equal(t, InstallStatus{Path: custom, Installed: true}, status)
 	})
 
 	t.Run("custom path that is missing is not installed", func(t *testing.T) {
@@ -193,7 +193,7 @@ func TestInstalledBinary(t *testing.T) {
 
 		status, err := InstalledBinary(cfg, spec)
 		require.ErrorContains(t, err, "reading test_cli_binary_version: keyring locked")
-		assert.Equal(t, InstallStatus{Path: custom, Version: "unknown version", Installed: true}, status)
+		assert.Equal(t, InstallStatus{Path: custom, Installed: true}, status)
 	})
 }
 

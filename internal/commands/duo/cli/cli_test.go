@@ -14,6 +14,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
 	"gitlab.com/gitlab-org/cli/internal/binarymgr/binaries"
+	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -216,14 +217,14 @@ func TestBinaryStatus(t *testing.T) {
 		assert.Equal(t, "9.5.0", version)
 	})
 
-	t.Run("falls back to \"unknown version\" when duo_cli_binary_version is unset", func(t *testing.T) {
+	t.Run("reports an empty version when duo_cli_binary_version is unset", func(t *testing.T) {
 		execFile := filepath.Join(t.TempDir(), "duo")
 		require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/sh\n"), 0o755))
 		t.Setenv("GLAB_DUO_CLI_BINARY_PATH", execFile)
 
 		_, version, installed := binaryStatus(config.NewBlankConfig())
 		assert.True(t, installed)
-		assert.Equal(t, "unknown version", version)
+		assert.Empty(t, version)
 	})
 
 	t.Run("reports not installed for a missing binary", func(t *testing.T) {
@@ -234,26 +235,101 @@ func TestBinaryStatus(t *testing.T) {
 	})
 }
 
+func TestAppendBinaryStatusFooter_BinaryStatus(t *testing.T) {
+	if _, err := binarymgr.ManagedBinaryPath(binaries.DuoCLI()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
+		t.Skipf("skipping on unsupported platform: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		managed bool
+		version string
+	}{
+		{name: "custom path with a recorded version", version: "9.5.0"},
+		{name: "custom path without a recorded version"},
+		{name: "managed path with a recorded version", managed: true, version: "9.5.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+			t.Setenv("GLAB_DUO_CLI_BINARY_PATH", "")
+			path := filepath.Join(t.TempDir(), "duo")
+			if tt.managed {
+				var err error
+				path, err = binarymgr.ManagedBinaryPath(binaries.DuoCLI())
+				require.NoError(t, err)
+			}
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+			require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755))
+
+			cfg := config.NewBlankConfig()
+			if tt.version != "" {
+				require.NoError(t, cfg.Set("", "duo_cli_binary_version", tt.version))
+			}
+			if !tt.managed {
+				require.NoError(t, cfg.Set("", "duo_cli_binary_path", path))
+			}
+			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				root := &cobra.Command{Use: "glab"}
+				root.SetHelpFunc(func(*cobra.Command, []string) {})
+				root.AddCommand(NewCmd(f))
+				return root
+			}, false, cmdtest.WithConfig(cfg))
+
+			out, err := exec("cli --help")
+			require.NoError(t, err)
+
+			expectedLine := "  Installed: " + path + "\n"
+			if tt.version != "" {
+				expectedLine = "  Installed: " + tt.version + " (" + path + ")\n"
+			}
+			assert.Contains(t, out.String(), expectedLine)
+			assert.Contains(t, out.String(), "Run 'glab duo cli help'")
+			assert.NotContains(t, out.String(), "not installed yet")
+		})
+	}
+}
+
 func TestAppendBinaryStatusFooter_ShowsSetupStepsWhenNotInstalled(t *testing.T) {
 	if _, err := binarymgr.ManagedBinaryPath(binaries.DuoCLI()); errors.Is(err, binarymgr.ErrUnsupportedPlatform) {
 		t.Skipf("skipping on unsupported platform: %v", err)
 	}
 
-	ios, _, stdout, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
-	factory := cmdtest.NewTestFactory(ios)
+	tests := []struct {
+		name    string
+		managed bool
+	}{
+		{name: "missing binary"},
+		{name: "managed binary without a recorded version", managed: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+			t.Setenv("GLAB_DUO_CLI_BINARY_PATH", "")
+			cfg := config.NewBlankConfig()
+			if tt.managed {
+				path, err := binarymgr.ManagedBinaryPath(binaries.DuoCLI())
+				require.NoError(t, err)
+				require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+				require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755))
+			} else {
+				require.NoError(t, cfg.Set("", "duo_cli_binary_path", filepath.Join(t.TempDir(), "missing-duo")))
+			}
 
-	t.Setenv("GLAB_DUO_CLI_BINARY_PATH", filepath.Join(t.TempDir(), "missing-duo"))
+			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				root := &cobra.Command{Use: "glab"}
+				root.SetHelpFunc(func(*cobra.Command, []string) {})
+				root.AddCommand(NewCmd(f))
+				return root
+			}, false, cmdtest.WithConfig(cfg))
 
-	cmd := NewCmd(factory)
-	// The help func delegates the standard part of the output to the root help
-	// func, so give the command a root with a no-op help func.
-	root := &cobra.Command{Use: "glab"}
-	root.SetHelpFunc(func(*cobra.Command, []string) {})
-	root.AddCommand(cmd)
-	require.NoError(t, cmd.Help())
-
-	assert.Contains(t, stdout.String(), "not installed yet")
-	assert.Contains(t, stdout.String(), "glab duo cli --install")
+			out, err := exec("cli --help")
+			require.NoError(t, err)
+			assert.Contains(t, out.String(), "not installed yet")
+			assert.Contains(t, out.String(), "glab duo cli --install")
+			assert.NotContains(t, out.String(), "Installed:")
+		})
+	}
 }
 
 func TestNewCmd_UpdateRouting(t *testing.T) {

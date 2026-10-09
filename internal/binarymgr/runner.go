@@ -235,9 +235,6 @@ func InstalledBinary(cfg config.Config, spec Spec) (InstallStatus, error) {
 	managedPath, managedErr := ManagedBinaryPath(spec)
 
 	status := InstallStatus{Path: path, Version: version}
-	if status.Version == "" {
-		status.Version = "unknown version"
-	}
 	if path != "" && path != managedPath {
 		status.Installed = validateBinaryPath(path, spec) == nil
 		return status, errors.Join(errs...)
