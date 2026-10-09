@@ -8,12 +8,16 @@
 #
 #   go run ./scripts/skills/add-remote <full-url-to-skill-directory>
 #
-# Manual additions need the same fields the generator produces; the
-# entry name must match the SKILL.md frontmatter `name`.
+# Manual additions need the same fields the generator produces. The entry
+# name is the public skill name and install directory. It normally matches
+# the SKILL.md frontmatter `name`; when it differs (for example `orbit`
+# installing the upstream `orbit-wrapper`), glab rewrites the frontmatter
+# `name` to the entry name at install time. Generate such entries with
+# `--name`.
 version: 1
 skills:
   - name: orbit
-    description: Query the GitLab Knowledge Graph (Orbit) via `glab orbit remote` CLI subcommands or run a local copy with `glab orbit local`. Use for code-structure questions (who calls this function, where is this symbol defined), cross-project dependency and blast-radius analysis, merge-request and contributor queries, and any question answerable by traversing GitLab's unified entity graph (projects, users, MRs, issues, pipelines, files, definitions, vulnerabilities).
+    description: Use the `glab orbit` CLI for questions about code structure, blast radius, cross-project links, and relationships across GitLab entities, and to build a repo map. It works on hosted or local data. Skip it for single-entity lookups or writes that `glab` already handles.
     project: gitlab-org/orbit/knowledge-graph
     ref: latest
-    path: skills/orbit
+    path: skills/orbit-wrapper

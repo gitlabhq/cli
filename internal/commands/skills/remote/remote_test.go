@@ -188,3 +188,67 @@ func TestFetcher_MissingSkillMD(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "has no "+skill.FileName)
 }
+
+func TestFetcher_RewritesFrontmatterNameToEntryName(t *testing.T) {
+	t.Parallel()
+
+	g := newFakeGitLab(t, "trunk", map[string]string{
+		"skills/demo-wrapper/SKILL.md": "---\nname: demo-wrapper\ndescription: a demo\nmetadata:\n  name: keep\n---\n\nname: body line\n",
+	})
+
+	f := &fetcher{client: http.DefaultClient, api: g.server.URL + "/api/v4", host: g.server.URL}
+	s, err := f.fetch(Entry{
+		Name: "demo", Description: "a demo",
+		Project: "g/p", Ref: "latest", Path: "skills/demo-wrapper",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "demo", s.Name)
+	assert.Equal(t, "---\nname: demo\ndescription: a demo\nmetadata:\n  name: keep\n---\n\nname: body line\n", string(s.Files[skill.FileName]))
+}
+
+func TestFetcher_RejectsSkillMDWithoutFrontmatterName(t *testing.T) {
+	t.Parallel()
+
+	g := newFakeGitLab(t, "main", map[string]string{
+		"skills/demo/SKILL.md": "---\ndescription: a demo\n---\nbody\n",
+	})
+
+	f := &fetcher{client: http.DefaultClient, api: g.server.URL + "/api/v4", host: g.server.URL}
+	_, err := f.fetch(Entry{
+		Name: "demo", Description: "d",
+		Project: "g/p", Ref: "v1", Path: "skills/demo",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing 'name'")
+}
+
+func TestFetcher_RewritesFrontmatterNamePreservingCRLF(t *testing.T) {
+	t.Parallel()
+
+	g := newFakeGitLab(t, "main", map[string]string{
+		"skills/demo-wrapper/SKILL.md": "---\r\nname: demo-wrapper\r\ndescription: a demo\r\n---\r\nbody\r\n",
+	})
+
+	f := &fetcher{client: http.DefaultClient, api: g.server.URL + "/api/v4", host: g.server.URL}
+	s, err := f.fetch(Entry{
+		Name: "demo", Description: "a demo",
+		Project: "g/p", Ref: "v1", Path: "skills/demo-wrapper",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "---\r\nname: demo\r\ndescription: a demo\r\n---\r\nbody\r\n", string(s.Files[skill.FileName]))
+}
+
+func TestValidateEntries_RejectsInvalidNames(t *testing.T) {
+	t.Parallel()
+
+	valid := Entry{Description: "d", Project: "g/p", Ref: "latest", Path: "skills/x"}
+	for _, name := range []string{"Orbit", "my_skill", "-orbit", "orbit-", "or--bit", "../x"} {
+		e := valid
+		e.Name = name
+		require.Error(t, validateEntries([]Entry{e}), name)
+	}
+
+	e := valid
+	e.Name = "orbit-2"
+	require.NoError(t, validateEntries([]Entry{e}))
+}

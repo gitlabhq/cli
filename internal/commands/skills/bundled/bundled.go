@@ -10,7 +10,6 @@
 package bundled
 
 import (
-	"bytes"
 	"embed"
 	"errors"
 	"fmt"
@@ -19,8 +18,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-
-	"go.yaml.in/yaml/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/commands/skills/skill"
 )
@@ -34,11 +31,6 @@ const assetsDir = "assets"
 
 //go:embed all:assets
 var fsys embed.FS
-
-type frontmatter struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-}
 
 var (
 	loadOnce sync.Once
@@ -107,7 +99,7 @@ func loadSkill(dirName string) (skill.Skill, error) {
 		return skill.Skill{}, fmt.Errorf("skill %q is missing required %s", dirName, skill.FileName)
 	}
 
-	fm, err := parseFrontmatter(skillMD)
+	fm, err := skill.ParseFrontmatter(skillMD)
 	if err != nil {
 		return skill.Skill{}, fmt.Errorf("parsing frontmatter in %s/%s: %w", dirName, skill.FileName, err)
 	}
@@ -177,32 +169,4 @@ func relPath(root, full string) (string, error) {
 		return "", fmt.Errorf("path %q is not under skill root %q", full, root)
 	}
 	return full[len(root)+1:], nil
-}
-
-// parseFrontmatter extracts the YAML block between the first pair of `---`
-// delimiters at the top of a SKILL.md.
-func parseFrontmatter(content []byte) (frontmatter, error) {
-	var fm frontmatter
-	const delim = "---"
-
-	trimmed := bytes.TrimLeft(content, " \t\r\n")
-	if !bytes.HasPrefix(trimmed, []byte(delim)) {
-		return fm, fmt.Errorf("missing leading '---' delimiter")
-	}
-	rest := trimmed[len(delim):]
-	nl := bytes.IndexByte(rest, '\n')
-	if nl == -1 {
-		return fm, fmt.Errorf("missing newline after opening '---'")
-	}
-	rest = rest[nl+1:]
-
-	before, _, ok := bytes.Cut(rest, []byte("\n"+delim))
-	if !ok {
-		return fm, fmt.Errorf("missing closing '---' delimiter")
-	}
-
-	if err := yaml.Unmarshal(before, &fm); err != nil {
-		return fm, err
-	}
-	return fm, nil
 }
