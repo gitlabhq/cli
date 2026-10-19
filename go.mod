@@ -59,7 +59,7 @@ require (
 	k8s.io/apimachinery v0.37.1
 	k8s.io/client-go v0.37.1
 	mvdan.cc/xurls/v2 v2.6.0
-	software.sslmate.com/src/go-pkcs12 v0.7.3
+	software.sslmate.com/src/go-pkcs12 v0.7.4
 )
 
 require (
