@@ -9,7 +9,10 @@
 # change without a maintainer. Conduct, security and agent files are left to
 # the maintainers alone.
 
-* @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers
+# @gitlab-bot is an owner here so its triage-ops auto-approval of
+# MRs counts towards the code owner rule.
+
+* @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-bot
 /README.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam
 /CONTRIBUTING.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam
 /docs/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam
