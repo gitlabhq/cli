@@ -370,7 +370,7 @@ lint:
     - .go-cache
     - .test
   # Note: keep version in sync with the one in .tool-versions
-  image: ${GITLAB_DEPENDENCY_PROXY}golangci/golangci-lint:v2.14.0-alpine
+  image: ${GITLAB_DEPENDENCY_PROXY}golangci/golangci-lint:v2.15.0-alpine
   script:
     # Write the code coverage report to gl-code-quality-report.json
     # and print linting issues to stdout in the format: path/to/file:line description

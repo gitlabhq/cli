@@ -2,7 +2,7 @@ golang 1.27.3
 
 # For linting and formatting Go code (includes gofumpt and goimports)
 # Note: keep version in sync with the one in .gitlab-ci.yml lint job
-golangci-lint 2.14.0
+golangci-lint 2.15.0
 
 # For linting shell scripts
 shellcheck 0.11.0
