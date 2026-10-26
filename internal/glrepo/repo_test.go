@@ -292,6 +292,8 @@ hosts:
     api_protocol: https
   example.org:
     token: xxxxxxxxxxxxxxxxxxxxx
+  localhost:3000:
+    token: xxxxxxxxxxxxxxxxxxxxx
 `)
 	tests := []struct {
 		name          string
@@ -360,6 +362,28 @@ hosts:
 			wantFullname:  "OWNER/REPO",
 			wantNamespace: "OWNER",
 			wantGroup:     "",
+			wantErr:       nil,
+		},
+		{
+			name:          "authenticated hostname with port and no dot",
+			input:         "localhost:3000/OWNER/REPO",
+			wantHost:      "localhost:3000",
+			wantOwner:     "OWNER",
+			wantName:      "REPO",
+			wantFullname:  "OWNER/REPO",
+			wantNamespace: "OWNER",
+			wantGroup:     "",
+			wantErr:       nil,
+		},
+		{
+			name:          "unauthenticated hostname with port",
+			input:         "localhost:4000/OWNER/REPO",
+			wantHost:      "gitlab.com",
+			wantOwner:     "localhost:4000/OWNER",
+			wantName:      "REPO",
+			wantFullname:  "localhost:4000/OWNER/REPO",
+			wantNamespace: "OWNER",
+			wantGroup:     "localhost:4000",
 			wantErr:       nil,
 		},
 		{
