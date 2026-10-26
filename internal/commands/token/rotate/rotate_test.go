@@ -71,10 +71,10 @@ func TestRotatePersonalAccessToken(t *testing.T) {
 					CurrentUser(gomock.Any()).
 					Return(testUser, nil, nil)
 				tc.MockPersonalAccessTokens.EXPECT().
-					ListPersonalAccessTokens(gomock.Any(), gomock.Any()).
+					ListPersonalAccessTokens(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.PersonalAccessToken{testPAT}, noMorePages(), nil)
 				tc.MockPersonalAccessTokens.EXPECT().
-					RotatePersonalAccessToken(int64(10183862), gomock.Any()).
+					RotatePersonalAccessToken(int64(10183862), gomock.Any(), gomock.Any()).
 					Return(testPAT, nil, nil)
 			},
 		},
@@ -87,10 +87,10 @@ func TestRotatePersonalAccessToken(t *testing.T) {
 					CurrentUser(gomock.Any()).
 					Return(testUser, nil, nil)
 				tc.MockPersonalAccessTokens.EXPECT().
-					ListPersonalAccessTokens(gomock.Any(), gomock.Any()).
+					ListPersonalAccessTokens(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.PersonalAccessToken{testPAT}, noMorePages(), nil)
 				tc.MockPersonalAccessTokens.EXPECT().
-					RotatePersonalAccessToken(int64(10183862), gomock.Any()).
+					RotatePersonalAccessToken(int64(10183862), gomock.Any(), gomock.Any()).
 					Return(testPAT, nil, nil)
 			},
 		},
@@ -103,10 +103,10 @@ func TestRotatePersonalAccessToken(t *testing.T) {
 					CurrentUser(gomock.Any()).
 					Return(testUser, nil, nil)
 				tc.MockPersonalAccessTokens.EXPECT().
-					ListPersonalAccessTokens(gomock.Any(), gomock.Any()).
+					ListPersonalAccessTokens(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.PersonalAccessToken{testPAT}, noMorePages(), nil)
 				tc.MockPersonalAccessTokens.EXPECT().
-					RotatePersonalAccessToken(int64(10183862), gomock.Any()).
+					RotatePersonalAccessToken(int64(10183862), gomock.Any(), gomock.Any()).
 					Return(testPAT, nil, nil)
 			},
 		},
@@ -120,9 +120,16 @@ func TestRotatePersonalAccessToken(t *testing.T) {
 					CurrentUser(gomock.Any()).
 					Return(testUser, nil, nil)
 				tc.MockPersonalAccessTokens.EXPECT().
-					ListPersonalAccessTokens(gomock.Any(), gomock.Any()).
+					ListPersonalAccessTokens(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.PersonalAccessToken{testPAT}, noMorePages(), nil)
 			},
+		},
+		{
+			name:       "error when missing argument without self",
+			cli:        "",
+			wantErr:    true,
+			wantStderr: "requires either '--self' or a token name/ID argument",
+			setupMock:  func(tc *gitlabtesting.TestClient) {},
 		},
 	}
 
@@ -197,10 +204,10 @@ func TestRotateGroupAccessToken(t *testing.T) {
 			expectedOut: "glpat-yz2791KMU-xxxxxxxxx\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockGroupAccessTokens.EXPECT().
-					ListGroupAccessTokens("GROUP", gomock.Any(), gomock.Any()).
+					ListGroupAccessTokens("GROUP", gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.GroupAccessToken{testGroupToken}, noMorePages(), nil)
 				tc.MockGroupAccessTokens.EXPECT().
-					RotateGroupAccessToken("GROUP", int64(10190772), gomock.Any()).
+					RotateGroupAccessToken("GROUP", int64(10190772), gomock.Any(), gomock.Any()).
 					Return(testGroupToken, nil, nil)
 			},
 		},
@@ -210,10 +217,10 @@ func TestRotateGroupAccessToken(t *testing.T) {
 			wantJSON: true,
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockGroupAccessTokens.EXPECT().
-					ListGroupAccessTokens("GROUP", gomock.Any(), gomock.Any()).
+					ListGroupAccessTokens("GROUP", gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.GroupAccessToken{testGroupToken}, noMorePages(), nil)
 				tc.MockGroupAccessTokens.EXPECT().
-					RotateGroupAccessToken("GROUP", int64(10190772), gomock.Any()).
+					RotateGroupAccessToken("GROUP", int64(10190772), gomock.Any(), gomock.Any()).
 					Return(testGroupToken, nil, nil)
 			},
 		},
@@ -223,10 +230,10 @@ func TestRotateGroupAccessToken(t *testing.T) {
 			expectedOut: "glpat-yz2791KMU-xxxxxxxxx\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockGroupAccessTokens.EXPECT().
-					ListGroupAccessTokens("GROUP", gomock.Any(), gomock.Any()).
+					ListGroupAccessTokens("GROUP", gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.GroupAccessToken{testGroupToken}, noMorePages(), nil)
 				tc.MockGroupAccessTokens.EXPECT().
-					RotateGroupAccessToken("GROUP", int64(10190772), gomock.Any()).
+					RotateGroupAccessToken("GROUP", int64(10190772), gomock.Any(), gomock.Any()).
 					Return(testGroupToken, nil, nil)
 			},
 		},
@@ -303,10 +310,10 @@ func TestRotateProjectAccessToken(t *testing.T) {
 			expectedOut: "glpat-dfsdfjksjdfslkdfjsd\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockProjectAccessTokens.EXPECT().
-					ListProjectAccessTokens("OWNER/REPO", gomock.Any(), gomock.Any()).
+					ListProjectAccessTokens("OWNER/REPO", gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.ProjectAccessToken{testProjectToken}, noMorePages(), nil)
 				tc.MockProjectAccessTokens.EXPECT().
-					RotateProjectAccessToken("OWNER/REPO", int64(10191548), gomock.Any()).
+					RotateProjectAccessToken("OWNER/REPO", int64(10191548), gomock.Any(), gomock.Any()).
 					Return(testProjectToken, nil, nil)
 			},
 		},
@@ -316,10 +323,10 @@ func TestRotateProjectAccessToken(t *testing.T) {
 			wantJSON: true,
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockProjectAccessTokens.EXPECT().
-					ListProjectAccessTokens("OWNER/REPO", gomock.Any(), gomock.Any()).
+					ListProjectAccessTokens("OWNER/REPO", gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.ProjectAccessToken{testProjectToken}, noMorePages(), nil)
 				tc.MockProjectAccessTokens.EXPECT().
-					RotateProjectAccessToken("OWNER/REPO", int64(10191548), gomock.Any()).
+					RotateProjectAccessToken("OWNER/REPO", int64(10191548), gomock.Any(), gomock.Any()).
 					Return(testProjectToken, nil, nil)
 			},
 		},
@@ -329,10 +336,10 @@ func TestRotateProjectAccessToken(t *testing.T) {
 			expectedOut: "glpat-dfsdfjksjdfslkdfjsd\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockProjectAccessTokens.EXPECT().
-					ListProjectAccessTokens("OWNER/REPO", gomock.Any(), gomock.Any()).
+					ListProjectAccessTokens("OWNER/REPO", gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]*gitlab.ProjectAccessToken{testProjectToken}, noMorePages(), nil)
 				tc.MockProjectAccessTokens.EXPECT().
-					RotateProjectAccessToken("OWNER/REPO", int64(10191548), gomock.Any()).
+					RotateProjectAccessToken("OWNER/REPO", int64(10191548), gomock.Any(), gomock.Any()).
 					Return(testProjectToken, nil, nil)
 			},
 		},
@@ -365,6 +372,97 @@ func TestRotateProjectAccessToken(t *testing.T) {
 				err := json.Unmarshal(out.OutBuf.Bytes(), &result)
 				require.NoError(t, err)
 				assert.Equal(t, "my-project-token", result["name"])
+			} else if tc.expectedOut != "" {
+				assert.Equal(t, tc.expectedOut, out.OutBuf.String())
+			}
+			assert.Empty(t, out.ErrBuf.String())
+		})
+	}
+}
+
+func TestRotatePersonalAccessTokenSelf(t *testing.T) {
+	// NOTE: Subtests cannot run in parallel because they use cmdutils.GroupOverride()
+	// which modifies global viper state (SetEnvPrefix, BindEnv).
+
+	type testCase struct {
+		name        string
+		cli         string
+		expectedOut string
+		wantJSON    bool
+		wantErr     bool
+		wantStderr  string
+		setupMock   func(tc *gitlabtesting.TestClient)
+	}
+
+	testPAT := &gitlab.PersonalAccessToken{
+		ID:        10183862,
+		Name:      "my-pat",
+		Revoked:   false,
+		CreatedAt: parseTime("2024-07-08T01:23:04.311Z"),
+		Scopes:    []string{"k8s_proxy"},
+		UserID:    926857,
+		Active:    true,
+		ExpiresAt: new(gitlab.ISOTime(*parseTime("2024-08-07T00:00:00Z"))),
+		Token:     "newtoken",
+	}
+
+	testCases := []testCase{
+		{
+			name:        "rotate self as text",
+			cli:         "--self",
+			expectedOut: "newtoken\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockPersonalAccessTokens.EXPECT().
+					RotatePersonalAccessTokenSelf(gomock.Any(), gomock.Any()).
+					Return(testPAT, nil, nil)
+			},
+		},
+		{
+			name:     "rotate self as json",
+			cli:      "--self --output json",
+			wantJSON: true,
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockPersonalAccessTokens.EXPECT().
+					RotatePersonalAccessTokenSelf(gomock.Any(), gomock.Any()).
+					Return(testPAT, nil, nil)
+			},
+		},
+		{
+			name:       "error when self with positional argument",
+			cli:        "--self my-token",
+			wantErr:    true,
+			wantStderr: "'--self' does not accept a positional argument",
+			setupMock:  func(tc *gitlabtesting.TestClient) {},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// GIVEN
+			testClient := gitlabtesting.NewTestClient(t)
+			tc.setupMock(testClient)
+			exec := cmdtest.SetupCmdForTest(
+				t,
+				NewCmdRotate,
+				true,
+				cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
+			)
+
+			// WHEN
+			out, err := exec(tc.cli)
+
+			// THEN
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantStderr)
+				return
+			}
+			require.NoError(t, err)
+			if tc.wantJSON {
+				var result map[string]any
+				err := json.Unmarshal(out.OutBuf.Bytes(), &result)
+				require.NoError(t, err)
+				assert.Equal(t, "my-pat", result["name"])
 			} else if tc.expectedOut != "" {
 				assert.Equal(t, tc.expectedOut, out.OutBuf.String())
 			}
