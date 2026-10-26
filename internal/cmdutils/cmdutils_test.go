@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -1310,6 +1311,8 @@ func Test_ConfirmSubmission(t *testing.T) {
 }
 
 func TestListGitLabTemplates(t *testing.T) {
+	originalToplevelDir := git.ToplevelDir
+	t.Cleanup(func() { git.ToplevelDir = originalToplevelDir })
 	tests := []struct {
 		name          string
 		give          string
@@ -1334,6 +1337,61 @@ func TestListGitLabTemplates(t *testing.T) {
 			gotTemplates, gotErr := ListGitLabTemplates(test.give)
 			require.Equal(t, test.wantErr, (gotErr != nil))
 			assert.Equal(t, test.wantTemplates, gotTemplates, "Templates got didn't match")
+		})
+	}
+}
+
+func TestListGitLabTemplatesFilesystemErrors(t *testing.T) {
+	originalToplevelDir := git.ToplevelDir
+	t.Cleanup(func() { git.ToplevelDir = originalToplevelDir })
+
+	for _, tc := range []struct {
+		name             string
+		outsideRepo      bool
+		folderIsFile     bool
+		permissionDenied bool
+	}{
+		{name: "missing directory"},
+		{name: "outside repository", outsideRepo: true},
+		{name: "template directory is a file", folderIsFile: true},
+		{name: "unreadable directory", permissionDenied: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			git.ToplevelDir = func() (string, error) {
+				if tc.outsideRepo {
+					return "", git.ErrNotAGitRepository
+				}
+				return root, nil
+			}
+			folder := filepath.Join(root, ".gitlab", IssueTemplate)
+			if tc.permissionDenied {
+				if runtime.GOOS == "windows" {
+					t.Skip("directory mode permissions are not enforced on Windows")
+				}
+				require.NoError(t, os.MkdirAll(folder, 0o755))
+				require.NoError(t, os.Chmod(folder, 0))
+				t.Cleanup(func() { require.NoError(t, os.Chmod(folder, 0o755)) })
+				if _, err := os.ReadDir(folder); err == nil {
+					t.Skip("current user can read mode-000 directories")
+				}
+			}
+			if tc.folderIsFile {
+				require.NoError(t, os.MkdirAll(filepath.Dir(folder), 0o755))
+				require.NoError(t, os.WriteFile(folder, []byte("not a directory"), 0o644))
+			}
+			templates, err := ListGitLabTemplates(IssueTemplate)
+			assert.Empty(t, templates)
+			if tc.folderIsFile || tc.permissionDenied {
+				var pathErr *os.PathError
+				require.ErrorAs(t, err, &pathErr)
+				assert.Equal(t, folder, pathErr.Path)
+				if tc.permissionDenied {
+					require.ErrorIs(t, err, os.ErrPermission)
+				}
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }

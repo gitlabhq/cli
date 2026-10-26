@@ -157,26 +157,24 @@ func loadTemplateFile(path string) (string, error) {
 	return content, nil
 }
 
-// TODO: properly handle errors in this function.
-//
-//	For now, it returns nil and empty slice if there's an error
 func ListGitLabTemplates(tmplType string) ([]string, error) {
 	wdir, err := git.ToplevelDir()
 	if err != nil {
-		return []string{}, nil
+		return []string{}, nil //nolint:nilerr // Local templates remain optional outside a Git repository.
 	}
 	tmplFolder := filepath.Join(wdir, ".gitlab", tmplType)
 	var files []string
 	f, err := os.Open(tmplFolder)
-	// if error return an empty slice since it only returns PathError
-	if err != nil {
+	if os.IsNotExist(err) {
 		return files, nil
 	}
-	fileNames, err := f.Readdirnames(-1)
-	defer f.Close()
 	if err != nil {
-		// return empty slice if error
-		return files, nil
+		return nil, err
+	}
+	fileNames, err := f.Readdirnames(-1)
+	err = errors.Join(err, f.Close())
+	if err != nil {
+		return nil, err
 	}
 
 	for _, file := range fileNames {

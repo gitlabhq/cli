@@ -3,6 +3,7 @@
 package create
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -1944,6 +1945,44 @@ func TestNewCmdCreate_TargetBranchRule(t *testing.T) {
 	output, err := exec("-t myMRtitle -d myMRbody")
 	require.NoError(t, err)
 	assert.Contains(t, output.Stderr(), "Creating merge request for feature/my-feature into development in OWNER/REPO")
+}
+
+func TestMRCreate_TemplateDirectoryError(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	folder := filepath.Join(root, ".gitlab", "merge_request_templates")
+	require.NoError(t, os.MkdirAll(filepath.Dir(folder), 0o755))
+	require.NoError(t, os.WriteFile(folder, []byte("not a directory"), 0o644))
+	originalToplevelDir := git.ToplevelDir
+	git.ToplevelDir = func() (string, error) { return root, nil }
+	t.Cleanup(func() { git.ToplevelDir = originalToplevelDir })
+
+	ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(true))
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjects.EXPECT().GetProject("OWNER/REPO", gomock.Any()).
+		DoAndReturn(func(any, *gitlab.GetProjectOptions, ...gitlab.RequestOptionFunc) (*gitlab.Project, *gitlab.Response, error) {
+			// Keep interactive flag parsing while testing with prompts disabled.
+			ios.SetPrompt("true")
+			return &gitlab.Project{ID: 1, PathWithNamespace: "OWNER/REPO", MergeRequestsEnabled: true}, nil, nil
+		})
+	exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+		cmd := NewCmdCreate(f)
+		// Select does not check PromptEnabled; cancellation prevents a reverted fix from blocking.
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		cmd.SetContext(ctx)
+		return cmd
+	}, true,
+		cmdtest.WithGitLabClient(tc.Client), cmdtest.WithIOStreamsOverride(ios),
+		func(f *cmdtest.Factory) {
+			f.RemotesStub = func() (glrepo.Remotes, error) { return nil, git.ErrNotAGitRepository }
+		},
+	)
+	_, err := exec(`--title "Test MR" --source-branch feature --target-branch main --yes`)
+	var pathErr *os.PathError
+	require.ErrorAs(t, err, &pathErr)
+	assert.Equal(t, folder, pathErr.Path)
+	assert.ErrorContains(t, err, "error getting templates")
 }
 
 func TestNewCmdCreate_WithTemplate(t *testing.T) {
