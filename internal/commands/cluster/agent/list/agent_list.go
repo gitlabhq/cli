@@ -70,7 +70,7 @@ func (o *options) run() error {
 		return err
 	}
 
-	agents, _, err := client.ClusterAgents.ListAgents(repo.FullName(), &gitlab.ListAgentsOptions{
+	agents, resp, err := client.ClusterAgents.ListAgents(repo.FullName(), &gitlab.ListAgentsOptions{
 		ListOptions: gitlab.ListOptions{
 			Page:    int64(o.page),
 			PerPage: int64(o.perPage),
@@ -88,6 +88,9 @@ func (o *options) run() error {
 	title.RepoName = repo.FullName()
 	title.Page = int(o.page)
 	title.CurrentPageTotal = len(agents)
+	if resp != nil {
+		title.Total = int(resp.TotalItems)
+	}
 	err = o.io.StartPager()
 	if err != nil {
 		return err
