@@ -3,6 +3,7 @@
 package create
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -17,9 +19,42 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
+	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/git"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
+
+func TestIssueCreate_TemplateDirectoryError(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	folder := filepath.Join(root, ".gitlab", "issue_templates")
+	require.NoError(t, os.MkdirAll(filepath.Dir(folder), 0o755))
+	require.NoError(t, os.WriteFile(folder, []byte("not a directory"), 0o644))
+	originalToplevelDir := git.ToplevelDir
+	git.ToplevelDir = func() (string, error) { return root, nil }
+	t.Cleanup(func() { git.ToplevelDir = originalToplevelDir })
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjects.EXPECT().GetProject("OWNER/REPO", gomock.Any()).Return(&gitlab.Project{
+		ID: 1, PathWithNamespace: "OWNER/REPO", IssuesEnabled: true,
+	}, nil, nil)
+	exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+		cmd := NewCmdCreate(f)
+		// Select does not check PromptEnabled; cancellation prevents a reverted fix from blocking.
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		cmd.SetContext(ctx)
+		return cmd
+	}, false,
+		cmdtest.WithGitLabClient(tc.Client),
+		func(f *cmdtest.Factory) { f.IOStub.SetPrompt("true") },
+	)
+	_, err := exec(`--title "Test issue" --description - --yes`)
+	var pathErr *os.PathError
+	require.ErrorAs(t, err, &pathErr)
+	assert.Equal(t, folder, pathErr.Path)
+	assert.Contains(t, err.Error(), "error getting templates")
+}
 
 func TestGenerateIssueWebURL(t *testing.T) {
 	opts := &options{
