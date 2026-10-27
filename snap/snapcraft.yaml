@@ -34,7 +34,8 @@ plugs:
   dot-kube:
     interface: personal-files
     write:
-    - $HOME/.kube
+    - $HOME/.kube/config
+    - $HOME/.kube/config.lock
 apps:
   glab:
     command: glab

@@ -159,6 +159,13 @@ func TestAgentUpdateKubeconfig_PermissionDenied(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, nil, 0o000))
 		return path
 	}
+	unreadableOtherFile := func(t *testing.T, dir string) string {
+		t.Helper()
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		path := filepath.Join(dir, "other")
+		require.NoError(t, os.WriteFile(path, nil, 0o000))
+		return path
+	}
 	realKubeDir := func(realHome string) string { return filepath.Join(realHome, ".kube") }
 	otherDir := func(string) string { return "" }
 
@@ -173,7 +180,8 @@ func TestAgentUpdateKubeconfig_PermissionDenied(t *testing.T) {
 		wantHint    bool
 	}{
 		{name: "snap write to default path shows connect hint", dir: realKubeDir, kubeconfig: unwritableDir, snap: true, defaultPath: true, wantHint: true},
-		{name: "snap read under ~/.kube shows connect hint", dir: realKubeDir, kubeconfig: unreadableFile, snap: true, wantHint: true},
+		{name: "snap read of ~/.kube/config shows connect hint", dir: realKubeDir, kubeconfig: unreadableFile, snap: true, wantHint: true},
+		{name: "snap read of other file under ~/.kube returns plain error", dir: realKubeDir, kubeconfig: unreadableOtherFile, snap: true, wantHint: false},
 		{name: "snap write outside ~/.kube returns plain error", dir: otherDir, kubeconfig: unwritableDir, snap: true, wantHint: false},
 		{name: "snap read of --kubeconfig outside ~/.kube returns plain error", dir: otherDir, kubeconfig: unreadableFile, snap: true, viaFlag: true, wantHint: false},
 		{name: "non-snap write returns plain error", dir: otherDir, kubeconfig: unwritableDir, snap: false, wantHint: false},
