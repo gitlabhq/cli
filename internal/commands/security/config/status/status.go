@@ -12,6 +12,7 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/security/securityutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -39,7 +40,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Doc(`
 			Show whether a security scan profile is attached to a project and its
 			current scan status.
-		`) + text.ExperimentalString,
+		`) + "\n" + securityutils.ScanTypeHelp + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Show dependency scanning status for the current project
 			$ glab security config status dependency_scanning
