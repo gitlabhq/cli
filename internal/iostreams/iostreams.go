@@ -16,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"github.com/briandowns/spinner"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/google/shlex"
 	"github.com/muesli/termenv"
 
@@ -37,8 +38,6 @@ type IOStreams struct {
 	IsInTTY        bool // stdin is a tty
 	promptDisabled bool // disable prompting for input
 
-	is256ColorEnabled bool
-
 	pagerCommand string
 	pagerProcess *os.Process
 	systemStdOut io.Writer
@@ -49,9 +48,16 @@ type IOStreams struct {
 
 	displayHyperlinks string
 
-	isColorEnabled bool
+	// colorMode is the requested color behavior (the `color` config key).
+	// Empty means ColorModeAuto.
+	colorMode ColorMode
 
-	// colorEnabledOverride, when non-nil, forces isColorEnabled to the given
+	// colorProfile is colorMode resolved against the environment and TTY
+	// state: NoTTY when color is off, the terminal tier when on. Output paths
+	// read it rather than re-detecting.
+	colorProfile colorprofile.Profile
+
+	// colorEnabledOverride, when non-nil, forces colorProfile on or off to match the given
 	// value instead of deriving it from the environment and TTY state. It is
 	// intended for tests that need a deterministic color state without
 	// mutating process-wide env (see WithColorEnabled).
@@ -112,6 +118,14 @@ func WithColorEnabled(enabled bool) IOStreamsOption {
 	}
 }
 
+// WithColorMode sets the initial ColorMode (whether to color) from the
+// `color` config key.
+func WithColorMode(mode ColorMode) IOStreamsOption {
+	return func(i *IOStreams) {
+		i.colorMode = mode
+	}
+}
+
 func WithProgramOptions(opts ...tea.ProgramOption) IOStreamsOption {
 	return func(i *IOStreams) {
 		i.programOptions = append(i.programOptions, opts...)
@@ -135,7 +149,6 @@ func WithDisplayHyperLinks(displayHyperlinks string) IOStreamsOption {
 func New(options ...IOStreamsOption) *IOStreams {
 	iostreams := &IOStreams{
 		// static configuration that we don't need to change in tests.
-		is256ColorEnabled: is256ColorSupported(),
 		displayHyperlinks: "auto",
 		JQ:                &JQFilter{},
 	}
@@ -146,12 +159,35 @@ func New(options ...IOStreamsOption) *IOStreams {
 	}
 
 	// configure static fields that rely on option functions
-	iostreams.isColorEnabled = detectIsColorEnabled() && iostreams.IsaTTY && iostreams.IsErrTTY
-	if iostreams.colorEnabledOverride != nil {
-		iostreams.isColorEnabled = *iostreams.colorEnabledOverride
-	}
+	iostreams.applyColorMode(iostreams.colorMode)
 
 	return iostreams
+}
+
+// ColorMode returns the effective ColorMode (whether to color). An unset
+// mode reports ColorModeAuto, since that is the behavior it produces.
+func (s *IOStreams) ColorMode() ColorMode {
+	if s.colorMode == "" {
+		return ColorModeAuto
+	}
+	return s.colorMode
+}
+
+// SetColorMode applies mode to this IOStreams and re-resolves the color
+// profile.
+func (s *IOStreams) SetColorMode(mode ColorMode) {
+	s.applyColorMode(mode)
+}
+
+// applyColorMode resolves colorProfile for mode. A colorEnabledOverride, set
+// by tests through WithColorEnabled, always wins over the resolved profile.
+func (s *IOStreams) applyColorMode(mode ColorMode) {
+	s.colorMode = mode
+	s.colorProfile = resolveColorProfile(mode, s.IsaTTY && s.IsErrTTY)
+
+	if s.colorEnabledOverride != nil {
+		s.colorProfile = profileIf(*s.colorEnabledOverride)
+	}
 }
 
 func stripControlCharacters(input string) string {
@@ -188,11 +224,11 @@ func (s *IOStreams) PromptEnabled() bool {
 }
 
 func (s *IOStreams) ColorEnabled() bool {
-	return s.isColorEnabled
+	return s.colorProfile > colorprofile.ASCII
 }
 
 func (s *IOStreams) Is256ColorSupported() bool {
-	return s.is256ColorEnabled
+	return colorTier() >= colorprofile.ANSI256
 }
 
 func (s *IOStreams) SetPrompt(promptDisabled string) {
@@ -344,28 +380,37 @@ func (s *IOStreams) CanPrompt() bool {
 	return !s.promptDisabled && s.IsInTTY && s.IsErrTTY
 }
 
+// ResolveBackgroundColor resolves the glamour style to render markdown with,
+// given style (typically the `glamour_style` config value). A resolved value
+// of "auto" (whether passed in directly or via GLAB_GLAMOUR_STYLE/
+// GLAMOUR_STYLE) triggers real terminal-background detection instead of
+// being forwarded to glamour, which has no style by that name. Any other
+// resolved value (a named style like "dark"/"light"/"notty", or a path to a
+// custom style file) is returned as-is.
 func (s *IOStreams) ResolveBackgroundColor(style string) string {
+	resolvedStyle := style
+
 	styleEnvVar := os.Getenv("GLAB_GLAMOUR_STYLE")
 	deprecatedStyleEnvVar := os.Getenv("GLAMOUR_STYLE")
-
-	if styleEnvVar != "" && style != "auto" {
-		s.backgroundColor = styleEnvVar
-		return styleEnvVar
-	}
-
-	if deprecatedStyleEnvVar != "" && style != "auto" {
+	switch {
+	case styleEnvVar != "":
+		resolvedStyle = styleEnvVar
+	case deprecatedStyleEnvVar != "":
 		utils.PrintDeprecationWarning("GLAMOUR_STYLE")
-		s.backgroundColor = deprecatedStyleEnvVar
-		return deprecatedStyleEnvVar
+		resolvedStyle = deprecatedStyleEnvVar
 	}
 
-	// if we aren't using env vars we use the value from the config
-	if styleEnvVar == "" && deprecatedStyleEnvVar == "" {
-		s.backgroundColor = style
-		return style
+	if s.ColorMode() == ColorModeNever {
+		s.backgroundColor = "none"
+		return "none"
 	}
 
-	if (!s.ColorEnabled()) || (s.pagerProcess != nil) {
+	if resolvedStyle != "auto" {
+		s.backgroundColor = resolvedStyle
+		return resolvedStyle
+	}
+
+	if !s.ColorEnabled() || s.pagerProcess != nil {
 		s.backgroundColor = "none"
 		return "none"
 	}

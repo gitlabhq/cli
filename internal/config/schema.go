@@ -99,9 +99,20 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "glamour_style", Scope: ScopeGlobal, Type: TypeString,
-		Default: "dark", UserSettable: true, Fallback: true,
+		Default: "auto", UserSettable: true, Fallback: true,
 		EnvVars:     []string{"GLAB_GLAMOUR_STYLE", "GLAMOUR_STYLE"},
-		Description: "Set your desired Markdown renderer style. Available options are [dark, light, notty]. To set a custom style, refer to https://github.com/charmbracelet/glamour#styles",
+		Description: "Set your desired Markdown renderer style. Available options are [auto, dark, light, notty]. 'auto' detects your terminal's background color. To set a custom style, refer to https://github.com/charmbracelet/glamour#styles",
+	},
+	{
+		Name: "color", Scope: ScopeGlobal, Type: TypeString,
+		Default: "auto", UserSettable: true, Fallback: true,
+		EnvVars:     []string{"GLAB_COLOR"},
+		Description: "Set whether glab colors its output. Available options are [auto, never, always]. 'auto' detects whether the output is a terminal. This key takes precedence over the NO_COLOR environment variable; NO_COLOR applies when this is 'auto' (or unset).",
+	},
+	{
+		Name: "glamour_style_auto_migrated", Scope: ScopeGlobal, Type: TypeBool,
+		Default: "false", UserSettable: true, HelpHidden: true,
+		Description: "Set by glab once it has migrated a seeded glamour_style default of \"dark\" to \"auto\". Do not set this by hand.",
 	},
 	{
 		Name: "check_update", Scope: ScopeGlobal, Type: TypeBool,

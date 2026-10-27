@@ -14,6 +14,7 @@ require (
 	github.com/adrg/xdg v0.5.3
 	github.com/avast/retry-go/v5 v5.0.0
 	github.com/briandowns/spinner v1.23.2
+	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/coder/websocket v1.8.15
 	github.com/d2lang/d2 v0.9.0
 	github.com/denisbrodbeck/machineid v1.0.1
@@ -72,7 +73,6 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
-	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4 // indirect
 	github.com/charmbracelet/x/ansi v0.11.9 // indirect
 	github.com/charmbracelet/x/exp/charmtone v0.0.0-20250603201427-c31516f43444 // indirect

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"syscall"
 
@@ -21,6 +22,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/help"
 	"gitlab.com/gitlab-org/cli/internal/commands/update"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/run"
 	"gitlab.com/gitlab-org/cli/internal/tableprinter"
@@ -82,6 +84,11 @@ func main() {
 			// configure hyperlink display
 			func(i *iostreams.IOStreams) {
 				configureHyperlinks(i, cfg)
+			},
+
+			// configure color from the `color` key / GLAB_COLOR
+			func(i *iostreams.IOStreams) {
+				configureColorMode(i, cfg)
 			},
 
 			// configure prompt
@@ -162,6 +169,10 @@ func main() {
 	// Convert markdown [text](url) links in command Long and Example fields to
 	// OSC 8 terminal hyperlinks before Fang renders help text.
 	preprocessCommandLinks(rootCmd, cmdFactory.IO())
+
+	colorEnv := newFangColorEnv(cmdFactory.IO().ColorMode())
+	colorEnv.apply()
+	scopeColorEnvToFang(rootCmd, colorEnv)
 
 	if err := fang.Execute(context.Background(), rootCmd,
 		fang.WithoutCompletions(),
@@ -264,4 +275,108 @@ func configureHyperlinks(i *iostreams.IOStreams, cfg config.Config) {
 	case "true":
 		i.SetDisplayHyperlinks("auto")
 	}
+}
+
+// configureColorMode sets whether glab colors output from the `color` config
+// key, which config.Get already resolves against GLAB_COLOR per the key's
+// declared EnvVars (see internal/config/schema.go). An unrecognized value
+// falls back to ColorModeAuto rather than failing the command, matching how
+// glab treats other soft-fallback config values (e.g. an invalid theme).
+func configureColorMode(i *iostreams.IOStreams, cfg config.Config) {
+	value, _ := cfg.Get("", "color")
+	mode := iostreams.ColorMode(value)
+	if value != "" && !slices.Contains(iostreams.AllColorModes(), mode) {
+		dbg.Debugf("color: %q is not a recognized value (want one of %v); falling back to auto", value, iostreams.AllColorModes())
+		mode = iostreams.ColorModeAuto
+	}
+	i.SetColorMode(mode)
+}
+
+// fangColorEnv carries the color mode to fang, which reads its color level
+// only from the process environment. CLICOLOR_FORCE beats NO_COLOR for
+// colorprofile on a non-TTY, so each mode clears the variable it opposes.
+type fangColorEnv struct {
+	set     map[string]string
+	unset   []string
+	orig    map[string]string
+	origSet map[string]bool
+}
+
+func newFangColorEnv(mode iostreams.ColorMode) *fangColorEnv {
+	e := &fangColorEnv{orig: map[string]string{}, origSet: map[string]bool{}}
+	switch mode {
+	case iostreams.ColorModeNever:
+		e.set = map[string]string{"NO_COLOR": "1"}
+		e.unset = []string{"CLICOLOR_FORCE"}
+	case iostreams.ColorModeAlways:
+		e.set = map[string]string{"CLICOLOR_FORCE": "1"}
+		e.unset = []string{"NO_COLOR"}
+	}
+	for _, k := range append(e.unset, keys(e.set)...) {
+		e.orig[k], e.origSet[k] = os.LookupEnv(k)
+	}
+	return e
+}
+
+func keys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func (e *fangColorEnv) apply() {
+	for _, k := range e.unset {
+		setenv(k, "", false)
+	}
+	for k, v := range e.set {
+		setenv(k, v, true)
+	}
+}
+
+func (e *fangColorEnv) restore() {
+	for k := range e.orig {
+		setenv(k, e.orig[k], e.origSet[k])
+	}
+}
+
+func setenv(key, value string, present bool) {
+	var err error
+	if present {
+		err = os.Setenv(key, value)
+	} else {
+		err = os.Unsetenv(key)
+	}
+	if err != nil {
+		dbg.Debugf("color: could not update %s for fang: %v", key, err)
+	}
+}
+
+// scopeColorEnvToFang restores the original environment while a command runs,
+// so children glab starts (git, pagers, editors, alias shells) don't inherit
+// the variables meant for fang, and re-applies it afterwards for fang's error
+// output.
+func scopeColorEnvToFang(root *cobra.Command, e *fangColorEnv) {
+	var walk func(*cobra.Command)
+	walk = func(c *cobra.Command) {
+		if run := c.Run; run != nil {
+			c.Run = func(cmd *cobra.Command, args []string) {
+				e.restore()
+				defer e.apply()
+				run(cmd, args)
+			}
+		}
+		if runE := c.RunE; runE != nil {
+			c.RunE = func(cmd *cobra.Command, args []string) error {
+				e.restore()
+				defer e.apply()
+				return runE(cmd, args)
+			}
+		}
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(root)
 }

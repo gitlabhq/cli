@@ -19,6 +19,7 @@ func TestKnownKeys_IncludesUserSettableKeysFromSchema(t *testing.T) {
 		"editor",
 		"browser",
 		"glamour_style",
+		"color",
 		"host",
 		"no_prompt",
 		"telemetry",

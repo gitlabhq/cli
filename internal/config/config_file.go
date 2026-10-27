@@ -11,6 +11,8 @@ import (
 
 	"github.com/adrg/xdg"
 	"go.yaml.in/yaml/v3"
+
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
 var (
@@ -174,12 +176,50 @@ func Init() (Config, error) {
 	cachedConfig, configError = ParseDefaultConfig()
 
 	if os.IsNotExist(configError) {
+		// A fresh config is seeded from the current schema defaults
+		// (glamour_style: auto already), so it needs no migration.
 		if err := cachedConfig.WriteAll(); err != nil {
 			return nil, err
 		}
 		configError = nil
+	} else if configError == nil {
+		if err := migrateGlamourStyleAutoDetection(cachedConfig); err != nil {
+			return nil, err
+		}
 	}
 	return cachedConfig, configError
+}
+
+// migrateGlamourStyleAutoDetection flips a seeded `glamour_style: dark` to `auto`
+// once, so a later explicit `dark` is kept.
+func migrateGlamourStyleAutoDetection(cfg Config) error {
+	migrated, _, err := cfg.GetWithSource("", "glamour_style_auto_migrated", false)
+	if err != nil {
+		return err
+	}
+	if migrated == "true" {
+		return nil
+	}
+
+	style, _, err := cfg.GetWithSource("", "glamour_style", false)
+	if err != nil {
+		return err
+	}
+	if style == "dark" {
+		if err := cfg.Set("", "glamour_style", "auto"); err != nil {
+			return err
+		}
+	}
+
+	if err := cfg.Set("", "glamour_style_auto_migrated", "true"); err != nil {
+		return err
+	}
+	// Read-only config dirs (Nix, containers) must keep working: the
+	// in-memory value already applies, and the next run retries the write.
+	if err := cfg.Write(); err != nil {
+		dbg.Debugf("config: could not persist glamour_style migration: %v", err)
+	}
+	return nil
 }
 
 func ParseDefaultConfig() (Config, error) {

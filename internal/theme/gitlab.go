@@ -16,9 +16,10 @@ type GitLabColors struct {
 	Purple color.Color // GitLab brand purple (#7759C2 light, #A989F5 dark)
 
 	// Semantic colors
-	Blue  color.Color // Blue for current/active states (#1068BF light, #4285F4 dark)
-	Green color.Color // Green for success (#217645 light, #34D058 dark)
-	Red   color.Color // Red for errors (#C91C00 light, #F97583 dark)
+	Blue    color.Color // Blue for current/active states (#1068BF light, #4285F4 dark)
+	Green   color.Color // Green for success (#217645 light, #34D058 dark)
+	Red     color.Color // Red for errors (#C91C00 light, #F97583 dark)
+	Warning color.Color // Amber for warnings/caution (#C97A00 light, #E5A000 dark)
 
 	// Neutral colors
 	Text   color.Color // High-contrast text (#171321 light, #FAFAFA dark)
@@ -29,13 +30,14 @@ type GitLabColors struct {
 // The lightDarkFunc automatically selects colors based on terminal background.
 func NewGitLabColors(lightDarkFunc lipgloss.LightDarkFunc) GitLabColors {
 	return GitLabColors{
-		Orange: lightDarkFunc(lipgloss.Color("#FC6D26"), lipgloss.Color("#FC6D26")),
-		Purple: lightDarkFunc(lipgloss.Color("#7759C2"), lipgloss.Color("#A989F5")),
-		Blue:   lightDarkFunc(lipgloss.Color("#1068BF"), lipgloss.Color("#4285F4")),
-		Green:  lightDarkFunc(lipgloss.Color("#217645"), lipgloss.Color("#34D058")),
-		Red:    lightDarkFunc(lipgloss.Color("#C91C00"), lipgloss.Color("#F97583")),
-		Text:   lightDarkFunc(lipgloss.Color("#171321"), lipgloss.Color("#FAFAFA")),
-		Subtle: lightDarkFunc(lipgloss.Color("#6B6B73"), lipgloss.Color("#B0B0B0")),
+		Orange:  lightDarkFunc(lipgloss.Color("#FC6D26"), lipgloss.Color("#FC6D26")),
+		Purple:  lightDarkFunc(lipgloss.Color("#7759C2"), lipgloss.Color("#A989F5")),
+		Blue:    lightDarkFunc(lipgloss.Color("#1068BF"), lipgloss.Color("#4285F4")),
+		Green:   lightDarkFunc(lipgloss.Color("#217645"), lipgloss.Color("#34D058")),
+		Red:     lightDarkFunc(lipgloss.Color("#C91C00"), lipgloss.Color("#F97583")),
+		Warning: lightDarkFunc(lipgloss.Color("#C97A00"), lipgloss.Color("#E5A000")),
+		Text:    lightDarkFunc(lipgloss.Color("#171321"), lipgloss.Color("#FAFAFA")),
+		Subtle:  lightDarkFunc(lipgloss.Color("#6B6B73"), lipgloss.Color("#B0B0B0")),
 	}
 }
 
@@ -70,24 +72,9 @@ func HuhTheme() huh.ThemeFunc {
 	return func(isDark bool) *huh.Styles {
 		theme := huh.ThemeBase(isDark)
 
-		// GitLab brand colors adapted for terminal background
-		var gitlabPurple, gitlabOrange, gitlabBlue, gitlabRed, gitlabSubtle color.Color
-
-		if isDark {
-			// Dark terminal: use lighter, brighter colors for visibility
-			gitlabPurple = lipgloss.Color("#A989F5") // Lighter purple for dark backgrounds
-			gitlabOrange = lipgloss.Color("#FC6D26") // Orange works on both
-			gitlabBlue = lipgloss.Color("#4285F4")   // Lighter blue
-			gitlabRed = lipgloss.Color("#F97583")    // Lighter red
-			gitlabSubtle = lipgloss.Color("#B0B0B0") // Lighter gray
-		} else {
-			// Light terminal: use darker colors for contrast
-			gitlabPurple = lipgloss.Color("#7759C2") // Darker purple for light backgrounds
-			gitlabOrange = lipgloss.Color("#FC6D26") // Orange works on both
-			gitlabBlue = lipgloss.Color("#1068BF")   // Darker blue
-			gitlabRed = lipgloss.Color("#C91C00")    // Darker red
-			gitlabSubtle = lipgloss.Color("#6B6B73") // Darker gray
-		}
+		colors := NewGitLabColors(lipgloss.LightDark(isDark))
+		gitlabPurple, gitlabOrange, gitlabBlue, gitlabRed, gitlabSubtle :=
+			colors.Purple, colors.Orange, colors.Blue, colors.Red, colors.Subtle
 
 		// Focused field styles (when user is interacting)
 		theme.Focused.Base = theme.Focused.Base.BorderForeground(gitlabPurple)
