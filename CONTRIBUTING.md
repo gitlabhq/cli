@@ -139,7 +139,7 @@ This project supports [Lefthook](https://github.com/evilmartians/lefthook) for m
    lefthook install
    ```
 
-   This installs all tools defined in `.tool-versions`: Go, golangci-lint (includes gofumpt and goimports formatters), shellcheck, markdownlint-cli2, vale, lychee, Node.js, lefthook, and commitlint dependencies.
+   This installs all tools defined in `.tool-versions`: Go, golangci-lint (includes gofumpt and goimports formatters), shellcheck, markdownlint-cli2, vale, lychee, rumdl, Node.js, lefthook, and commitlint dependencies.
 
 #### Available hooks
 
