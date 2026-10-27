@@ -17,6 +17,17 @@ Show the status of a security scan profile for a project. (EXPERIMENTAL)
 Show whether a security scan profile is attached to a project and its
 current scan status.
 
+For `<profile>`, use one of the following scan types:
+
+- `secret_detection`: Secret detection.
+- `sast`: SAST.
+- `container_scanning`: Container scanning.
+- `dependency_scanning`: Dependency scanning.
+- `dependency_scanning_post_processing`: Dependency scanning auto-remediation.
+- `business_logic`: Business logic.
+- `skillguard`: SkillGuard.
+- `triage_and_remediation`: Automated triage and remediation, any preset.
+
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
 For more information, see

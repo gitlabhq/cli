@@ -20,6 +20,20 @@ Prerequisites:
 
 - At least the Maintainer role or the Security Manager role for the project.
 
+For `<profile>`, use one of the following identifiers:
+
+- `secret_detection`: Secret detection.
+- `sast`: SAST.
+- `dependency_scanning`: Dependency scanning.
+- `dependency_scanning_post_processing`: Dependency scanning auto-remediation.
+- `business_logic`: Business logic.
+- `skillguard`: SkillGuard.
+- `triage_and_remediation_conservative`: Automated triage and remediation, Conservative preset.
+- `triage_and_remediation_standard`: Automated triage and remediation, Standard preset.
+- `triage_and_remediation_proactive`: Automated triage and remediation, Proactive preset.
+- For a custom profile, the numeric part of the profile ID. For example,
+  `123` for `gid://gitlab/Security::ScanProfile/123`.
+
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
 For more information, see

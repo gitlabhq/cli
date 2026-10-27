@@ -10,6 +10,7 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/security/securityutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -40,7 +41,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			Prerequisites:
 
 			- At least the Maintainer role or the Security Manager role for the project.
-		`) + text.ExperimentalString,
+		`) + "\n" + securityutils.ProfileHelp + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Enable dependency scanning on the current project
 			$ glab security config enable dependency_scanning
