@@ -48,6 +48,9 @@ type DefaultFactory struct {
 	defaultProtocol string
 	transports      *api.TransportCache
 	hostEnvVar      string
+	// envTokenWarned holds the hosts warnIfEnvTokenWithheld already warned
+	// about, since one command can build several clients for the same host.
+	envTokenWarned sync.Map
 
 	mu sync.Mutex // protects the fields below
 	// cachedBaseRepo if set is the SSoT of the repository to use in BaseRepo(), GitLabClient() and other factory function that require a repository.
@@ -115,7 +118,35 @@ func (f *DefaultFactory) ApiClient(repoHost string) (*api.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	f.warnIfEnvTokenWithheld(repoHost)
 	return c, nil
+}
+
+// warnIfEnvTokenWithheld reports a credential environment variable that
+// config.IsTrustedHost withheld from repoHost, which would otherwise silently
+// leave the command unauthenticated.
+func (f *DefaultFactory) warnIfEnvTokenWithheld(repoHost string) {
+	if f.io == nil || config.IsTrustedHost(f.config, repoHost) {
+		return
+	}
+	// is_oauth2 is a header-scheme flag, not a standalone credential: when it
+	// is withheld alone the credential it decorates is also withheld and warned
+	// about, so a second warning would be noise.
+	var sources []string
+	for _, key := range []string{"token", "job_token"} {
+		if _, source := config.GetFromEnvWithSource(key); source != "" {
+			sources = append(sources, source)
+		}
+	}
+	if len(sources) == 0 {
+		return
+	}
+	if _, warned := f.envTokenWarned.LoadOrStore(repoHost, struct{}{}); warned {
+		return
+	}
+	c := f.io.Color()
+	f.io.LogErrorf("%s %s is set, but %q is neither the default host nor a configured host, so glab did not send the credential to it. To authenticate to this host, run %s.\n",
+		c.WarnIcon(), strings.Join(sources, ", "), repoHost, c.Bold("glab auth login --hostname "+repoHost))
 }
 
 func (f *DefaultFactory) GitLabClient() (*gitlab.Client, error) {
@@ -144,6 +175,7 @@ func (f *DefaultFactory) GitLabClient() (*gitlab.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	f.warnIfEnvTokenWithheld(repoHost)
 
 	return c.Lab(), nil
 }

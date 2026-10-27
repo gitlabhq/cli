@@ -280,7 +280,7 @@ var KeySchema = []KeyDef{
 		UserSettable: true, Keyring: true,
 		Aliases:     []string{"gitlab_token", "oauth_token"},
 		EnvVars:     []string{"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN"},
-		Description: "Your GitLab access token. To get one, read https://docs.gitlab.com/user/profile/personal_access_tokens/",
+		Description: "Your GitLab access token. To get one, read https://docs.gitlab.com/user/profile/personal_access_tokens/.\nA token set through an environment variable is sent only to the host named by 'GITLAB_HOST' (or the 'host' configuration key) or 'GITLAB_REPO', and to hosts already present in your configuration file. A host named only in a command argument receives no token.",
 	},
 	{
 		Name: "job_token", Scope: ScopePerHost, Type: TypeString,

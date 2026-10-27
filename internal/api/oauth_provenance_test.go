@@ -19,6 +19,7 @@ func TestNewClientFromConfig_OAuthFlagProvenance(t *testing.T) {
 	for _, k := range []string{
 		"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN",
 		"GLAB_IS_OAUTH2", "JOB_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI",
+		"GITLAB_HOST",
 	} {
 		t.Setenv(k, "")
 	}
@@ -48,14 +49,16 @@ func TestNewClientFromConfig_OAuthFlagProvenance(t *testing.T) {
 		expectedAuthVal string
 	}{
 		{
+			// GITLAB_HOST makes the host the default one, for which environment
+			// credentials and flags resolve.
 			name:            "environment token alone is a PAT",
-			envVars:         map[string]string{"GITLAB_TOKEN": "a-token"},
+			envVars:         map[string]string{"GITLAB_TOKEN": "a-token", "GITLAB_HOST": "example.com"},
 			expectedAuthKey: gitlab.AccessTokenHeaderName,
 			expectedAuthVal: "a-token",
 		},
 		{
 			name:            "environment token with environment OAuth flag is OAuth",
-			envVars:         map[string]string{"GITLAB_TOKEN": "a-token", "GLAB_IS_OAUTH2": "true"},
+			envVars:         map[string]string{"GITLAB_TOKEN": "a-token", "GLAB_IS_OAUTH2": "true", "GITLAB_HOST": "example.com"},
 			expectedAuthKey: gitlab.OAuthTokenHeaderName,
 			expectedAuthVal: "Bearer a-token",
 		},

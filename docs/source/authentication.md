@@ -137,10 +137,11 @@ glab auth login --device
 
 This approach has the following constraints:
 
-- Environment variables are not scoped per host, so this approach suits organizations
-  with a single instance. If your users also work against other instances, have them
-  run `glab auth login --hostname <HOSTNAME>` for each one, which stores per-host
-  settings in the configuration file.
+- A token set through an environment variable is sent only to the host named by
+  `GITLAB_HOST` or `GITLAB_REPO`, and to hosts in the configuration file. This approach suits
+  organizations with a single instance. If your users also work against other instances,
+  have them run `glab auth login --hostname <HOSTNAME>` for each one, which stores
+  per-host settings in the configuration file.
 - On a machine that already has credentials for the host, `glab auth login` asks the user
   to confirm re-authentication. No variable or flag suppresses that prompt.
 
@@ -201,6 +202,11 @@ For every authenticated command, `glab` resolves the token to use in this order:
    - `GITLAB_TOKEN`
    - `GITLAB_ACCESS_TOKEN`
    - `OAUTH_TOKEN`
+
+   These variables apply only to trusted hosts. A trusted host is the one named by
+   `GITLAB_HOST` (or the `host` configuration key, or `gitlab.com` when neither is set),
+   the host of a `GITLAB_REPO` URL, or a host in the configuration file. For any other
+   host, such as one named only in a command argument, `glab` skips them and warns you.
 1. The credentials stored for the host, either in your operating system's keyring or in the
    [configuration file](configuration.md#configuration-file-locations).
    `glab auth login` and `glab config set token` write them there.

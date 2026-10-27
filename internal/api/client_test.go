@@ -98,10 +98,13 @@ func TestNewClientFromConfig(t *testing.T) {
 		expectedBaseURL string
 	}{
 		{
+			// GITLAB_HOST makes the passed-in host the default host, for
+			// which environment credentials resolve.
 			name: "OAuth2 access token",
 			envVars: map[string]string{
 				"GITLAB_TOKEN":   "oauth2-access-token",
 				"GLAB_IS_OAUTH2": "true",
+				"GITLAB_HOST":    "example.com",
 			},
 			repoHost:        "example.com",
 			expectedAuthKey: "Authorization",
@@ -112,6 +115,7 @@ func TestNewClientFromConfig(t *testing.T) {
 			name: "PAT auth",
 			envVars: map[string]string{
 				"GITLAB_TOKEN": "some-pat",
+				"GITLAB_HOST":  "example.com",
 			},
 			repoHost:        "example.com",
 			expectedAuthKey: gitlab.AccessTokenHeaderName,
@@ -121,7 +125,8 @@ func TestNewClientFromConfig(t *testing.T) {
 		{
 			name: "job token from env without CI",
 			envVars: map[string]string{
-				"JOB_TOKEN": "my-job-token",
+				"JOB_TOKEN":   "my-job-token",
+				"GITLAB_HOST": "example.com",
 			},
 			repoHost:        "example.com",
 			expectedAuthKey: gitlab.JobTokenHeaderName,
@@ -132,6 +137,7 @@ func TestNewClientFromConfig(t *testing.T) {
 			name: "custom protocol from env",
 			envVars: map[string]string{
 				"GITLAB_TOKEN": "my-pat",
+				"GITLAB_HOST":  "example.com",
 				"API_PROTOCOL": "http",
 			},
 			repoHost:        "example.com",
@@ -140,6 +146,8 @@ func TestNewClientFromConfig(t *testing.T) {
 			expectedBaseURL: "http://example.com/api/v4/",
 		},
 		{
+			// Under CI auto-login the CI server is the default host, so
+			// environment credentials resolve for it.
 			name: "CI auto-login uses CI variables",
 			envVars: map[string]string{
 				"GLAB_ENABLE_CI_AUTOLOGIN": "true",
@@ -147,7 +155,7 @@ func TestNewClientFromConfig(t *testing.T) {
 				"CI_JOB_TOKEN":             "ci-tok",
 				"CI_SERVER_FQDN":           "ci.example.com",
 			},
-			repoHost:        "example.com",
+			repoHost:        "ci.example.com",
 			expectedAuthKey: gitlab.JobTokenHeaderName,
 			expectedAuthVal: "ci-tok",
 			expectedBaseURL: "https://ci.example.com/api/v4/",
@@ -161,7 +169,7 @@ func TestNewClientFromConfig(t *testing.T) {
 				"CI_SERVER_FQDN":           "ci.example.com",
 				"CI_SERVER_PROTOCOL":       "http",
 			},
-			repoHost:        "example.com",
+			repoHost:        "ci.example.com",
 			expectedAuthKey: gitlab.JobTokenHeaderName,
 			expectedAuthVal: "ci-tok",
 			expectedBaseURL: "http://ci.example.com/api/v4/",
@@ -175,7 +183,7 @@ func TestNewClientFromConfig(t *testing.T) {
 				"CI_JOB_TOKEN":             "ci-tok",
 				"CI_SERVER_FQDN":           "ci.example.com",
 			},
-			repoHost:        "example.com",
+			repoHost:        "ci.example.com",
 			expectedAuthKey: gitlab.AccessTokenHeaderName,
 			expectedAuthVal: "my-pat",
 			expectedBaseURL: "https://ci.example.com/api/v4/",
@@ -186,6 +194,7 @@ func TestNewClientFromConfig(t *testing.T) {
 				"GITLAB_CI":                "true",
 				"GLAB_ENABLE_CI_AUTOLOGIN": "false",
 				"GITLAB_TOKEN":             "my-pat",
+				"GITLAB_HOST":              "manual.example.com",
 				"CI_JOB_TOKEN":             "ci-tok",
 				"CI_SERVER_FQDN":           "ci.example.com",
 			},
@@ -217,6 +226,66 @@ func TestNewClientFromConfig(t *testing.T) {
 			assert.Equal(t, tt.expectedBaseURL, client.BaseURL())
 		})
 	}
+}
+
+// TestNewClientFromConfig_EnvTokenScopedToTrustedHosts pins the fix for
+// https://gitlab.com/gitlab-org/cli/-/work_items/8545: a token from the
+// environment is never sent to a host named only in a command argument.
+func TestNewClientFromConfig_EnvTokenScopedToTrustedHosts(t *testing.T) {
+	for _, k := range []string{
+		"GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GLAB_IS_OAUTH2", "JOB_TOKEN",
+		"CI_JOB_TOKEN", "GITLAB_CI", "GLAB_ENABLE_CI_AUTOLOGIN", "CI_SERVER_FQDN",
+		"GITLAB_HOST", "GITLAB_API_HOST", "API_PROTOCOL",
+	} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("GITLAB_TOKEN", "env-pat")
+
+	assertAuthHeader := func(t *testing.T, client *Client, expectedValue string) {
+		t.Helper()
+		_, value, err := client.AuthSource().Header(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, expectedValue, value)
+	}
+
+	t.Run("withheld from a host that is neither default nor configured", func(t *testing.T) {
+		client, err := NewClientFromConfig("attacker.example.com", config.NewBlankConfig(), false, "test-agent")
+		require.NoError(t, err)
+
+		// No credential must be attached: the client is unauthenticated.
+		_, _, err = client.AuthSource().Header(t.Context())
+		require.ErrorContains(t, err, "unauthenticated")
+	})
+
+	t.Run("sent to the default host", func(t *testing.T) {
+		client, err := NewClientFromConfig("gitlab.com", config.NewBlankConfig(), false, "test-agent")
+		require.NoError(t, err)
+		assertAuthHeader(t, client, "env-pat")
+	})
+
+	t.Run("sent to the default host named by GITLAB_HOST", func(t *testing.T) {
+		t.Setenv("GITLAB_HOST", "gitlab.example.com")
+
+		client, err := NewClientFromConfig("gitlab.example.com", config.NewBlankConfig(), false, "test-agent")
+		require.NoError(t, err)
+		assertAuthHeader(t, client, "env-pat")
+	})
+
+	t.Run("sent to the default host named by GITLAB_HOST with a subfolder", func(t *testing.T) {
+		t.Setenv("GITLAB_HOST", "https://gitlab.example.com/gitlab")
+
+		client, err := NewClientFromConfig("gitlab.example.com/gitlab", config.NewBlankConfig(), false, "test-agent")
+		require.NoError(t, err)
+		assertAuthHeader(t, client, "env-pat")
+	})
+
+	t.Run("sent to a configured host", func(t *testing.T) {
+		cfg := config.NewFromString("hosts:\n  gitlab.example.com:\n    user: someone\n")
+
+		client, err := NewClientFromConfig("gitlab.example.com", cfg, false, "test-agent")
+		require.NoError(t, err)
+		assertAuthHeader(t, client, "env-pat")
+	})
 }
 
 func TestNewClientFromConfig_AuthContextPrecedence(t *testing.T) {
@@ -399,6 +468,9 @@ func TestNewClientFromConfig_DuoWorkflowID(t *testing.T) {
 func TestNewClientFromConfig_OAuth2NoTokenReturnsError(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "")
 	t.Setenv("GLAB_IS_OAUTH2", "true")
+	// Environment credentials and flags only resolve for trusted hosts; make
+	// the host the default one so GLAB_IS_OAUTH2 applies.
+	t.Setenv("GITLAB_HOST", "example.gitlab.com")
 
 	_, err := NewClientFromConfig(
 		"example.gitlab.com",

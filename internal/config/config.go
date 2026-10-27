@@ -248,7 +248,10 @@ func (c *fileConfig) GetWithSource(hostname, key string, searchENVVars bool) (st
 	if searchENVVars {
 		value, source := GetFromEnvWithSource(key)
 		if value != "" {
-			return value, source, nil
+			if hostname == "" || !envScopedToTrustedHosts(key) || IsTrustedHost(c, hostname) {
+				return value, source, nil
+			}
+			dbg.Debugf("config: ignoring environment variable %s for host %q: it is neither the default host nor a configured host", source, hostname)
 		}
 	}
 
@@ -337,6 +340,93 @@ func (c *fileConfig) GetWithSource(hostname, key string, searchENVVars bool) (st
 func isKeyringEligibleKey(key string) bool {
 	_, eligible := keyringEligibleKeys[key]
 	return eligible
+}
+
+// envCredentialKeys are the keys whose environment variables resolve only for
+// trusted hosts. Other per-host keys (api_host, client_id, ...) are not secrets
+// and keep resolving globally, because `glab auth login` reads them for a host
+// that is not configured yet.
+var envCredentialKeys = map[string]struct{}{
+	"token":     {},
+	"job_token": {},
+	"is_oauth2": {},
+}
+
+// envScopedToTrustedHosts reports whether key (or one of its aliases) is a
+// credential whose environment variables only resolve for trusted hosts.
+func envScopedToTrustedHosts(key string) bool {
+	_, ok := envCredentialKeys[resolveAlias(key)]
+	return ok
+}
+
+// IsTrustedHost reports whether environment-provided credentials may be used
+// for hostname: either it is the default host (the global host key, which may
+// itself come from GITLAB_HOST/GITLAB_URI/GL_HOST, or from CI_SERVER_FQDN
+// under CI auto-login, falling back to gitlab.com), the host of a GITLAB_REPO
+// URL, or a host present in the configuration's hosts map. Environment
+// variables are process-global, so credentials must not resolve for an
+// arbitrary host taken from a command argument (for example
+// `glab repo view https://attacker.example.com/acme/awesome-tool`).
+func IsTrustedHost(c Config, hostname string) bool {
+	hostname = trustedHostKey(hostname)
+
+	defaultHost, _ := c.Get("", "host")
+	if defaultHost == "" {
+		defaultHost = glinstance.DefaultHostname
+	}
+	if hostname == trustedHostKey(defaultHost) {
+		return true
+	}
+	if repoHost := gitlabRepoHost(); repoHost != "" && hostname == trustedHostKey(repoHost) {
+		return true
+	}
+
+	hosts, err := c.Hosts()
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(hosts, func(h string) bool {
+		return trustedHostKey(h) == hostname
+	})
+}
+
+// gitlabRepoHost returns the host of a GITLAB_REPO given as a URL or an
+// scp-like Git URL. GITLAB_REPO is user-set like GITLAB_HOST, so its host is
+// trusted too. The HOST/OWNER/REPO form is not parsed here: glrepo only treats
+// its first segment as a host when that host is already in the hosts map.
+// internal/git cannot be imported here (it imports config), so this mirrors
+// git.ParseURL, which drops the port of an SSH URL.
+func gitlabRepoHost() string {
+	repo := strings.TrimSpace(os.Getenv("GITLAB_REPO"))
+	if strings.Contains(repo, "://") {
+		u, err := url.Parse(repo)
+		if err != nil {
+			return ""
+		}
+		if u.Scheme == "ssh" || u.Scheme == "git+ssh" {
+			return u.Hostname()
+		}
+		return u.Host
+	}
+	if rest, ok := strings.CutPrefix(repo, "git@"); ok {
+		host, _, _ := strings.Cut(rest, ":")
+		return host
+	}
+	return ""
+}
+
+// trustedHostKey reduces a host as spelled by GITLAB_HOST, a hosts key, or a
+// command argument to the lowercase host[:port] that IsTrustedHost compares.
+// The scheme is cut only at "://" because StripHostProtocol also trims a bare
+// leading "http" or "https", which would turn "httpsgit.corp.test" into
+// "git.corp.test".
+func trustedHostKey(h string) string {
+	h = glinstance.NormalizeHostname(h)
+	if _, rest, ok := strings.Cut(h, "://"); ok {
+		h = rest
+	}
+	h, _ = glinstance.ExtractSubfolder(h)
+	return h
 }
 
 // keyringProbePrefix names the sentinel entries used to check whether a working
