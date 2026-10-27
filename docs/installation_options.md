@@ -190,6 +190,6 @@ example:
 
 ## Shell completions
 
-If your shell is not supported by [`glab completion`](./source/completion/_index.md), you can
+If your shell is not supported by [`glab completion`](source/completion/_index.md), you can
 use [Carapace-bin](https://github.com/carapace-sh/carapace-bin) to get completions for `glab`
 and other CLI tools. To set up completions for your shell, follow the [Carapace-bin installation instructions](https://carapace-sh.github.io/carapace-bin/install.html).
