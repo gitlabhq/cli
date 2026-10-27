@@ -8,11 +8,70 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/mattn/go-colorable"
 	"github.com/muesli/termenv"
 
 	"gitlab.com/gitlab-org/cli/internal/theme"
 )
+
+// ColorMode selects whether glab emits color. It mirrors the convention of
+// git, ls, and ripgrep: auto detects from the environment and TTY state, never
+// disables color, always forces it on. The resolved value becomes the single
+// colorprofile.Profile on IOStreams; see resolveColorProfile.
+type ColorMode string
+
+const (
+	// ColorModeAuto detects color support from the environment and TTY state,
+	// the same as glab's historical behavior.
+	ColorModeAuto ColorMode = "auto"
+	// ColorModeNever disables color output entirely, regardless of TTY state.
+	ColorModeNever ColorMode = "never"
+	// ColorModeAlways forces color on regardless of TTY state, at whatever
+	// tier the terminal advertises.
+	ColorModeAlways ColorMode = "always"
+)
+
+// AllColorModes returns every valid ColorMode value, in the order they
+// should be presented to users.
+func AllColorModes() []ColorMode {
+	return []ColorMode{
+		ColorModeAuto,
+		ColorModeNever,
+		ColorModeAlways,
+	}
+}
+
+// colorTier is the richest profile the environment advertises, whether or
+// not color is wanted. It is the only place TERM and COLORTERM are read.
+// Forced color still needs a tier on a dumb terminal, so it never reports
+// less than ANSI.
+func colorTier() colorprofile.Profile {
+	switch {
+	case isTrueColorSupported():
+		return colorprofile.TrueColor
+	case is256ColorSupported():
+		return colorprofile.ANSI256
+	default:
+		return colorprofile.ANSI
+	}
+}
+
+// resolveColorProfile turns the color mode into the single profile that
+// stdout output reads: NoTTY when color is off, the terminal tier when on.
+func resolveColorProfile(mode ColorMode, isTTY bool) colorprofile.Profile {
+	switch mode {
+	case ColorModeNever:
+		return colorprofile.NoTTY
+	case ColorModeAlways:
+		return colorTier()
+	default:
+		if detectIsColorEnabled() && isTTY {
+			return colorTier()
+		}
+		return colorprofile.NoTTY
+	}
+}
 
 type ColorPalette struct {
 	// Magenta outputs ANSI color if stdout is a tty
@@ -37,6 +96,21 @@ func (s *IOStreams) Color() *ColorPalette {
 	return s.colorPalette(s.ColorEnabled() && s.IsaTTY)
 }
 
+// ColorProfile returns the resolved color profile for stdout output. Whether
+// color is on, and which tier it uses, are both read off this one value.
+func (s *IOStreams) ColorProfile() colorprofile.Profile {
+	return s.colorProfile
+}
+
+// profileIf gives the terminal tier when enabled and NoTTY otherwise, for
+// outputs (like CI logs) that decide on/off themselves but share the tier.
+func profileIf(enabled bool) colorprofile.Profile {
+	if enabled {
+		return colorTier()
+	}
+	return colorprofile.NoTTY
+}
+
 // ColorForCILogs returns a palette that stays colored in GitLab CI job logs
 // (which are not a TTY) while honoring NO_COLOR, unlike Color which gates on
 // the TTY. Callers that need color in CI output should use this.
@@ -56,16 +130,17 @@ func (s *IOStreams) colorPalette(isColorfulOutput bool) *ColorPalette {
 	}
 	lightDark := lipgloss.LightDark(isDark)
 	glc := theme.NewGitLabColors(lightDark) // reuse existing palette
+	profile := profileIf(isColorfulOutput)
 
 	return &ColorPalette{
-		Magenta: makeColorFunc(isColorfulOutput, glc.Purple, "magenta"),
-		Cyan:    makeColorFunc(isColorfulOutput, nil, "cyan"), // not in theme, falls back to ANSI
-		Red:     makeColorFunc(isColorfulOutput, glc.Red, "red"),
-		Yellow:  makeColorFunc(isColorfulOutput, nil, "yellow"), // not in theme, falls back to ANSI
-		Blue:    makeColorFunc(isColorfulOutput, glc.Blue, "blue"),
-		Green:   makeColorFunc(isColorfulOutput, glc.Green, "green"),
-		Gray:    makeColorFunc(isColorfulOutput, nil, "black+h"),
-		Bold:    makeColorFunc(isColorfulOutput, nil, "default+b"),
+		Magenta: makeColorFunc(profile, glc.Purple, "magenta"),
+		Cyan:    makeColorFunc(profile, nil, "cyan"), // not in theme, falls back to ANSI
+		Red:     makeColorFunc(profile, glc.Red, "red"),
+		Yellow:  makeColorFunc(profile, glc.Warning, "yellow"),
+		Blue:    makeColorFunc(profile, glc.Blue, "blue"),
+		Green:   makeColorFunc(profile, glc.Green, "green"),
+		Gray:    makeColorFunc(profile, nil, "black+h"),
+		Bold:    makeColorFunc(profile, nil, "default+b"),
 	}
 }
 
@@ -77,16 +152,15 @@ func NewColorable(out io.Writer) io.Writer {
 	return out
 }
 
-func makeColorFunc(isColorfulOutput bool, brandColor color.Color, ansiName string) func(string) string {
-	// don't bother doing terminal capacity checks and calculations if color is disabled
-	if !isColorfulOutput {
+func makeColorFunc(profile colorprofile.Profile, brandColor color.Color, ansiName string) func(string) string {
+	if profile <= colorprofile.ASCII {
 		return func(arg string) string {
 			return arg
 		}
 	}
 
 	// 24-bit truecolor and we got a color from lipgloss'd theme
-	if brandColor != nil && isTrueColorSupported() {
+	if brandColor != nil && profile == colorprofile.TrueColor {
 		r16, g16, b16, _ := brandColor.RGBA() // standard Go interface, 16-bit per channel
 		r, g, b := uint8(r16>>8), uint8(g16>>8), uint8(b16>>8)
 		return func(t string) string {
@@ -95,7 +169,7 @@ func makeColorFunc(isColorfulOutput bool, brandColor color.Color, ansiName strin
 	}
 
 	// 256 colors gray
-	if ansiName == "black+h" && is256ColorSupported() {
+	if ansiName == "black+h" && profile >= colorprofile.ANSI256 {
 		return func(t string) string {
 			return fmt.Sprintf("\x1b[38;5;242m%s\x1b[m", t)
 		}
@@ -142,8 +216,12 @@ var basicANSICodes = map[string]string{
 // honors the NO_COLOR contract (via detectIsColorEnabled): a CI job that sets
 // NO_COLOR gets no color unless COLOR_ENABLED overrides it. Use this for output
 // that is meant to stay colored in CI logs; everything else should keep using
-// ColorEnabled/Color, which gate on the TTY.
+// ColorEnabled/Color, which gate on the TTY. The color setting `never` always
+// wins, including in CI.
 func (s *IOStreams) ColorEnabledForCILogs() bool {
+	if s.colorMode == ColorModeNever {
+		return false
+	}
 	if s.ColorEnabled() {
 		return true
 	}

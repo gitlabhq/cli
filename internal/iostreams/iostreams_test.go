@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -262,4 +263,200 @@ func TestWritePagerOutput_LongLine(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, longLine+"\n", output.String())
+}
+
+func TestNew_ColorMode(t *testing.T) {
+	unsetColorEnv(t)
+
+	tests := []struct {
+		name      string
+		mode      ColorMode
+		wantColor bool
+	}{
+		{name: "unset defaults to auto detection", mode: "", wantColor: false},
+		{name: "auto behaves like unset", mode: ColorModeAuto, wantColor: false},
+		{name: "never forces color off", mode: ColorModeNever, wantColor: false},
+		{name: "always forces color on regardless of TTY", mode: ColorModeAlways, wantColor: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TERM", "dumb")
+			t.Setenv("COLORTERM", "")
+
+			opts := []IOStreamsOption{}
+			if tt.mode != "" {
+				opts = append(opts, WithColorMode(tt.mode))
+			}
+			ios := New(opts...)
+			// New() without WithStdout/WithStderr leaves IsaTTY/IsErrTTY false,
+			// so "auto"/unset resolve to no color here; only "always" must
+			// override that to prove it forces color on.
+
+			assert.Equal(t, tt.wantColor, ios.ColorEnabled())
+		})
+	}
+}
+
+// ColorProfile is the single value every output path derives from: whether
+// color is on, and which tier it uses, are both read off it.
+func TestIOStreams_ColorProfile(t *testing.T) {
+	unsetColorEnv(t)
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "")
+
+	t.Run("a non-TTY defaults to no color", func(t *testing.T) {
+		ios := New()
+		assert.Equal(t, colorprofile.NoTTY, ios.ColorProfile())
+		assert.False(t, ios.ColorEnabled())
+	})
+
+	t.Run("always colors a pipe at the terminal tier", func(t *testing.T) {
+		ios := New(WithColorMode(ColorModeAlways))
+		assert.Equal(t, colorprofile.ANSI256, ios.ColorProfile())
+		assert.True(t, ios.ColorEnabled())
+	})
+
+	t.Run("never wins on a TTY", func(t *testing.T) {
+		ios := New(WithColorMode(ColorModeNever))
+		ios.IsaTTY, ios.IsErrTTY = true, true
+		ios.SetColorMode(ColorModeNever)
+		assert.Equal(t, colorprofile.NoTTY, ios.ColorProfile())
+		assert.False(t, ios.ColorEnabled())
+	})
+
+	t.Run("SetColorMode re-resolves the profile", func(t *testing.T) {
+		ios := New()
+		require.Equal(t, colorprofile.NoTTY, ios.ColorProfile())
+
+		ios.SetColorMode(ColorModeAlways)
+		assert.Equal(t, colorprofile.ANSI256, ios.ColorProfile())
+
+		ios.SetColorMode(ColorModeNever)
+		assert.Equal(t, colorprofile.NoTTY, ios.ColorProfile())
+	})
+
+	t.Run("WithColorEnabled pins the profile for tests", func(t *testing.T) {
+		assert.Equal(t, colorprofile.ANSI256, New(WithColorEnabled(true)).ColorProfile())
+		assert.Equal(t, colorprofile.NoTTY, New(WithColorEnabled(false), WithColorMode(ColorModeAlways)).ColorProfile())
+	})
+}
+
+func TestIOStreams_Is256ColorSupported_IsATerminalCapability(t *testing.T) {
+	unsetColorEnv(t)
+
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "")
+	assert.True(t, New().Is256ColorSupported(), "a 256-color terminal reports support even when color is off")
+
+	t.Setenv("TERM", "xterm-16color")
+	assert.False(t, New().Is256ColorSupported())
+}
+
+// Color-for-CI-logs colors a non-TTY, so it needs the terminal tier even
+// though the stdout profile is NoTTY there.
+func TestIOStreams_ColorForCILogs_KeepsTheTierOffATTY(t *testing.T) {
+	unsetColorEnv(t)
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "")
+	t.Setenv("GITLAB_CI", "true")
+
+	ios := New()
+	require.Equal(t, colorprofile.NoTTY, ios.ColorProfile())
+
+	assert.Equal(t, "\x1b[38;5;242mtext\x1b[m", ios.ColorForCILogs().Gray("text"))
+}
+
+func TestIOStreams_SetColorMode(t *testing.T) {
+	unsetColorEnv(t)
+	t.Setenv("TERM", "dumb")
+	t.Setenv("COLORTERM", "")
+
+	ios := New()
+	require.False(t, ios.ColorEnabled(), "precondition: no TTY, no explicit mode")
+
+	ios.SetColorMode(ColorModeAlways)
+	assert.True(t, ios.ColorEnabled())
+	assert.Equal(t, ColorModeAlways, ios.ColorMode())
+
+	ios.SetColorMode(ColorModeNever)
+	assert.False(t, ios.ColorEnabled())
+	assert.Equal(t, ColorModeNever, ios.ColorMode())
+}
+
+func TestIOStreams_ColorMode_DefaultsToAuto(t *testing.T) {
+	ios := New()
+	assert.Equal(t, ColorModeAuto, ios.ColorMode())
+}
+
+func unsetColorEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{"NO_COLOR", "COLOR_ENABLED"} {
+		if val, ok := os.LookupEnv(key); ok {
+			os.Unsetenv(key)
+			t.Cleanup(func() { t.Setenv(key, val) })
+		}
+	}
+}
+
+func TestResolveBackgroundColor(t *testing.T) {
+	t.Run("explicit non-auto style is returned as-is", func(t *testing.T) {
+		t.Setenv("GLAB_GLAMOUR_STYLE", "")
+		t.Setenv("GLAMOUR_STYLE", "")
+		ios := New(WithColorMode(ColorModeAlways))
+
+		got := ios.ResolveBackgroundColor("notty")
+
+		assert.Equal(t, "notty", got)
+		assert.Equal(t, "notty", ios.BackgroundColor())
+	})
+
+	t.Run("GLAB_GLAMOUR_STYLE overrides a non-auto config style", func(t *testing.T) {
+		t.Setenv("GLAB_GLAMOUR_STYLE", "light")
+		t.Setenv("GLAMOUR_STYLE", "")
+		ios := New(WithColorMode(ColorModeAlways))
+
+		got := ios.ResolveBackgroundColor("dark")
+
+		assert.Equal(t, "light", got)
+	})
+
+	t.Run("never beats an explicit style", func(t *testing.T) {
+		t.Setenv("GLAB_GLAMOUR_STYLE", "")
+		t.Setenv("GLAMOUR_STYLE", "")
+		ios := New(WithColorMode(ColorModeNever))
+
+		assert.Equal(t, "none", ios.ResolveBackgroundColor("dark"))
+		assert.Equal(t, "none", ios.BackgroundColor())
+	})
+
+	t.Run("never beats a style from the environment", func(t *testing.T) {
+		t.Setenv("GLAB_GLAMOUR_STYLE", "dark")
+		t.Setenv("GLAMOUR_STYLE", "")
+		ios := New(WithColorMode(ColorModeNever))
+
+		assert.Equal(t, "none", ios.ResolveBackgroundColor("light"))
+	})
+
+	t.Run("auto with color disabled resolves to none", func(t *testing.T) {
+		t.Setenv("GLAB_GLAMOUR_STYLE", "")
+		t.Setenv("GLAMOUR_STYLE", "")
+		ios := New(WithColorMode(ColorModeNever))
+
+		got := ios.ResolveBackgroundColor("auto")
+
+		assert.Equal(t, "none", got)
+	})
+
+	t.Run("auto with color enabled reaches real background detection", func(t *testing.T) {
+		t.Setenv("GLAB_GLAMOUR_STYLE", "")
+		t.Setenv("GLAMOUR_STYLE", "")
+		ios := New(WithColorMode(ColorModeAlways))
+
+		got := ios.ResolveBackgroundColor("auto")
+
+		// Background detection depends on the environment, so only check that
+		// "auto" resolves to a real value.
+		assert.Contains(t, []string{"dark", "light"}, got)
+	})
 }

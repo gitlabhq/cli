@@ -88,6 +88,7 @@ func NewCmdRoot(f cmdutils.Factory) *cobra.Command {
 	// funcs receive the IOStreams explicitly and route their own output.
 
 	rootCmd.PersistentFlags().BoolP("help", "h", false, "Show help for this command.")
+
 	rootCmd.SetHelpFunc(func(command *cobra.Command, args []string) {
 		help.RootHelpFunc(f.IO(), command, args)
 	})

@@ -130,6 +130,7 @@ For more information, see
 | `BROWSER` | `browser` | - | Alternative name for `GLAB_BROWSER`, checked after it. |
 | `GLAB_CHECK_UPDATE` | `check_update` | `true` | Allow glab to automatically check for updates and notify you when there are new updates. Setting the environment variable to true also forces a check, bypassing the once-a-day interval. |
 | `CHECK_UPDATE` | `check_update` | `true` | Alternative name for `GLAB_CHECK_UPDATE`, checked after it. |
+| `GLAB_COLOR` | `color` | `auto` | Set whether glab colors its output. Available options are [auto, never, always]. `auto` detects whether the output is a terminal. This key takes precedence over the NO_COLOR environment variable; NO_COLOR applies when this is `auto` (or unset). |
 | `GLAB_CONFIG_DIR` | - | `~/.config/glab-cli` | Directory holding the global configuration file. Takes priority over the XDG locations. |
 | `GLAB_DEBUG` | `debug` | `false` | Output more logging information, including underlying Git commands, expanded aliases, and DNS error details. |
 | `GLAB_DEBUG_HTTP` | - | `false` | Set to true to output HTTP transport information (request and response). |
@@ -145,8 +146,8 @@ For more information, see
 | `GLAB_FORCE_HYPERLINKS` | `display_hyperlinks` | - | Set to true to force terminal hyperlinks when not writing to a TTY. |
 | `GLAB_GIT_PROTOCOL` | `git_protocol` | `ssh` | What protocol to use when performing Git operations. Supported values: `ssh`, `https`. |
 | `GIT_PROTOCOL` | `git_protocol` | `ssh` | Alternative name for `GLAB_GIT_PROTOCOL`, checked after it. |
-| `GLAB_GLAMOUR_STYLE` | `glamour_style` | `dark` | Set your desired Markdown renderer style. Available options are [dark, light, notty]. To set a custom style, refer to <https://github.com/charmbracelet/glamour#styles>. |
-| `GLAMOUR_STYLE` | `glamour_style` | `dark` | Alternative name for `GLAB_GLAMOUR_STYLE`, checked after it. |
+| `GLAB_GLAMOUR_STYLE` | `glamour_style` | `auto` | Set your desired Markdown renderer style. Available options are [auto, dark, light, notty]. `auto` detects your terminal's background color. To set a custom style, refer to <https://github.com/charmbracelet/glamour#styles>. |
+| `GLAMOUR_STYLE` | `glamour_style` | `auto` | Alternative name for `GLAB_GLAMOUR_STYLE`, checked after it. |
 | `GLAB_NOTIFY_SKILL_UPDATES` | `notify_skill_updates` | `true` | Show a notice when an installed agent skill (bundled or remote) has updates available. |
 | `GLAB_NO_PROMPT` | `no_prompt` | `false` | Set to true (1) to disable prompts, or false (0) to enable them. |
 | `NO_PROMPT` | `no_prompt` | `false` | Alternative name for `GLAB_NO_PROMPT`, checked after it. |
