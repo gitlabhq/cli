@@ -125,15 +125,14 @@ func withSnapPermissionHint(err error, kubeconfigFiles []string) error {
 	if realHome == "" || len(kubeconfigFiles) == 0 || !strings.Contains(err.Error(), fs.ErrPermission.Error()) {
 		return err
 	}
-	// The dot-kube plug only grants access to ~/.kube, so connecting it can't fix other paths.
-	kubeDir := filepath.Join(realHome, clientcmd.RecommendedHomeDir)
+	// The dot-kube plug only grants access to ~/.kube/config and its lock, so connecting it can't fix other paths.
+	defaultKubeconfig := filepath.Join(realHome, clientcmd.RecommendedHomeDir, clientcmd.RecommendedFileName)
 	for _, file := range kubeconfigFiles {
-		rel, relErr := filepath.Rel(kubeDir, file)
-		if relErr != nil || !filepath.IsLocal(rel) {
+		if filepath.Clean(file) != defaultKubeconfig {
 			return err
 		}
 	}
-	return fmt.Errorf("%w\nTo allow the glab snap to access ~/.kube, run: sudo snap connect glab:dot-kube", err)
+	return fmt.Errorf("%w\nTo allow the glab snap to access ~/.kube/config, run: sudo snap connect glab:dot-kube", err)
 }
 
 func (o *options) validate() error {
