@@ -95,7 +95,7 @@ For more information, see
 | `GITLAB_REPO` | - | - | Default repository for commands that accept `--repo`. Used only when `--repo` is not given. |
 | `GITLAB_SSH_HOST` | `ssh_host` | - | Alternate hostname for SSH Git operations (e.g., `ssh.example.com` or `git.example.com`). Use this when SSH uses a different hostname than HTTP/API operations. Only affects SSH cloning and Git operations. |
 | `GITLAB_SUBFOLDER` | `subfolder` | - | Subfolder where GitLab is installed (e.g., `gitlab` for <https://example.com/gitlab/>). Use this when GitLab is hosted at a subfolder rather than domain root. Supports nested paths (e.g., `apps/gitlab` for <https://example.com/apps/gitlab/>). Slashes are automatically trimmed, so `gitlab`, `/gitlab`, and `gitlab/` are equivalent. Only applies to HTTP/HTTPS operations (API and Git clone). |
-| `GITLAB_TOKEN` | `token` | - | Your GitLab access token. To get one, read <https://docs.gitlab.com/user/profile/personal_access_tokens/>. |
+| `GITLAB_TOKEN` | `token` | - | Your GitLab access token. To get one, read <https://docs.gitlab.com/user/profile/personal_access_tokens/>. A token set through an environment variable is sent only to the host named by `GITLAB_HOST` (or the `host` configuration key) or `GITLAB_REPO`, and to hosts already present in your configuration file. A host named only in a command argument receives no token. |
 | `GITLAB_ACCESS_TOKEN` | `token` | - | Alternative name for `GITLAB_TOKEN`, checked after it. |
 | `OAUTH_TOKEN` | `token` | - | Alternative name for `GITLAB_TOKEN`, checked after it. |
 | `GLAB_API_PROTOCOL` | `api_protocol` | `https` | What protocol to use to access the API endpoint. Supported values: `http`, `https`. |

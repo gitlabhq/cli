@@ -102,7 +102,9 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 
 			If %[1]sGITLAB_TOKEN%[1]s, %[1]sGITLAB_ACCESS_TOKEN%[1]s, or %[1]sOAUTH_TOKEN%[1]s are set,
 			they take precedence over the stored credentials. When CI auto-login is
-			enabled, these variables also override %[1]sCI_JOB_TOKEN%[1]s.
+			enabled, these variables also override %[1]sCI_JOB_TOKEN%[1]s. They apply only
+			to the host named by %[1]sGITLAB_HOST%[1]s or %[1]sGITLAB_REPO%[1]s, and to hosts in the
+			configuration file.
 
 			To pass a token on standard input, use %[1]s--stdin%[1]s.
 

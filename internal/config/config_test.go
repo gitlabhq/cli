@@ -298,6 +298,178 @@ func Test_GetWithSource_SurfacesKeyringReadError(t *testing.T) {
 	assert.Contains(t, err.Error(), "keyring")
 }
 
+// Test_GetWithSource_CredentialEnvVarsRequireTrustedHost pins the fix for
+// https://gitlab.com/gitlab-org/cli/-/work_items/8545: this pins the gate in
+// GetWithSource; which hosts count as trusted is covered by TestIsTrustedHost.
+func Test_GetWithSource_CredentialEnvVarsRequireTrustedHost(t *testing.T) {
+	// Neutralize every environment variable that maps to a key under test or
+	// that toggles CI auto-login.
+	for _, e := range []string{
+		"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GLAB_IS_OAUTH2",
+		"GITLAB_HOST", "GITLAB_URI", "GL_HOST",
+		"GITLAB_API_HOST", "GLAB_GIT_PROTOCOL", "GIT_PROTOCOL",
+		"GLAB_ENABLE_CI_AUTOLOGIN", "GITLAB_CI", "CI_SERVER_FQDN", "CI_JOB_TOKEN",
+	} {
+		t.Setenv(e, "")
+	}
+
+	t.Run("resolves for gitlab.com when nothing is configured", func(t *testing.T) {
+		t.Setenv("GITLAB_TOKEN", "env-token")
+		cfg := NewFromString("hosts: {}\n")
+
+		token, source, err := cfg.GetWithSource("gitlab.com", "token", true)
+		require.NoError(t, err)
+		assert.Equal(t, "env-token", token)
+		assert.Equal(t, "GITLAB_TOKEN", source)
+	})
+
+	t.Run("withheld from a host that is neither default nor configured", func(t *testing.T) {
+		t.Setenv("GITLAB_TOKEN", "env-token")
+		cfg := NewFromString("hosts: {}\n")
+
+		token, source, err := cfg.GetWithSource("attacker.example.com", "token", true)
+		require.NoError(t, err)
+		assert.Empty(t, token)
+		assert.NotEqual(t, "GITLAB_TOKEN", source)
+	})
+
+	t.Run("aliases of the token key are scoped too", func(t *testing.T) {
+		t.Setenv("GITLAB_TOKEN", "env-token")
+		cfg := NewFromString("hosts: {}\n")
+
+		token, _, err := cfg.GetWithSource("attacker.example.com", "oauth_token", true)
+		require.NoError(t, err)
+		assert.Empty(t, token)
+	})
+
+	t.Run("the OAuth scheme flag is scoped too", func(t *testing.T) {
+		t.Setenv("GLAB_IS_OAUTH2", "true")
+		cfg := NewFromString("hosts: {}\n")
+
+		value, _, err := cfg.GetWithSource("attacker.example.com", "is_oauth2", true)
+		require.NoError(t, err)
+		assert.Empty(t, value)
+	})
+
+	t.Run("non-credential per-host keys keep resolving globally", func(t *testing.T) {
+		// api_host is not a secret, and flows like `glab auth login` read such
+		// keys for a host that is not configured yet (for example
+		// GITLAB_CLIENT_ID for a self-managed instance's OAuth login).
+		t.Setenv("GITLAB_API_HOST", "api.example.com")
+		cfg := NewFromString("hosts: {}\n")
+
+		value, _, err := cfg.GetWithSource("attacker.example.com", "api_host", true)
+		require.NoError(t, err)
+		assert.Equal(t, "api.example.com", value)
+	})
+
+	t.Run("global keys resolve regardless of the host", func(t *testing.T) {
+		t.Setenv("GIT_PROTOCOL", "https")
+		cfg := NewFromString("hosts: {}\n")
+
+		value, _, err := cfg.GetWithSource("attacker.example.com", "git_protocol", true)
+		require.NoError(t, err)
+		assert.Equal(t, "https", value)
+	})
+
+	t.Run("an empty hostname still resolves from the environment", func(t *testing.T) {
+		t.Setenv("GITLAB_TOKEN", "env-token")
+		cfg := NewFromString("hosts: {}\n")
+
+		token, _, err := cfg.GetWithSource("", "token", true)
+		require.NoError(t, err)
+		assert.Equal(t, "env-token", token)
+	})
+
+	t.Run("a withheld environment token falls through to host configuration", func(t *testing.T) {
+		t.Setenv("GITLAB_TOKEN", "env-token")
+		cfg := NewFromString("hosts:\n  gitlab.example.com:\n    token: stored-token\n")
+
+		// For a configured host the environment wins, as before.
+		token, _, err := cfg.GetWithSource("gitlab.example.com", "token", true)
+		require.NoError(t, err)
+		assert.Equal(t, "env-token", token)
+
+		// For an unconfigured host the environment token is withheld and there
+		// is no stored credential to fall back to.
+		token, _, err = cfg.GetWithSource("attacker.example.com", "token", true)
+		require.NoError(t, err)
+		assert.Empty(t, token)
+	})
+
+	t.Run("CI auto-login job token resolves for the CI server host only", func(t *testing.T) {
+		t.Setenv("GLAB_ENABLE_CI_AUTOLOGIN", "true")
+		t.Setenv("GITLAB_CI", "true")
+		t.Setenv("CI_SERVER_FQDN", "ci.example.com")
+		t.Setenv("CI_JOB_TOKEN", "ci-job-token")
+		cfg := NewFromString("hosts: {}\n")
+
+		token, source, err := cfg.GetWithSource("ci.example.com", "job_token", true)
+		require.NoError(t, err)
+		assert.Equal(t, "ci-job-token", token)
+		assert.Equal(t, "CI_JOB_TOKEN", source)
+
+		token, _, err = cfg.GetWithSource("attacker.example.com", "job_token", true)
+		require.NoError(t, err)
+		assert.Empty(t, token)
+	})
+}
+
+func TestIsTrustedHost(t *testing.T) {
+	for _, e := range []string{"GITLAB_HOST", "GITLAB_URI", "GL_HOST", "GITLAB_REPO", "GLAB_ENABLE_CI_AUTOLOGIN", "GITLAB_CI", "CI_SERVER_FQDN"} {
+		t.Setenv(e, "")
+	}
+
+	tests := []struct {
+		name       string
+		gitlabHost string
+		gitlabRepo string
+		config     string
+		hostname   string
+		want       bool
+	}{
+		{name: "gitlab.com is trusted by default", hostname: "gitlab.com", want: true},
+		{name: "unconfigured host is not trusted", hostname: "attacker.example.com", want: false},
+		{name: "configured host is trusted", config: "hosts:\n  gitlab.example.com:\n    user: someone\n", hostname: "gitlab.example.com", want: true},
+		{name: "configured host with port is trusted", config: "hosts:\n  gitlab.example.com:8443:\n    user: someone\n", hostname: "gitlab.example.com:8443", want: true},
+		{name: "configured host matches case-insensitively", config: "hosts:\n  GitLab.Example.COM:\n    user: someone\n", hostname: "gitlab.example.com", want: true},
+		{name: "host only similar to a configured host is not trusted", config: "hosts:\n  gitlab.example.com:\n    user: someone\n", hostname: "notgitlab.example.com", want: false},
+		{name: "hosts key saved with a scheme", config: "hosts:\n  https://gl.test:\n    user: someone\n", hostname: "gl.test", want: true},
+		{name: "hosts key saved with a subfolder", config: "hosts:\n  gl.test/gitlab:\n    user: someone\n", hostname: "gl.test", want: true},
+		{name: "default host from the configuration file is trusted", config: "host: gitlab.example.com\nhosts: {}\n", hostname: "gitlab.example.com", want: true},
+		{name: "default host from the configuration file matches case-insensitively", config: "host: GitLab.Example.COM\nhosts: {}\n", hostname: "gitlab.example.com", want: true},
+		{name: "default host with a subfolder from the configuration file", config: "host: gitlab.example.com/gitlab/\nhosts: {}\n", hostname: "gitlab.example.com/gitlab", want: true},
+		{name: "GITLAB_HOST with a protocol prefix", gitlabHost: "https://gitlab.example.com", hostname: "gitlab.example.com", want: true},
+		{name: "GITLAB_HOST matches case-insensitively", gitlabHost: "GitLab.Example.COM", hostname: "gitlab.example.com", want: true},
+		{name: "GITLAB_HOST with a subfolder, as NewFactory passes it", gitlabHost: "http://127.0.0.1:8099/gitlab", hostname: "127.0.0.1:8099/gitlab", want: true},
+		{name: "GITLAB_HOST with a subfolder, bare host", gitlabHost: "http://127.0.0.1:8099/gitlab", hostname: "127.0.0.1:8099", want: true},
+		{name: "GITLAB_HOST with a subfolder does not trust another port", gitlabHost: "http://127.0.0.1:8099/gitlab", hostname: "127.0.0.1", want: false},
+		{name: "GITLAB_HOST with a trailing slash and no scheme", gitlabHost: "127.0.0.1:8099/", hostname: "127.0.0.1:8099/", want: true},
+		{name: "GITLAB_HOST starting with https but without a scheme", gitlabHost: "httpsgit.corp.test", hostname: "httpsgit.corp.test", want: true},
+		{name: "GITLAB_HOST starting with https but without a scheme does not trust its suffix", gitlabHost: "httpsgit.corp.test", hostname: "git.corp.test", want: false},
+		{name: "candidate with a scheme, as auth dpop-gen --hostname passes it", hostname: "https://gitlab.com", want: true},
+		{name: "candidate with a scheme for an unconfigured host", hostname: "https://attacker.example.com/gitlab", want: false},
+		{name: "GITLAB_REPO HTTPS URL trusts its host", gitlabRepo: "https://gitlab.example.com/group/project", hostname: "gitlab.example.com", want: true},
+		{name: "GITLAB_REPO HTTPS URL keeps its port", gitlabRepo: "https://gitlab.example.com:8443/group/project", hostname: "gitlab.example.com:8443", want: true},
+		{name: "GITLAB_REPO SSH URL trusts its host without the SSH port", gitlabRepo: "ssh://git@gitlab.example.com:2222/group/project.git", hostname: "gitlab.example.com", want: true},
+		{name: "GITLAB_REPO scp-like Git URL trusts its host", gitlabRepo: "git@gitlab.example.com:group/project.git", hostname: "gitlab.example.com", want: true},
+		{name: "GITLAB_REPO URL does not trust other hosts", gitlabRepo: "https://gitlab.example.com/group/project", hostname: "attacker.example.com", want: false},
+		{name: "GITLAB_REPO HOST/OWNER/REPO form adds no trusted host", gitlabRepo: "gitlab.example.com/group/project", hostname: "gitlab.example.com", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("GITLAB_HOST", tt.gitlabHost)
+			t.Setenv("GITLAB_REPO", tt.gitlabRepo)
+			config := tt.config
+			if config == "" {
+				config = "hosts: {}\n"
+			}
+			assert.Equal(t, tt.want, IsTrustedHost(NewFromString(config), tt.hostname))
+		})
+	}
+}
+
 func Test_Set_SurfacesKeyringWriteError(t *testing.T) {
 	keyring.MockInitWithError(errors.New("exit status 161"))
 	t.Cleanup(keyring.MockInit)

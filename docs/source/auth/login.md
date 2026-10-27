@@ -35,7 +35,9 @@ often unavailable there.
 
 If `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN`, or `OAUTH_TOKEN` are set,
 they take precedence over the stored credentials. When CI auto-login is
-enabled, these variables also override `CI_JOB_TOKEN`.
+enabled, these variables also override `CI_JOB_TOKEN`. They apply only
+to the host named by `GITLAB_HOST` or `GITLAB_REPO`, and to hosts in the
+configuration file.
 
 To pass a token on standard input, use `--stdin`.
 
