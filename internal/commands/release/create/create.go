@@ -21,11 +21,13 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	catalog "gitlab.com/gitlab-org/cli/internal/commands/project/publish/catalog"
 	"gitlab.com/gitlab-org/cli/internal/commands/release/releaseutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/release/releaseutils/upload"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/git"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -80,6 +82,7 @@ type options struct {
 	ctx          context.Context
 	io           *iostreams.IOStreams
 	gitlabClient func() (*gitlab.Client, error)
+	apiClient    func(repoHost string) (*api.Client, error)
 	baseRepo     func() (glrepo.Interface, error)
 	config       func() config.Config
 }
@@ -88,6 +91,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	opts := &options{
 		io:           f.IO(),
 		gitlabClient: f.GitLabClient,
+		apiClient:    f.ApiClient,
 		baseRepo:     f.BaseRepo,
 		config:       f.Config,
 	}
@@ -119,8 +123,13 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 		  setting %[1]sGLAB_ENABLE_CI_AUTOLOGIN=true%[1]s. glab sends
 		  %[1]sCI_JOB_TOKEN%[1]s in the %[1]sJOB-TOKEN%[1]s header, which the Releases
 		  API accepts.
+		  - The Milestones API does not accept %[1]sCI_JOB_TOKEN%[1]s, so the token cannot
+		    close milestones.
+		  - If you use %[1]s--milestone%[1]s, the release is still created and the command
+		    exits successfully. The milestone stays open and glab logs an error.
+		    To avoid the error, use %[1]s--no-close-milestone%[1]s.
 		- Alternative: Use %[1]sGITLAB_TOKEN%[1]s set to a project or group access token with the
-		  %[1]sapi%[1]s scope.
+		  %[1]sapi%[1]s scope. With this token, %[1]s--milestone%[1]s can close milestones.
 		- Do not set %[1]sGITLAB_TOKEN=$CI_JOB_TOKEN%[1]s because the Releases API will
 		  return a %[1]s404 Not Found%[1]s. %[1]sGITLAB_TOKEN%[1]s is sent as a personal access token in
 		  the %[1]sPRIVATE-TOKEN%[1]s header, which the Releases API does not accept.
@@ -595,7 +604,7 @@ func createRun(opts *options) error {
 			err := closeMilestone(opts, milestone)
 			opts.io.StopSpinner("")
 			if err != nil {
-				opts.io.LogError(color.FailedIcon(), err.Error())
+				opts.io.LogError(color.FailedIcon(), closeMilestoneErr(opts, repo.RepoHost(), err).Error())
 			} else {
 				opts.io.LogInfof("%s Closed milestone %q\n", color.GreenCheck(), milestone)
 			}
@@ -619,6 +628,27 @@ func releaseFailedErr(err error, start time.Time) error {
 		err = fmt.Errorf("%w. Use a MAJOR.MINOR.PATCH tag such as 1.0.0, v1.0.0, or 1.0.0-alpha. Only a lowercase v prefix is allowed, and numeric identifiers must not have leading zeros. See https://docs.gitlab.com/ci/components/#semantic-versioning", err)
 	}
 	return cmdutils.WrapError(err, message)
+}
+
+// closeMilestoneErr explains a 401 or 403 only for a job token, the one
+// credential that can create a release but never reach the Milestones API.
+func closeMilestoneErr(opts *options, repoHost string, err error) error {
+	if !gitlab.HasStatusCode(err, http.StatusUnauthorized) && !gitlab.HasStatusCode(err, http.StatusForbidden) {
+		return err
+	}
+	client, clientErr := opts.apiClient(repoHost)
+	if clientErr != nil {
+		dbg.Debugf("release create: no API client for milestone hint: %v", clientErr)
+		return err
+	}
+	kind, kindErr := client.CredentialKind()
+	if kindErr != nil {
+		dbg.Debugf("release create: unknown credential kind for milestone hint: %v", kindErr)
+	}
+	if kind != api.CredentialJobToken {
+		return err
+	}
+	return fmt.Errorf("%w. A CI_JOB_TOKEN cannot access the Milestones API. To close milestones, use a project or group access token with the api scope. To avoid this error, use --no-close-milestone", err)
 }
 
 func getMilestoneByTitle(c *options, title string) (*gitlab.Milestone, error) {

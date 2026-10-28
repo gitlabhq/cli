@@ -38,8 +38,13 @@ Authentication in CI/CD:
   setting `GLAB_ENABLE_CI_AUTOLOGIN=true`. glab sends
   `CI_JOB_TOKEN` in the `JOB-TOKEN` header, which the Releases
   API accepts.
+  - The Milestones API does not accept `CI_JOB_TOKEN`, so the token cannot
+    close milestones.
+  - If you use `--milestone`, the release is still created and the command
+    exits successfully. The milestone stays open and glab logs an error.
+    To avoid the error, use `--no-close-milestone`.
 - Alternative: Use `GITLAB_TOKEN` set to a project or group access token with the
-  `api` scope.
+  `api` scope. With this token, `--milestone` can close milestones.
 - Do not set `GITLAB_TOKEN=$CI_JOB_TOKEN` because the Releases API will
   return a `404 Not Found`. `GITLAB_TOKEN` is sent as a personal access token in
   the `PRIVATE-TOKEN` header, which the Releases API does not accept.
