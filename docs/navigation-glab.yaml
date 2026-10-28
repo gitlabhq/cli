@@ -162,6 +162,8 @@
       url: 'cli/dependency-firewall/ci-summary/'
     - title: glab dependency-firewall gem
       url: 'cli/dependency-firewall/gem/'
+    - title: glab dependency-firewall go
+      url: 'cli/dependency-firewall/go/'
     - title: glab dependency-firewall gradle
       url: 'cli/dependency-firewall/gradle/'
     - title: glab dependency-firewall maven

@@ -95,6 +95,11 @@ func TestManagerEnvironAndCATrust(t *testing.T) {
 		assert.Equal(t, []string{"CARGO_HTTP_PROXY=" + proxyURL}, Cargo().Environment(proxyURL))
 		assert.Equal(t, []string{"CARGO_HTTP_CAINFO=" + caPath}, Cargo().CATrustEnviron(caPath))
 	})
+
+	t.Run("golang", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, []string{"SSL_CERT_FILE=" + caPath}, Golang().CATrustEnviron(caPath))
+	})
 }
 
 // TestManagerExistingBundleVars pins each manager's declared CA-preservation
@@ -122,6 +127,7 @@ func TestManagerExistingBundleVars(t *testing.T) {
 		{Maven(), nil},
 		{Gradle(), nil},
 		{Cargo(), []string{"CARGO_HTTP_CAINFO"}},
+		{Golang(), []string{"SSL_CERT_FILE"}},
 	}
 	for _, c := range cases {
 		t.Run(c.m.Name(), func(t *testing.T) {
@@ -165,7 +171,7 @@ func TestCleanupCAFilesNoOpForEnvProxyManagers(t *testing.T) {
 	t.Parallel()
 	caPath := filepath.Join(t.TempDir(), "ca.pem")
 	require.NoError(t, os.WriteFile(caPath, []byte("x"), 0o600))
-	for _, m := range []PackageManager{NPM(), Pnpm(), Yarn(), Pip(), Pipenv(), Uv(), Poetry(), Twine(), Gem(), Bundle(), Cargo()} {
+	for _, m := range []PackageManager{NPM(), Pnpm(), Yarn(), Pip(), Pipenv(), Uv(), Poetry(), Twine(), Gem(), Bundle(), Cargo(), Golang()} {
 		m.CleanupCAFiles(caPath)
 	}
 	_, err := os.Stat(caPath)
@@ -186,9 +192,10 @@ func TestYarnSetupInjectsFirewallPlugin(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			env, cleanup, err := yarnManager{}.Setup(c.parent)
+			res, err := yarnManager{}.Setup(t.Context(), setupInput{parent: c.parent})
 			require.NoError(t, err)
-			pluginPath, userPlugins, ok := strings.Cut(lookupEnv(env, "YARN_PLUGINS"), ";")
+			assert.Nil(t, res.verdicts, "yarn records no verdicts of its own")
+			pluginPath, userPlugins, ok := strings.Cut(lookupEnv(res.env, "YARN_PLUGINS"), ";")
 			require.True(t, ok, "YARN_PLUGINS must list the firewall plugin and keep the user's")
 			assert.Equal(t, c.userPlugins, userPlugins)
 
@@ -196,7 +203,7 @@ func TestYarnSetupInjectsFirewallPlugin(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, yarnFirewallPlugin, plugin)
 
-			cleanup()
+			res.stop()
 			_, err = os.Stat(pluginPath)
 			assert.ErrorIs(t, err, os.ErrNotExist)
 		})
@@ -205,12 +212,12 @@ func TestYarnSetupInjectsFirewallPlugin(t *testing.T) {
 
 func TestYarnSetupWithoutUserPluginsListsOnlyFirewallPlugin(t *testing.T) {
 	t.Parallel()
-	env, cleanup, err := yarnManager{}.Setup([]string{"PATH=/usr/bin"})
+	res, err := yarnManager{}.Setup(t.Context(), setupInput{parent: []string{"PATH=/usr/bin"}})
 	require.NoError(t, err)
-	t.Cleanup(cleanup)
+	t.Cleanup(res.stop)
 	// A trailing ";" would add an empty entry, which Berry resolves to the
 	// working directory and tries to load as a plugin.
-	pluginPath := lookupEnv(env, "YARN_PLUGINS")
+	pluginPath := lookupEnv(res.env, "YARN_PLUGINS")
 	assert.NotContains(t, pluginPath, ";")
 	assert.FileExists(t, pluginPath)
 }
@@ -221,7 +228,7 @@ func TestYarnSetupFailsWhenPluginCannotBeWritten(t *testing.T) {
 	t.Setenv("TMP", missing)
 	t.Setenv("TEMP", missing)
 
-	env, _, err := yarnManager{}.Setup(nil)
+	res, err := yarnManager{}.Setup(t.Context(), setupInput{})
 	require.Error(t, err)
-	assert.Empty(t, env, "a failed write must not point YARN_PLUGINS at any path")
+	assert.Empty(t, res.env, "a failed write must not point YARN_PLUGINS at any path")
 }
