@@ -127,10 +127,25 @@ func TestDetectCodingAgent(t *testing.T) {
 			envVars:  map[string]string{"AI_AGENT": "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789"},
 			expected: "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789",
 		},
+		{
+			name:     "Copilot CLI",
+			envVars:  map[string]string{"COPILOT_CLI": "1"},
+			expected: "copilot",
+		},
+		{
+			name:     "Copilot CLI with value true is ignored",
+			envVars:  map[string]string{"COPILOT_CLI": "true"},
+			expected: "",
+		},
+		{
+			name:     "Copilot CLI with value 0 is ignored",
+			envVars:  map[string]string{"COPILOT_CLI": "0"},
+			expected: "",
+		},
 	}
 
 	allAgentVars := []string{
-		"AI_AGENT", "CLAUDECODE", "CODEX_THREAD_ID",
+		"AI_AGENT", "CLAUDECODE", "CODEX_THREAD_ID", "COPILOT_CLI",
 		"OPENCODE", "CURSOR_AGENT", "GEMINI_CLI",
 		"ROO_CLI_RUNTIME", "TERM_PROGRAM",
 	}

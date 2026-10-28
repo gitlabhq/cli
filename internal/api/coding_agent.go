@@ -22,6 +22,10 @@ func DetectCodingAgent() string {
 	if os.Getenv("CODEX_THREAD_ID") != "" {
 		return "codex"
 	}
+	// GitHub Copilot CLI sets COPILOT_CLI=1
+	if os.Getenv("COPILOT_CLI") == "1" {
+		return "copilot"
+	}
 	if os.Getenv("CURSOR_AGENT") == "1" {
 		return "cursor"
 	}
