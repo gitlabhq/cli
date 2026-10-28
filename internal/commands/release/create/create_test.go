@@ -777,6 +777,52 @@ func TestReleaseCreate_MilestoneClosing(t *testing.T) {
 ✓ Release created:	url=https://gitlab.com/OWNER/REPO/-/releases/0.0.1
 ✓ Skipping closing milestones`)
 	})
+
+	for _, tt := range []struct {
+		name       string
+		status     int
+		authSource gitlab.AuthSource
+		hint       bool
+	}{
+		{name: "job token unauthorized", status: http.StatusUnauthorized, authSource: gitlab.JobTokenAuthSource{Token: "job-token"}, hint: true},
+		{name: "job token forbidden", status: http.StatusForbidden, authSource: gitlab.JobTokenAuthSource{Token: "job-token"}, hint: true},
+		{name: "job token server error", status: http.StatusInternalServerError, authSource: gitlab.JobTokenAuthSource{Token: "job-token"}},
+		{name: "access token unauthorized", status: http.StatusUnauthorized, authSource: gitlab.AccessTokenAuthSource{Token: "pat"}},
+		{name: "access token forbidden", status: http.StatusForbidden, authSource: gitlab.AccessTokenAuthSource{Token: "pat"}},
+	} {
+		t.Run("explains failed milestone lookup/"+tt.name, func(t *testing.T) {
+			testClient := gitlabtesting.NewTestClient(t)
+
+			exec := cmdtest.SetupCmdForTest(
+				t,
+				NewCmdCreate,
+				false,
+				cmdtest.WithGitLabClient(testClient.Client),
+				cmdtest.WithApiClient(cmdtest.NewTestAuthSourceApiClient(t, nil, tt.authSource, glinstance.DefaultHostname)),
+				cmdtest.WithBaseRepo("OWNER", "REPO", glinstance.DefaultHostname),
+			)
+
+			notFoundResponse := &gitlab.Response{Response: &http.Response{StatusCode: http.StatusNotFound}}
+			testClient.MockTags.EXPECT().GetTag("OWNER/REPO", "0.0.1", gomock.Any()).Return(&gitlab.Tag{Name: "0.0.1"}, nil, nil)
+			testClient.MockReleases.EXPECT().GetRelease("OWNER/REPO", "0.0.1", gomock.Any()).Return(nil, notFoundResponse, errors.New("not found"))
+			testClient.MockReleases.EXPECT().CreateRelease("OWNER/REPO", gomock.Any()).Return(&gitlab.Release{
+				TagName: "0.0.1",
+				Links:   gitlab.ReleaseLinks{Self: "https://gitlab.com/OWNER/REPO/-/releases/0.0.1"},
+			}, nil, nil)
+			testClient.MockMilestones.EXPECT().ListMilestones("OWNER/REPO", gomock.Any()).
+				Return(nil, nil, &gitlab.ErrorResponse{StatusCode: tt.status, Message: http.StatusText(tt.status)})
+
+			output, err := exec("0.0.1 --notes \"test release\" --milestone 'v1.0'")
+
+			require.NoError(t, err)
+			if tt.hint {
+				assert.Contains(t, output.Stderr(), "A CI_JOB_TOKEN cannot access the Milestones API")
+				assert.Contains(t, output.Stderr(), "--no-close-milestone")
+			} else {
+				assert.NotContains(t, output.Stderr(), "CI_JOB_TOKEN")
+			}
+		})
+	}
 }
 
 func TestReleaseCreate_WithoutNotes(t *testing.T) {
