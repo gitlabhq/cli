@@ -783,7 +783,7 @@ snapcraft_release_edge:
     - snapcraft whoami
     - snapcraft upload *.snap --release=latest/edge
     - snapcraft logout
-  # TODO: remove once the Snap Store grants the dot-kube personal-files
+  # TODO: remove once the Snap Store grants the dot-kube-config personal-files
   # declaration; until then uploads are held for manual review.
   # https://gitlab.com/gitlab-org/cli/-/work_items/8304
   allow_failure: true

@@ -217,7 +217,7 @@ func TestAgentUpdateKubeconfig_PermissionDenied(t *testing.T) {
 
 			require.ErrorContains(t, err, "permission denied")
 			if tt.wantHint {
-				assert.ErrorContains(t, err, "sudo snap connect glab:dot-kube")
+				assert.ErrorContains(t, err, "sudo snap connect glab:dot-kube-config")
 			} else {
 				assert.NotContains(t, err.Error(), "snap connect")
 			}
