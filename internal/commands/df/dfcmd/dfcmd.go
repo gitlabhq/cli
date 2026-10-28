@@ -60,12 +60,12 @@ func NewProxyCmd(f cmdutils.Factory, spec ProxySpec) *cobra.Command {
 
 	return &cobra.Command{
 		Use:   spec.Use,
-		Short: spec.Short + " (EXPERIMENTAL)",
+		Short: spec.Short + " (BETA)",
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},
 		DisableFlagParsing: true,
-		Long:               spec.Long + text.ExperimentalString,
+		Long:               spec.Long + text.BetaString,
 		Example:            spec.Example,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.args = args

@@ -22,8 +22,11 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			All arguments are forwarded to %[1]spnpm%[1]s verbatim.
 		`, "`"),
 		Example: heredoc.Doc(`
-			# Install a package through the Dependency Firewall
-			glab dependency-firewall pnpm install left-pad
+			# Install dependencies through the Dependency Firewall
+			glab dependency-firewall pnpm install
+
+			# Add a package through the Dependency Firewall
+			glab dependency-firewall pnpm add left-pad
 		`),
 	})
 }

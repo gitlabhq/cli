@@ -22,8 +22,17 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			All arguments are forwarded to npm verbatim.
 		`),
 		Example: heredoc.Doc(`
+			# Install dependencies through the Dependency Firewall
+			glab dependency-firewall npm install
+
 			# Install a package through the Dependency Firewall
 			glab dependency-firewall npm install left-pad
+
+			# Clean install from the lockfile through the Dependency Firewall
+			glab dependency-firewall npm ci
+
+			# Publish a package through the Dependency Firewall
+			glab dependency-firewall npm publish
 		`),
 	})
 }

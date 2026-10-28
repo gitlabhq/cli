@@ -43,7 +43,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "package <purl>",
-		Short: "Check a package against the GitLab Dependency Firewall. (EXPERIMENTAL)",
+		Short: "Check a package against the GitLab Dependency Firewall. (BETA)",
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},
@@ -52,16 +52,22 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Supported package URL (PURL) types are %[1]snpm%[1]s, %[1]spypi%[1]s, %[1]smaven%[1]s, %[1]sgem%[1]s, %[1]scargo%[1]s, and %[1]sgolang%[1]s. The PURL must include a version, for example %[1]spkg:npm/left-pad@1.3.0%[1]s. For %[1]sgolang%[1]s, the module path keeps its case, for example %[1]spkg:golang/github.com/BurntSushi/toml@v1.4.0%[1]s.
 
+			An allowed package prints one line, for example, %[1]sleft-pad@1.3.0: allowed by the Dependency Firewall.%[1]s A warned or blocked package prints the same summary as the package manager commands.
+
 			This command does not write to the CI log at %[1]s.gitlab/df/ci-log.json%[1]s, so %[1]sglab dependency-firewall ci-summary%[1]s does not include its result.
 
 			Exit codes:
 
 			| Exit code | Meaning |
 			|-----------|---------|
-			| %[1]s0%[1]s | Allow or warning. |
-			| %[1]s1%[1]s | Misconfiguration or transport error. |
+			| %[1]s0%[1]s | Allowed or warned, or the Dependency Firewall is not evaluating the project. |
+			| %[1]s1%[1]s | The PURL is invalid or has no version, the project or credentials can't be resolved, or the request to GitLab failed. |
 			| %[1]s3%[1]s | Blocked. |
-		`, "`") + text.ExperimentalString,
+
+			An exit code of %[1]s0%[1]s does not always mean GitLab checked the package. If the Dependency Firewall is not evaluating the project, the command prints a line that ends with %[1]sthe Dependency Firewall is not evaluating this project; allowing.%[1]s
+
+			Unlike the package manager commands, this command does not block the package when the request to GitLab fails. It exits with %[1]s1%[1]s instead.
+		`, "`") + text.BetaString,
 		Example: heredoc.Doc(`
 			# Check an npm package version
 			glab dependency-firewall package pkg:npm/left-pad@1.3.0

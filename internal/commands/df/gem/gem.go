@@ -24,6 +24,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Example: heredoc.Doc(`
 			# Install a package through the Dependency Firewall
 			glab dependency-firewall gem install rake
+
+			# Download a package without installing it through the Dependency Firewall
+			glab dependency-firewall gem fetch rake
 		`),
 	})
 }
