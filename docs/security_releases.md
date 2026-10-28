@@ -35,7 +35,7 @@ Before starting, add the new `security` remote on your local GitLab repository:
 git remote add security git@gitlab.com:gitlab-org/security/cli.git
 ```
 
-Finally, run the `scripts/security_harness` script. This script will install a Git `pre-push` hook that will prevent pushing to any remote besides `gitlab.com/gitlab-org/security`, in order to prevent accidental disclosure.
+Finally, run the `scripts/security-harness` script. This script will install a Git `pre-push` hook that will prevent pushing to any remote besides `gitlab.com/gitlab-org/security`, in order to prevent accidental disclosure.
 
 Please make sure the output of running `scripts/security-harness` is:
 
@@ -58,7 +58,7 @@ The main objective is to release the security fix as a patch of the latest produ
 Before starting the development of the fix, create a branch from the latest released tag. You can see the latest released tag on the [releases page](https://gitlab.com/gitlab-org/cli/-/releases). For example, if the latest release has a tag `v2.2.0` create a branch `security-2-2`. This is going to be the target of the security MRs. Push the branch to the security repo.
 
 ```shell
-git checkout v2.2.2
+git checkout v2.2.0
 git checkout -b security-2-2
 git push security security-2-2
 ```

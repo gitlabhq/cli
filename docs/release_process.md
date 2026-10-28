@@ -63,7 +63,7 @@ To release a new version of the CLI manually, you must:
 If those changes are appropriate to be released, proceed with the process:
 
 1. Tag the latest commit on `main` (such as `git tag v1.74.1`).
-1. Push with these commands: `git push origin main` and `git push origin v1.74.1`
+1. Push with this command: `git push origin v1.74.1`
 
 ## Notifying maintainers
 
