@@ -126,6 +126,7 @@ type transcriptEntry struct {
 	IsMeta    bool            `json:"isMeta"`
 	Subtype   string          `json:"subtype"`
 	CWD       string          `json:"cwd"`
+	Version   string          `json:"version"`
 
 	// user entry fields
 	PromptID string `json:"promptId"`
@@ -175,6 +176,8 @@ type sessionData struct {
 	Responses   []llmResponse
 	EndedAt     time.Time
 	IsComplete  bool
+
+	AgentVersion string
 }
 
 // empty reports whether there is nothing to post.
@@ -325,6 +328,9 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 
 		if data.SessionID == "" && entry.SessionID != "" {
 			data.SessionID = entry.SessionID
+		}
+		if data.AgentVersion == "" {
+			data.AgentVersion = entry.Version
 		}
 
 		ts, err := time.Parse(time.RFC3339Nano, entry.Timestamp)

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/google/uuid"
@@ -40,6 +41,7 @@ type options struct {
 	complete  bool
 	agentType string
 	all       bool
+	buildInfo api.BuildInfo
 	// rateLimitWaited is how long this run has waited out GitLab's rate limit.
 	rateLimitWaited time.Duration
 	// waitFor, when set, replaces waiting for a duration, for tests.
@@ -77,6 +79,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		baseRepo:  f.BaseRepo,
 		executor:  f.Executor(),
 		config:    f.Config,
+		buildInfo: f.BuildInfo(),
 	}
 
 	cmd := &cobra.Command{
@@ -85,13 +88,13 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Docf(`
 			Read new entries from the local agent transcript since the last sync and POST them to GitLab as audit events.
 
-			The audit events contain the prompts you type, each tool call with its arguments (such as commands, file paths, and edits, replaced with a marker when over 8 KB), each tool call's outcome, duration, and error message, and the model and token usage of each response. Tool output and the text of responses are not sent. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old.
+			The audit events contain the prompts you type, each tool call with its arguments (such as commands, file paths, and edits, replaced with a marker when over 8 KB), each tool call's outcome, duration, and error message, and the model and token usage of each response. Tool output and the text of responses are not sent. When glab creates a session on GitLab, it also sends the glab version and the agent's version. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old.
 
 			Some agents record less:
 
 			- OpenCode: prompts and responses are not sent, and a tool call's outcome is sent only if the call had finished when it was first synced.
 			- Codex: a tool call's outcome is "completed", because Codex does not record whether it succeeded.
-			- Cursor: only prompts and tool calls are sent, timed by the transcript's last modification, because Cursor records no results, token usage, or timestamps. A Cursor session is not synced if the files its tool calls read or write are outside the workspace glab finds, or if several directories match the workspace's name and those files don't show which, so that it is not uploaded to the wrong project.
+			- Cursor: only prompts and tool calls are sent, timed by the transcript's last modification, because Cursor records no results, token usage, timestamps, or version. A Cursor session is not synced if the files its tool calls read or write are outside the workspace glab finds, or if several directories match the workspace's name and those files don't show which, so that it is not uploaded to the wrong project.
 
 			If a GitLab instance does not accept an agent's sessions yet, they are not uploaded, then or after the instance is upgraded. Sessions from after the upgrade are.
 
@@ -279,7 +282,7 @@ type pushResult struct {
 func pushSession(ctx context.Context, t target, sessionID, agentType string, src transcript, data *sessionData, newCursor int64, complete bool, opts *options) (pushResult, error) {
 	var res pushResult
 
-	glSessionID, err := ensureSession(ctx, t.client, t.project.ID, t.identityID, sessionID, agentType, syncTypeFor(opts), data)
+	glSessionID, err := ensureSession(ctx, t.client, t.project.ID, t.identityID, sessionID, agentType, syncTypeFor(opts), opts.buildInfo.Version, data)
 	if err != nil {
 		return res, err
 	}
@@ -664,6 +667,8 @@ type sessionRequest struct {
 	Goal            string `json:"goal,omitempty"`
 	IdempotencyKey  string `json:"idempotency_key"`
 	StartedAt       string `json:"started_at,omitempty"`
+	GlabVersion     string `json:"glab_version,omitempty"`
+	AgentVersion    string `json:"agent_version,omitempty"`
 }
 
 // sessionResponse is the response from POST /ai_agent/sessions.
@@ -689,7 +694,7 @@ func syncTypeFor(opts *options) string {
 }
 
 // ensureSession creates a session on GitLab or returns the existing one via idempotency key.
-func ensureSession(ctx context.Context, client *api.Client, projectID int64, identityID int, sessionID, agentType, syncType string, data *sessionData) (int, error) {
+func ensureSession(ctx context.Context, client *api.Client, projectID int64, identityID int, sessionID, agentType, syncType, glabVersion string, data *sessionData) (int, error) {
 	if agentType == "" {
 		agentType = "unknown"
 	}
@@ -697,6 +702,8 @@ func ensureSession(ctx context.Context, client *api.Client, projectID int64, ide
 		AgentType:      agentType,
 		SyncType:       syncType,
 		IdempotencyKey: sessionID,
+		GlabVersion:    sessionVersion(strings.TrimPrefix(glabVersion, "v")),
+		AgentVersion:   sessionVersion(data.AgentVersion),
 	}
 
 	if identityID > 0 {
@@ -727,6 +734,20 @@ func ensureSession(ctx context.Context, client *api.Client, projectID int64, ide
 	}
 
 	return resp.ID, nil
+}
+
+// maxVersionLength is the longest version GitLab accepts.
+const maxVersionLength = 255
+
+// sessionVersion returns v as GitLab accepts it, or "" to leave it out. GitLab
+// rejects the whole session over a version it does not accept, and the
+// versions are only informational.
+func sessionVersion(v string) string {
+	v = strings.TrimSpace(v)
+	if utf8.RuneCountInString(v) > maxVersionLength {
+		return ""
+	}
+	return v
 }
 
 // auditEventRequest is a single audit event.

@@ -36,7 +36,7 @@ func jsonLines(t *testing.T, records ...any) string {
 }
 
 func codexSessionMetaLine(id, cwd, remote string) map[string]any {
-	payload := map[string]any{"id": id, "session_id": id, "timestamp": "2026-10-09T01:00:00Z", "cwd": cwd}
+	payload := map[string]any{"id": id, "session_id": id, "timestamp": "2026-10-09T01:00:00Z", "cwd": cwd, "cli_version": "0.163.0"}
 	if remote != "" {
 		payload["git"] = map[string]any{"repository_url": remote}
 	}
@@ -179,6 +179,8 @@ func TestSyncAll_DiscoversCodexSession(t *testing.T) {
 
 	assert.Equal(t, []string{"th-1"}, env.fake.sessionsCreated)
 	assert.Equal(t, []string{"codex"}, env.fake.agentTypes)
+	require.Len(t, env.fake.sessionRequests, 1)
+	assert.Equal(t, "0.163.0", env.fake.sessionRequests[0].AgentVersion)
 	assert.Equal(t, 1, env.fake.eventsPosted)
 	meta, err := readSessionMeta("th-1")
 	require.NoError(t, err)
@@ -305,6 +307,8 @@ func TestSyncAll_DiscoversCursorSession(t *testing.T) {
 
 	assert.Equal(t, []string{"conv-1"}, env.fake.sessionsCreated)
 	assert.Equal(t, []string{"cursor"}, env.fake.agentTypes)
+	require.Len(t, env.fake.sessionRequests, 1)
+	assert.Empty(t, env.fake.sessionRequests[0].AgentVersion, "Cursor does not record its version")
 	assert.Equal(t, []string{eventUserInput, eventToolInvoked}, eventNames(env.fake.events))
 }
 

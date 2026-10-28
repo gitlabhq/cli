@@ -16,13 +16,13 @@ Sync agent session data to GitLab. (EXPERIMENTAL)
 
 Read new entries from the local agent transcript since the last sync and POST them to GitLab as audit events.
 
-The audit events contain the prompts you type, each tool call with its arguments (such as commands, file paths, and edits, replaced with a marker when over 8 KB), each tool call's outcome, duration, and error message, and the model and token usage of each response. Tool output and the text of responses are not sent. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old.
+The audit events contain the prompts you type, each tool call with its arguments (such as commands, file paths, and edits, replaced with a marker when over 8 KB), each tool call's outcome, duration, and error message, and the model and token usage of each response. Tool output and the text of responses are not sent. When glab creates a session on GitLab, it also sends the glab version and the agent's version. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old.
 
 Some agents record less:
 
 - OpenCode: prompts and responses are not sent, and a tool call's outcome is sent only if the call had finished when it was first synced.
 - Codex: a tool call's outcome is "completed", because Codex does not record whether it succeeded.
-- Cursor: only prompts and tool calls are sent, timed by the transcript's last modification, because Cursor records no results, token usage, or timestamps. A Cursor session is not synced if the files its tool calls read or write are outside the workspace glab finds, or if several directories match the workspace's name and those files don't show which, so that it is not uploaded to the wrong project.
+- Cursor: only prompts and tool calls are sent, timed by the transcript's last modification, because Cursor records no results, token usage, timestamps, or version. A Cursor session is not synced if the files its tool calls read or write are outside the workspace glab finds, or if several directories match the workspace's name and those files don't show which, so that it is not uploaded to the wrong project.
 
 If a GitLab instance does not accept an agent's sessions yet, they are not uploaded, then or after the instance is upgraded. Sessions from after the upgrade are.
 

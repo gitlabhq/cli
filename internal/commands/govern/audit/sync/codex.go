@@ -242,6 +242,7 @@ type codexLine struct {
 				OutputTokens      int `json:"output_tokens"`
 			} `json:"last_token_usage"`
 		} `json:"info"`
+		CLIVersion string `json:"cli_version"`
 	} `json:"payload"`
 }
 
@@ -260,6 +261,7 @@ func (r *codexReader) parseLine(line []byte, lineOffset int64) {
 	switch entry.Type {
 	case "session_meta":
 		r.data.StartedAt = ts
+		r.data.AgentVersion = p.CLIVersion
 	case "turn_context":
 		r.model = p.Model
 	case "event_msg":
