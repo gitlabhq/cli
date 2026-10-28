@@ -13,6 +13,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/git"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
@@ -145,6 +146,7 @@ func (o *options) run(ctx context.Context) error {
 	lint, _, err := client.Validate.ProjectNamespaceLint(
 		projectID,
 		lintOpts,
+		api.WithSafeRetries(),
 	)
 	if err != nil {
 		return err

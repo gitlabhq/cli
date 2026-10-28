@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -787,4 +789,94 @@ func TestNewClientFromConfig_AccessTokenOnlyCarriesStoredExpiry(t *testing.T) {
 			assert.Empty(t, cred.RefreshToken, "there is no refresh token in this path")
 		})
 	}
+}
+
+func TestNewClientFromConfig_DoesNotRetryPostOnServerError(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "test-pat")
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(server.Close)
+
+	hostname := strings.TrimPrefix(server.URL, "http://")
+	cfg := config.NewFromString(fmt.Sprintf("hosts:\n  %q:\n    api_protocol: http\n", hostname))
+	client, err := NewClientFromConfig(hostname, cfg, false, "test-agent")
+	require.NoError(t, err)
+
+	_, _, err = client.Lab().Issues.CreateIssue("group/project", &gitlab.CreateIssueOptions{Title: new("title")})
+	require.Error(t, err)
+	assert.Equal(t, int32(1), requests.Load())
+}
+
+func TestNewClientFromConfig_RetriesPostOnRateLimit(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "test-pat")
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if requests.Add(1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"iid": 1}`)
+	}))
+	t.Cleanup(server.Close)
+
+	hostname := strings.TrimPrefix(server.URL, "http://")
+	cfg := config.NewFromString(fmt.Sprintf("hosts:\n  %q:\n    api_protocol: http\n", hostname))
+	client, err := NewClientFromConfig(hostname, cfg, false, "test-agent")
+	require.NoError(t, err)
+
+	_, _, err = client.Lab().Issues.CreateIssue("group/project", &gitlab.CreateIssueOptions{Title: new("title")})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), requests.Load())
+}
+
+func TestWithSafeRetries_RetriesPostOnServerError(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "test-pat")
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if requests.Add(1) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"iid": 1}`)
+	}))
+	t.Cleanup(server.Close)
+
+	hostname := strings.TrimPrefix(server.URL, "http://")
+	cfg := config.NewFromString(fmt.Sprintf("hosts:\n  %q:\n    api_protocol: http\n", hostname))
+	client, err := NewClientFromConfig(hostname, cfg, false, "test-agent")
+	require.NoError(t, err)
+
+	_, _, err = client.Lab().Issues.CreateIssue("group/project", &gitlab.CreateIssueOptions{Title: new("title")}, WithSafeRetries())
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), requests.Load())
+}
+
+func TestWithSafeRetries_DoesNotRetryUnknownHost(t *testing.T) {
+	var dials atomic.Int32
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			dials.Add(1)
+			return nil, &net.DNSError{Err: "no such host", Name: "gitlab.invalid", IsNotFound: true}
+		},
+	}
+	client, err := NewClient(
+		func(*http.Client) (gitlab.AuthSource, error) {
+			return gitlab.Unauthenticated{}, nil
+		},
+		WithBaseURL("https://gitlab.invalid/api/v4/"),
+		WithHTTPClient(&http.Client{Transport: transport}),
+	)
+	require.NoError(t, err)
+
+	_, _, err = client.Lab().Issues.CreateIssue("group/project", &gitlab.CreateIssueOptions{Title: new("title")}, WithSafeRetries())
+	require.Error(t, err)
+	assert.Equal(t, int32(1), dials.Load())
 }

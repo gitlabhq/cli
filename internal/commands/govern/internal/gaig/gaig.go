@@ -4,6 +4,7 @@
 package gaig
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -154,6 +155,7 @@ func SaveCachedIdentity(projectID int64, agentType string, identity *Identity) e
 // It returns (identity, nil) on success, (nil, err) on registration failure,
 // and (identity, err) when registration succeeds but the local cache write fails.
 func RegisterIdentity(
+	ctx context.Context,
 	client *api.Client,
 	projectID int64,
 	agentType string,
@@ -190,7 +192,7 @@ func RegisterIdentity(
 		http.MethodPost,
 		fmt.Sprintf("projects/%d/ai_agent/identities", projectID),
 		reqBody,
-		nil,
+		[]gitlab.RequestOptionFunc{gitlab.WithContext(ctx), api.WithSafeRetries()},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("could not create registration request: %w", err)

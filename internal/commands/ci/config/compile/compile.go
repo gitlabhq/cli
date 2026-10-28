@@ -10,6 +10,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
@@ -95,6 +96,7 @@ func compileRun(f cmdutils.Factory, path string) error {
 			Ref:         new(string),
 			IncludeJobs: new(bool),
 		},
+		api.WithSafeRetries(),
 	)
 	if err != nil {
 		return err

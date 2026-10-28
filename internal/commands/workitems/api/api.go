@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+
+	glabapi "gitlab.com/gitlab-org/cli/internal/api"
 )
 
 // scope type constants
@@ -140,7 +142,7 @@ func FetchWorkItems(ctx context.Context, client *gitlab.Client, scope *ScopeInfo
 	var response WorkItemsResponse
 
 	// execute query
-	_, err := client.GraphQL.Do(query, &response, gitlab.WithContext(ctx))
+	_, err := client.GraphQL.Do(query, &response, gitlab.WithContext(ctx), glabapi.WithSafeRetries())
 	if err != nil {
 		return nil, nil, fmt.Errorf("GraphQL query failed: %w", err)
 	}

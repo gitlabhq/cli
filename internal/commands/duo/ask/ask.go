@@ -13,6 +13,8 @@ import (
 	"github.com/google/shlex"
 	"github.com/spf13/cobra"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
@@ -150,7 +152,7 @@ func (opts *opts) Result() (*result, error) {
 	client := c.Lab()
 
 	body := request{Prompt: opts.Prompt, Model: vertexAI}
-	request, err := client.NewRequest(http.MethodPost, gitCmdAPIPath, body, nil)
+	request, err := client.NewRequest(http.MethodPost, gitCmdAPIPath, body, []gitlab.RequestOptionFunc{api.WithSafeRetries()})
 	if err != nil {
 		return nil, cmdutils.WrapError(err, "failed to create a request.")
 	}

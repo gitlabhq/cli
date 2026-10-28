@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
@@ -133,6 +136,8 @@ func NewClient(newAuthSource newAuthSource, options ...ClientOption) (*Client, e
 		gitlab.WithHTTPClient(client.httpClient),
 		gitlab.WithBaseURL(client.baseURL),
 		gitlab.WithUserAgent(client.userAgent),
+		// A retried POST can duplicate a resource the server already created.
+		gitlab.WithOnlyIdempotentRetries(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize GitLab client: %w", err)
@@ -233,6 +238,23 @@ func WithClientCertificate(certFile, keyFile string) ClientOption {
 		c.clientKeyFile = keyFile
 		return nil
 	}
+}
+
+// WithSafeRetries overrides gitlab.WithOnlyIdempotentRetries and
+// gitlab.WithoutRetries for one request, so a POST or PATCH is also retried on
+// 5xx and on network errors after the request was written. Use it only for a
+// request that is safe to send twice.
+func WithSafeRetries() gitlab.RequestOptionFunc {
+	return gitlab.WithRequestRetry(safeRetryPolicy)
+}
+
+func safeRetryPolicy(ctx context.Context, resp *http.Response, err error) (bool, error) {
+	// An unknown host stays unknown, so match client-go and fail at once.
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		return false, err
+	}
+	return retryablehttp.DefaultRetryPolicy(ctx, resp, err)
 }
 
 // WithInsecureSkipVerify configures the client to skip TLS verification

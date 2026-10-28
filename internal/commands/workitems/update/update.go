@@ -188,7 +188,7 @@ func (opts *options) run(cmd *cobra.Command) error {
 
 	if len(opts.attach) > 0 {
 		current := func() (string, error) {
-			wi, _, err := client.WorkItems.GetWorkItem(opts.scope.Path, opts.iid, gitlab.WithContext(cmd.Context()))
+			wi, _, err := client.WorkItems.GetWorkItem(opts.scope.Path, opts.iid, gitlab.WithContext(cmd.Context()), a.WithSafeRetries())
 			if err != nil {
 				return "", fmt.Errorf("failed to read the current description: %w", err)
 			}
