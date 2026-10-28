@@ -106,7 +106,8 @@ type openCodeTranscript struct {
 // each message a type, with the user's text or the assistant's content.
 type openCodeExport struct {
 	Info struct {
-		Time openCodeTime `json:"time"`
+		Time    openCodeTime `json:"time"`
+		Version string       `json:"version"`
 	} `json:"info"`
 	Messages []openCodeMessage `json:"messages"`
 }
@@ -390,8 +391,9 @@ func (t *openCodeTranscript) read(ctx context.Context, cursor int64) (*sessionDa
 	}
 
 	data := &sessionData{
-		SessionID: t.sessionID,
-		StartedAt: time.UnixMilli(t.export.Info.Time.Created),
+		SessionID:    t.sessionID,
+		StartedAt:    time.UnixMilli(t.export.Info.Time.Created),
+		AgentVersion: t.export.Info.Version,
 	}
 	if cursor == 0 {
 		data.Goal = t.export.goal()

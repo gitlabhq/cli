@@ -49,6 +49,7 @@ type fakeGitLab struct {
 	projects         map[string]int64
 	projectLookups   map[string]int
 	sessionsCreated  []string
+	sessionRequests  []sessionRequest
 	agentTypes       []string
 	syncTypes        []string
 	identityRequests int
@@ -129,6 +130,7 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body sessionRequest
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.sessionsCreated = append(f.sessionsCreated, body.IdempotencyKey)
+		f.sessionRequests = append(f.sessionRequests, body)
 		f.agentTypes = append(f.agentTypes, body.AgentType)
 		f.syncTypes = append(f.syncTypes, body.SyncType)
 		if f.noSessionID {
@@ -262,6 +264,7 @@ func newSyncAllEnvWithConfig(t *testing.T, hooksInstalled bool, cfg string) *syn
 		cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "test-token", testHost, api.WithGitLabClient(client))),
 		cmdtest.WithExecutor(mExec),
 		cmdtest.WithConfig(config.NewFromString(cfg)),
+		cmdtest.WithBuildInfo(api.BuildInfo{Version: "v1.2.3"}),
 	)
 
 	return &syncAllEnv{home: home, fake: fake, exec: exec, mExec: mExec}
@@ -911,6 +914,8 @@ func TestSyncAll_UploadsOpenCodeSession(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"ses_1"}, env.fake.sessionsCreated)
+	require.Len(t, env.fake.sessionRequests, 1)
+	assert.Equal(t, "1.19.4", env.fake.sessionRequests[0].AgentVersion)
 	assert.Equal(t, []string{eventToolInvoked, eventToolInvoked, eventToolResponse, eventToolResponse}, eventNames(env.fake.events),
 		"completed OpenCode tool calls also record their result")
 	cursor, err := readCursor("ses_1")
@@ -969,6 +974,7 @@ func claudeTranscriptLines(t *testing.T, sessionID string, toolIDs ...string) []
 			"type":      "assistant",
 			"sessionId": sessionID,
 			"timestamp": time.Now().Format(time.RFC3339),
+			"version":   "2.1.295",
 			"message": map[string]any{
 				"content": []map[string]any{{"type": "tool_use", "id": id, "name": "Bash"}},
 			},
@@ -977,6 +983,28 @@ func claudeTranscriptLines(t *testing.T, sessionID string, toolIDs ...string) []
 		content = append(append(content, line...), '\n')
 	}
 	return content
+}
+
+func TestRunSync_SendsGlabAndAgentVersions(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+	writeHookTranscript(t, "sess-1", "toolu_1")
+
+	_, err := env.exec("-R my-group/my-project --silent")
+	require.NoError(t, err)
+
+	require.Len(t, env.fake.sessionRequests, 1)
+	assert.Equal(t, "1.2.3", env.fake.sessionRequests[0].GlabVersion, "sent as glab version prints it")
+	assert.Equal(t, "2.1.295", env.fake.sessionRequests[0].AgentVersion)
+}
+
+func TestSessionVersion(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "2.1.295", sessionVersion(" 2.1.295\n"))
+	assert.Equal(t, strings.Repeat("é", maxVersionLength), sessionVersion(strings.Repeat("é", maxVersionLength)))
+	assert.Empty(t, sessionVersion(strings.Repeat("1", maxVersionLength+1)), "GitLab would reject the session")
+	assert.Empty(t, sessionVersion("  "))
 }
 
 func TestRunSync_IdentityErrorStillWarns(t *testing.T) {
@@ -1182,8 +1210,9 @@ func openCodeExportJSON(t *testing.T, updated time.Time, callIDs ...string) []by
 	}
 	data, err := json.Marshal(map[string]any{
 		"info": map[string]any{
-			"id":   "ses_1",
-			"time": map[string]any{"created": updated.Add(-time.Hour).UnixMilli(), "updated": updated.UnixMilli()},
+			"id":      "ses_1",
+			"version": "1.19.4",
+			"time":    map[string]any{"created": updated.Add(-time.Hour).UnixMilli(), "updated": updated.UnixMilli()},
 		},
 		"messages": []map[string]any{
 			{
@@ -1343,6 +1372,7 @@ func openCodeV2ExportJSON(t *testing.T, created time.Time) []byte {
 	data, err := json.Marshal(map[string]any{
 		"info": map[string]any{
 			"id":       "ses_2",
+			"version":  "2.0.0",
 			"location": map[string]any{"directory": "/home/me/project"},
 			"time":     map[string]any{"created": ms(0), "updated": ms(10 * time.Second), "idle": ms(10 * time.Second)},
 		},
@@ -1403,6 +1433,7 @@ func TestOpenCodeTranscript_ReadOpenCode2(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "explain each file", data.Goal, "a command prompt is not the goal")
 	assert.Equal(t, created, data.StartedAt)
+	assert.Equal(t, "2.0.0", data.AgentVersion)
 	assert.Equal(t, int64(4), cursor)
 
 	require.Len(t, data.ToolCalls, 4)
