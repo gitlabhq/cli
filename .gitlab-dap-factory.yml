@@ -1,0 +1,7 @@
+status:
+  triage: Start
+  plan: Planning breakdown
+  build: In dev
+  review: In review
+review:
+  max_fix_runs: 3
