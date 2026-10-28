@@ -19,7 +19,7 @@ require (
 	github.com/d2lang/d2 v0.9.0
 	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/docker/cli v29.9.2+incompatible
-	github.com/docker/docker-credential-helpers v0.9.10
+	github.com/docker/docker-credential-helpers v0.9.12
 	github.com/dustin/go-humanize v1.1.0
 	github.com/gdamore/tcell/v2 v2.13.10
 	github.com/golang-jwt/jwt/v5 v5.3.1
