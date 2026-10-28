@@ -77,6 +77,7 @@ df
 - [`cargo`](cargo.md)
 - [`ci-summary`](ci-summary.md)
 - [`gem`](gem.md)
+- [`go`](go.md)
 - [`gradle`](gradle.md)
 - [`maven`](maven.md)
 - [`npm`](npm.md)

@@ -52,6 +52,7 @@ func TestManagerMetadata(t *testing.T) {
 		{Maven(), "maven", "mvn"},
 		{Gradle(), "gradle", "gradle"},
 		{Cargo(), "cargo", "cargo"},
+		{Golang(), "go", "go"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -188,11 +189,13 @@ func TestMatcherTypes(t *testing.T) {
 	assert.True(t, ok, "gradle")
 	_, ok = Cargo().Matcher().(proxy.CargoMatcher)
 	assert.True(t, ok, "cargo")
+	_, ok = Golang().Matcher().(passThroughMatcher)
+	assert.True(t, ok, "golang")
 }
 
-// fakeExecutor records the env it was invoked with and returns execErr.
 type fakeExecutor struct {
 	env     []string
+	onExec  func()
 	execErr error
 }
 
@@ -200,6 +203,9 @@ func (f *fakeExecutor) LookPath(file string) (string, error) { return "/bin/" + 
 
 func (f *fakeExecutor) ExecWithIO(_ context.Context, _ string, _ []string, env []string, _ io.Reader, _, _ io.Writer) error {
 	f.env = env
+	if f.onExec != nil {
+		f.onExec()
+	}
 	return f.execErr
 }
 
@@ -261,8 +267,8 @@ func TestRunExitErrorPropagates(t *testing.T) {
 
 type failingSetupManager struct{ PackageManager }
 
-func (failingSetupManager) Setup([]string) ([]string, func(), error) {
-	return nil, nil, errors.New("disk full")
+func (failingSetupManager) Setup(context.Context, setupInput) (setupResult, error) {
+	return setupResult{}, errors.New("disk full")
 }
 
 func TestRunFailsClosedWhenSetupFails(t *testing.T) {
@@ -276,6 +282,115 @@ func TestRunFailsClosedWhenSetupFails(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "disk full")
 	assert.Nil(t, exec.env, "the child must not start when its setup failed")
+}
+
+type sidecarManager struct {
+	PackageManager
+	in       setupInput
+	stops    int
+	recorded []verdict.Entry
+	onStop   []verdict.Entry
+}
+
+func (m *sidecarManager) Setup(_ context.Context, in setupInput) (setupResult, error) {
+	m.in = in
+	return setupResult{
+		stop: func() {
+			m.stops++
+			m.recorded = append(m.recorded, m.onStop...)
+		},
+		verdicts: func() []verdict.Entry { return m.recorded },
+	}, nil
+}
+
+func TestRunPassesRunInputsToSetup(t *testing.T) {
+	t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
+	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+	t.Setenv("GLAB_DF_TEST_PARENT", "inherited")
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	exec := &fakeExecutor{}
+	m := &sidecarManager{PackageManager: NPM()}
+
+	err := Run(t.Context(), m, RunOptions{
+		IO: ios, Executor: exec, BaseDir: t.TempDir(), ProjectID: "group/proj", Args: []string{"install"},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "/bin/npm", m.in.bin)
+	assert.Equal(t, "group/proj", m.in.projectID)
+	assert.Same(t, exec, m.in.exec)
+	assert.Same(t, ios, m.in.io)
+	assert.NotNil(t, m.in.checker)
+	assert.Equal(t, "inherited", lookupEnv(m.in.parent, "GLAB_DF_TEST_PARENT"))
+}
+
+func TestRunRecordsSetupVerdicts(t *testing.T) {
+	t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
+	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+	dir := t.TempDir()
+	ios, _, _, errOut := cmdtest.TestIOStreams()
+	m := &sidecarManager{
+		PackageManager: NPM(),
+		onStop:         []verdict.Entry{{Package: "example.com/drained", Version: "v1.0.0", Verdict: verdict.Blocked}},
+	}
+	exec := &fakeExecutor{onExec: func() {
+		m.recorded = append(m.recorded, verdict.Entry{Package: "example.com/fetched", Version: "v2.0.0", Verdict: verdict.Blocked})
+	}}
+
+	err := Run(t.Context(), m, RunOptions{
+		IO: ios, Executor: exec, BaseDir: dir, ProjectID: "p", Args: []string{"install"},
+	})
+	require.NoError(t, err)
+
+	got, err := cilog.Load(dir)
+	require.NoError(t, err)
+	var packages []string
+	for _, e := range got.Entries {
+		packages = append(packages, e.Package)
+	}
+	assert.ElementsMatch(t, []string{"example.com/fetched", "example.com/drained"}, packages)
+	assert.Contains(t, errOut.String(), "example.com/fetched")
+	assert.Contains(t, errOut.String(), "example.com/drained", "a verdict recorded while stopping must not be lost")
+}
+
+func TestRunStopsSetupOnce(t *testing.T) {
+	for name, execErr := range map[string]error{"success": nil, "child failure": errors.New("boom")} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
+			t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+			ios, _, _, _ := cmdtest.TestIOStreams()
+			m := &sidecarManager{PackageManager: NPM()}
+
+			_ = Run(t.Context(), m, RunOptions{
+				IO: ios, Executor: &fakeExecutor{execErr: execErr}, BaseDir: t.TempDir(), ProjectID: "p", Args: []string{"install"},
+			})
+			assert.Equal(t, 1, m.stops)
+		})
+	}
+}
+
+func TestRunStopsSetupOnceOnInterrupt(t *testing.T) {
+	t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
+	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	m := &sidecarManager{PackageManager: NPM()}
+	fe := &blockingExecutor{started: make(chan struct{})}
+	sigChReady := make(chan chan<- os.Signal, 1)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- Run(t.Context(), m, RunOptions{
+			IO: ios, Executor: fe, BaseDir: t.TempDir(), ProjectID: "p", Args: []string{"install"},
+			notify: func(c chan<- os.Signal, _ ...os.Signal) { sigChReady <- c },
+		})
+	}()
+	<-fe.started
+	(<-sigChReady) <- os.Interrupt
+
+	var ee *ExitError
+	require.ErrorAs(t, <-errCh, &ee)
+	assert.Equal(t, interruptExitCode, ee.Code)
+	assert.Equal(t, 1, m.stops)
 }
 
 // exitExecutor returns an *exec.ExitError carrying a specific exit code, so we

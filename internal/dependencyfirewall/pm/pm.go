@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
@@ -70,12 +71,26 @@ type PackageManager interface {
 	Matcher() proxy.Matcher
 }
 
-// setupManager is implemented by managers whose routing depends on a file
-// written before the child starts. Run fails the run when Setup errors rather
-// than starting the child without that file, and calls cleanup on exit.
-// parent is the environment the child would otherwise inherit.
+// setupManager lets a manager prepare the run. Run fails the run without
+// starting the child when Setup errors, and calls stop exactly once, after
+// the child and the MITM proxy stop and before it reads verdicts.
 type setupManager interface {
-	Setup(parent []string) (env []string, cleanup func(), err error)
+	Setup(ctx context.Context, in setupInput) (setupResult, error)
+}
+
+type setupInput struct {
+	parent    []string // the environment the child would otherwise inherit
+	bin       string   // the manager binary's path from LookPath
+	exec      Executor
+	checker   policy.Checker
+	projectID string
+	io        *iostreams.IOStreams
+}
+
+type setupResult struct {
+	env      []string
+	stop     func()
+	verdicts func() []verdict.Entry
 }
 
 // proxyEnviron returns parent with any caller-supplied proxy variables removed
@@ -325,17 +340,25 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 		return fmt.Errorf("%s not found on PATH: %w", manager.Binary(), err)
 	}
 
-	var setupEnv []string
+	var setup setupResult
+	stopSetup := func() {}
 	if s, ok := manager.(setupManager); ok {
-		env, cleanup, err := s.Setup(os.Environ())
+		setup, err = s.Setup(ctx, setupInput{
+			parent:    os.Environ(),
+			bin:       binPath,
+			exec:      opts.Executor,
+			checker:   checker,
+			projectID: opts.ProjectID,
+			io:        opts.IO,
+		})
 		if err != nil {
 			return fmt.Errorf("failed to set up %s for the Dependency Firewall: %w", manager.Name(), err)
 		}
-		defer cleanup()
-		setupEnv = env
+		stopSetup = sync.OnceFunc(setup.stop)
+		defer stopSetup()
 	}
 
-	managerEnv := append(manager.Environment(proxyURL), setupEnv...)
+	managerEnv := append(manager.Environment(proxyURL), setup.env...)
 	// Strip the manager's own routing keys from the inherited env so they
 	// can't leak an old value the manager's Environment doesn't overwrite;
 	// the manager's values are re-appended immediately below.
@@ -350,7 +373,11 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	execErr := opts.Executor.ExecWithIO(ctx, binPath, opts.Args, env, opts.IO.In, opts.IO.StdOut, opts.IO.StdErr)
 
 	p.Stop() //nolint:contextcheck // proxy shutdown manages its own context internally
+	stopSetup()
 	verdicts := p.Verdicts()
+	if setup.verdicts != nil {
+		verdicts = append(verdicts, setup.verdicts()...)
+	}
 	writeLog(opts.IO, opts.BaseDir, manager.Name(), opts.Args, verdicts)
 	if len(verdicts) > 0 {
 		summary.Render(opts.IO, verdicts)

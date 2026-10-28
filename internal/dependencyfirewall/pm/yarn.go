@@ -1,6 +1,7 @@
 package pm
 
 import (
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -57,20 +58,20 @@ func (yarnManager) Environment(proxyURL string) []string {
 
 // Setup writes the firewall plugin to a temp file and lists it in
 // YARN_PLUGINS ahead of any plugins the user already loads there.
-func (yarnManager) Setup(parent []string) ([]string, func(), error) {
+func (yarnManager) Setup(_ context.Context, in setupInput) (setupResult, error) {
 	f, err := os.CreateTemp("", "glab-df-yarn-plugin-*.cjs")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create the yarn firewall plugin: %w", err)
+		return setupResult{}, fmt.Errorf("failed to create the yarn firewall plugin: %w", err)
 	}
 	_, err = f.Write(yarnFirewallPlugin)
 	if err = errors.Join(err, f.Close()); err != nil {
-		return nil, nil, fmt.Errorf("failed to write the yarn firewall plugin: %w", errors.Join(err, os.Remove(f.Name())))
+		return setupResult{}, fmt.Errorf("failed to write the yarn firewall plugin: %w", errors.Join(err, os.Remove(f.Name())))
 	}
 
 	// Berry reads yarn_* variables in any case, letting the last one win, and
 	// Run strips every case of YARN_PLUGINS from the child's environment.
 	var existing string
-	for _, e := range parent {
+	for _, e := range in.parent {
 		if k, v, ok := strings.Cut(e, "="); ok && strings.EqualFold(k, "YARN_PLUGINS") {
 			existing = v
 		}
@@ -79,7 +80,10 @@ func (yarnManager) Setup(parent []string) ([]string, func(), error) {
 	if existing != "" {
 		plugins += ";" + existing
 	}
-	return []string{"YARN_PLUGINS=" + plugins}, func() { _ = os.Remove(f.Name()) }, nil
+	return setupResult{
+		env:  []string{"YARN_PLUGINS=" + plugins},
+		stop: func() { _ = os.Remove(f.Name()) },
+	}, nil
 }
 
 func (yarnManager) CATrustEnviron(caPath string) []string {
