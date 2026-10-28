@@ -8,7 +8,7 @@ golangci-lint 2.15.0
 shellcheck 0.11.0
 
 # For linting documentation
-markdownlint-cli2 0.23.3
+markdownlint-cli2 0.24.0
 lychee 0.24.2
 vale 3.21.0
 node 24.19.0
