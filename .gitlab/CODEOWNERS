@@ -5,11 +5,17 @@
 # a later pattern replaces the owners of an earlier one rather than adding to
 # them.
 #
+# @gitlab-bot approves on Duo Code Review's behalf (triage-ops), so it owns
+# only the code paths. Everything else, including governance, agent, CI,
+# release and dependency files, needs a maintainer.
+#
 # Documentation is owned jointly so technical writing can approve a docs-only
-# change without a maintainer. Conduct, security and agent files are left to
-# the maintainers alone.
+# change without a maintainer.
 
 * @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers
+/cmd/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-bot
+/internal/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-bot
+/test/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-bot
 /README.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam
 /CONTRIBUTING.md @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam
 /docs/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam
