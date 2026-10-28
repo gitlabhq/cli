@@ -184,8 +184,11 @@ func (d *sessionData) empty() bool {
 
 // toolCall represents a single tool invocation extracted from the transcript.
 type toolCall struct {
-	ID        string
-	Name      string
+	ID   string
+	Name string
+	// Namespace is the tool's group as the agent recorded it, for example a Codex
+	// MCP server. Empty for agents that record only a name.
+	Namespace string
 	Input     json.RawMessage
 	Timestamp time.Time
 }
@@ -193,8 +196,9 @@ type toolCall struct {
 // toolResult is the outcome of a tool call. Name and Duration are empty when
 // the call was synced in an earlier run.
 type toolResult struct {
-	CallID string
-	Name   string
+	CallID    string
+	Name      string
+	Namespace string
 	// Outcome overrides the outcome derived from IsError, for agents that do
 	// not record whether a call succeeded.
 	Outcome   string

@@ -76,6 +76,9 @@ func auditEvents(agentType string, data *sessionData, now time.Time) []auditEven
 			"outcome":         "pending",
 			"tool_call_id":    call.ID,
 		}
+		if call.Namespace != "" {
+			details["tool_namespace"] = call.Namespace
+		}
 		if arguments := cappedArguments(call.Input); arguments != nil {
 			details["arguments"] = arguments
 		}
@@ -96,6 +99,9 @@ func auditEvents(agentType string, data *sessionData, now time.Time) []auditEven
 		details["outcome"] = outcome
 		if r.Name != "" {
 			details["tool_name"] = r.Name
+		}
+		if r.Namespace != "" {
+			details["tool_namespace"] = r.Namespace
 		}
 		if r.Duration > 0 {
 			details["duration_s"] = r.Duration.Seconds()

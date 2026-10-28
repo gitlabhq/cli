@@ -332,6 +332,81 @@ func TestProjectForRemote(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestCodexTranscript_NamespacedToolNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		item      map[string]any
+		wantName  string
+		wantSpace string
+	}{
+		{
+			name:     "a built-in tool has no namespace and keeps its name",
+			item:     map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_1"},
+			wantName: "exec_command",
+		},
+		{
+			name:      "an MCP tool is qualified the way Codex names it for the model",
+			item:      map[string]any{"type": "function_call", "name": "click", "namespace": "mcp__computer_use", "call_id": "call_1"},
+			wantName:  "mcp__computer_use__click",
+			wantSpace: "mcp__computer_use",
+		},
+		{
+			name:      "older rollouts end the namespace with the separator, which both the name and the namespace drop",
+			item:      map[string]any{"type": "function_call", "name": "js", "namespace": "mcp__node_repl__", "call_id": "call_1"},
+			wantName:  "mcp__node_repl__js",
+			wantSpace: "mcp__node_repl",
+		},
+		{
+			name:      "a server name that ends in an underscore keeps it",
+			item:      map[string]any{"type": "function_call", "name": "js", "namespace": "mcp__foo_", "call_id": "call_1"},
+			wantName:  "mcp__foo___js",
+			wantSpace: "mcp__foo_",
+		},
+		{
+			name:      "older rollouts only lose the separator after such a server name",
+			item:      map[string]any{"type": "function_call", "name": "js", "namespace": "mcp__foo___", "call_id": "call_1"},
+			wantName:  "mcp__foo___js",
+			wantSpace: "mcp__foo_",
+		},
+		{
+			name:      "a custom tool call carries its namespace too",
+			item:      map[string]any{"type": "custom_tool_call", "name": "spawn_agent", "namespace": "collaboration", "call_id": "call_1", "input": ""},
+			wantName:  "collaboration__spawn_agent",
+			wantSpace: "collaboration",
+		},
+		{
+			name:      "a namespace that is only separators counts as none",
+			item:      map[string]any{"type": "function_call", "name": "js", "namespace": "__", "call_id": "call_1"},
+			wantName:  "js",
+			wantSpace: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "rollout.jsonl")
+			require.NoError(t, os.WriteFile(path, []byte(jsonLines(t,
+				codexSessionMetaLine("th-1", "/work", ""),
+				codexItem("2026-10-09T01:00:02Z", tt.item),
+				codexItem("2026-10-09T01:00:03Z", map[string]any{"type": "function_call_output", "call_id": "call_1"}),
+			)), 0o644))
+
+			data, _, err := codexTranscript{path: path}.read(t.Context(), 0)
+			require.NoError(t, err)
+			require.Len(t, data.ToolCalls, 1)
+			assert.Equal(t, tt.wantName, data.ToolCalls[0].Name)
+			assert.Equal(t, tt.wantSpace, data.ToolCalls[0].Namespace)
+			require.Len(t, data.ToolResults, 1)
+			assert.Equal(t, tt.wantName, data.ToolResults[0].Name, "the result names the call it answers")
+			assert.Equal(t, tt.wantSpace, data.ToolResults[0].Namespace)
+		})
+	}
+}
+
 func TestCodexTranscript_RichEvents(t *testing.T) {
 	t.Parallel()
 
