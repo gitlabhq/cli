@@ -166,7 +166,8 @@ If a supported binary for your OS is not found at the [releases page](https://gi
 #### Prerequisites for building from source
 
 - `make`
-- Go version as defined by [`main/go.mod`](https://gitlab.com/gitlab-org/cli/-/blob/main/go.mod?ref_type=heads#L3)
+- Go, at the version in [`go.mod`](https://gitlab.com/gitlab-org/cli/-/blob/main/go.mod?ref_type=heads#L3) or later.
+  Official releases build with the version in [`.tool-versions`](https://gitlab.com/gitlab-org/cli/-/blob/main/.tool-versions).
 
 To build from source:
 

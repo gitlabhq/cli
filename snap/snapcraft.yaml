@@ -27,6 +27,7 @@ parts:
     - nano
     - ssh
     override-build: |
+      export GOTOOLCHAIN=go$(awk '/^golang / {print $2}' .tool-versions)
       LDFLAGS='' make -j2
       cp bin/glab $SNAPCRAFT_PART_INSTALL/
       bin/glab completion -s bash > $SNAPCRAFT_PART_INSTALL/completion.sh
