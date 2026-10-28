@@ -114,11 +114,24 @@ For more information see, [Creating a workspace](#creating-a-workspace).
 
 Prerequisites:
 
-- Go version as defined by [`main/go.mod`](https://gitlab.com/gitlab-org/cli/-/blob/main/go.mod?ref_type=heads#L3)
+- Go, at the version in [`go.mod`](https://gitlab.com/gitlab-org/cli/-/blob/main/go.mod?ref_type=heads#L3) or later.
+  CI and releases build with the version in [`.tool-versions`](https://gitlab.com/gitlab-org/cli/-/blob/main/.tool-versions).
 
 Build with: `make` or `go build -o bin/glab ./cmd/glab/main.go`
 
 Run the new binary as: `./bin/glab`
+
+### Go version updates
+
+glab follows the [GitLab Go upgrade guide](https://docs.gitlab.com/development/go_guide/go_upgrade/):
+
+- `.tool-versions` and `GO_VERSION` in `.gitlab-ci.yml` pin the exact toolchain. Patch upgrades,
+  including security fixes, change only these two.
+- The `go` directive in `go.mod` is the minimum version for building from source, and always uses
+  patch `0`. Bump it only when moving the toolchain to a new minor version, usually from the glab issue
+  in the Go upgrade epic.
+
+`scripts/check-go-version.sh` enforces these rules in CI.
 
 ### Git hooks with Lefthook (optional)
 

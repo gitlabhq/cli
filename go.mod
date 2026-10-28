@@ -1,6 +1,6 @@
 module gitlab.com/gitlab-org/cli
 
-go 1.27.3
+go 1.27.0
 
 require (
 	charm.land/bubbletea/v2 v2.1.0
