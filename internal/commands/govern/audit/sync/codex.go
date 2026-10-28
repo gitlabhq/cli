@@ -224,6 +224,7 @@ type codexLine struct {
 		ID        string          `json:"id"`
 		CallID    string          `json:"call_id"`
 		Name      string          `json:"name"`
+		Namespace string          `json:"namespace"`
 		Role      string          `json:"role"`
 		Message   string          `json:"message"`
 		Model     string          `json:"model"`
@@ -299,7 +300,8 @@ func (r *codexReader) parseResponseItem(itemType string, entry codexLine, lineID
 			}
 		}
 	case "function_call", "custom_tool_call", "local_shell_call", "web_search_call", "tool_search_call":
-		name := p.Name
+		namespace := codexNamespace(p.Namespace)
+		name := codexToolName(namespace, p.Name)
 		if fixed, ok := codexToolNames[itemType]; ok {
 			name = fixed
 		}
@@ -310,7 +312,10 @@ func (r *codexReader) parseResponseItem(itemType string, entry codexLine, lineID
 		if id == "" {
 			return
 		}
-		call := toolCall{ID: id, Name: name, Input: codexArguments(p.Arguments, p.Input, p.Action), Timestamp: ts}
+		call := toolCall{
+			ID: id, Name: name, Namespace: namespace,
+			Input: codexArguments(p.Arguments, p.Input, p.Action), Timestamp: ts,
+		}
 		r.calls[id] = call
 		r.data.ToolCalls = append(r.data.ToolCalls, call)
 	case "function_call_output", "custom_tool_call_output":
@@ -318,6 +323,7 @@ func (r *codexReader) parseResponseItem(itemType string, entry codexLine, lineID
 		result := toolResult{CallID: p.CallID, Outcome: "completed", Timestamp: ts}
 		if call, ok := r.calls[p.CallID]; ok {
 			result.Name = call.Name
+			result.Namespace = call.Namespace
 			result.Duration = ts.Sub(call.Timestamp)
 		}
 		r.data.ToolResults = append(r.data.ToolResults, result)
@@ -333,6 +339,27 @@ func (r *codexReader) addPrompt(id, text string, ts time.Time) {
 		r.data.Goal = goalFromText(text)
 		r.goalFound = true
 	}
+}
+
+// codexNamespace drops the trailing `__` separator older rollouts add, so both
+// rollout shapes send the same namespace. Only the separator goes, so a server
+// name ending in `_` keeps it. A namespace of only underscores becomes empty.
+func codexNamespace(namespace string) string {
+	if strings.Trim(namespace, "_") == "" {
+		return ""
+	}
+	return strings.TrimSuffix(namespace, "__")
+}
+
+// codexToolName qualifies a tool name with its namespace the way Codex names
+// MCP tools for the model, `mcp__<server>__<tool>`. Built-in tools have no
+// namespace and keep their bare name. The namespace must already be
+// normalized by codexNamespace.
+func codexToolName(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return namespace + "__" + name
 }
 
 // codexArguments returns a tool call's arguments as JSON: function call

@@ -123,6 +123,7 @@ func TestAuditEvents(t *testing.T) {
 	invoked := byName[eventToolInvoked][0]
 	assert.Equal(t, deterministicUUID("toolu_1"), invoked.CloudEventID, "tool calls keep the ID they had before results were recorded")
 	assert.Equal(t, "Bash", invoked.Details["tool_name"])
+	assert.NotContains(t, invoked.Details, "tool_namespace", "agents that record only a name send no namespace")
 	assert.Equal(t, "pending", invoked.Details["outcome"])
 	assert.Equal(t, true, invoked.Details["agent_initiated"])
 	assert.JSONEq(t, `{"command":"go test ./..."}`, string(invoked.Details["arguments"].(json.RawMessage))) //nolint:forcetypeassert // set by auditEvents
@@ -143,6 +144,23 @@ func TestAuditEvents(t *testing.T) {
 	response := byName[eventResponseReceived][0]
 	assert.Equal(t, "claude-opus-5-5", response.Details["model"])
 	assert.Equal(t, 42, response.Details["output_tokens"])
+}
+
+func TestAuditEvents_ToolNamespace(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 10, 9, 1, 0, 0, 0, time.UTC)
+	data := &sessionData{
+		ToolCalls:   []toolCall{{ID: "call_1", Name: "mcp__computer_use__click", Namespace: "mcp__computer_use", Timestamp: at}},
+		ToolResults: []toolResult{{CallID: "call_1", Name: "mcp__computer_use__click", Namespace: "mcp__computer_use", Outcome: "completed", Timestamp: at}},
+	}
+
+	events := auditEvents("codex", data, at.Add(time.Hour))
+	require.Len(t, events, 2)
+	for _, e := range events {
+		assert.Equal(t, "mcp__computer_use__click", e.Details["tool_name"])
+		assert.Equal(t, "mcp__computer_use", e.Details["tool_namespace"])
+	}
 }
 
 func TestAuditEvents_Limits(t *testing.T) {
