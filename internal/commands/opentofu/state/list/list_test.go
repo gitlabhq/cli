@@ -9,6 +9,7 @@ import (
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
@@ -32,7 +33,7 @@ func TestList(t *testing.T) {
 	// setup mock expectations
 	now := time.Now().UTC()
 	tc.MockTerraformStates.EXPECT().
-		List("OWNER/REPO").
+		List("OWNER/REPO", gomock.Any()).
 		Return([]gitlab.TerraformState{
 			{
 				Name: "any-name",
@@ -73,7 +74,7 @@ func TestOpentofuStateList_JSON(t *testing.T) {
 
 	now := time.Now().UTC()
 	tc.MockTerraformStates.EXPECT().
-		List("OWNER/REPO").
+		List("OWNER/REPO", gomock.Any()).
 		Return([]gitlab.TerraformState{
 			{
 				Name: "test-state",

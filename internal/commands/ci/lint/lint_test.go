@@ -75,7 +75,7 @@ func Test_lintRun(t *testing.T) {
 						ID: 123,
 					}, nil, nil)
 				tc.MockValidate.EXPECT().
-					ProjectNamespaceLint(int64(123), gomock.Any()).
+					ProjectNamespaceLint(int64(123), gomock.Any(), gomock.Any()).
 					Return(&gitlab.ProjectLintResult{
 						Valid: true,
 					}, nil, nil)
@@ -96,7 +96,7 @@ func Test_lintRun(t *testing.T) {
 						ID: 123,
 					}, nil, nil)
 				tc.MockValidate.EXPECT().
-					ProjectNamespaceLint(int64(123), gomock.Any()).
+					ProjectNamespaceLint(int64(123), gomock.Any(), gomock.Any()).
 					Return(&gitlab.ProjectLintResult{
 						Valid: true,
 					}, nil, nil)
@@ -117,7 +117,7 @@ func Test_lintRun(t *testing.T) {
 						ID: 123,
 					}, nil, nil)
 				tc.MockValidate.EXPECT().
-					ProjectNamespaceLint(int64(123), gomock.Any()).
+					ProjectNamespaceLint(int64(123), gomock.Any(), gomock.Any()).
 					Return(&gitlab.ProjectLintResult{
 						Valid: true,
 					}, nil, nil)
@@ -205,7 +205,7 @@ func Test_lintRun_remoteURL(t *testing.T) {
 			GetProject("OWNER/REPO", gomock.Any()).
 			Return(&gitlab.Project{ID: 123}, nil, nil)
 		testClient.MockValidate.EXPECT().
-			ProjectNamespaceLint(int64(123), gomock.Any()).
+			ProjectNamespaceLint(int64(123), gomock.Any(), gomock.Any()).
 			Return(&gitlab.ProjectLintResult{Valid: true}, nil, nil)
 
 		exec := cmdtest.SetupCmdForTest(t, NewCmdLint, false, cmdtest.WithGitLabClient(testClient.Client))

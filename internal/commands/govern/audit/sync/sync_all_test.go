@@ -84,6 +84,19 @@ type fakeGitLab struct {
 	retryAfter string
 	// auditRejections counts the audit event requests over GitLab's limits.
 	auditRejections int
+	// badGateway is how many 502s each write endpoint ("session", "audit",
+	// "complete") answers with before it accepts requests.
+	badGateway map[string]int
+}
+
+// failWithBadGateway answers with a 502 if endpoint has one left to send.
+func (f *fakeGitLab) failWithBadGateway(w http.ResponseWriter, endpoint string) bool {
+	if f.badGateway[endpoint] == 0 {
+		return false
+	}
+	f.badGateway[endpoint]--
+	writeStatus(w, http.StatusBadGateway)
+	return true
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +135,9 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = io.WriteString(w, `{"id": 7}`)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/ai_agent/sessions"):
+		if f.failWithBadGateway(w, "session") {
+			return
+		}
 		if f.sessionStatus != 0 {
 			writeStatus(w, f.sessionStatus)
 			return
@@ -138,6 +154,9 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"id": 99}`)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/ai_agent/audit_events"):
 		f.auditRequests++
+		if f.failWithBadGateway(w, "audit") {
+			return
+		}
 		if f.auditRequests <= f.rateLimited {
 			// A Ratelimit-Reset in the past keeps the API client's own retries short.
 			w.Header().Set("Ratelimit-Reset", "1")
@@ -163,6 +182,9 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.eventsPosted += len(body.Events)
 		_, _ = io.WriteString(w, `{}`)
 	case r.Method == http.MethodPatch && strings.HasSuffix(path, "/ai_agent/sessions/99"):
+		if f.failWithBadGateway(w, "complete") {
+			return
+		}
 		f.completed++
 		_, _ = io.WriteString(w, `{}`)
 	default:
@@ -251,7 +273,7 @@ func newSyncAllEnvWithConfig(t *testing.T, hooksInstalled bool, cfg string) *syn
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
 
-	client, err := gitlab.NewClient("test-token", gitlab.WithBaseURL(server.URL+"/api/v4"))
+	client, err := gitlab.NewClient("test-token", gitlab.WithBaseURL(server.URL+"/api/v4"), gitlab.WithOnlyIdempotentRetries())
 	require.NoError(t, err)
 	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
 
@@ -602,6 +624,22 @@ func TestSyncAll_WaitsOutRateLimit(t *testing.T) {
 	assert.Equal(t, 3, env.fake.eventsPosted)
 	assert.Empty(t, readStatus(t).Errors)
 	assertCursorAtEnd(t, path)
+}
+
+func TestSyncAll_RetriesWritesOnServerError(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.fake.badGateway = map[string]int{"session": 1, "audit": 1, "complete": 1}
+	path := env.writeClaudeSession(t, "sess-1", "my-group/my-project", "toolu_1")
+	idle := time.Now().Add(-idleCompleteAfter - time.Hour)
+	require.NoError(t, os.Chtimes(path, idle, idle))
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	assert.Empty(t, readStatus(t).Errors)
+	assert.Len(t, env.fake.sessionsCreated, 1)
+	assert.Equal(t, 1, env.fake.eventsPosted)
+	assert.Equal(t, 1, env.fake.completed)
 }
 
 func TestSyncAll_FailedAuditEventsErrorIsNotRepeated(t *testing.T) {
@@ -1647,7 +1685,8 @@ func newTestPoster(t *testing.T, fake *fakeGitLab, opts *options) auditEventPost
 	t.Helper()
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
-	gl, err := gitlab.NewClient("test-token", gitlab.WithBaseURL(server.URL+"/api/v4"), gitlab.WithoutRetries())
+	// WithoutRetries alone does not stop api.WithSafeRetries' per-request retries.
+	gl, err := gitlab.NewClient("test-token", gitlab.WithBaseURL(server.URL+"/api/v4"), gitlab.WithoutRetries(), gitlab.WithCustomRetryMax(0))
 	require.NoError(t, err)
 	ios, _, _, _ := cmdtest.TestIOStreams()
 	opts.io = ios

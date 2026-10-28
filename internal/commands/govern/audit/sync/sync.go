@@ -175,7 +175,7 @@ func runSync(ctx context.Context, opts *options) error {
 
 	t := target{client: client, project: project}
 	if opts.agentType != "" {
-		identity, err := gaig.RegisterIdentity(client, project.ID, opts.agentType)
+		identity, err := gaig.RegisterIdentity(ctx, client, project.ID, opts.agentType)
 		if errors.Is(err, gitlab.ErrNotFound) {
 			if !opts.silent {
 				opts.io.LogInfo(governanceNotEnabled)
@@ -557,7 +557,7 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 		identityKey := projectKey + " " + meta.AgentType
 		identity, ok := identities[identityKey]
 		if !ok {
-			registered, err := gaig.RegisterIdentity(t.client, t.project.ID, meta.AgentType)
+			registered, err := gaig.RegisterIdentity(ctx, t.client, t.project.ID, meta.AgentType)
 			switch {
 			case errors.Is(err, gitlab.ErrNotFound):
 				recordNotEnabled(projectKey)
@@ -715,7 +715,7 @@ func ensureSession(ctx context.Context, client *api.Client, projectID int64, ide
 		http.MethodPost,
 		fmt.Sprintf("projects/%d/ai_agent/sessions", projectID),
 		reqBody,
-		[]gitlab.RequestOptionFunc{gitlab.WithContext(ctx)},
+		[]gitlab.RequestOptionFunc{gitlab.WithContext(ctx), api.WithSafeRetries()},
 	)
 	if err != nil {
 		return 0, fmt.Errorf("could not create session request: %w", err)
@@ -911,7 +911,7 @@ func (p auditEventPoster) postBatchOnce(ctx context.Context, events []auditEvent
 		http.MethodPost,
 		fmt.Sprintf("projects/%d/ai_agent/audit_events", p.projectID),
 		reqBody,
-		[]gitlab.RequestOptionFunc{gitlab.WithContext(ctx)},
+		[]gitlab.RequestOptionFunc{gitlab.WithContext(ctx), api.WithSafeRetries()},
 	)
 	if err != nil {
 		return fmt.Errorf("could not create audit events request: %w", err)
@@ -938,7 +938,7 @@ func completeSession(ctx context.Context, client *api.Client, projectID int64, s
 		http.MethodPatch,
 		fmt.Sprintf("projects/%d/ai_agent/sessions/%d", projectID, sessionID),
 		reqBody,
-		[]gitlab.RequestOptionFunc{gitlab.WithContext(ctx)},
+		[]gitlab.RequestOptionFunc{gitlab.WithContext(ctx), api.WithSafeRetries()},
 	)
 	if err != nil {
 		return fmt.Errorf("could not create complete request: %w", err)

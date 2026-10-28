@@ -11,6 +11,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -79,7 +80,7 @@ func (o *options) run(ctx context.Context) error {
 	}
 
 	fullPath := repo.FullName()
-	statuses, _, err := client.SecurityScanProfiles.ListProjectScanProfileStatuses(fullPath, gitlab.WithContext(ctx))
+	statuses, _, err := client.SecurityScanProfiles.ListProjectScanProfileStatuses(fullPath, gitlab.WithContext(ctx), api.WithSafeRetries())
 	if err != nil {
 		return cmdutils.WrapError(err, fmt.Sprintf("failed to read the status of the profile %q", o.profile))
 	}

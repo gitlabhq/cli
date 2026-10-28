@@ -21,6 +21,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+
+	"gitlab.com/gitlab-org/cli/internal/api"
 )
 
 // tokenExchangePath is the API path (relative to the client's base URL) for
@@ -176,7 +178,7 @@ func (c *Client) exchange(ctx context.Context, expiresIn *int) (*ExchangeResult,
 		ExpiresIn: expiresIn,
 	}
 
-	req, err := c.gl.NewRequest(http.MethodPost, tokenExchangePath, body, []gitlab.RequestOptionFunc{gitlab.WithContext(ctx)})
+	req, err := c.gl.NewRequest(http.MethodPost, tokenExchangePath, body, []gitlab.RequestOptionFunc{gitlab.WithContext(ctx), api.WithSafeRetries()})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create token exchange request: %w", err)
 	}
