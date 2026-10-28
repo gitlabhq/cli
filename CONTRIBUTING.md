@@ -185,13 +185,13 @@ Run tests with: `go test ./...` or `make test`.
 
 There are some integration tests that perform real API requests to `https://gitlab.com`.
 If the environment variables `GITLAB_TEST_HOST` and `GITLAB_TOKEN_TEST` are not set, the integration tests will fail in CI if
-being run in the `gitlab-org/cli` project. They will be skipped locally or in forks if `GITLAB_TEST_HOST` and `GITLAB_TOKEN`
-are both are omitted.
+being run in the `gitlab-org/cli` project. They will be skipped locally or in forks if `GITLAB_TEST_HOST` and `GITLAB_TOKEN_TEST`
+are both omitted.
 Integration tests use the `_Integration` test suffix and use the `_integration_test.go` file suffix.
 
 `GITLAB_TEST_HOST` is set to `https://gitlab.com` in CI.
 
-`GITLAB_TOKEN` must be a
+`GITLAB_TOKEN_TEST` must be a
 [personal access token](https://docs.gitlab.com/user/profile/personal_access_tokens/) and requires the `api` scope.
 To ensure the `glab duo` feature is functioning correctly, the token's user must have a GitLab Duo seat.
 
