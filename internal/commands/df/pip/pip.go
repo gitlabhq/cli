@@ -19,11 +19,16 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			The command uses your package manager's registry or index configuration, and does not modify it.
 
+			Package names are normalized as described in PEP 503, so %[1]sFlask_Login%[1]s and %[1]sflask-login%[1]s are treated as the same package.
+
 			All arguments are forwarded to %[1]spip%[1]s verbatim.
 		`, "`"),
 		Example: heredoc.Doc(`
 			# Install a package through the Dependency Firewall
 			glab dependency-firewall pip install requests
+
+			# Install from a requirements file through the Dependency Firewall
+			glab dependency-firewall pip install -r requirements.txt
 		`),
 	})
 }

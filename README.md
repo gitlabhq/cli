@@ -76,7 +76,7 @@ Run `glab --help` to view a list of core commands in your terminal.
 - [`glab completion`](docs/source/completion): Generate shell completion scripts.
 - [`glab config`](docs/source/config): Manage glab settings.
 - [`glab container-registry`](docs/source/container-registry): Work with GitLab container registries.
-- [`glab dependency-firewall`](docs/source/dependency-firewall): Configure and monitor GitLab Dependency Firewall for local package managers. (EXPERIMENTAL)
+- [`glab dependency-firewall`](docs/source/dependency-firewall): Configure and monitor GitLab Dependency Firewall for local package managers. (BETA)
 - [`glab deploy-key`](docs/source/deploy-key): Manage deploy keys.
 - [`glab deploy-token`](docs/source/deploy-token): Manage deploy tokens.
 - [`glab duo`](docs/source/duo): Work with GitLab Duo.

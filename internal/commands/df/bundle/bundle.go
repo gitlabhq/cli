@@ -19,11 +19,16 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			The command uses your package manager's registry or index configuration, and does not modify it.
 
+			When a bundle is already vendored, Bundler installs from %[1]svendor/bundle/%[1]s and the firewall does not check those packages. Clear that directory, or run %[1]sbundle install --force%[1]s, to check them again.
+
 			All arguments are forwarded to %[1]sbundle%[1]s verbatim.
 		`, "`"),
 		Example: heredoc.Doc(`
 			# Install dependencies through the Dependency Firewall
 			glab dependency-firewall bundle install
+
+			# Update dependencies through the Dependency Firewall
+			glab dependency-firewall bundle update
 		`),
 	})
 }
