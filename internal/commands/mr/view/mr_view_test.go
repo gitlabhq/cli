@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
@@ -551,6 +552,81 @@ func TestMrViewJSON(t *testing.T) {
 
 	assert.True(t, json.Valid([]byte(output.String())))
 	assert.Empty(t, output.Stderr())
+}
+
+func TestMRView_requestsPerOutputMode(t *testing.T) {
+	tests := []struct {
+		name             string
+		cli              string
+		isTTY            bool
+		wantGetOpts      *gitlab.GetMergeRequestsOptions
+		wantApprovalCall bool
+	}{
+		{
+			name:             "tty",
+			cli:              "13 -R OWNER/REPO",
+			isTTY:            true,
+			wantApprovalCall: true,
+		},
+		{
+			name:  "raw",
+			cli:   "13 -R OWNER/REPO",
+			isTTY: false,
+		},
+		{
+			name:  "json in tty",
+			cli:   "13 -F json -R OWNER/REPO",
+			isTTY: true,
+			wantGetOpts: &gitlab.GetMergeRequestsOptions{
+				IncludeDivergedCommitsCount: new(true),
+				RenderHTML:                  new(true),
+				IncludeRebaseInProgress:     new(true),
+			},
+		},
+		{
+			name:  "json",
+			cli:   "13 -F json -R OWNER/REPO",
+			isTTY: false,
+			wantGetOpts: &gitlab.GetMergeRequestsOptions{
+				IncludeDivergedCommitsCount: new(true),
+				RenderHTML:                  new(true),
+				IncludeRebaseInProgress:     new(true),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotGetOpts *gitlab.GetMergeRequestsOptions
+			oldGetMR := api.GetMR
+			api.GetMR = func(client *gitlab.Client, projectID any, mrID int64, opts *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error) {
+				gotGetOpts = opts
+				return oldGetMR(client, projectID, mrID, opts)
+			}
+			t.Cleanup(func() { api.GetMR = oldGetMR })
+
+			tc := gitlabtesting.NewTestClient(t)
+			if tt.wantApprovalCall {
+				tc.MockMergeRequestApprovals.EXPECT().
+					GetApprovalState("OWNER/REPO", int64(13)).
+					Return(&gitlab.MergeRequestApprovalState{}, nil, nil)
+			}
+
+			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				cmd := NewCmdView(f)
+				cmdutils.EnableRepoOverride(cmd, f)
+				return cmd
+			}, tt.isTTY,
+				cmdtest.WithConfig(testConfig),
+				cmdtest.WithGitLabClient(tc.Client),
+			)
+
+			_, err := exec(tt.cli)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantGetOpts, gotGetOpts)
+		})
+	}
 }
 
 func Test_printTTYMRPreview_closedMRWithNilClosedBy(t *testing.T) {
