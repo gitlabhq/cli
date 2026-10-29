@@ -25,11 +25,22 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
-// TestMain keeps the OpenCode plugin under the HOME each test sets, rather
-// than under the XDG_CONFIG_HOME of whoever runs the tests.
 func TestMain(m *testing.M) {
+	os.Exit(runIsolated(m))
+}
+
+// runIsolated runs the tests with the OpenCode plugin under the HOME each test
+// sets, and glab's state in a new directory, rather than in the configuration
+// of whoever runs the tests.
+func runIsolated(m *testing.M) int {
 	_ = os.Unsetenv("XDG_CONFIG_HOME")
-	os.Exit(m.Run())
+	dir, err := os.MkdirTemp("", "glab-setup-test-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(dir)
+	_ = os.Setenv("GLAB_CONFIG_DIR", dir)
+	return m.Run()
 }
 
 func TestNewCmd(t *testing.T) {
@@ -244,12 +255,15 @@ func TestSetup_Agents(t *testing.T) {
 		return out.String(), err
 	}
 
-	out, err := run(t, "--agents codex,cursor")
+	out, err := run(t, "--agents claude-code,codex,cursor")
 	require.NoError(t, err)
 	assert.Contains(t, out, "Syncing sessions from: codex, cursor.")
 	agents, err := fallbacksync.DiscoveredAgents()
 	require.NoError(t, err)
 	assert.Equal(t, []string{"codex", "cursor"}, agents)
+	hookAgents, _, err := fallbacksync.RecordedHookAgents()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-code"}, hookAgents)
 
 	_, err = run(t, "")
 	require.NoError(t, err)
@@ -261,14 +275,10 @@ func TestSetup_Agents(t *testing.T) {
 	require.NoError(t, err)
 	agents, err = fallbacksync.DiscoveredAgents()
 	require.NoError(t, err)
-	assert.Equal(t, []string{"codex", "cursor"}, agents, "--agents opencode leaves discovery as it is")
-
-	out, err = run(t, `--agents ""`)
+	assert.Equal(t, []string{"codex", "cursor"}, agents, "--agents adds to the earlier choice")
+	hookAgents, _, err = fallbacksync.RecordedHookAgents()
 	require.NoError(t, err)
-	assert.Contains(t, out, "Session discovery turned off.")
-	agents, err = fallbacksync.DiscoveredAgents()
-	require.NoError(t, err)
-	assert.Empty(t, agents)
+	assert.Equal(t, []string{"claude-code", "opencode"}, hookAgents)
 }
 
 func TestSetup_AgentsValidation(t *testing.T) {
@@ -276,13 +286,17 @@ func TestSetup_AgentsValidation(t *testing.T) {
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
 
-	_, err := exec("--yes --agents claude-code")
+	_, err := exec("--yes --agents claude")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `unsupported agent "claude-code" in --agents; use opencode, codex, cursor`)
+	assert.Contains(t, err.Error(), `unsupported agent "claude" in --agents; use claude-code, opencode, codex, cursor`)
+
+	_, err = exec(`--yes --agents ""`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--agents needs at least one agent; to remove everything setup installed, use --uninstall")
 
 	_, err = exec("--yes --agents opencode,codex --no-fallback-sync")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "codex sessions are only synced by the fallback periodic sync, so --agents codex cannot be used with --no-fallback-sync")
+	assert.Contains(t, err.Error(), "codex sessions are only synced by the fallback periodic sync")
 
 	_, err = exec("--yes --agents codex --uninstall")
 	require.Error(t, err)
@@ -700,20 +714,20 @@ func TestSetupPrompt(t *testing.T) {
 	assert.Equal(t,
 		"glab will install agent session hooks in ~/.claude/settings.json and a systemd user timer (~/.config/systemd/user/glab-govern-audit-sync.timer) that syncs sessions in the background every 30 minutes, replacing any existing job. "+
 			"Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and file edits. Do you wish to continue?",
-		setupPrompt("linux", false, nil, ""), "every setup says what is uploaded, not only --agents")
+		setupPrompt("linux", false, plan{claudeHooks: true}), "every setup says what is uploaded, not only --agents")
 
-	withAgents := setupPrompt("linux", false, []string{"codex", "cursor"}, "")
+	withAgents := setupPrompt("linux", false, plan{claudeHooks: true, discovered: []string{"codex", "cursor"}})
 	assert.Contains(t, withAgents, "including your prompts and each tool call's arguments, such as commands and file edits")
 	assert.Contains(t, withAgents, "The job will also upload your codex and cursor sessions the same way, from the last 89 days and from now on")
 
-	hooksOnly := setupPrompt("linux", true, []string{"codex"}, "")
+	hooksOnly := setupPrompt("linux", true, plan{claudeHooks: true, discovered: []string{"codex"}})
 	assert.Contains(t, hooksOnly, "including your prompts and each tool call's arguments")
 	assert.NotContains(t, hooksOnly, "codex", "without the job, enabled agents are not synced")
 
-	assert.Contains(t, setupPrompt("linux", false, nil, "/h/.config/opencode/plugins/glab-govern.js"),
+	assert.Contains(t, setupPrompt("linux", false, plan{claudeHooks: true, openCodePlugin: "/h/.config/opencode/plugins/glab-govern.js"}),
 		"glab will install agent session hooks in ~/.claude/settings.json, an OpenCode plugin in /h/.config/opencode/plugins/glab-govern.js that runs for all your OpenCode sessions, and a systemd user timer")
-	assert.Contains(t, setupPrompt("linux", true, nil, "/p.js"),
-		"glab will install agent session hooks in ~/.claude/settings.json and an OpenCode plugin in /p.js that runs for all your OpenCode sessions. Agent sessions")
+	assert.Contains(t, setupPrompt("linux", true, plan{openCodePlugin: "/p.js"}),
+		"glab will install an OpenCode plugin in /p.js that runs for all your OpenCode sessions. Agent sessions")
 }
 
 func TestUninstallPrompt(t *testing.T) {
@@ -791,9 +805,9 @@ func TestRunUninstall_CorruptAgentList(t *testing.T) {
 	assert.Empty(t, agents)
 }
 
-// openCodeOptions returns options for a setup without the fallback periodic
-// sync, with --agents set to agents when there are any.
-func openCodeOptions(ios *iostreams.IOStreams, dir string, agents ...string) *options {
+// hookOnlyOptions returns options for a setup without the fallback periodic
+// sync, for the agents given, or for the earlier choice when there are none.
+func hookOnlyOptions(ios *iostreams.IOStreams, dir string, agents ...string) *options {
 	return &options{
 		io:                   ios,
 		yes:                  true,
@@ -810,13 +824,14 @@ func TestRunSetup_InstallsOpenCodePlugin(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
 
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
-	require.NoError(t, runSetup(t.Context(), openCodeOptions(ios, dir, "opencode")))
+	require.NoError(t, runSetup(t.Context(), hookOnlyOptions(ios, dir, "opencode")))
 
 	plugin := filepath.Join(dir, ".config", "opencode", "plugins", opencodeplugin.FileName)
 	state, err := opencodeplugin.Check(plugin)
 	require.NoError(t, err)
 	assert.Equal(t, opencodeplugin.Current, state)
 	assert.Contains(t, stdout.String(), "OpenCode plugin installed in ~/.config/opencode/plugins/glab-govern.js")
+	assert.NoFileExists(t, filepath.Join(dir, ".claude", "settings.json"), "Claude Code was not chosen")
 }
 
 func TestRunSetup_DoesNotInstallOpenCodePluginByDefault(t *testing.T) {
@@ -826,10 +841,70 @@ func TestRunSetup_DoesNotInstallOpenCodePluginByDefault(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".config", "opencode"), 0o755))
 
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
-	require.NoError(t, runSetup(t.Context(), openCodeOptions(ios, dir)))
+	require.NoError(t, runSetup(t.Context(), hookOnlyOptions(ios, dir)))
 
-	assert.NoDirExists(t, filepath.Join(dir, ".config", "opencode", "plugins"), "the plugin is only installed when asked for")
+	assert.NoDirExists(t, filepath.Join(dir, ".config", "opencode", "plugins"), "OpenCode is synced only when chosen")
 	assert.NotContains(t, stdout.String(), "OpenCode")
+	assert.FileExists(t, filepath.Join(dir, ".claude", "settings.json"))
+}
+
+func TestRunSetup_AgentsAddToEarlierSetup(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	settings := filepath.Join(dir, ".claude", "settings.json")
+	plugin := filepath.Join(dir, ".config", "opencode", "plugins", opencodeplugin.FileName)
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	require.NoError(t, runSetup(t.Context(), hookOnlyOptions(ios, dir)))
+	installed, err := claudehooks.SyncHookInstalled(settings)
+	require.NoError(t, err)
+	require.True(t, installed)
+
+	ios, _, _, _ = cmdtest.TestIOStreams()
+	require.NoError(t, runSetup(t.Context(), hookOnlyOptions(ios, dir, "opencode")))
+	installed, err = claudehooks.SyncHookInstalled(settings)
+	require.NoError(t, err)
+	assert.True(t, installed, "setting up another agent keeps the Claude Code hooks")
+	assert.FileExists(t, plugin)
+
+	ios, _, stdout, _ := cmdtest.TestIOStreams()
+	require.NoError(t, runSetup(t.Context(), hookOnlyOptions(ios, dir)))
+	assert.Contains(t, stdout.String(), "Hooks installed", "a plain setup keeps both agents")
+	assert.Contains(t, stdout.String(), "OpenCode plugin installed")
+}
+
+func TestRunSetup_OnlyTheAgentsPassed(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	require.NoError(t, runSetup(t.Context(), hookOnlyOptions(ios, dir, "opencode")))
+	ios, _, stdout, _ := cmdtest.TestIOStreams()
+	require.NoError(t, runSetup(t.Context(), hookOnlyOptions(ios, dir)))
+
+	assert.NoFileExists(t, filepath.Join(dir, ".claude", "settings.json"), "Claude Code was never set up")
+	assert.Contains(t, stdout.String(), "OpenCode plugin installed")
+}
+
+func TestRunSetup_KeepsHooksFromOlderGlab(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	settings := filepath.Join(dir, ".claude", "settings.json")
+
+	// An older glab installed the hooks without recording its choice.
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	require.NoError(t, installClaudeHooks(hookOnlyOptions(ios, dir)))
+
+	require.NoError(t, runSetup(t.Context(), hookOnlyOptions(ios, dir, "opencode")))
+	hookAgents, _, err := fallbacksync.RecordedHookAgents()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-code", "opencode"}, hookAgents)
+	installed, err := claudehooks.SyncHookInstalled(settings)
+	require.NoError(t, err)
+	assert.True(t, installed)
 }
 
 func TestRunSetup_ForeignOpenCodePlugin(t *testing.T) {
@@ -841,59 +916,17 @@ func TestRunSetup_ForeignOpenCodePlugin(t *testing.T) {
 	require.NoError(t, os.WriteFile(plugin, []byte("// the user's own plugin\n"), 0o644))
 
 	ios, _, _, _ := cmdtest.TestIOStreams()
-	err := runSetup(t.Context(), openCodeOptions(ios, dir, "opencode"))
+	err := runSetup(t.Context(), hookOnlyOptions(ios, dir, "opencode"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "~/.config/opencode/plugins/glab-govern.js was not installed by glab")
+
 	data, err := os.ReadFile(plugin)
 	require.NoError(t, err)
 	assert.Equal(t, "// the user's own plugin\n", string(data))
 
-	ios, _, _, _ = cmdtest.TestIOStreams()
-	require.NoError(t, runSetup(t.Context(), openCodeOptions(ios, dir)), "a plain setup leaves the file alone")
-}
-
-func TestRunSetup_UpdatesOutdatedOpenCodePlugin(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
-	plugin := filepath.Join(dir, ".config", "opencode", "plugins", opencodeplugin.FileName)
-	require.NoError(t, os.MkdirAll(filepath.Dir(plugin), 0o755))
-	require.NoError(t, os.WriteFile(plugin, []byte("// Installed by glab govern setup.\n// an older version\n"), 0o644))
-
-	ios, _, _, _ := cmdtest.TestIOStreams()
-	require.NoError(t, runSetup(t.Context(), openCodeOptions(ios, dir)))
-
-	data, err := os.ReadFile(plugin)
+	_, recorded, err := fallbacksync.RecordedHookAgents()
 	require.NoError(t, err)
-	assert.Equal(t, opencodeplugin.Source, data, "a plain setup updates a plugin glab installed")
-}
-
-func TestRunSetup_UnreadableOpenCodePluginIsAWarning(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
-	// A directory at the plugin path cannot be read as a file.
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".config", "opencode", "plugins", opencodeplugin.FileName), 0o755))
-
-	ios, _, _, stderr := cmdtest.TestIOStreams()
-	require.NoError(t, runSetup(t.Context(), openCodeOptions(ios, dir)), "a plain setup still installs the rest")
-	assert.Contains(t, stderr.String(), "warning: could not read the OpenCode plugin")
-	assert.Contains(t, stderr.String(), "so it was not updated")
-
-	ios, _, _, _ = cmdtest.TestIOStreams()
-	err := runSetup(t.Context(), openCodeOptions(ios, dir, "opencode"))
-	require.Error(t, err, "with --agents opencode the plugin is required")
-	assert.Contains(t, err.Error(), "could not read the OpenCode plugin")
-}
-
-func TestRunSetup_NoOpenCodePluginOnWindows(t *testing.T) {
-	_, err := openCodePluginToInstall("windows", true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not supported on Windows")
-
-	path, err := openCodePluginToInstall("windows", false)
-	require.NoError(t, err)
-	assert.Empty(t, path)
+	assert.False(t, recorded, "a failed setup records nothing")
 }
 
 func TestRunUninstall_RemovesOpenCodePlugin(t *testing.T) {
@@ -906,7 +939,7 @@ func TestRunUninstall_RemovesOpenCodePlugin(t *testing.T) {
 	require.NoError(t, os.WriteFile(other, []byte("// another plugin\n"), 0o644))
 
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
-	opts := openCodeOptions(ios, dir, "opencode")
+	opts := hookOnlyOptions(ios, dir, "claude-code", "opencode")
 	require.NoError(t, runSetup(t.Context(), opts))
 	require.FileExists(t, filepath.Join(plugins, opencodeplugin.FileName))
 
@@ -915,6 +948,9 @@ func TestRunUninstall_RemovesOpenCodePlugin(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(plugins, opencodeplugin.FileName))
 	assert.FileExists(t, other, "other OpenCode plugins are kept")
 	assert.Contains(t, stdout.String(), "OpenCode plugin removed from ~/.config/opencode/plugins/glab-govern.js")
+	_, recorded, err := fallbacksync.RecordedHookAgents()
+	require.NoError(t, err)
+	assert.False(t, recorded, "uninstall forgets the chosen agents")
 }
 
 func TestRunUninstall_OnlyOpenCodePlugin(t *testing.T) {
@@ -926,10 +962,39 @@ func TestRunUninstall_OnlyOpenCodePlugin(t *testing.T) {
 	require.NoError(t, err)
 
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
-	require.NoError(t, runUninstall(t.Context(), openCodeOptions(ios, dir)))
+	require.NoError(t, runUninstall(t.Context(), hookOnlyOptions(ios, dir)))
 
 	assert.NoFileExists(t, plugin)
 	assert.Contains(t, stdout.String(), "OpenCode plugin removed from ~/.config/opencode/plugins/glab-govern.js")
+}
+
+func TestRunSetup_UpdatesOutdatedOpenCodePlugin(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	plugin := filepath.Join(dir, ".config", "opencode", "plugins", opencodeplugin.FileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(plugin), 0o755))
+	require.NoError(t, os.WriteFile(plugin, []byte("// Installed by glab govern setup.\n// an older version\n"), 0o644))
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	require.NoError(t, runSetup(t.Context(), hookOnlyOptions(ios, dir)))
+
+	data, err := os.ReadFile(plugin)
+	require.NoError(t, err)
+	assert.Equal(t, opencodeplugin.Source, data, "a plain setup keeps and updates a plugin glab installed")
+}
+
+func TestRunSetup_NoOpenCodePluginOnWindows(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	opts := hookOnlyOptions(ios, dir, "opencode")
+	opts.goos = "windows"
+	err := runSetup(t.Context(), opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported on Windows")
 }
 
 func TestRunUninstall_KeepsForeignOpenCodePlugin(t *testing.T) {
@@ -941,8 +1006,128 @@ func TestRunUninstall_KeepsForeignOpenCodePlugin(t *testing.T) {
 	require.NoError(t, os.WriteFile(plugin, []byte("// the user's own plugin\n"), 0o644))
 
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
-	require.NoError(t, runUninstall(t.Context(), openCodeOptions(ios, dir)))
+	require.NoError(t, runUninstall(t.Context(), hookOnlyOptions(ios, dir)))
 
 	assert.FileExists(t, plugin)
 	assert.Contains(t, stdout.String(), "Nothing to uninstall")
+}
+
+func TestRunSetup_DoesNotAddClaudeCodeForCodexOnlySetup(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	// An older glab set up Codex, and the user then removed the Claude Code hooks.
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
+
+	hookAgents, discovered, err := chosenAgents(hookOnlyOptions(nil, dir))
+	require.NoError(t, err)
+	assert.Empty(t, hookAgents)
+	assert.Equal(t, []string{"codex"}, discovered)
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	err = runSetup(t.Context(), hookOnlyOptions(ios, dir))
+	require.Error(t, err, "with --no-fallback-sync there is nothing to set up")
+	assert.Contains(t, err.Error(), "codex sessions are only synced by the fallback periodic sync")
+}
+
+func TestRunSetup_DiscoveredAgentsAdd(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
+	opts := hookOnlyOptions(nil, dir, "cursor", "opencode", "opencode")
+	hookAgents, discovered, err := chosenAgents(opts)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex", "cursor"}, discovered)
+	assert.Equal(t, []string{"opencode"}, hookAgents, "an agent passed twice is set up once")
+}
+
+func TestRunSetup_UnreadableAgentsSuggestsUninstall(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	path := filepath.Join(dir, "glab", "gaig", "hook-agents.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o600))
+
+	for _, agents := range [][]string{nil, {"opencode"}} {
+		ios, _, _, _ := cmdtest.TestIOStreams()
+		err := runSetup(t.Context(), hookOnlyOptions(ios, dir, agents...))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "run 'glab govern setup --uninstall' to start again")
+	}
+}
+
+func TestRunSetup_UnreadableClaudeSettingsIsNotRecorded(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	settings := filepath.Join(dir, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(settings), 0o755))
+	require.NoError(t, os.WriteFile(settings, []byte("{not json"), 0o644))
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	err := runSetup(t.Context(), hookOnlyOptions(ios, dir, "opencode"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), settings)
+	assert.Contains(t, err.Error(), "fix it, then run 'glab govern setup' again")
+	assert.NotContains(t, err.Error(), "--uninstall", "uninstalling doesn't change the settings file, so it doesn't help")
+	_, recorded, err := fallbacksync.RecordedHookAgents()
+	require.NoError(t, err)
+	assert.False(t, recorded, "Claude Code must not be recorded as not set up when its settings cannot be read")
+}
+
+func TestRunSetup_ClaudeCodeOnWindowsFailsBeforePrompt(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+
+	// Not a terminal and no --yes, so reaching the prompt would fail differently.
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	opts := hookOnlyOptions(ios, dir)
+	opts.yes = false
+	opts.goos = "windows"
+	err := runSetup(t.Context(), opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "hook installation is not supported on Windows")
+}
+
+func TestRunSetup_DiscoveredAgentsWithoutJobFailBeforePrompt(t *testing.T) {
+	tests := map[string]struct {
+		goos     string
+		agents   []string
+		recorded []string
+	}{
+		"Windows":                  {goos: "windows", agents: []string{"codex", "cursor"}},
+		"FreeBSD":                  {goos: "freebsd", agents: []string{"codex", "cursor"}},
+		"rerun with recorded list": {goos: "windows", recorded: []string{"codex", "cursor"}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("HOME", dir)
+			t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+			if tc.recorded != nil {
+				require.NoError(t, fallbacksync.SetDiscoveredAgents(tc.recorded))
+			}
+
+			// Not a terminal and no --yes, so reaching the prompt would fail differently.
+			ios, _, _, _ := cmdtest.TestIOStreams()
+			opts := hookOnlyOptions(ios, dir, tc.agents...)
+			opts.yes = false
+			opts.noFallbackSync = false
+			opts.goos = tc.goos
+			err := runSetup(t.Context(), opts)
+			require.ErrorIs(t, err, fallbacksync.ErrUnsupportedOS)
+			assert.Contains(t, err.Error(), "codex and cursor sessions need the fallback periodic sync: fallback periodic sync is supported only on macOS and Linux")
+		})
+	}
+}
+
+func TestSetupPrompt_JobOnly(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, setupPrompt("linux", false, plan{discovered: []string{"codex"}}),
+		"glab will install a systemd user timer (~/.config/systemd/user/glab-govern-audit-sync.timer) that syncs sessions")
 }

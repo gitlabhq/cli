@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,8 +66,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			- Authentication: glab is authenticated with a valid token
 			- glab in PATH: the binary is findable so hooks will work
-			- Agent session hooks: the Stop and SessionEnd hooks are installed
-			- OpenCode plugin: whether the glab plugin is installed and up to date
+			- Agent session hooks: if Claude Code sessions are synced, the Stop and SessionEnd hooks are installed
+			- OpenCode plugin: if OpenCode sessions are synced, the glab plugin is installed and up to date
 			- API connectivity: can reach the GitLab API
 			- Fallback periodic sync: whether the scheduled job is installed and loaded, whether the glab binary it runs still exists and is the same build as this glab, and the result of its last run
 
@@ -169,7 +170,38 @@ func checkAuthentication(opts *options) checkResult {
 	}
 }
 
+// agentsReadFix says how to fix err from hookAgentEnabled.
+func agentsReadFix(err error) string {
+	fix := fallbacksync.AgentsReadFix(err)
+	return strings.ToUpper(fix[:1]) + fix[1:]
+}
+
+// hookAgentEnabled reports whether a setup without --agents would set up
+// agent, so its hook or plugin should be installed.
+func hookAgentEnabled(agent string) (bool, error) {
+	settings, err := claudehooks.SettingsPath()
+	if err != nil {
+		return false, err
+	}
+	setUp, err := fallbacksync.ResolvedHookAgents(settings)
+	if err != nil {
+		return false, err
+	}
+	discovered, err := fallbacksync.DiscoveredAgents()
+	if err != nil {
+		return false, err
+	}
+	return slices.Contains(fallbacksync.DefaultHookAgents(setUp, discovered), agent), nil
+}
+
 func checkClaudeHooks() checkResult {
+	switch enabled, err := hookAgentEnabled("claude-code"); {
+	case err != nil:
+		return checkResult{name: "Agent session hooks", ok: false, message: fmt.Sprintf("could not tell which agents are set up: %v", err), fix: agentsReadFix(err)}
+	case !enabled:
+		return checkResult{name: "Agent session hooks", ok: true, message: "Claude Code sessions are not synced; run 'glab govern setup --agents claude-code' to sync them"}
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return checkResult{
@@ -257,6 +289,16 @@ func checkOpenCodePlugin() checkResult {
 		return checkResult{name: name, ok: true, message: "not supported on Windows"}
 	}
 
+	switch enabled, err := hookAgentEnabled("opencode"); {
+	case err != nil:
+		return checkResult{name: name, ok: false, message: fmt.Sprintf("could not tell which agents are set up: %v", err), fix: agentsReadFix(err)}
+	case !enabled:
+		if detected, err := opencodeplugin.Detected(); err == nil && detected {
+			return checkResult{name: name, ok: true, message: "OpenCode sessions are not synced; run 'glab govern setup --agents opencode' to sync them"}
+		}
+		return checkResult{name: name, ok: true, message: "OpenCode sessions are not synced"}
+	}
+
 	path, err := opencodeplugin.Path()
 	if err != nil {
 		return checkResult{name: name, ok: false, message: err.Error()}
@@ -274,11 +316,7 @@ func checkOpenCodePlugin() checkResult {
 	case opencodeplugin.Foreign:
 		return checkResult{name: name, ok: false, message: display + " was not installed by glab", fix: "Remove or rename it, then run: glab govern setup --agents opencode"}
 	}
-
-	if detected, err := opencodeplugin.Detected(); err == nil && detected {
-		return checkResult{name: name, ok: true, message: "not installed, so OpenCode sessions are not synced; run 'glab govern setup --agents opencode' to sync them"}
-	}
-	return checkResult{name: name, ok: true, message: "not installed"}
+	return checkResult{name: name, ok: false, message: "not installed, so OpenCode sessions are not synced", fix: "Run: glab govern setup"}
 }
 
 func checkAPIConnectivity(ctx context.Context, opts *options) checkResult {

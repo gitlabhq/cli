@@ -263,7 +263,7 @@ func SyncHookInstalled(path string) (bool, error) {
 	}
 	hooks, err := HooksFromRaw(raw)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%s: %w", path, err)
 	}
 	return HookPresent(hooks, "Stop", StopHookCommand), nil
 }

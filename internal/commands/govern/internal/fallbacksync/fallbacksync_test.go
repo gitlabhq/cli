@@ -3,6 +3,7 @@
 package fallbacksync
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/opencodeplugin"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -302,4 +305,92 @@ func TestDiscoveredAgents_RoundTrip(t *testing.T) {
 	agents, err = DiscoveredAgents()
 	require.NoError(t, err)
 	assert.Equal(t, []string{"codex"}, agents)
+}
+
+func TestHookAgents(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+
+	_, recorded, err := RecordedHookAgents()
+	require.NoError(t, err)
+	assert.False(t, recorded, "nothing is recorded before setup chooses")
+
+	require.NoError(t, SetHookAgents([]string{}))
+	agents, recorded, err := RecordedHookAgents()
+	require.NoError(t, err)
+	assert.True(t, recorded, "choosing no hook agents is a choice")
+	assert.Empty(t, agents)
+
+	require.NoError(t, SetHookAgents([]string{"opencode"}))
+	agents, _, err = RecordedHookAgents()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"opencode"}, agents)
+
+	require.NoError(t, ForgetHookAgents())
+	_, recorded, err = RecordedHookAgents()
+	require.NoError(t, err)
+	assert.False(t, recorded)
+	require.NoError(t, ForgetHookAgents(), "forgetting twice is fine")
+}
+
+func TestResolvedHookAgents(t *testing.T) {
+	setup := func(t *testing.T) string {
+		t.Helper()
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("XDG_CONFIG_HOME", "")
+		t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+		return filepath.Join(home, ".claude", "settings.json")
+	}
+	installHooks := func(t *testing.T, path string) {
+		t.Helper()
+		hooks := map[string][]claudehooks.HookGroup{}
+		claudehooks.AddHook(hooks, "Stop", claudehooks.StopHookCommand)
+		hooksJSON, err := claudehooks.MarshalHooks(hooks)
+		require.NoError(t, err)
+		require.NoError(t, claudehooks.WriteSettings(path, map[string]json.RawMessage{"hooks": hooksJSON}))
+	}
+
+	t.Run("nothing set up", func(t *testing.T) {
+		settings := setup(t)
+		agents, err := ResolvedHookAgents(settings)
+		require.NoError(t, err)
+		assert.Empty(t, agents)
+	})
+
+	t.Run("recorded choice", func(t *testing.T) {
+		settings := setup(t)
+		installHooks(t, settings)
+		require.NoError(t, SetHookAgents([]string{"opencode"}))
+		agents, err := ResolvedHookAgents(settings)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"opencode"}, agents, "the recorded choice wins over what is installed")
+	})
+
+	t.Run("older glab: installed hooks and plugin", func(t *testing.T) {
+		settings := setup(t)
+		installHooks(t, settings)
+		plugin, err := opencodeplugin.Path()
+		require.NoError(t, err)
+		_, err = opencodeplugin.Install(plugin)
+		require.NoError(t, err)
+		agents, err := ResolvedHookAgents(settings)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"claude-code", "opencode"}, agents)
+	})
+
+	t.Run("unreadable settings file", func(t *testing.T) {
+		settings := setup(t)
+		require.NoError(t, os.MkdirAll(filepath.Dir(settings), 0o755))
+		require.NoError(t, os.WriteFile(settings, []byte("{not json"), 0o644))
+		_, err := ResolvedHookAgents(settings)
+		require.Error(t, err, "an unknown answer must not be recorded as no Claude Code")
+	})
+}
+
+func TestDefaultHookAgents(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, []string{"claude-code"}, DefaultHookAgents(nil, nil), "a first setup syncs Claude Code")
+	assert.Empty(t, DefaultHookAgents(nil, []string{"codex"}), "Claude Code is not added for someone who only set up Codex")
+	assert.Equal(t, []string{"opencode"}, DefaultHookAgents([]string{"opencode"}, nil))
 }
