@@ -20,6 +20,8 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/opencodeplugin"
 	"gitlab.com/gitlab-org/cli/internal/commands/version"
 	"gitlab.com/gitlab-org/cli/internal/config"
 )
@@ -50,6 +52,11 @@ type Job struct {
 	// custom GLAB_CONFIG_DIR or XDG_CONFIG_HOME would point the job at a
 	// different directory from the hooks.
 	ConfigDir string
+}
+
+// Supported reports whether the scheduled job can be installed on goos.
+func Supported(goos string) bool {
+	return goos == "darwin" || goos == "linux"
 }
 
 // Units returns the files that define the scheduled job on goos.
@@ -460,14 +467,111 @@ func ReadStatus() (*Status, error) {
 // by scanning their transcripts, without hooks.
 var DiscoverableAgents = []string{"codex", "cursor"}
 
+// HookAgents are the agents that glab installs a hook or plugin for, which
+// syncs their sessions as they run.
+var HookAgents = []string{"claude-code", "opencode"}
+
 func discoveredAgentsPath() string {
 	return filepath.Join(config.ConfigDir(), "gaig", "discovered-agents.json")
+}
+
+func hookAgentsPath() string {
+	return filepath.Join(config.ConfigDir(), "gaig", "hook-agents.json")
 }
 
 // SetDiscoveredAgents replaces the agents whose sessions the scheduled job
 // discovers.
 func SetDiscoveredAgents(agents []string) error {
-	path := discoveredAgentsPath()
+	return writeAgents(discoveredAgentsPath(), agents)
+}
+
+// agentsListError is an error reading a file in which setup lists the agents
+// it set up. Uninstalling removes those files.
+type agentsListError struct{ err error }
+
+func (e *agentsListError) Error() string { return e.err.Error() }
+
+func (e *agentsListError) Unwrap() error { return e.err }
+
+// AgentsReadFix says how to fix err, an error working out which agents are set
+// up. Uninstalling only helps when setup's own lists are unreadable, because
+// it doesn't change the Claude Code settings or the OpenCode plugin.
+func AgentsReadFix(err error) string {
+	if errors.As(err, new(*agentsListError)) {
+		return "fix it, or run 'glab govern setup --uninstall' to start again"
+	}
+	return "fix it, then run 'glab govern setup' again"
+}
+
+// DiscoveredAgents returns the agents whose sessions the scheduled job
+// discovers. None are discovered until setup enables them.
+func DiscoveredAgents() ([]string, error) {
+	agents, _, err := readAgents(discoveredAgentsPath())
+	return agents, err
+}
+
+// SetHookAgents records the agents setup installed a hook or plugin for.
+func SetHookAgents(agents []string) error {
+	return writeAgents(hookAgentsPath(), agents)
+}
+
+// ForgetHookAgents forgets the agents recorded by SetHookAgents.
+func ForgetHookAgents() error {
+	err := os.Remove(hookAgentsPath())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// RecordedHookAgents returns the agents setup recorded with SetHookAgents, and
+// false if setup has recorded nothing. ResolvedHookAgents also covers glab
+// versions that did not record them.
+func RecordedHookAgents() ([]string, bool, error) {
+	return readAgents(hookAgentsPath())
+}
+
+// ResolvedHookAgents returns the agents that setup has set up a hook or plugin
+// for. glab versions that did not record them are judged by what is installed:
+// the Claude Code hooks in the settings file at claudeSettings, and the
+// OpenCode plugin.
+func ResolvedHookAgents(claudeSettings string) ([]string, error) {
+	agents, recorded, err := RecordedHookAgents()
+	if err != nil || recorded {
+		return agents, err
+	}
+
+	agents = []string{}
+	claude, err := claudehooks.SyncHookInstalled(claudeSettings)
+	if err != nil {
+		return nil, err
+	}
+	if claude {
+		agents = append(agents, "claude-code")
+	}
+	plugin, err := opencodeplugin.Path()
+	if err != nil {
+		return nil, err
+	}
+	switch state, err := opencodeplugin.Check(plugin); {
+	case err != nil:
+		return nil, err
+	case state == opencodeplugin.Current, state == opencodeplugin.Outdated:
+		agents = append(agents, "opencode")
+	}
+	return agents, nil
+}
+
+// DefaultHookAgents returns the agents a setup without --agents sets up: those
+// set up earlier, or Claude Code when no agent is set up at all.
+func DefaultHookAgents(setUp, discovered []string) []string {
+	if len(setUp) == 0 && len(discovered) == 0 {
+		return []string{"claude-code"}
+	}
+	return setUp
+}
+
+func writeAgents(path string, agents []string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -478,21 +582,19 @@ func SetDiscoveredAgents(agents []string) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
-// DiscoveredAgents returns the agents whose sessions the scheduled job
-// discovers. None are discovered until setup enables them.
-func DiscoveredAgents() ([]string, error) {
-	data, err := os.ReadFile(discoveredAgentsPath())
+func readAgents(path string) ([]string, bool, error) {
+	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, &agentsListError{err}
 	}
 	var agents []string
 	if err := json.Unmarshal(data, &agents); err != nil {
-		return nil, fmt.Errorf("could not parse discovered agents: %w", err)
+		return nil, false, &agentsListError{fmt.Errorf("could not parse %s: %w", path, err)}
 	}
-	return agents, nil
+	return agents, true, nil
 }
 
 // BuildVersion returns what `glab version` prints for the build described by

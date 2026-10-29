@@ -495,7 +495,7 @@ func TestChecks_ReportHomeDirError(t *testing.T) {
 
 	hooks := checkClaudeHooks()
 	assert.False(t, hooks.ok)
-	assert.Contains(t, hooks.message, "could not determine home directory: $HOME is not defined")
+	assert.Contains(t, hooks.message, "home directory: $HOME is not defined")
 
 	fallback := checkFallbackSync(t.Context(), nil, "linux", testBuild, time.Now())
 	assert.False(t, fallback.ok)
@@ -503,33 +503,47 @@ func TestChecks_ReportHomeDirError(t *testing.T) {
 }
 
 func TestCheckOpenCodePlugin(t *testing.T) {
-	setup := func(t *testing.T) string {
+	// setup points glab and OpenCode at new directories and returns where the
+	// plugin goes, with OpenCode chosen in setup when enabled is true.
+	setup := func(t *testing.T, enabled bool) string {
 		t.Helper()
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+		if enabled {
+			require.NoError(t, fallbacksync.SetHookAgents([]string{"opencode"}))
+		}
 		path, err := opencodeplugin.Path()
 		require.NoError(t, err)
 		return path
 	}
 
-	t.Run("not installed", func(t *testing.T) {
-		setup(t)
+	t.Run("not chosen and OpenCode not found", func(t *testing.T) {
+		setup(t, false)
 		result := checkOpenCodePlugin()
 		assert.True(t, result.ok)
-		assert.Equal(t, "not installed", result.message)
+		assert.Equal(t, "OpenCode sessions are not synced", result.message)
 	})
 
-	t.Run("OpenCode found without the plugin", func(t *testing.T) {
-		setup(t)
+	t.Run("not chosen but OpenCode found", func(t *testing.T) {
+		setup(t, false)
 		dir, err := opencodeplugin.ConfigDir()
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0o755))
 		result := checkOpenCodePlugin()
-		assert.True(t, result.ok, "the plugin is only installed when asked for")
-		assert.Contains(t, result.message, "run 'glab govern setup --agents opencode' to sync them")
+		assert.True(t, result.ok, "not syncing an agent you did not choose is not a failure")
+		assert.Contains(t, result.message, "run 'glab govern setup --agents opencode'")
+	})
+
+	t.Run("chosen without the plugin", func(t *testing.T) {
+		setup(t, true)
+		result := checkOpenCodePlugin()
+		assert.False(t, result.ok)
+		assert.Contains(t, result.message, "not installed")
+		assert.Equal(t, "Run: glab govern setup", result.fix)
 	})
 
 	t.Run("plugin installed", func(t *testing.T) {
-		path := setup(t)
+		path := setup(t, true)
 		_, err := opencodeplugin.Install(path)
 		require.NoError(t, err)
 		result := checkOpenCodePlugin()
@@ -538,7 +552,7 @@ func TestCheckOpenCodePlugin(t *testing.T) {
 	})
 
 	t.Run("plugin out of date", func(t *testing.T) {
-		path := setup(t)
+		path := setup(t, true)
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 		require.NoError(t, os.WriteFile(path, []byte("// Installed by glab govern setup.\n// an older version\n"), 0o644))
 		result := checkOpenCodePlugin()
@@ -546,8 +560,27 @@ func TestCheckOpenCodePlugin(t *testing.T) {
 		assert.Contains(t, result.message, "is out of date")
 	})
 
+	t.Run("older glab installed the plugin", func(t *testing.T) {
+		path := setup(t, false)
+		_, err := opencodeplugin.Install(path)
+		require.NoError(t, err)
+		result := checkOpenCodePlugin()
+		assert.True(t, result.ok)
+		assert.Contains(t, result.message, "installed in", "an installed plugin counts as set up when nothing is recorded")
+	})
+
+	t.Run("unreadable list of agents", func(t *testing.T) {
+		setup(t, false)
+		path := filepath.Join(os.Getenv("GLAB_CONFIG_DIR"), "gaig", "hook-agents.json")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o600))
+		result := checkOpenCodePlugin()
+		assert.False(t, result.ok)
+		assert.Contains(t, result.fix, "glab govern setup --uninstall")
+	})
+
 	t.Run("file not installed by glab", func(t *testing.T) {
-		path := setup(t)
+		path := setup(t, true)
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 		require.NoError(t, os.WriteFile(path, []byte("// the user's own plugin\n"), 0o644))
 		result := checkOpenCodePlugin()
@@ -556,9 +589,59 @@ func TestCheckOpenCodePlugin(t *testing.T) {
 	})
 }
 
-// TestMain keeps the OpenCode plugin check under the HOME each test sets,
-// rather than under the XDG_CONFIG_HOME of whoever runs the tests.
+func TestCheckClaudeHooks_NotChosen(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	require.NoError(t, fallbacksync.SetHookAgents([]string{"opencode"}))
+
+	result := checkClaudeHooks()
+	assert.True(t, result.ok, "Claude Code not chosen is not a failure")
+	assert.Contains(t, result.message, "Claude Code sessions are not synced")
+}
+
+func TestCheckClaudeHooks_UnreadableAgents(t *testing.T) {
+	uninstallFix := "Fix it, or run 'glab govern setup --uninstall' to start again"
+	tests := map[string]struct {
+		file    []string
+		wantFix string
+	}{
+		"Claude Code settings":    {file: []string{".claude", "settings.json"}, wantFix: "Fix it, then run 'glab govern setup' again"},
+		"setup's hook agents":     {file: []string{"glab", "gaig", "hook-agents.json"}, wantFix: uninstallFix},
+		"setup's discovered list": {file: []string{"glab", "gaig", "discovered-agents.json"}, wantFix: uninstallFix},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("HOME", dir)
+			t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+			path := filepath.Join(append([]string{dir}, tc.file...)...)
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+			require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o600))
+
+			result := checkClaudeHooks()
+
+			assert.False(t, result.ok)
+			assert.Contains(t, result.message, path)
+			assert.Equal(t, tc.wantFix, result.fix, "uninstalling only helps when setup's own lists are unreadable")
+		})
+	}
+}
+
 func TestMain(m *testing.M) {
+	os.Exit(runIsolated(m))
+}
+
+// runIsolated runs the tests with the OpenCode plugin under the HOME each test
+// sets, and glab's state in a new directory, rather than in the configuration
+// of whoever runs the tests.
+func runIsolated(m *testing.M) int {
 	_ = os.Unsetenv("XDG_CONFIG_HOME")
-	os.Exit(m.Run())
+	dir, err := os.MkdirTemp("", "glab-doctor-test-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(dir)
+	_ = os.Setenv("GLAB_CONFIG_DIR", dir)
+	return m.Run()
 }
