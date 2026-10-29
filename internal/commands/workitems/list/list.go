@@ -33,6 +33,41 @@ type options struct {
 	state        string
 	after        string
 	perPage      int64
+	dates        map[workitemsapi.DateField]*dateFilterValue
+}
+
+var dateFlags = []struct {
+	name  string
+	field workitemsapi.DateField
+	usage string
+}{
+	{"created-after", workitemsapi.CreatedAfter, "Show work items created on or after <date>."},
+	{"created-before", workitemsapi.CreatedBefore, "Show work items created before <date>."},
+	{"updated-after", workitemsapi.UpdatedAfter, "Show work items updated on or after <date>."},
+	{"updated-before", workitemsapi.UpdatedBefore, "Show work items updated before <date>."},
+	{"closed-after", workitemsapi.ClosedAfter, "Show work items closed on or after <date>. Implies --state closed unless --state is set."},
+	{"closed-before", workitemsapi.ClosedBefore, "Show work items closed before <date>. Implies --state closed unless --state is set."},
+	{"due-after", workitemsapi.DueAfter, "Show work items due on or after <date>."},
+	{"due-before", workitemsapi.DueBefore, "Show work items due before <date>."},
+}
+
+// dateFilterValue keeps the raw input so the next page command repeats a
+// relative date as given, instead of the date it resolved to.
+type dateFilterValue struct {
+	raw    string
+	filter workitemsapi.DateFilter
+}
+
+func (d *dateFilterValue) Type() string   { return "date" }
+func (d *dateFilterValue) String() string { return d.raw }
+
+func (d *dateFilterValue) Set(s string) error {
+	filter, err := workitemsapi.ParseDateFilter(s)
+	if err != nil {
+		return err
+	}
+	d.raw, d.filter = s, filter
+	return nil
 }
 
 // jsonPaginationInfo contains pagination metrics for JSON responses
@@ -53,6 +88,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		io:           f.IO(),
 		baseRepo:     f.BaseRepo,
 		gitlabClient: f.GitLabClient,
+		dates:        make(map[workitemsapi.DateField]*dateFilterValue, len(dateFlags)),
 	}
 
 	cmd := &cobra.Command{
@@ -62,6 +98,14 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 Automatically detects scope from repository context. Use --group flag
 for group-level work items or -R to specify a different project.
+
+Date filters accept:
+
+- An absolute date (YYYY-MM-DD). A date without a time is read in the system time zone of the GitLab server.
+- An RFC 3339 timestamp. Use one with an offset, such as 2026-01-01T00:00:00+02:00, for an exact point in time.
+- A relative date: a number followed by d (days), w (weeks), m (months), or y (years). Negative numbers are in the past, positive numbers are in the future, and 0d is today. Relative dates resolve to the start of the day in the time zone of the GitLab instance. They stay relative, so the same command keeps returning the last 7 days, for example.
+
+Date filters require GitLab 19.4 or later. Relative dates require GitLab 19.6 or later.
 `) + text.ExperimentalString,
 		Aliases: []string{"ls"},
 		Example: heredoc.Doc(`
@@ -87,7 +131,16 @@ for group-level work items or -R to specify a different project.
 				glab work-items list --output json -g gitlab-org
 
 				# List issues in a specific project
-				glab work-items list --type issue -R gitlab-org/cli`),
+				glab work-items list --type issue -R gitlab-org/cli
+
+				# List work items created in the last 7 days
+				glab work-items list --created-after -7d -g gitlab-org
+
+				# List open work items due in the next 2 weeks
+				glab work-items list --due-after 0d --due-before 2w -g gitlab-org
+
+				# List work items closed in a fixed date range
+				glab work-items list --state closed --closed-after 2026-01-01 --closed-before 2026-04-01 -g gitlab-org`),
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
@@ -109,12 +162,19 @@ for group-level work items or -R to specify a different project.
 	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat)
 
 	// Flags
-	cmd.Flags().StringP("group", "g", "", "List work items for a group or subgroup.")
-	cmd.Flags().StringSliceVarP(&opts.types, "type", "t", []string{}, "Filter by work item type (epic, issue, task, etc.) Multiple types can be comma-separated or specified by repeating the flag.")
+	fl := cmd.Flags()
+	fl.StringP("group", "g", "", "List work items for a group or subgroup.")
+	fl.StringSliceVarP(&opts.types, "type", "t", []string{}, "Filter by work item type (epic, issue, task, etc.) Multiple types can be comma-separated or specified by repeating the flag.")
 
-	cmd.Flags().StringVar(&opts.state, "state", "opened", "Filter by state: opened, closed, all.")
-	cmd.Flags().StringVar(&opts.after, "after", "", "Fetch items after this cursor (for pagination)")
-	cmd.Flags().Int64VarP(&opts.perPage, "per-page", "P", 20, "Number of items to list per page (max 100)")
+	fl.StringVar(&opts.state, "state", "opened", "Filter by state: opened, closed, all.")
+	fl.StringVar(&opts.after, "after", "", "Fetch items after this cursor (for pagination)")
+	fl.Int64VarP(&opts.perPage, "per-page", "P", 20, "Number of items to list per page (max 100)")
+
+	for _, df := range dateFlags {
+		v := &dateFilterValue{}
+		opts.dates[df.field] = v
+		fl.Var(v, df.name, df.usage+" Use YYYY-MM-DD, an RFC 3339 timestamp, or a relative date such as -7d, 2w, -1m, or 1y.")
+	}
 
 	return cmd
 }
@@ -125,6 +185,11 @@ func (opts *options) complete(cmd *cobra.Command) error {
 		return err
 	}
 	opts.group = group
+
+	// Reopening a work item clears its closed date, so open items never match.
+	if opts.hasClosedFilter() && !cmd.Flags().Changed("state") {
+		opts.state = "closed"
+	}
 	return nil
 }
 
@@ -146,7 +211,17 @@ func (opts *options) validate() error {
 		}
 	}
 
+	if opts.hasClosedFilter() && opts.state == "opened" {
+		return cmdutils.FlagError{
+			Err: fmt.Errorf("--closed-after and --closed-before need --state closed or all"),
+		}
+	}
+
 	return nil
+}
+
+func (opts *options) hasClosedFilter() bool {
+	return opts.dates[workitemsapi.ClosedAfter].raw != "" || opts.dates[workitemsapi.ClosedBefore].raw != ""
 }
 
 func (opts *options) run(ctx context.Context) error {
@@ -161,7 +236,13 @@ func (opts *options) run(ctx context.Context) error {
 	}
 
 	// fetch work items with state filtering and pagination
-	workItems, pageInfo, err := workitemsapi.FetchWorkItems(ctx, client, scope, opts.types, opts.state, opts.after, opts.perPage)
+	workItems, pageInfo, err := workitemsapi.FetchWorkItems(ctx, client, scope, workitemsapi.ListOptions{
+		Types:   opts.types,
+		State:   opts.state,
+		After:   opts.after,
+		PerPage: opts.perPage,
+		Dates:   opts.dateFilters(),
+	})
 	if err != nil {
 		return err
 	}
@@ -188,6 +269,16 @@ func (opts *options) run(ctx context.Context) error {
 	}
 }
 
+func (opts *options) dateFilters() map[workitemsapi.DateField]workitemsapi.DateFilter {
+	filters := make(map[workitemsapi.DateField]workitemsapi.DateFilter)
+	for field, v := range opts.dates {
+		if v.raw != "" {
+			filters[field] = v.filter
+		}
+	}
+	return filters
+}
+
 // buildNextPageCommand constructs the next page command string with preserved flags.
 func buildNextPageCommand(opts *options, cursor string) string {
 	var b strings.Builder
@@ -207,6 +298,12 @@ func buildNextPageCommand(opts *options, cursor string) string {
 	// preserve state filter (only if non-default)
 	if opts.state != "opened" {
 		fmt.Fprintf(&b, " --state %s", opts.state) //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
+	}
+
+	for _, df := range dateFlags {
+		if v := opts.dates[df.field]; v.raw != "" {
+			fmt.Fprintf(&b, " --%s %s", df.name, v.raw) //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
+		}
 	}
 
 	// preserve per-page (only if non-default)

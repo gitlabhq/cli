@@ -19,6 +19,14 @@ List work items in a project or group.
 Automatically detects scope from repository context. Use --group flag
 for group-level work items or -R to specify a different project.
 
+Date filters accept:
+
+- An absolute date (YYYY-MM-DD). A date without a time is read in the system time zone of the GitLab server.
+- An RFC 3339 timestamp. Use one with an offset, such as 2026-01-01T00:00:00+02:00, for an exact point in time.
+- A relative date: a number followed by d (days), w (weeks), m (months), or y (years). Negative numbers are in the past, positive numbers are in the future, and 0d is today. Relative dates resolve to the start of the day in the time zone of the GitLab instance. They stay relative, so the same command keeps returning the last 7 days, for example.
+
+Date filters require GitLab 19.4 or later. Relative dates require GitLab 19.6 or later.
+
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
 For more information, see
@@ -60,19 +68,36 @@ glab work-items list --output json -g gitlab-org
 
 # List issues in a specific project
 glab work-items list --type issue -R gitlab-org/cli
+
+# List work items created in the last 7 days
+glab work-items list --created-after -7d -g gitlab-org
+
+# List open work items due in the next 2 weeks
+glab work-items list --due-after 0d --due-before 2w -g gitlab-org
+
+# List work items closed in a fixed date range
+glab work-items list --state closed --closed-after 2026-01-01 --closed-before 2026-04-01 -g gitlab-org
 ```
 
 ## Options
 
 ```plaintext
-      --after string    Fetch items after this cursor (for pagination)
-  -g, --group string    List work items for a group or subgroup.
-      --jq string       Filter JSON output with a jq expression.
-  -F, --output string   Format output as: text, json. (default "text")
-  -P, --per-page int    Number of items to list per page (max 100) (default 20)
-  -R, --repo string     Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
-      --state string    Filter by state: opened, closed, all. (default "opened")
-  -t, --type strings    Filter by work item type (epic, issue, task, etc.) Multiple types can be comma-separated or specified by repeating the flag.
+      --after string          Fetch items after this cursor (for pagination)
+      --closed-after date     Show work items closed on or after <date>. Implies --state closed unless --state is set. Use YYYY-MM-DD, an RFC 3339 timestamp, or a relative date such as -7d, 2w, -1m, or 1y.
+      --closed-before date    Show work items closed before <date>. Implies --state closed unless --state is set. Use YYYY-MM-DD, an RFC 3339 timestamp, or a relative date such as -7d, 2w, -1m, or 1y.
+      --created-after date    Show work items created on or after <date>. Use YYYY-MM-DD, an RFC 3339 timestamp, or a relative date such as -7d, 2w, -1m, or 1y.
+      --created-before date   Show work items created before <date>. Use YYYY-MM-DD, an RFC 3339 timestamp, or a relative date such as -7d, 2w, -1m, or 1y.
+      --due-after date        Show work items due on or after <date>. Use YYYY-MM-DD, an RFC 3339 timestamp, or a relative date such as -7d, 2w, -1m, or 1y.
+      --due-before date       Show work items due before <date>. Use YYYY-MM-DD, an RFC 3339 timestamp, or a relative date such as -7d, 2w, -1m, or 1y.
+  -g, --group string          List work items for a group or subgroup.
+      --jq string             Filter JSON output with a jq expression.
+  -F, --output string         Format output as: text, json. (default "text")
+  -P, --per-page int          Number of items to list per page (max 100) (default 20)
+  -R, --repo string           Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
+      --state string          Filter by state: opened, closed, all. (default "opened")
+  -t, --type strings          Filter by work item type (epic, issue, task, etc.) Multiple types can be comma-separated or specified by repeating the flag.
+      --updated-after date    Show work items updated on or after <date>. Use YYYY-MM-DD, an RFC 3339 timestamp, or a relative date such as -7d, 2w, -1m, or 1y.
+      --updated-before date   Show work items updated before <date>. Use YYYY-MM-DD, an RFC 3339 timestamp, or a relative date such as -7d, 2w, -1m, or 1y.
 ```
 
 ## Options inherited from parent commands
