@@ -230,7 +230,52 @@ func Test_downloadAsset_SameHost_UsesContextCancellation(t *testing.T) {
 	destPath := filepath.Join(t.TempDir(), "asset.bin")
 	err = downloadAsset(ctx, gitlabClient, testServer.URL+"/asset.bin", destPath)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, doesFileExist(destPath), "partial asset file should be removed on failure")
+}
+
+func Test_downloadAsset_RemovesPartialFileOnErrorStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		sameHost  bool
+		assetPath string
+	}{
+		{
+			name:      "other host",
+			assetPath: "/asset.bin",
+		},
+		{
+			name:      "markdown upload",
+			sameHost:  true,
+			assetPath: "/-/project/42/uploads/8a4f0b1c/file.tar.gz",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			defer testServer.Close()
+
+			baseURL := "https://gitlab.example.com"
+			if tc.sameHost {
+				baseURL = testServer.URL
+			}
+			gitlabClient, err := gitlab.NewClient("test-token", gitlab.WithBaseURL(baseURL), gitlab.WithoutRetries())
+			require.NoError(t, err)
+
+			destPath := filepath.Join(t.TempDir(), "asset.bin")
+			err = downloadAsset(t.Context(), gitlabClient, testServer.URL+tc.assetPath, destPath)
+
+			require.Error(t, err)
+			assert.False(t, doesFileExist(destPath), "partial asset file should be removed on an error status")
+		})
+	}
 }
 
 func Test_parseMarkdownUploadRef(t *testing.T) {
