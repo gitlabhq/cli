@@ -443,7 +443,7 @@ func (o *options) run(ctx context.Context) error {
 		}
 	}
 
-	if !o.TargetProject.MergeRequestsEnabled { //nolint:staticcheck
+	if !o.TargetProject.MergeRequestsEnabled { //nolint:staticcheck // Unlike MergeRequestsAccessLevel, MergeRequestsEnabled reflects the current user's access, which this check needs.
 		o.io.LogErrorf("Failed to create a merge request for project %q. Please ensure:\n", o.TargetProject.PathWithNamespace)
 		o.io.LogErrorf(" - You are authenticated with the GitLab CLI.\n")
 		o.io.LogErrorf(" - Merge requests are enabled for this project.\n")

@@ -594,8 +594,8 @@ next:
 		if len(issue.Labels) > 0 {
 			labelString = buildLabelString(issue.LabelDetails)
 		}
-		if issue.Assignee != nil { //nolint:staticcheck
-			assignee = issue.Assignee.Username //nolint:staticcheck
+		if len(issue.Assignees) > 0 {
+			assignee = issue.Assignees[0].Username
 		}
 
 		boardIssues.WriteString(fmt.Sprintf("[white::b]%s\n%s[green:-:-]#%d[darkgray] - %s\n\n",
