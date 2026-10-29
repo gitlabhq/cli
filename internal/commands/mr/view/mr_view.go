@@ -90,24 +90,28 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, args []string) er
 		return err
 	}
 
-	mr, baseRepo, err := mrutils.MRFromArgsWithOpts(ctx, f, args, &gitlab.GetMergeRequestsOptions{
-		IncludeDivergedCommitsCount: new(true),
-		RenderHTML:                  new(true),
-		IncludeRebaseInProgress:     new(true),
-	}, "any")
+	// Only JSON output prints these fields, and the diverged commits count costs a Gitaly call.
+	var getOpts *gitlab.GetMergeRequestsOptions
+	if o.outputFormat == "json" {
+		getOpts = &gitlab.GetMergeRequestsOptions{
+			IncludeDivergedCommitsCount: new(true),
+			RenderHTML:                  new(true),
+			IncludeRebaseInProgress:     new(true),
+		}
+	}
+
+	mr, baseRepo, err := mrutils.MRFromArgsWithOpts(ctx, f, args, getOpts, "any")
 	if err != nil {
 		return err
 	}
 
-	// Optional: check for approval state of the MR (if the project supports it). In the event of a failure
-	// for this step, move forward assuming MR approvals are not supported. See below.
-	//
-	// NOTE: the API documentation says that project details have `approvals_before_merge` for GitLab Premium
-	// https://docs.gitlab.com/api/projects/#retrieve-a-project. Unfortunately, the API client used
-	// does not provide the necessary ability to determine if this value was present or not in the response JSON
-	// since Project.ApprovalsBeforeMerge is a non-pointer type. Because of this, this step will either succeed
-	// and show approval state or it will fail silently
-	mrApprovals, _, err := client.MergeRequestApprovals.GetApprovalState(baseRepo.FullName(), mr.IID) //nolint:ineffassign,staticcheck
+	// Only the TTY preview shows approval state. Project.ApprovalsBeforeMerge
+	// isn't a pointer, so support can't be checked first. Try it and ignore a failure.
+	ttyPreview := o.outputFormat != "json" && o.io.IsOutputTTY()
+	var mrApprovals *gitlab.MergeRequestApprovalState
+	if ttyPreview {
+		mrApprovals, _, _ = client.MergeRequestApprovals.GetApprovalState(baseRepo.FullName(), mr.IID)
+	}
 
 	cfg := o.config()
 
@@ -157,7 +161,7 @@ func (o *options) run(ctx context.Context, f cmdutils.Factory, args []string) er
 	switch {
 	case o.outputFormat == "json":
 		return printJSONMR(o, mr, discussions)
-	case o.io.IsOutputTTY():
+	case ttyPreview:
 		printTTYMRPreview(o, mr, mrApprovals, discussions)
 	default:
 		printRawMRPreview(o, mr, discussions)
