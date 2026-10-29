@@ -5,6 +5,7 @@ package issues
 import (
 	"net/http"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,4 +161,53 @@ func TestMergeRequestClosesIssues_currentBranch(t *testing.T) {
 	assert.Contains(t, out, "#15\tthis is another new issue")
 	assert.Contains(t, out, "about X years ago")
 	assert.Empty(t, output.Stderr())
+}
+
+func TestMergeRequestClosesIssues_HeaderTotal(t *testing.T) {
+	t.Parallel()
+
+	createdAt, _ := time.Parse(time.RFC3339, "2020-09-05T01:17:17.270Z")
+	issues := []*gitlab.Issue{
+		{ID: 123, IID: 11, ProjectID: 1, Title: "new issue", State: "opened", CreatedAt: &createdAt, Labels: gitlab.Labels{}},
+	}
+
+	tests := []struct {
+		name       string
+		resp       *gitlab.Response
+		wantHeader string
+	}{
+		{
+			name:       "shows the total from the API",
+			resp:       &gitlab.Response{CurrentPage: 1, NextPage: 2, TotalPages: 2, TotalItems: 25},
+			wantHeader: "Showing 1 of 25 issues in OWNER/REPO that match your search. ",
+		},
+		{
+			name:       "without a total from the API",
+			resp:       &gitlab.Response{CurrentPage: 1, NextPage: 2},
+			wantHeader: "Showing 1 issue in OWNER/REPO that match your search. ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			testClient := gitlabtesting.NewTestClient(t)
+			testClient.MockMergeRequests.EXPECT().
+				GetMergeRequest("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+				Return(&gitlab.MergeRequest{BasicMergeRequest: gitlab.BasicMergeRequest{ID: 123, IID: 123}}, nil, nil)
+			testClient.MockMergeRequests.EXPECT().
+				GetIssuesClosedOnMerge("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+				Return(issues, tt.resp, nil)
+
+			exec := cmdtest.SetupCmdForTest(t, NewCmdIssues, true, cmdtest.WithGitLabClient(testClient.Client))
+
+			output, err := exec("123")
+			require.NoError(t, err)
+
+			header, _, _ := strings.Cut(output.String(), "\n")
+			assert.Equal(t, tt.wantHeader, header)
+			assert.Empty(t, output.Stderr())
+		})
+	}
 }

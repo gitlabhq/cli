@@ -48,7 +48,7 @@ func NewCmdIssues(f cmdutils.Factory) *cobra.Command {
 
 			l := &gitlab.GetIssuesClosedOnMergeOptions{}
 
-			mrIssues, _, err := client.MergeRequests.GetIssuesClosedOnMerge(repo.FullName(), mr.IID, l)
+			mrIssues, resp, err := client.MergeRequests.GetIssuesClosedOnMerge(repo.FullName(), mr.IID, l)
 			if err != nil {
 				return err
 			}
@@ -58,6 +58,9 @@ func NewCmdIssues(f cmdutils.Factory) *cobra.Command {
 			title.Page = 0
 			title.ListActionType = "search"
 			title.CurrentPageTotal = len(mrIssues)
+			if resp != nil {
+				title.Total = int(resp.TotalItems)
+			}
 
 			f.IO().LogInfof("%s\n%s\n", title.Describe(), issueutils.DisplayIssueList(f.IO(), mrIssues, title.RepoName))
 			return nil
