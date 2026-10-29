@@ -5,6 +5,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	cmdGet "gitlab.com/gitlab-org/cli/internal/commands/deploy-token/get"
 	cmdList "gitlab.com/gitlab-org/cli/internal/commands/deploy-token/list"
 )
 
@@ -23,6 +24,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	cmdutils.EnableRepoOverride(cmd, f)
 
+	cmd.AddCommand(cmdGet.NewCmd(f))
 	cmd.AddCommand(cmdList.NewCmd(f))
 
 	return cmd

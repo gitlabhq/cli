@@ -34,4 +34,5 @@ These commands act on the current project. Use `--repo` to target a different pr
 
 ## Subcommands
 
+- [`get`](get.md)
 - [`list`](list.md)
