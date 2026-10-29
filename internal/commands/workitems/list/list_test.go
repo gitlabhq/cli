@@ -517,6 +517,26 @@ func TestWorkItemsList_FlagValidation(t *testing.T) {
 			args:    "--state invalid",
 			wantErr: "--state must be one of: opened, closed, all",
 		},
+		{
+			name:    "invalid relative date unit",
+			args:    "--created-after -7h",
+			wantErr: `invalid argument "-7h" for "--created-after" flag`,
+		},
+		{
+			name:    "relative date amount out of range",
+			args:    "--due-before 10000d",
+			wantErr: "relative date amount must be between -9999 and 9999",
+		},
+		{
+			name:    "invalid absolute date",
+			args:    "--updated-before 2026-02-30",
+			wantErr: `invalid argument "2026-02-30" for "--updated-before" flag`,
+		},
+		{
+			name:    "closed date filter with opened state",
+			args:    "--state opened --closed-after -7d",
+			wantErr: "--closed-after and --closed-before need --state closed or all",
+		},
 	}
 
 	for _, tt := range tests {
@@ -531,6 +551,180 @@ func TestWorkItemsList_FlagValidation(t *testing.T) {
 			_, err := exec(tt.args)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestWorkItemsList_DateFilters(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       string
+		assertVars func(t *testing.T, query gitlab.GraphQLQuery)
+		group      bool
+		hasNext    bool
+		wantOutput string
+	}{
+		{
+			name: "no date filters",
+			args: "",
+			assertVars: func(t *testing.T, query gitlab.GraphQLQuery) {
+				t.Helper()
+				assert.NotContains(t, query.Query, "relativeDateFilters")
+				assert.NotContains(t, query.Query, "createdAfter")
+				assert.NotContains(t, query.Variables, "relativeDateFilters")
+			},
+		},
+		{
+			name: "relative date filters",
+			args: "--created-after -7d --due-before 2w",
+			assertVars: func(t *testing.T, query gitlab.GraphQLQuery) {
+				t.Helper()
+				assert.Contains(t, query.Query, "$relativeDateFilters: WorkItemRelativeDateFiltersInput")
+				assert.Contains(t, query.Query, "relativeDateFilters: $relativeDateFilters")
+				assert.Equal(t, map[workitemsapi.DateField]workitemsapi.RelativeDate{
+					workitemsapi.CreatedAfter: {Amount: -7, Unit: workitemsapi.RelativeDateUnitDay},
+					workitemsapi.DueBefore:    {Amount: 2, Unit: workitemsapi.RelativeDateUnitWeek},
+				}, query.Variables["relativeDateFilters"])
+				assert.NotContains(t, query.Variables, "createdAfter")
+			},
+		},
+		{
+			name: "absolute date filters",
+			args: "--closed-after 2026-01-01 --updated-before 2026-04-01T12:00:00Z",
+			assertVars: func(t *testing.T, query gitlab.GraphQLQuery) {
+				t.Helper()
+				assert.Contains(t, query.Query, "$closedAfter: Time")
+				assert.Contains(t, query.Query, "closedAfter: $closedAfter")
+				assert.Equal(t, "2026-01-01", query.Variables["closedAfter"])
+				assert.Equal(t, "2026-04-01T12:00:00Z", query.Variables["updatedBefore"])
+				assert.NotContains(t, query.Variables, "relativeDateFilters")
+			},
+		},
+		{
+			name: "all absolute date flags map to their fields",
+			args: "--state all --created-after 2026-01-01 --created-before 2026-01-02 --updated-after 2026-01-03 --updated-before 2026-01-04 " +
+				"--closed-after 2026-01-05 --closed-before 2026-01-06 --due-after 2026-01-07 --due-before 2026-01-08",
+			assertVars: func(t *testing.T, query gitlab.GraphQLQuery) {
+				t.Helper()
+				assert.Equal(t, map[string]any{
+					"projectPath":   "OWNER/REPO",
+					"first":         int64(20),
+					"createdAfter":  "2026-01-01",
+					"createdBefore": "2026-01-02",
+					"updatedAfter":  "2026-01-03",
+					"updatedBefore": "2026-01-04",
+					"closedAfter":   "2026-01-05",
+					"closedBefore":  "2026-01-06",
+					"dueAfter":      "2026-01-07",
+					"dueBefore":     "2026-01-08",
+				}, query.Variables)
+			},
+		},
+		{
+			name: "all relative date flags map to their fields",
+			args: "--state all --created-after -1d --created-before -2d --updated-after -3d --updated-before -4d " +
+				"--closed-after -5d --closed-before -6d --due-after 7d --due-before 8d",
+			assertVars: func(t *testing.T, query gitlab.GraphQLQuery) {
+				t.Helper()
+				assert.Equal(t, map[string]any{
+					"projectPath": "OWNER/REPO",
+					"first":       int64(20),
+					"relativeDateFilters": map[workitemsapi.DateField]workitemsapi.RelativeDate{
+						workitemsapi.CreatedAfter:  {Amount: -1, Unit: workitemsapi.RelativeDateUnitDay},
+						workitemsapi.CreatedBefore: {Amount: -2, Unit: workitemsapi.RelativeDateUnitDay},
+						workitemsapi.UpdatedAfter:  {Amount: -3, Unit: workitemsapi.RelativeDateUnitDay},
+						workitemsapi.UpdatedBefore: {Amount: -4, Unit: workitemsapi.RelativeDateUnitDay},
+						workitemsapi.ClosedAfter:   {Amount: -5, Unit: workitemsapi.RelativeDateUnitDay},
+						workitemsapi.ClosedBefore:  {Amount: -6, Unit: workitemsapi.RelativeDateUnitDay},
+						workitemsapi.DueAfter:      {Amount: 7, Unit: workitemsapi.RelativeDateUnitDay},
+						workitemsapi.DueBefore:     {Amount: 8, Unit: workitemsapi.RelativeDateUnitDay},
+					},
+				}, query.Variables)
+			},
+		},
+		{
+			name: "closed date filter implies closed state",
+			args: "--closed-before -1d",
+			assertVars: func(t *testing.T, query gitlab.GraphQLQuery) {
+				t.Helper()
+				assert.Equal(t, "closed", query.Variables["state"])
+			},
+		},
+		{
+			name: "closed date filter keeps explicit all state",
+			args: "--state all --closed-after -7d",
+			assertVars: func(t *testing.T, query gitlab.GraphQLQuery) {
+				t.Helper()
+				assert.NotContains(t, query.Variables, "state")
+			},
+		},
+		{
+			name:  "group scope date filters",
+			args:  "-g test-group --created-after -7d --closed-before 2026-04-01",
+			group: true,
+			assertVars: func(t *testing.T, query gitlab.GraphQLQuery) {
+				t.Helper()
+				assert.Contains(t, query.Query, "query ListGroupWorkItems(")
+				assert.Contains(t, query.Query, "$closedBefore: Time")
+				assert.Contains(t, query.Query, "closedBefore: $closedBefore")
+				assert.Contains(t, query.Query, "$relativeDateFilters: WorkItemRelativeDateFiltersInput")
+				assert.Contains(t, query.Query, "relativeDateFilters: $relativeDateFilters")
+				assert.Equal(t, "2026-04-01", query.Variables["closedBefore"])
+				assert.Equal(t, map[workitemsapi.DateField]workitemsapi.RelativeDate{
+					workitemsapi.CreatedAfter: {Amount: -7, Unit: workitemsapi.RelativeDateUnitDay},
+				}, query.Variables["relativeDateFilters"])
+			},
+		},
+		{
+			name:    "next page command keeps relative dates",
+			args:    "--updated-after -1y --updated-before -1m",
+			hasNext: true,
+			assertVars: func(t *testing.T, query gitlab.GraphQLQuery) {
+				t.Helper()
+				assert.Contains(t, query.Variables, "relativeDateFilters")
+			},
+			wantOutput: `Next page: glab work-items list --updated-after -1y --updated-before -1m --after "cursor456"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tc := gitlabtesting.NewTestClient(t)
+			tc.MockGraphQL.EXPECT().
+				Do(gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(query gitlab.GraphQLQuery, response any, options ...gitlab.RequestOptionFunc) (*gitlab.Response, error) {
+					tt.assertVars(t, query)
+
+					conn := workitemsapi.WorkItemsConnection{
+						Nodes: []workitemsapi.WorkItem{
+							{IID: "1", Title: "Recent item", State: "OPEN"},
+						},
+						PageInfo: workitemsapi.PageInfo{EndCursor: "cursor456", HasNextPage: tt.hasNext},
+					}
+					resp, _ := response.(*workitemsapi.WorkItemsResponse)
+					if tt.group {
+						resp.Data.Group = &workitemsapi.GroupWorkItems{WorkItems: conn}
+					} else {
+						resp.Data.Project = &workitemsapi.ProjectWorkItems{WorkItems: conn}
+					}
+					return &gitlab.Response{}, nil
+				})
+
+			exec := cmdtest.SetupCmdForTest(
+				t,
+				NewCmd,
+				false,
+				cmdtest.WithGitLabClient(tc.Client),
+				cmdtest.WithBaseRepo("OWNER", "REPO", glinstance.DefaultHostname),
+			)
+
+			out, err := exec(tt.args)
+
+			require.NoError(t, err)
+			assert.Contains(t, out.OutBuf.String(), "Recent item")
+			if tt.wantOutput != "" {
+				assert.Contains(t, out.OutBuf.String(), tt.wantOutput)
+			}
 		})
 	}
 }
