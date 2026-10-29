@@ -220,7 +220,7 @@ func sanitizeAssetName(asset string) string {
 	return filepath.Clean(asset)
 }
 
-func downloadAsset(ctx context.Context, client *gitlab.Client, assetURL, destinationPath string) error {
+func downloadAsset(ctx context.Context, client *gitlab.Client, assetURL, destinationPath string) (err error) {
 	baseURL, err := url.Parse(assetURL)
 	if err != nil {
 		return fmt.Errorf("parsing release asset URL: %w", err)
@@ -230,7 +230,13 @@ func downloadAsset(ctx context.Context, client *gitlab.Client, assetURL, destina
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	// Close can report a failed buffered write, and a leftover file makes the O_EXCL retry fail with "file exists".
+	defer func() {
+		err = errors.Join(err, f.Close())
+		if err != nil {
+			err = errors.Join(err, os.Remove(destinationPath))
+		}
+	}()
 
 	// check if authenticated GitLab client should be used or not.
 	gitlabBaseURL := client.BaseURL()
@@ -252,10 +258,7 @@ func downloadAsset(ctx context.Context, client *gitlab.Client, assetURL, destina
 			return err
 		}
 		_, err = client.Do(r, f)
-		if err != nil {
-			return err
-		}
-		return nil
+		return err
 	} else {
 		r, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), http.NoBody)
 		if err != nil {
