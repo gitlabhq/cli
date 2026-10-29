@@ -261,6 +261,11 @@ func Test_addTelemetryHook_commandAttribution(t *testing.T) {
 			fullCommand: "mr list",
 		},
 		{
+			name:        "repo override before command",
+			argv:        []string{"glab", "-R", "ns/repo", "mr", "view"},
+			fullCommand: "mr view",
+		},
+		{
 			name:        "flag before subcommand",
 			argv:        []string{"glab", "mr", "--output", "json", "list"},
 			fullCommand: "mr list",
