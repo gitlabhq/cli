@@ -3,6 +3,12 @@ version: "2"
 run:
     modules-download-mode: readonly
 
+# Unlimited so a failing run lists every issue; the defaults keep a
+# truncated sample whose members vary between runs.
+issues:
+    max-issues-per-linter: 0
+    max-same-issues: 0
+
 linters:
     default: none
     enable:

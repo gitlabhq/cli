@@ -165,7 +165,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 				return err
 			}
 
-			if !opts.baseProject.IssuesEnabled { //nolint:staticcheck
+			if !opts.baseProject.IssuesEnabled { //nolint:staticcheck // Unlike IssuesAccessLevel, IssuesEnabled reflects the current user's access, which this check needs.
 				opts.io.LogErrorf("Issues are disabled for project %q or require project membership. ", opts.baseProject.PathWithNamespace)
 				opts.io.LogErrorf("Make sure issues are enabled for the %q project, and if required, you are a member of the project.\n",
 					opts.baseProject.PathWithNamespace)

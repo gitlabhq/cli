@@ -589,6 +589,76 @@ func Test_printTTYMRPreview_closedMRWithNilClosedBy(t *testing.T) {
 	assert.NotContains(t, output, "Closed by:")
 }
 
+func Test_printTTYMRPreview_mergedBy(t *testing.T) {
+	createdAt, err := time.Parse(time.RFC3339, "2024-01-01T12:00:00Z")
+	require.NoError(t, err)
+	mergedAt := createdAt.Add(24 * time.Hour)
+
+	tests := []struct {
+		name       string
+		state      string
+		mergeUser  *gitlab.BasicUser
+		noMergedAt bool
+		want       string
+	}{
+		{
+			name:      "merged with a merge user",
+			state:     "merged",
+			mergeUser: &gitlab.BasicUser{Name: "Jane Doe", Username: "jdoe"},
+			want:      "The changes were merged into main by Jane Doe",
+		},
+		{
+			name:  "merged without a merge user",
+			state: "merged",
+		},
+		{
+			name:       "merged with a merge user but no merge time",
+			state:      "merged",
+			mergeUser:  &gitlab.BasicUser{Name: "Jane Doe", Username: "jdoe"},
+			noMergedAt: true,
+		},
+		{
+			name:      "open with an auto-merge user",
+			state:     "opened",
+			mergeUser: &gitlab.BasicUser{Name: "Jane Doe", Username: "jdoe"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ioStreams, _, stdout, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(true))
+
+			var mergedAtPtr *time.Time
+			if !tt.noMergedAt {
+				mergedAtPtr = &mergedAt
+			}
+
+			mr := &gitlab.MergeRequest{
+				BasicMergeRequest: gitlab.BasicMergeRequest{
+					IID:          506,
+					Title:        "Test merged MR",
+					State:        tt.state,
+					Author:       &gitlab.BasicUser{Username: "testuser"},
+					TargetBranch: "main",
+					WebURL:       "https://gitlab.com/OWNER/REPO/-/merge_requests/506",
+					CreatedAt:    &createdAt,
+					MergeUser:    tt.mergeUser,
+					MergedAt:     mergedAtPtr,
+				},
+			}
+
+			printTTYMRPreview(&options{io: ioStreams}, mr, nil, []*gitlab.Discussion{})
+
+			output := stripansi.Strip(stdout.String())
+			if tt.want == "" {
+				assert.NotContains(t, output, "The changes were merged")
+				return
+			}
+			assert.Contains(t, output, tt.want)
+		})
+	}
+}
+
 func Test_filterDiscussionsByResolution(t *testing.T) {
 	timer, _ := time.Parse(time.RFC3339, "2014-11-12T11:45:26.371Z")
 

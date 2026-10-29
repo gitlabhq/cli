@@ -370,7 +370,7 @@ func Test_filterIssues(t *testing.T) {
 				},
 				issues: []*gitlab.Issue{
 					{
-						Assignee:     &gitlab.IssueAssignee{Username: "user"},
+						Assignees:    []*gitlab.IssueAssignee{{Username: "user"}},
 						Labels:       []string{"A"},
 						LabelDetails: []*gitlab.LabelDetails{{Name: "A", Color: "green"}},
 						Title:        "Issue",

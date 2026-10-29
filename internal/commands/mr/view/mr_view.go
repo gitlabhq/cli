@@ -279,8 +279,8 @@ func printTTYMRPreview(opts *options, mr *gitlab.MergeRequest, mrApprovals *gitl
 		mrutils.PrintMRApprovalState(opts.io, mrApprovals)
 	}
 	opts.io.LogInfof("%s This merge request has %s changes.\n", c.GreenCheck(), c.Yellow(mr.ChangesCount))
-	if mr.State == "merged" && mr.MergedBy != nil { //nolint:staticcheck
-		opts.io.LogInfof("%s The changes were merged into %s by %s %s.\n", c.GreenCheck(), mr.TargetBranch, mr.MergedBy.Name, utils.TimeToPrettyTimeAgo(*mr.MergedAt)) //nolint:staticcheck
+	if mr.State == "merged" && mr.MergeUser != nil && mr.MergedAt != nil {
+		opts.io.LogInfof("%s The changes were merged into %s by %s %s.\n", c.GreenCheck(), mr.TargetBranch, mr.MergeUser.Name, utils.TimeToPrettyTimeAgo(*mr.MergedAt))
 	}
 
 	if mr.HasConflicts {
