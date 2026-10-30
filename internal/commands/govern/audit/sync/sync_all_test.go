@@ -1545,7 +1545,7 @@ func TestOpenCodeTranscript_ChildKeepingOutputOpen(t *testing.T) {
 
 	// The background sleep inherits stdout and outlives opencode. Reading
 	// stdout through a pipe would block until the sleep exits.
-	binary := fakeOpenCode(t, `sleep 20 &
+	binary := fakeOpenCode(t, `sleep 30 &
 printf '%s' '{"info":{"time":{"created":1000,"updated":2000}},"messages":[]}'`)
 	src := &openCodeTranscript{sessionID: "ses_1", binary: binary, executor: processExecutor{}}
 
@@ -1553,7 +1553,8 @@ printf '%s' '{"info":{"time":{"created":1000,"updated":2000}},"messages":[]}'`)
 	last, err := src.lastActivity(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, time.UnixMilli(2000), last)
-	assert.Less(t, time.Since(start), 5*time.Second, "export must not wait for opencode's child process")
+	// Generous because process startup takes seconds under full-suite load on macOS.
+	assert.Less(t, time.Since(start), 15*time.Second, "export must not wait for opencode's child process")
 }
 
 func TestOpenCodeTranscript_ExportTimesOut(t *testing.T) {
