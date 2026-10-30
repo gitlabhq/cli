@@ -69,6 +69,15 @@ var mergeRequestURLPathRE = regexp.MustCompile(`^(/(?:[^-][^/]+/){2,})+(?:-/)?me
 // and fragments into separate fields before regex matching.
 var issueURLPathRE = regexp.MustCompile(`^(/(?:[^-][^/]+/){2,})+(?:-/)?(?:issues/(?:incident/)?|work_items/)(\d+)(?:/.*)?$`)
 
+// groupWorkItemURLPathRE is a regex which matches the following patterns:
+//
+//	groups/GROUP/-/work_items/id
+//	groups/GROUP/-/epics/id
+//	groups/GROUP/epics/id
+//	including nested subgroups:
+//	groups/GROUP/SUBGROUP/-/work_items/id
+var groupWorkItemURLPathRE = regexp.MustCompile(`^/groups/(.+?)/(?:-/)?(?:work_items|epics)/(\d+)(?:/.*)?$`)
+
 // ParseGitLabURL returns nil when urlStr is not a merge request or issue URL.
 // URLs without a scheme are accepted.
 func ParseGitLabURL(urlStr, defaultHostname string, cfg config.Config) *GitLabResourceMetadata {
@@ -114,6 +123,26 @@ func ParseIssueFromURL(urlStr, defaultHostname string, cfg config.Config) (int, 
 		return 0, nil
 	}
 	return metadata.ID, metadata.Repo
+}
+
+// ParseGroupWorkItemFromURL returns the group path and IID of a group work
+// item or epic URL, or "" and 0 if urlStr is not one. The host's configured
+// subfolder is ignored.
+func ParseGroupWorkItemFromURL(urlStr string, cfg config.Config) (string, int) {
+	u := parseResourceURL(urlStr)
+	if u == nil {
+		return "", 0
+	}
+
+	m := groupWorkItemURLPathRE.FindStringSubmatch("/" + glrepo.TrimSubfolder(u, cfg))
+	if m == nil {
+		return "", 0
+	}
+	id, err := strconv.Atoi(m[2])
+	if err != nil {
+		return "", 0
+	}
+	return m[1], id
 }
 
 func parseResourceURL(urlStr string) *url.URL {

@@ -20,6 +20,8 @@ Use `--group` to target a group or subgroup. `--group` and `--repo` are mutually
 
 `--attach` uploads a file and references it at the end of the description. Repeat the flag for more than one file, or pass `-` to read the file from standard input. Without `--description` the references are added to the description the work item already has, instead of replacing it. Uploads are project-scoped, so `--attach` cannot be combined with `--group`.
 
+`--parent` accepts a work item ID in the current scope, a reference such as `group/project#123`, or a URL.
+
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
 For more information, see
@@ -50,6 +52,12 @@ glab work-items update 42 --attach ./screenshot.png
 # Move a work item to another iteration
 glab work-items update 42 --iteration 123
 
+# Move a work item under work item 40
+glab work-items update 42 --parent 40
+
+# Move a work item under a work item in another project
+glab work-items update 42 --parent https://gitlab.com/my-group/my-project/-/work_items/40
+
 ```
 
 ## Options
@@ -65,6 +73,7 @@ glab work-items update 42 --iteration 123
       --jq string                 Filter JSON output with a jq expression.
   -m, --milestone string          Update the work item milestone with the title or ID.
   -F, --output string             Format output as: text, json. (default "text")
+      --parent string             Set the parent work item by <id>, reference, or URL.
   -R, --repo string               Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
       --startdate string          Update the start date for the work item.
   -t, --title string              Update the title for the work item.

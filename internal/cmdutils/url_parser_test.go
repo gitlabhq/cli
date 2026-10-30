@@ -359,3 +359,31 @@ func TestParseIssueFromURL(t *testing.T) {
 		})
 	}
 }
+
+func TestParseGroupWorkItemFromURL(t *testing.T) {
+	tests := []struct {
+		name      string
+		url       string
+		wantGroup string
+		wantID    int
+	}{
+		{name: "work item URL", url: "https://gitlab.com/groups/gitlab-org/-/work_items/7", wantGroup: "gitlab-org", wantID: 7},
+		{name: "epic URL in a subgroup", url: "https://gitlab.com/groups/gitlab-org/sub/-/epics/7#note_1", wantGroup: "gitlab-org/sub", wantID: 7},
+		{name: "epic URL without dash", url: "https://gitlab.com/groups/gitlab-org/epics/7", wantGroup: "gitlab-org", wantID: 7},
+		{name: "project work item URL", url: "https://gitlab.com/gitlab-org/cli/-/work_items/7"},
+		{name: "wrong protocol", url: "ftp://gitlab.com/groups/gitlab-org/-/epics/7"},
+		{name: "work item URL under a subfolder", url: "https://example.com/gitlab/groups/my-group/-/work_items/7", wantGroup: "my-group", wantID: 7},
+		{name: "epic URL under a subfolder", url: "https://example.com/gitlab/groups/my-group/-/epics/7", wantGroup: "my-group", wantID: 7},
+	}
+
+	cfg := config.NewBlankConfig()
+	require.NoError(t, cfg.Set("example.com", "subfolder", "gitlab"))
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			group, id := ParseGroupWorkItemFromURL(tt.url, cfg)
+			require.Equal(t, tt.wantGroup, group)
+			require.Equal(t, tt.wantID, id)
+		})
+	}
+}

@@ -179,36 +179,7 @@ func FromURL(u *url.URL, defaultHostname string, cfg config.Config) (Interface, 
 		return nil, fmt.Errorf("no hostname detected")
 	}
 
-	// Retrieve subfolder from the injected config when available. The lookup is
-	// keyed on u.Host, not u.Hostname(): host entries are written with the port
-	// (`auth login --hostname example.com:8080`), and RepoHost below carries the
-	// port too, so the API client resolves its own settings under the same key.
-	// Keying on the port-stripped hostname silently misses every setting for a
-	// ported instance.
-	var subfolder string
-	if cfg != nil {
-		subfolder, _ = cfg.Get(u.Host, "subfolder")
-
-		// Backward compatibility: extract subfolder from api_host if subfolder field is empty
-		if subfolder == "" {
-			apiHost, _ := cfg.Get(u.Host, "api_host")
-			if apiHost != "" && strings.Contains(apiHost, "/") {
-				parts := strings.SplitN(apiHost, "/", 2)
-				if len(parts) == 2 {
-					subfolder = parts[1]
-				}
-			}
-		}
-	}
-
-	// Simple subfolder removal - much cleaner than old code!
-	urlPath := strings.TrimPrefix(u.Path, "/")
-	if subfolder != "" {
-		subfolderPrefix := strings.Trim(subfolder, "/") + "/"
-		if after, ok := strings.CutPrefix(urlPath, subfolderPrefix); ok {
-			urlPath = after
-		}
-	}
+	urlPath := TrimSubfolder(u, cfg)
 
 	// Standard path parsing
 	urlPath = strings.TrimLeft(git.StripDotGit(urlPath), "/")
@@ -231,6 +202,41 @@ func FromURL(u *url.URL, defaultHostname string, cfg config.Config) (Interface, 
 		}
 	}
 	return nil, fmt.Errorf("invalid path: %s", u.Path)
+}
+
+// TrimSubfolder returns u's path without its leading slash and without the
+// subfolder configured for u's host.
+func TrimSubfolder(u *url.URL, cfg config.Config) string {
+	// Retrieve subfolder from the injected config when available. The lookup is
+	// keyed on u.Host, not u.Hostname(): host entries are written with the port
+	// (`auth login --hostname example.com:8080`), and RepoHost carries the
+	// port too, so the API client resolves its own settings under the same key.
+	// Keying on the port-stripped hostname silently misses every setting for a
+	// ported instance.
+	var subfolder string
+	if cfg != nil {
+		subfolder, _ = cfg.Get(u.Host, "subfolder")
+
+		// Backward compatibility: extract subfolder from api_host if subfolder field is empty
+		if subfolder == "" {
+			apiHost, _ := cfg.Get(u.Host, "api_host")
+			if apiHost != "" && strings.Contains(apiHost, "/") {
+				parts := strings.SplitN(apiHost, "/", 2)
+				if len(parts) == 2 {
+					subfolder = parts[1]
+				}
+			}
+		}
+	}
+
+	urlPath := strings.TrimPrefix(u.Path, "/")
+	if subfolder != "" {
+		subfolderPrefix := strings.Trim(subfolder, "/") + "/"
+		if after, ok := strings.CutPrefix(urlPath, subfolderPrefix); ok {
+			urlPath = after
+		}
+	}
+	return urlPath
 }
 
 func normalizeHostname(h string) string {
