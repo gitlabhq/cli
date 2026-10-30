@@ -3,6 +3,8 @@
 package issueutils
 
 import (
+	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
@@ -340,4 +343,51 @@ func Test_DisplayIssueList(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_IssuesFromArgs_LimitsConcurrency(t *testing.T) {
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(ios, cmdtest.WithBaseRepo("foo", "bar", ""))
+
+	var inFlight, maxInFlight atomic.Int32
+	release := make(chan struct{})
+	origGetIssue := api.GetIssue
+	t.Cleanup(func() { api.GetIssue = origGetIssue })
+	api.GetIssue = func(_ *gitlab.Client, _ any, issueID int64) (*gitlab.Issue, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			m := maxInFlight.Load()
+			if n <= m || maxInFlight.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		<-release
+		return &gitlab.Issue{IID: issueID}, nil
+	}
+
+	args := make([]string, 4*api.MaxConcurrentRequests)
+	for i := range args {
+		args[i] = strconv.Itoa(i + 1)
+	}
+
+	type result struct {
+		issues []*gitlab.Issue
+		err    error
+	}
+	done := make(chan result)
+	go func() {
+		issues, _, err := IssuesFromArgs(t.Context(), nil, nil, f.BaseRepo, glinstance.DefaultHostname, nil, args)
+		done <- result{issues, err}
+	}()
+
+	require.Eventually(t, func() bool {
+		return inFlight.Load() == api.MaxConcurrentRequests
+	}, time.Second, time.Millisecond)
+	close(release)
+	res := <-done
+
+	require.NoError(t, res.err)
+	require.Len(t, res.issues, len(args))
+	assert.Equal(t, int32(api.MaxConcurrentRequests), maxInFlight.Load())
 }

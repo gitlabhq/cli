@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1356,4 +1358,51 @@ func Test_RebaseMR_StopsWaitingWhenContextIsCancelled(t *testing.T) {
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, 1, polls)
+}
+
+func Test_MRsFromArgs_LimitsConcurrency(t *testing.T) {
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(ios, cmdtest.WithBaseRepo("foo", "bar", ""))
+
+	var inFlight, maxInFlight atomic.Int32
+	release := make(chan struct{})
+	origGetMR := api.GetMR
+	t.Cleanup(func() { api.GetMR = origGetMR })
+	api.GetMR = func(_ *gitlab.Client, _ any, mrID int64, _ *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			m := maxInFlight.Load()
+			if n <= m || maxInFlight.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		<-release
+		return &gitlab.MergeRequest{BasicMergeRequest: gitlab.BasicMergeRequest{IID: mrID}}, nil
+	}
+
+	args := make([]string, 4*api.MaxConcurrentRequests)
+	for i := range args {
+		args[i] = strconv.Itoa(i + 1)
+	}
+
+	type result struct {
+		mrs []*gitlab.MergeRequest
+		err error
+	}
+	done := make(chan result)
+	go func() {
+		mrs, _, err := MRsFromArgs(t.Context(), f, args, "")
+		done <- result{mrs, err}
+	}()
+
+	require.Eventually(t, func() bool {
+		return inFlight.Load() == api.MaxConcurrentRequests
+	}, time.Second, time.Millisecond)
+	close(release)
+	res := <-done
+
+	require.NoError(t, res.err)
+	require.Len(t, res.mrs, len(args))
+	assert.Equal(t, int32(api.MaxConcurrentRequests), maxInFlight.Load())
 }
