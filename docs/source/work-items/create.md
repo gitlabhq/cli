@@ -19,6 +19,8 @@ The command uses your repository context to detect scope automatically.
 
 `--attach` uploads a file and references it at the end of the description. Repeat the flag for more than one file, or pass `-` to read the file from standard input. Uploads are project-scoped, so `--attach` cannot be combined with `--group`.
 
+`--parent` accepts a work item ID in the current scope, a reference such as `group/project#123`, or a URL.
+
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
 For more information, see
@@ -49,6 +51,12 @@ glab work-items create --type issue --title "Add feature" --attach ./screenshot.
 # Create a work item in an iteration
 glab work-items create --type issue --title "Add feature" --iteration 123
 
+# Create a task under work item 42 in the current project
+glab work-items create --type task --title "Write tests" --parent 42
+
+# Create a task under a work item in another project
+glab work-items create --type task --title "Write tests" --parent my-group/my-project#42
+
 ```
 
 ## Options
@@ -62,6 +70,7 @@ glab work-items create --type issue --title "Add feature" --iteration 123
       --iteration int             Add the work item to the iteration with this ID.
       --jq string                 Filter JSON output with a jq expression.
   -F, --output string             Format output as: text, json. (default "text")
+      --parent string             Set the parent work item by <id>, reference, or URL.
   -R, --repo string               Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
   -t, --title string              Add a title for the work item.
   -T, --type string               Type of work item (epic, incident, issue, key_result, objective, requirement, task, test_case, ticket).

@@ -40,6 +40,7 @@ type options struct {
 	dueDate     string
 	weight      int64
 	iteration   int64
+	parent      string
 
 	// internal state
 	scope *api.ScopeInfo
@@ -65,6 +66,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Use %[1]s--group%[1]s to target a group or subgroup. %[1]s--group%[1]s and %[1]s--repo%[1]s are mutually exclusive.
 
 		%[1]s--attach%[1]s uploads a file and references it at the end of the description. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. Without %[1]s--description%[1]s the references are added to the description the work item already has, instead of replacing it. Uploads are project-scoped, so %[1]s--attach%[1]s cannot be combined with %[1]s--group%[1]s.
+
+		%[1]s--parent%[1]s accepts a work item ID in the current scope, a reference such as %[1]sgroup/project#123%[1]s, or a URL.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 					# Update a work item in current project
@@ -84,6 +87,12 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 					# Move a work item to another iteration
 					glab work-items update 42 --iteration 123
+
+					# Move a work item under work item 40
+					glab work-items update 42 --parent 40
+
+					# Move a work item under a work item in another project
+					glab work-items update 42 --parent https://gitlab.com/my-group/my-project/-/work_items/40
 		`),
 		Args: cobra.ExactArgs(1),
 		Annotations: map[string]string{
@@ -114,6 +123,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl.StringVar(&opts.startDate, "startdate", "", "Update the start date for the work item.")
 	fl.StringVar(&opts.dueDate, "duedate", "", "Update the due date for the work item.")
 	fl.Int64Var(&opts.iteration, "iteration", 0, "Move the work item to the iteration with this ID.")
+	fl.StringVar(&opts.parent, "parent", "", "Set the parent work item by <id>, reference, or URL.")
 	cmdutils.AddDescriptionFileFlag(cmd, "work item")
 	cmdutils.AddAttachFlag(cmd, &opts.attach, "description")
 
@@ -184,6 +194,14 @@ func (opts *options) run(cmd *cobra.Command) error {
 
 	if cmd.Flags().Changed("description") {
 		updateOpts.Description = new(opts.description)
+	}
+
+	if opts.parent != "" {
+		parentID, err := utils.ResolveParentID(cmd.Context(), client, opts.config(), opts.parent, opts.scope.Path)
+		if err != nil {
+			return err
+		}
+		updateOpts.ParentID = new(parentID)
 	}
 
 	if len(opts.attach) > 0 {
