@@ -6,6 +6,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/config/confighelp"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
@@ -41,6 +42,12 @@ func NewCmdGet(f cmdutils.Factory) *cobra.Command {
   		$ glab config get glamour_style
   		notty`),
 		Args: cobra.ExactArgs(1),
+		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			if len(args) == 0 {
+				return confighelp.KeyCompletions(false), cobra.ShellCompDirectiveNoFileComp
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		},
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},

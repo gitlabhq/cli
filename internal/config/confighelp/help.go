@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"gitlab.com/gitlab-org/cli/internal/config"
 )
 
@@ -21,6 +23,45 @@ func Settings() string {
 	}
 	slices.Sort(lines)
 	return strings.Join(lines, "\n")
+}
+
+// KeyCompletions provides shell completions for config keys.
+func KeyCompletions(setting bool) []cobra.Completion {
+	completions := make([]cobra.Completion, 0, len(config.KeySchema)*2)
+	for _, kd := range config.KeySchema {
+		if kd.UserSettable && !kd.HelpHidden {
+			completions = append(completions, fmt.Sprintf("%s\t%s", kd.Name, flatten(kd.Description)))
+		}
+		if !setting {
+			for _, alias := range kd.Aliases {
+				completions = append(completions, fmt.Sprintf("%s\tAlias for '%s'.", alias, kd.Name))
+			}
+		}
+	}
+	return completions
+}
+
+// ValueCompletions provides shell completions for config values.
+func ValueCompletions(key string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	key = config.ConfigKeyEquivalence(key) // aliases like prompt_disabled complete too
+	for _, kd := range config.KeySchema {
+		if kd.Name != key || !kd.UserSettable {
+			continue
+		}
+		if kd.Type == config.TypeBool {
+			return []cobra.Completion{"true", "false"}, cobra.ShellCompDirectiveNoFileComp
+		}
+		switch kd.Name {
+		case "ca_cert", "client_cert":
+			return []string{"pem", "crt", "cer", "cert"}, cobra.ShellCompDirectiveFilterFileExt
+		case "client_key":
+			return []cobra.Completion{"pem", "key"}, cobra.ShellCompDirectiveFilterFileExt
+		case "glamour_style":
+			return kd.Values, cobra.ShellCompDirectiveDefault
+		}
+		return kd.Values, cobra.ShellCompDirectiveNoFileComp
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
 // quotedLiteral matches a 'single-quoted' span, the convention KeyDef

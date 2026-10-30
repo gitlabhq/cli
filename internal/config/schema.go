@@ -48,6 +48,8 @@ type KeyDef struct {
 	// Fallback makes Default apply to runtime Get calls when the key is
 	// missing from the config, not just to the blank-config seed.
 	Fallback bool
+	// Completion candidates; not enforced by config set.
+	Values []string
 }
 
 // KeySchema is the declared list of every config key glab understands.
@@ -59,6 +61,7 @@ var KeySchema = []KeyDef{
 		Default: "ssh", UserSettable: true, Fallback: true,
 		EnvVars:     []string{"GLAB_GIT_PROTOCOL", "GIT_PROTOCOL"},
 		Description: "What protocol to use when performing Git operations. Supported values: 'ssh', 'https'.",
+		Values:      []string{"ssh", "https"},
 	},
 	{
 		Name: "branch_prefix", Scope: ScopeGlobal, Type: TypeString,
@@ -102,12 +105,14 @@ var KeySchema = []KeyDef{
 		Default: "auto", UserSettable: true, Fallback: true,
 		EnvVars:     []string{"GLAB_GLAMOUR_STYLE", "GLAMOUR_STYLE"},
 		Description: "Set your desired Markdown renderer style. Available options are [auto, dark, light, notty]. 'auto' detects your terminal's background color. To set a custom style, refer to https://github.com/charmbracelet/glamour#styles",
+		Values:      []string{"auto", "dark", "light", "notty"},
 	},
 	{
 		Name: "color", Scope: ScopeGlobal, Type: TypeString,
 		Default: "auto", UserSettable: true, Fallback: true,
 		EnvVars:     []string{"GLAB_COLOR"},
 		Description: "Set whether glab colors its output. Available options are [auto, never, always]. 'auto' detects whether the output is a terminal. This key takes precedence over the NO_COLOR environment variable; NO_COLOR applies when this is 'auto' (or unset).",
+		Values:      []string{"auto", "never", "always"},
 	},
 	{
 		Name: "glamour_style_auto_migrated", Scope: ScopeGlobal, Type: TypeBool,
@@ -184,12 +189,14 @@ var KeySchema = []KeyDef{
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_DUO_CLI_AUTO_RUN", "DUO_CLI_AUTO_RUN"},
 		Description:  "Automatically run GitLab Duo CLI without prompting (true/false). Set to true to skip the confirmation prompt.",
+		Values:       []string{"true", "false"},
 	},
 	{
 		Name: "duo_cli_auto_download", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_DUO_CLI_AUTO_DOWNLOAD", "DUO_CLI_AUTO_DOWNLOAD"},
 		Description:  "Automatically download Duo CLI binary without prompting (true/false).",
+		Values:       []string{"true", "false"},
 	},
 	{
 		Name: "duo_cli_binary_path", Scope: ScopeGlobal, Type: TypeString,
@@ -218,12 +225,14 @@ var KeySchema = []KeyDef{
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_ORBIT_CLI_AUTO_RUN", "ORBIT_CLI_AUTO_RUN"},
 		Description:  "Automatically run the GitLab Orbit CLI without prompting (true/false). Set to true to skip the confirmation prompt.",
+		Values:       []string{"true", "false"},
 	},
 	{
 		Name: "orbit_cli_auto_download", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_ORBIT_CLI_AUTO_DOWNLOAD", "ORBIT_CLI_AUTO_DOWNLOAD"},
 		Description:  "Automatically download the GitLab Orbit CLI binary without prompting (true/false).",
+		Values:       []string{"true", "false"},
 	},
 	{
 		Name: "orbit_cli_binary_path", Scope: ScopeGlobal, Type: TypeString,
@@ -253,6 +262,7 @@ var KeySchema = []KeyDef{
 		Default: "https", UserSettable: true, Fallback: true,
 		EnvVars:     []string{"GLAB_API_PROTOCOL", "API_PROTOCOL"},
 		Description: "What protocol to use to access the API endpoint. Supported values: 'http', 'https'.",
+		Values:      []string{"http", "https"},
 	},
 	{
 		Name: "api_host", Scope: ScopePerHost, Type: TypeString,
@@ -304,6 +314,7 @@ var KeySchema = []KeyDef{
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_USE_KEYRING", "USE_KEYRING"},
 		Description:  "Store the host's credentials in the operating system's keyring (true/false).\nSet automatically by 'glab auth login', which defaults to 'true' when a keyring\nbackend is available. Empty is treated as false (plaintext file storage).",
+		Values:       []string{"true", "false"},
 	},
 	{
 		Name: "proxy", Scope: ScopePerHost, Type: TypeString,
@@ -334,6 +345,7 @@ var KeySchema = []KeyDef{
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_SKIP_TLS_VERIFY", "SKIP_TLS_VERIFY"},
 		Description:  "Skip TLS certificate verification when talking to this host (true/false).\nEmpty is treated as false. Use only for development; do not enable in production.",
+		Values:       []string{"true", "false"},
 	},
 	{
 		Name: "container_registry_domains", Scope: ScopePerHost, Type: TypeString,
