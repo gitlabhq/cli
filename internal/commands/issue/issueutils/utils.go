@@ -94,14 +94,16 @@ func IssuesFromArgs(ctx context.Context, apiClientFunc func(repoHost string) (*a
 	}
 
 	errGroup, _ := errgroup.WithContext(ctx)
+	errGroup.SetLimit(api.MaxConcurrentRequests)
 	issues := make([]*gitlab.Issue, len(args))
+	repos := make([]glrepo.Interface, len(args))
 	for i, arg := range args {
 		errGroup.Go(func() error {
 			issue, repo, err := IssueFromArg(apiClientFunc, gitlabClient, baseRepoFn, defaultHostname, cfg, arg)
 			if err != nil {
 				return err
 			}
-			baseRepo = repo
+			repos[i] = repo
 			issues[i] = issue
 			return nil
 		})
@@ -109,7 +111,7 @@ func IssuesFromArgs(ctx context.Context, apiClientFunc func(repoHost string) (*a
 	if err := errGroup.Wait(); err != nil {
 		return nil, nil, err
 	}
-	return issues, baseRepo, nil
+	return issues, repos[len(repos)-1], nil
 }
 
 func IssueFromArg(apiClientFunc func(repoHost string) (*api.Client, error), client *gitlab.Client, baseRepoFn func() (glrepo.Interface, error), defaultHostname string, cfg config.Config, arg string) (*gitlab.Issue, glrepo.Interface, error) {

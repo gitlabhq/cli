@@ -293,6 +293,7 @@ func MRsFromArgs(ctx context.Context, f cmdutils.Factory, args []string, state s
 	}
 
 	errGroup, ctx := errgroup.WithContext(ctx)
+	errGroup.SetLimit(api.MaxConcurrentRequests)
 	mrs := make([]*gitlab.MergeRequest, len(args))
 	for i, arg := range args {
 		errGroup.Go(func() error {
