@@ -9,6 +9,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/auth/authutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/config/confighelp"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -41,6 +42,15 @@ glab config set editor vim
 glab config set token xxxxx --host gitlab.com
 glab config set check_update false --global`),
 		Args: cobra.ExactArgs(2),
+		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			switch len(args) {
+			case 0:
+				return confighelp.KeyCompletions(true), cobra.ShellCompDirectiveNoFileComp
+			case 1:
+				return confighelp.ValueCompletions(args[0])
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		},
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
 		},
