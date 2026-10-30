@@ -18,7 +18,7 @@ Manage the deploy tokens of a project or a group.
 
 Deploy tokens grant access to a repository, its container registry, and its package registry over HTTPS without being tied to a user account. They are commonly used by CI/CD jobs and external systems.
 
-These commands act on the current project. Use `--repo` to target a different project, or `--group` to act on a group instead.
+These commands act on the current project. Use `--repo` to target a different project, or `--group` to act on a group instead. If `GITLAB_GROUP` is set and neither flag is given, these commands act on that group.
 
 ## Options
 
@@ -34,5 +34,6 @@ These commands act on the current project. Use `--repo` to target a different pr
 
 ## Subcommands
 
+- [`create`](create.md)
 - [`get`](get.md)
 - [`list`](list.md)

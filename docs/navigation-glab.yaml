@@ -200,6 +200,8 @@
 - title: glab deploy-token
   url: 'cli/deploy-token/'
   submenu:
+    - title: glab deploy-token create
+      url: 'cli/deploy-token/create/'
     - title: glab deploy-token get
       url: 'cli/deploy-token/get/'
     - title: glab deploy-token list
