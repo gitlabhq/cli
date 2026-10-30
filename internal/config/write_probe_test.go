@@ -70,8 +70,9 @@ hosts:
 `, t.TempDir())
 
 	err := CredentialWriteProbe(cfg, "gitlab.com")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "keyring")
+	require.ErrorIs(t, err, ErrKeyringUnavailable)
+	require.ErrorIs(t, err, assert.AnError)
+	assert.EqualError(t, err, `host "gitlab.com" stores credentials in the operating system keyring, but the keyring is not accepting writes: assert.AnError general error for testing`)
 }
 
 // A failed use_keyring read must not be reported as "not keyring mode": that

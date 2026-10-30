@@ -14,12 +14,14 @@ import (
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/oauth2"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
+	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -136,6 +138,8 @@ func TestCredentialHelper_UnsupportedAuthSource(t *testing.T) {
 
 	var resp errorResponse
 	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "unsupported_auth_source", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
 	assert.Equal(t, "unable to determine token", resp.Message)
 }
 
@@ -232,9 +236,42 @@ func TestCredentialHelper_OAuth2_RefreshError(t *testing.T) {
 
 	var resp errorResponse
 	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "refresh_failed", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
+	assert.Empty(t, resp.OAuthError)
 	assert.Contains(t, resp.Message, "gitlab.example.com", "the host must be named")
 	assert.Contains(t, resp.Message, "failed to refresh the OAuth2 token")
 	assert.Contains(t, resp.Message, "token refresh failed", "the underlying cause must survive")
+}
+
+func TestCredentialHelper_OAuth2_RefreshRetrieveError(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	mockTokenSource := NewMockTokenSource(ctrl)
+	mockTokenSource.EXPECT().Token().Return(nil, &oauth2.RetrieveError{
+		ErrorCode:        "invalid_grant",
+		ErrorDescription: "The provided authorization grant is invalid, expired, or revoked.",
+	})
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepo("OWNER", "REPO", "gitlab.example.com"),
+		cmdtest.WithApiClient(cmdtest.NewTestAuthSourceApiClient(t, nil, gitlab.OAuthTokenSource{TokenSource: mockTokenSource}, "gitlab.example.com")),
+	)
+
+	out, err := exec("")
+
+	require.NoError(t, err)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "refresh_failed", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
+	assert.Equal(t, "invalid_grant", resp.OAuthError)
+	assert.Contains(t, resp.Message, "failed to refresh the OAuth2 token")
 }
 
 func TestCredentialHelper_BaseRepoError(t *testing.T) {
@@ -260,6 +297,93 @@ func TestCredentialHelper_BaseRepoError(t *testing.T) {
 	assert.True(t, resp.Token.ExpiryTimestamp.IsZero())
 }
 
+func TestCredentialHelper_BaseRepoError_NotAuthenticated(t *testing.T) {
+	t.Parallel()
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepoError(errors.New("not a git repository")),
+		cmdtest.WithDefaultHostname("gitlab.example.com:8443"),
+		cmdtest.WithApiClientFunc(func(repoHost string) (*api.Client, error) {
+			assert.Equal(t, "gitlab.example.com:8443", repoHost)
+			return cmdtest.NewTestAuthSourceApiClient(t, nil, gitlab.Unauthenticated{}, repoHost), nil
+		}),
+	)
+
+	out, err := exec("")
+
+	require.NoError(t, err)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "not_authenticated", resp.Code)
+	assert.Equal(t, "gitlab.example.com:8443", resp.Host)
+	assert.Equal(t, "glab is not authenticated. Use glab auth login to authenticate", resp.Message)
+}
+
+func TestCredentialHelper_BaseRepoError_RefreshError(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	mockTokenSource := NewMockTokenSource(ctrl)
+	mockTokenSource.EXPECT().Token().Return(nil, errors.New("token refresh failed"))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepoError(errors.New("not a git repository")),
+		cmdtest.WithDefaultHostname("gitlab.example.com"),
+		cmdtest.WithApiClient(cmdtest.NewTestAuthSourceApiClient(t, nil, gitlab.OAuthTokenSource{TokenSource: mockTokenSource}, "gitlab.example.com")),
+	)
+
+	out, err := exec("")
+
+	require.NoError(t, err)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "refresh_failed", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
+	assert.Contains(t, resp.Message, `failed to read the credentials for "gitlab.example.com": `)
+}
+
+func TestCredentialHelper_BaseRepoError_APIHost(t *testing.T) {
+	clearTokenEnv(t)
+
+	cfg := config.NewFromString(heredoc.Doc(`
+		hosts:
+		  gitlab.example.com:
+		    api_host: api.gitlab.example.com
+	`))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepoError(errors.New("not a git repository")),
+		cmdtest.WithDefaultHostname("gitlab.example.com"),
+		cmdtest.WithApiClientFunc(func(repoHost string) (*api.Client, error) {
+			// Same fallback as DefaultFactory.ApiClient.
+			if repoHost == "" {
+				repoHost = "gitlab.example.com"
+			}
+			return api.NewClientFromConfig(repoHost, cfg, false, "test")
+		}),
+	)
+
+	out, err := exec("")
+
+	require.NoError(t, err)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "not_authenticated", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
+}
+
 func TestCredentialHelper_ApiClientUnauthenticated(t *testing.T) {
 	t.Parallel()
 
@@ -277,6 +401,8 @@ func TestCredentialHelper_ApiClientUnauthenticated(t *testing.T) {
 
 	var resp errorResponse
 	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "not_authenticated", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
 	assert.Equal(t, "glab is not authenticated. Use glab auth login to authenticate", resp.Message)
 }
 
@@ -296,6 +422,8 @@ func TestCredentialHelper_NoToken(t *testing.T) {
 
 	var resp errorResponse
 	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "unsupported_auth_source", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
 	assert.Equal(t, "unable to determine token", resp.Message)
 }
 
@@ -321,6 +449,221 @@ func TestCredentialHelper_RepoOverride(t *testing.T) {
 	assert.Equal(t, "example-token", resp.Token.Token)
 }
 
+func TestCredentialHelper_InvalidRepoOverride(t *testing.T) {
+	t.Parallel()
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepo("OWNER", "REPO", "gitlab.example.com"),
+	)
+
+	out, err := exec("--repo invalid")
+
+	require.ErrorIs(t, err, cmdutils.SilentError)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "invalid_repo_override", resp.Code)
+	assert.Empty(t, resp.Host)
+	assert.Equal(t, `expected the "[HOST/]OWNER/[NAMESPACE/]REPO" format, got "invalid"`, resp.Message)
+	assert.JSONEq(t,
+		`{"type":"error","code":"invalid_repo_override","message":"expected the \"[HOST/]OWNER/[NAMESPACE/]REPO\" format, got \"invalid\""}`,
+		out.OutBuf.String(),
+	)
+}
+
+func clearTokenEnv(t *testing.T) {
+	t.Helper()
+
+	for _, name := range []string{
+		"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GLAB_IS_OAUTH2",
+		"JOB_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI", "GLAB_ENABLE_CI_AUTOLOGIN",
+		"GLAB_USE_KEYRING", "USE_KEYRING",
+	} {
+		t.Setenv(name, "")
+	}
+}
+
+func TestCredentialHelper_NotAuthenticated_OAuth2NoToken(t *testing.T) {
+	clearTokenEnv(t)
+
+	cfg := config.NewFromString(heredoc.Doc(`
+		hosts:
+		  gitlab.example.com:
+		    is_oauth2: "true"
+	`))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepo("OWNER", "REPO", "gitlab.example.com"),
+		cmdtest.WithApiClientFunc(func(repoHost string) (*api.Client, error) {
+			return api.NewClientFromConfig(repoHost, cfg, false, "test")
+		}),
+	)
+
+	out, err := exec("")
+
+	require.NoError(t, err)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "not_authenticated", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
+	assert.Equal(t, "OAuth2 authentication is configured for \"gitlab.example.com\" but no access or refresh token was found (the stored credentials may be missing or incomplete); run `glab auth login --hostname gitlab.example.com` to re-authenticate", resp.Message)
+}
+
+func TestCredentialHelper_NotAuthenticated_KeyringTokenMissing(t *testing.T) {
+	clearTokenEnv(t)
+	keyring.MockInit()
+	t.Cleanup(keyring.MockInit)
+
+	cfg := config.NewFromString(heredoc.Doc(`
+		hosts:
+		  gitlab.example.com:
+		    use_keyring: "true"
+	`))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepo("OWNER", "REPO", "gitlab.example.com"),
+		cmdtest.WithApiClientFunc(func(repoHost string) (*api.Client, error) {
+			return api.NewClientFromConfig(repoHost, cfg, false, "test")
+		}),
+	)
+
+	out, err := exec("")
+
+	require.NoError(t, err)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "not_authenticated", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
+	assert.Equal(t, "the token for \"gitlab.example.com\" is missing from the operating system keyring; run `glab auth login --hostname gitlab.example.com` to re-authenticate", resp.Message)
+}
+
+func TestCredentialHelper_KeyringUnavailable_ApiClient(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	keyring.MockInitWithError(errors.New("keyring locked"))
+	t.Cleanup(keyring.MockInit)
+
+	cfg := config.NewBlankConfig()
+	require.NoError(t, cfg.Set("gitlab.example.com", "use_keyring", "true"))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepo("OWNER", "REPO", "gitlab.example.com"),
+		cmdtest.WithApiClientFunc(func(repoHost string) (*api.Client, error) {
+			return api.NewClientFromConfig(repoHost, cfg, false, "test")
+		}),
+	)
+
+	out, err := exec("")
+
+	require.NoError(t, err)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "keyring_unavailable", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
+	assert.Equal(t, `failed to read the access token for "gitlab.example.com": failed to read "token" from the operating system keyring for host "gitlab.example.com": keyring locked`, resp.Message)
+}
+
+func TestCredentialHelper_KeyringUnavailable_OAuth2Refresh(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring locked"))
+	t.Cleanup(keyring.MockInit)
+
+	probeErr := config.CredentialWriteProbe(config.NewFromString(heredoc.Doc(`
+		hosts:
+		  gitlab.example.com:
+		    use_keyring: "true"
+	`)), "gitlab.example.com")
+	require.Error(t, probeErr)
+
+	ctrl := gomock.NewController(t)
+	mockTokenSource := NewMockTokenSource(ctrl)
+	mockTokenSource.EXPECT().Token().Return(nil, fmt.Errorf("not refreshing the OAuth token for %q, because the refreshed credentials could not be saved: %w", "gitlab.example.com", probeErr))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithBaseRepo("OWNER", "REPO", "gitlab.example.com"),
+		cmdtest.WithApiClient(cmdtest.NewTestAuthSourceApiClient(t, nil, gitlab.OAuthTokenSource{TokenSource: mockTokenSource}, "gitlab.example.com")),
+	)
+
+	out, err := exec("")
+
+	require.NoError(t, err)
+
+	var resp errorResponse
+	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "keyring_unavailable", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
+	assert.Equal(t, `failed to read the credentials for "gitlab.example.com": failed to refresh the OAuth2 token: not refreshing the OAuth token for "gitlab.example.com", because the refreshed credentials could not be saved: host "gitlab.example.com" stores credentials in the operating system keyring, but the keyring is not accepting writes: keyring locked`, resp.Message)
+}
+
+func TestCredentialHelper_UnknownError(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with resolved host", func(t *testing.T) {
+		t.Parallel()
+
+		exec := cmdtest.SetupCmdForTest(
+			t,
+			NewCmd,
+			false,
+			cmdtest.WithBaseRepo("OWNER", "REPO", "gitlab.example.com"),
+			cmdtest.WithApiClientFunc(func(repoHost string) (*api.Client, error) {
+				return nil, errors.New("failed to initialize client")
+			}),
+		)
+
+		out, err := exec("")
+
+		require.NoError(t, err)
+
+		var resp errorResponse
+		require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+		assert.Equal(t, "unknown", resp.Code)
+		assert.Equal(t, "gitlab.example.com", resp.Host)
+		assert.Equal(t, "failed to initialize client", resp.Message)
+	})
+
+	t.Run("with default host", func(t *testing.T) {
+		t.Parallel()
+
+		exec := cmdtest.SetupCmdForTest(
+			t,
+			NewCmd,
+			false,
+			cmdtest.WithBaseRepoError(errors.New("not a git repository")),
+			cmdtest.WithDefaultHostname("gitlab.example.com"),
+			cmdtest.WithApiClientFunc(func(repoHost string) (*api.Client, error) {
+				return nil, errors.New("failed to initialize client")
+			}),
+		)
+
+		out, err := exec("")
+
+		require.NoError(t, err)
+
+		var resp errorResponse
+		require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+		assert.Equal(t, "unknown", resp.Code)
+		assert.Equal(t, "gitlab.example.com", resp.Host)
+		assert.Equal(t, "failed to initialize client", resp.Message)
+	})
+}
+
 // PasswordCredentialsAuthSource embeds a nil gitlab.AuthSource until Init, so
 // its Header dereferences nil.
 func TestCredentialHelper_UninitialisedAuthSource(t *testing.T) {
@@ -340,6 +683,8 @@ func TestCredentialHelper_UninitialisedAuthSource(t *testing.T) {
 
 	var resp errorResponse
 	require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &resp))
+	assert.Equal(t, "unsupported_auth_source", resp.Code)
+	assert.Equal(t, "gitlab.example.com", resp.Host)
 	assert.Equal(t, "unable to determine token", resp.Message)
 }
 

@@ -24,7 +24,24 @@ var (
 	// Callers that need a particular kind should report this as "not that kind"
 	// in their own words rather than surfacing the wrapped Go type name.
 	ErrUnsupportedAuthSource = errors.New("unsupported authentication method")
+
+	// ErrRefreshFailed marks a failed OAuth2 token refresh.
+	ErrRefreshFailed = errors.New("failed to refresh the OAuth2 token")
 )
+
+// unauthenticatedError matches ErrUnauthenticated but keeps its own message,
+// which names the host to log in to.
+type unauthenticatedError struct {
+	err error
+}
+
+func (e unauthenticatedError) Error() string {
+	return e.err.Error()
+}
+
+func (e unauthenticatedError) Unwrap() []error {
+	return []error{e.err, ErrUnauthenticated}
+}
 
 // Credential is the resolved credential a client authenticates with. Callers
 // that only need to set a request header should use AuthSource().Header().
@@ -61,7 +78,7 @@ func (c *Client) Credential(ctx context.Context) (Credential, error) {
 	case gitlab.OAuthTokenSource:
 		token, err := as.TokenSource.Token()
 		if err != nil {
-			return Credential{}, fmt.Errorf("failed to refresh the OAuth2 token: %w", err)
+			return Credential{}, fmt.Errorf("%w: %w", ErrRefreshFailed, err)
 		}
 		cred.Token = token.AccessToken
 		cred.Expiry = token.Expiry

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -164,6 +165,24 @@ func TestClient_Credential_unsupportedAuthSource(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnsupportedAuthSource)
 	// The Go type stays in the message for whoever has to debug it.
 	assert.ErrorContains(t, err, "*gitlab.PasswordCredentialsAuthSource")
+}
+
+type failingTokenSource struct {
+	err error
+}
+
+func (f failingTokenSource) Token() (*xoauth2.Token, error) {
+	return nil, f.err
+}
+
+func TestClient_Credential_refreshFailed(t *testing.T) {
+	cause := errors.New("invalid_grant")
+	client := clientWithAuthSource(t, gitlab.OAuthTokenSource{TokenSource: failingTokenSource{err: cause}})
+
+	_, err := client.Credential(t.Context())
+	require.ErrorIs(t, err, ErrRefreshFailed)
+	require.ErrorIs(t, err, cause)
+	assert.EqualError(t, err, "failed to refresh the OAuth2 token: invalid_grant")
 }
 
 func clientWithAuthSource(t *testing.T, as gitlab.AuthSource) *Client {

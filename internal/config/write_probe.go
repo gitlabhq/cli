@@ -25,7 +25,7 @@ func CredentialWriteProbe(cfg Config, hostname string) error {
 		// permissions or ACL problem, which sends anyone debugging it in the wrong
 		// direction.
 		if err := keyringWriteError(); err != nil {
-			return fmt.Errorf("host %q stores credentials in the operating system keyring, but the keyring is not accepting writes: %w", hostname, err)
+			return keyringError{fmt.Errorf("host %q stores credentials in the operating system keyring, but the keyring is not accepting writes: %w", hostname, err)}
 		}
 	}
 

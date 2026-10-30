@@ -287,15 +287,17 @@ func Test_SetStringValue_ResetsNullTagOnBlankEntry(t *testing.T) {
 }
 
 func Test_GetWithSource_SurfacesKeyringReadError(t *testing.T) {
-	keyring.MockInitWithError(errors.New("access denied"))
+	cause := errors.New("access denied")
+	keyring.MockInitWithError(cause)
 	t.Cleanup(keyring.MockInit)
 
 	c := NewBlankConfig()
 	require.NoError(t, c.Set("gitlab.com", "use_keyring", "true"))
 
 	_, _, err := c.GetWithSource("gitlab.com", "token", false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "keyring")
+	require.ErrorIs(t, err, ErrKeyringUnavailable)
+	require.ErrorIs(t, err, cause)
+	assert.EqualError(t, err, `failed to read "token" from the operating system keyring for host "gitlab.com": access denied`)
 }
 
 // Test_GetWithSource_CredentialEnvVarsRequireTrustedHost pins the fix for
@@ -478,7 +480,8 @@ func Test_Set_SurfacesKeyringWriteError(t *testing.T) {
 	require.NoError(t, c.Set("gitlab.com", "use_keyring", "true"))
 
 	err := c.Set("gitlab.com", "token", "secret-value")
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrKeyringUnavailable)
+	require.EqualError(t, err, `failed to store "token" in the operating system's keyring for host "gitlab.com": exit status 161`)
 	assert.Contains(t, err.Error(), "keyring", "error must name the keyring as the failing subsystem")
 	assert.Contains(t, err.Error(), "gitlab.com", "error must name the host")
 	assert.Contains(t, err.Error(), "token", "error must name the key")

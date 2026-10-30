@@ -480,9 +480,9 @@ func TestNewClientFromConfig_OAuth2NoTokenReturnsError(t *testing.T) {
 		false,
 		"dummy user agent",
 	)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrUnauthenticated)
 	// The message should be actionable rather than the old low-level jargon.
-	assert.Contains(t, err.Error(), "re-authenticate")
+	assert.EqualError(t, err, "OAuth2 authentication is configured for \"example.gitlab.com\" but no access or refresh token was found (the stored credentials may be missing or incomplete); run `glab auth login --hostname example.gitlab.com` to re-authenticate")
 }
 
 func TestNewClientFromConfig_SurfacesKeyringReadError(t *testing.T) {
@@ -519,7 +519,7 @@ func TestNewClientFromConfig_KeyringTokenMissing(t *testing.T) {
 
 	t.Run("returns an actionable error", func(t *testing.T) {
 		_, err := NewClientFromConfig("gitlab.example.com", config.NewFromString(keyringHost), false, "test-agent")
-		require.Error(t, err)
+		require.ErrorIs(t, err, ErrUnauthenticated)
 		assert.Contains(t, err.Error(), "keyring")
 		assert.Contains(t, err.Error(), "re-authenticate")
 		assert.Contains(t, err.Error(), "glab auth login --hostname gitlab.example.com")
