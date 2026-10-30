@@ -6,9 +6,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
@@ -105,6 +108,63 @@ func Test_DeleteSSHKey(t *testing.T) {
 			for _, msg := range tc.ExpectedMsg {
 				assert.Contains(t, out.OutBuf.String(), msg)
 			}
+		})
+	}
+}
+
+func TestSshKeyDelete_Completions(t *testing.T) {
+	t.Parallel()
+
+	testKey := &gitlab.SSHKey{ID: 123, Title: "mysshkey"}
+
+	testCases := []struct {
+		Name          string
+		Args          []string
+		setupMock     func(tc *gitlabtesting.TestClient)
+		wantComps     []cobra.Completion
+		wantDirective cobra.ShellCompDirective
+	}{
+		{
+			Name: "Completes key IDs as ID and title",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockUsers.EXPECT().ListSSHKeys(gomock.Any(), gomock.Any()).
+					Return([]*gitlab.SSHKey{testKey}, &gitlab.Response{}, nil)
+			},
+			wantComps:     []cobra.Completion{"123\tmysshkey"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		{
+			Name:          "No completions when the second argument is completed",
+			Args:          []string{"123", "456"},
+			setupMock:     func(tc *gitlabtesting.TestClient) {},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		{
+			Name: "API error returns no completions",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockUsers.EXPECT().ListSSHKeys(gomock.Any(), gomock.Any()).
+					Return(nil, nil, errors.New("500 Internal Server Error"))
+			},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+
+			testClient := gitlabtesting.NewTestClient(t)
+			tc.setupMock(testClient)
+			f := cmdtest.NewTestFactory(nil,
+				cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
+			)
+
+			cmd := NewCmdDelete(f)
+			cmd.SetContext(t.Context())
+			completions, directive := cmd.ValidArgsFunction(cmd, tc.Args, "")
+
+			assert.Equal(t, tc.wantComps, completions)
+			assert.Equal(t, tc.wantDirective, directive)
 		})
 	}
 }
