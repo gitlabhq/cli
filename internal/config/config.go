@@ -50,6 +50,23 @@ type Config interface {
 	Reload() (Config, error)
 }
 
+// ErrKeyringUnavailable marks a failed read or write of the operating system keyring.
+var ErrKeyringUnavailable = errors.New("operating system keyring is unavailable")
+
+// keyringError matches ErrKeyringUnavailable without adding its text to the
+// message, which commands like auth login show to the user as is.
+type keyringError struct {
+	err error
+}
+
+func (e keyringError) Error() string {
+	return e.err.Error()
+}
+
+func (e keyringError) Unwrap() []error {
+	return []error{e.err, ErrKeyringUnavailable}
+}
+
 // NotFoundError is returned when a config entry is not found.
 type NotFoundError struct {
 	error
@@ -283,7 +300,7 @@ func (c *fileConfig) GetWithSource(hostname, key string, searchENVVars bool) (st
 					// is surfaced so callers do not silently proceed with an
 					// empty credential.
 					if !errors.Is(err, keyring.ErrNotFound) {
-						return "", "keyring", fmt.Errorf("failed to read %q from the operating system keyring for host %q: %w", key, hostname, err)
+						return "", "keyring", keyringError{fmt.Errorf("failed to read %q from the operating system keyring for host %q: %w", key, hostname, err)}
 					}
 				}
 			}
@@ -571,7 +588,7 @@ func (c *fileConfig) syncKeyring(hostname, key, value string) (string, error) {
 			// GetWithSource. On macOS the backend shells out to
 			// /usr/bin/security, so the bare error is an unexplained
 			// "exit status <n>" with nothing tying it to the keyring.
-			return value, fmt.Errorf("failed to store %q in the operating system's keyring for host %q: %w", key, hostname, err)
+			return value, keyringError{fmt.Errorf("failed to store %q in the operating system's keyring for host %q: %w", key, hostname, err)}
 		}
 		return "", nil
 	case useKeyring == "true" || !InCI():

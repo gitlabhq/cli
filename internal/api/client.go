@@ -465,7 +465,7 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 		}
 		if refreshToken == "" {
 			if token == "" {
-				return nil, fmt.Errorf("OAuth2 authentication is configured for %q but no access or refresh token was found (the stored credentials may be missing or incomplete); run `glab auth login --hostname %s` to re-authenticate", repoHost, repoHost)
+				return nil, unauthenticatedError{fmt.Errorf("OAuth2 authentication is configured for %q but no access or refresh token was found (the stored credentials may be missing or incomplete); run `glab auth login --hostname %s` to re-authenticate", repoHost, repoHost)}
 			}
 
 			newAuthSource = func(client *http.Client) (gitlab.AuthSource, error) {
@@ -492,7 +492,7 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 		}
 	default:
 		if config.HostUsesKeyring(cfg, repoHost) {
-			return nil, fmt.Errorf("the token for %q is missing from the operating system keyring; run `glab auth login --hostname %s` to re-authenticate", repoHost, repoHost)
+			return nil, unauthenticatedError{fmt.Errorf("the token for %q is missing from the operating system keyring; run `glab auth login --hostname %s` to re-authenticate", repoHost, repoHost)}
 		}
 
 		// NOTE: use an unauthenticated client.

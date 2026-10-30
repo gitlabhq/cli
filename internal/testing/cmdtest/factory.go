@@ -140,6 +140,11 @@ func (f *Factory) cleanup() {
 }
 
 func (f *Factory) RepoOverride(repo string) error {
+	if repo != "" {
+		if _, err := glrepo.FromFullName(repo, glinstance.DefaultHostname, f.Config()); err != nil {
+			return err
+		}
+	}
 	f.repoOverride = repo
 	return nil
 }
@@ -262,6 +267,13 @@ func WithBaseRepo(owner, repo string, hostname string) FactoryOption {
 			}
 			return glrepo.New(owner, repo, repoHostname), nil
 		}
+	}
+}
+
+// WithDefaultHostname configures the Factory with a specific default hostname
+func WithDefaultHostname(hostname string) FactoryOption {
+	return func(f *Factory) {
+		f.DefaultHostnameStub = hostname
 	}
 }
 
