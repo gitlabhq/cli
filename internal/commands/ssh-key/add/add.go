@@ -59,6 +59,13 @@ func NewCmdAdd(f cmdutils.Factory) *cobra.Command {
 			# Re-register an expired key with a new expiration date.
 			glab ssh-key add ~/.ssh/id_ed25519.pub -t "my title" --expires-at 2027-01-01 --replace`),
 		Args: cobra.MaximumNArgs(1),
+		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			// .pub filenames would be desirable, but FilterFileExt breaks bash completion when a command has required flags
+			return nil, cobra.ShellCompDirectiveDefault
+		},
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

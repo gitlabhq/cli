@@ -13,6 +13,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/ssh-key/sshkeyutils"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/utils"
@@ -50,6 +51,12 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 			# Interactive, with pagination
 			glab ssh-key delete -P 50 -p 2`),
 		Args: cobra.MaximumNArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return sshkeyutils.SSHKeyIDCompletions(cmd.Context(), f)
+		},
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
