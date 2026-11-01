@@ -38,6 +38,10 @@ type TablePrinter struct {
 	TerminalWidth int
 	// IsTTY indicates whether output is a TTY or non-TTY
 	IsTTY bool
+	// Pad, when true, pads cells to their column width independently of IsTTY, so
+	// non-TTY output can be aligned without being truncated. It forces a
+	// single-space column separator, overriding TTYSeparator/NonTTYSeparator.
+	Pad bool
 }
 
 type TableCell struct {
@@ -49,6 +53,12 @@ type TableCell struct {
 	Wrap bool
 
 	isaTTY bool
+	pad    bool
+	// widthComputed records that Render assigned Width from colWidths.
+	// It lets a padded cell distinguish a column capped to zero width
+	// from a width that is simply not set yet: LineWidth measures cells
+	// before widths exist and must see the raw value.
+	widthComputed bool
 }
 
 type TableRow struct {
@@ -65,12 +75,18 @@ func NewTablePrinter() *TablePrinter {
 		Wrap:            false,
 		TerminalWidth:   tp.TerminalWidth,
 		IsTTY:           tp.IsTTY,
+		Pad:             tp.Pad,
 	}
 
 	return t
 }
 
 func (t *TablePrinter) Separator() string {
+	// when padding, use a fixed-width space so a tab doesn't overshoot the computed widths
+	if t.Pad {
+		return " "
+	}
+
 	if t.IsTTY {
 		return t.TTYSeparator
 	}
@@ -91,6 +107,14 @@ func SetIsTTY(isTTY bool) { tp.SetIsTTY(isTTY) }
 
 func (t *TablePrinter) SetIsTTY(isTTY bool) {
 	t.IsTTY = isTTY
+}
+
+// SetPad sets the Pad variable which, when true, pads cells to their column
+// width independently of IsTTY
+func SetPad(pad bool) { tp.SetPad(pad) }
+
+func (t *TablePrinter) SetPad(pad bool) {
+	t.Pad = pad
 }
 
 // SetTTYSeparator sets the separator for the columns in the table for TTYs
@@ -115,6 +139,7 @@ func (t *TablePrinter) AddCell(s any) {
 	cell := &TableCell{
 		Value:  s,
 		isaTTY: t.IsTTY,
+		pad:    t.Pad,
 	}
 
 	row.Separator = t.Separator()
@@ -235,6 +260,7 @@ func (t *TablePrinter) Render() string {
 		row.Separator = t.Separator()
 		for i, cell := range row.Cells {
 			cell.Width = colWidths[i]
+			cell.widthComputed = true
 			cell.Wrap = t.Wrap
 		}
 		lines = append(lines, row.String())
@@ -265,9 +291,14 @@ func (c *TableCell) String() string {
 
 	// convert value to string
 	s := fmt.Sprintf("%v", c.Value)
-	// wrap or truncate the string if needed
-	if c.Width > 0 && c.isaTTY {
-		if c.Wrap && len(s) > c.Width {
+	// Truncate both pads short values and bounds long ones, so it aligns the cell
+	// to its width. Width is only terminal derived on a TTY (colWidths skips the
+	// terminal cap for a padded non-TTY), so a padded non-TTY stays lossless
+	// unless an explicit MaxColWidth applies. A padded cell is formatted even at
+	// a computed width of zero, a column squeezed out by a narrow terminal
+	// collapses rather than printing unformatted and breaking alignment.
+	if (c.Width > 0 || (c.pad && c.widthComputed)) && (c.isaTTY || c.pad) {
+		if c.Wrap && c.Width > 0 && len(s) > c.Width {
 			return text.WrapString(s, c.Width)
 		} else {
 			return text.Truncate(s, c.Width)
@@ -302,7 +333,9 @@ func (t *TablePrinter) colWidths() []int {
 		totalWidth += width
 	}
 
-	if t.MaxColWidth == 0 && totalWidth > t.TerminalWidth {
+	// a padded non-TTY has no terminal to fit into, so terminal width must never drive truncation there;
+	// an explicit MaxColWidth still applies.
+	if !(t.Pad && !t.IsTTY) && t.MaxColWidth == 0 && totalWidth > t.TerminalWidth {
 		availWidth := t.TerminalWidth - colWidths[0] - separatorWidth
 		// add extra space from columns that are already narrower than threshold
 		for col := 1; col < numCols; col++ {
@@ -315,7 +348,19 @@ func (t *TablePrinter) colWidths() []int {
 		for col := 1; col < numCols; col++ {
 			availColWidth := availWidth / (numCols - 1)
 			if colWidths[col] > availColWidth {
-				colWidths[col] = availColWidth
+				colWidths[col] = max(availColWidth, 0)
+			}
+		}
+		// even with the other columns bottomed out at zero, the first column
+		// alone can overflow the terminal; a padded row promises to fit, so the
+		// first column is shrunk to whatever width is left
+		if t.Pad {
+			remainingWidth := t.TerminalWidth - separatorWidth
+			for col := 1; col < numCols; col++ {
+				remainingWidth -= colWidths[col]
+			}
+			if colWidths[0] > remainingWidth {
+				colWidths[0] = max(remainingWidth, 0)
 			}
 		}
 	}
