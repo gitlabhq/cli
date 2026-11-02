@@ -102,6 +102,169 @@ func Test_sshParser_readContinuesAfterLongLine(t *testing.T) {
 	require.Equal(t, "gitlab.com", p.aliasMap["gl"])
 }
 
+func Test_sshParser_readFirstHostNameWins(t *testing.T) {
+	tests := map[string]struct {
+		files map[string]string
+		order []string
+		want  SSHAliasMap
+	}{
+		"second block for the same alias in one file": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Host gl
+						HostName first.example.com
+					Host gl
+						HostName second.example.com
+				`),
+			},
+			order: []string{"HOME/.ssh/config"},
+			want:  SSHAliasMap{"gl": "first.example.com"},
+		},
+		"alias listed again with another alias": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Host gl
+						HostName %h.example.com
+					Host gl gh
+						HostName shared.example.com
+				`),
+			},
+			order: []string{"HOME/.ssh/config"},
+			want:  SSHAliasMap{"gl": "gl.example.com", "gh": "shared.example.com"},
+		},
+		"user config wins over system config": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Host gl
+						HostName user.example.com
+				`),
+				"/etc/ssh/ssh_config": heredoc.Doc(`
+					Host gl
+						HostName system.example.com
+					Host sys
+						HostName only-system.example.com
+				`),
+			},
+			order: []string{"HOME/.ssh/config", "/etc/ssh/ssh_config"},
+			want:  SSHAliasMap{"gl": "user.example.com", "sys": "only-system.example.com"},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := newStubSSHParser(tt.files)
+			for _, file := range tt.order {
+				require.NoError(t, p.read(file))
+			}
+			require.Equal(t, tt.want, p.aliasMap)
+		})
+	}
+}
+
+func Test_sshParser_readMatchAndInclude(t *testing.T) {
+	tests := map[string]struct {
+		files map[string]string
+		want  SSHAliasMap
+	}{
+		"Match line ends the Host block": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Host gl
+					Match user bob
+						HostName special.example.com
+					Host gl
+						HostName normal.example.com
+				`),
+			},
+			want: SSHAliasMap{"gl": "normal.example.com"},
+		},
+		"Include in a Match block is skipped": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Host gl
+					Match user bob
+						Include extra.conf
+					Host gl
+						HostName normal.example.com
+				`),
+				"HOME/.ssh/extra.conf": heredoc.Doc(`
+					Host gl
+						HostName special.example.com
+				`),
+			},
+			want: SSHAliasMap{"gl": "normal.example.com"},
+		},
+		"Include is read where it appears": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Include extra.conf
+					Host gl
+						HostName main.example.com
+				`),
+				"HOME/.ssh/extra.conf": heredoc.Doc(`
+					Host gl
+						HostName included.example.com
+				`),
+			},
+			want: SSHAliasMap{"gl": "included.example.com"},
+		},
+		"Host line in an included file does not end the including block": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Host gl
+						Include extra.conf
+						HostName main.example.com
+				`),
+				"HOME/.ssh/extra.conf": heredoc.Doc(`
+					Host *.internal
+						User git
+				`),
+			},
+			want: SSHAliasMap{"gl": "main.example.com"},
+		},
+		"Match line in an included file does not end the including block": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Host gl
+						Include extra.conf
+						HostName main.example.com
+				`),
+				"HOME/.ssh/extra.conf": heredoc.Doc(`
+					Match user bob
+						HostName special.example.com
+				`),
+			},
+			want: SSHAliasMap{"gl": "main.example.com"},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := newStubSSHParser(tt.files)
+			require.NoError(t, p.read("HOME/.ssh/config"))
+			require.Equal(t, tt.want, p.aliasMap)
+		})
+	}
+}
+
+func newStubSSHParser(files map[string]string) *sshParser {
+	return &sshParser{
+		homeDir: "HOME",
+		open: func(s string) (io.Reader, error) {
+			if contents, ok := files[filepath.ToSlash(s)]; ok {
+				return strings.NewReader(contents), nil
+			}
+			return nil, fmt.Errorf("no test file stub found: %q", s)
+		},
+		glob: func(pattern string) ([]string, error) {
+			if _, ok := files[filepath.ToSlash(pattern)]; ok {
+				return []string{pattern}, nil
+			}
+			return nil, fmt.Errorf("no glob stub found: %q", pattern)
+		},
+	}
+}
+
 func Test_sshParser_absolutePath(t *testing.T) {
 	dir := "HOME"
 	p := &sshParser{homeDir: dir}

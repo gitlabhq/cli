@@ -81,16 +81,30 @@ func (p *sshParser) read(fileName string) error {
 		switch keyword {
 		case "host":
 			p.hosts = strings.Fields(arguments)
+		case "match":
+			// ssh applies a Match block only when its criteria hold, which the
+			// parser does not evaluate, so no host takes its HostName.
+			p.hosts = nil
 		case "hostname":
 			for _, host := range p.hosts {
 				for name := range strings.FieldsSeq(arguments) {
 					if p.aliasMap == nil {
 						p.aliasMap = make(SSHAliasMap)
 					}
-					p.aliasMap[host] = sshExpandTokens(name, host)
+					// Like ssh, keep the first value obtained for a host.
+					if _, ok := p.aliasMap[host]; !ok {
+						p.aliasMap[host] = sshExpandTokens(name, host)
+					}
 				}
 			}
 		case "include":
+			// A file included from a Match block is as conditional as the block.
+			if p.hosts == nil {
+				continue
+			}
+			// Like ssh, return to the including block after each file, so a
+			// Host or Match line in an included file does not end it.
+			hosts := p.hosts
 			for arg := range strings.FieldsSeq(arguments) {
 				path := p.absolutePath(fileName, arg)
 
@@ -112,6 +126,7 @@ func (p *sshParser) read(fileName string) error {
 
 				for _, fileName := range fileNames {
 					_ = p.read(fileName)
+					p.hosts = hosts
 				}
 			}
 		}
