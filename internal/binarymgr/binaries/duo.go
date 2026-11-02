@@ -8,7 +8,7 @@ import (
 
 // duoMaxCompatibleMajorVersion caps Duo CLI auto-updates to this major
 // version. Bump after validating compatibility against the new major.
-const duoMaxCompatibleMajorVersion = 9
+const duoMaxCompatibleMajorVersion = 10
 
 // DuoCLI describes the GitLab Duo CLI binary run by `glab duo cli`.
 func DuoCLI() binarymgr.Spec {
