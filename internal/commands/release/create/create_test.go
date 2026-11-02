@@ -3,6 +3,7 @@
 package create
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,7 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"git.sr.ht/~timofurrer/ugh"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -18,7 +22,9 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
+	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/release/releaseutils/upload"
+	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -890,15 +896,15 @@ func TestReleaseCreate_WithoutNotes(t *testing.T) {
 			Links:       gitlab.ReleaseLinks{Self: "https://gitlab.com/OWNER/REPO/-/releases/0.0.1"},
 		}, okResponse, nil)
 
-		// Update release - verifying we can update without providing description
+		// Update release - verifying we can update without providing notes and preserve existing description
 		testClient.MockReleases.EXPECT().UpdateRelease("OWNER/REPO", "0.0.1", gomock.Any()).
 			DoAndReturn(func(pid any, tagName string, opts *gitlab.UpdateReleaseOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Release, *gitlab.Response, error) {
-				// Description should not be set (or be empty) since we didn't provide notes
-				if opts.Description != nil {
-					assert.Empty(t, *opts.Description)
-				}
+				require.NotNil(t, opts.Description)
+				assert.Equal(t, "Original description", *opts.Description)
+				require.NotNil(t, opts.Name)
+				assert.Equal(t, "Updated Name", *opts.Name)
 				return &gitlab.Release{
-					Name:        "0.0.1",
+					Name:        "Updated Name",
 					TagName:     "0.0.1",
 					Description: "Original description", // Keep original
 					Links:       gitlab.ReleaseLinks{Self: "https://gitlab.com/OWNER/REPO/-/releases/0.0.1"},
@@ -1153,4 +1159,186 @@ func TestReleaseCreate_ExperimentalNotes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReleaseCreate_UpdatePreservesExistingNotesAndName(t *testing.T) {
+	releasedAtTime, err := time.Parse(time.RFC3339, "2026-10-30T10:00:00Z")
+	require.NoError(t, err)
+
+	emptyName := ""
+
+	tests := []struct {
+		name            string
+		cli             string
+		existingName    *string
+		wantDescription string
+		wantName        string
+		wantReleasedAt  *time.Time
+	}{
+		{
+			name:            "updating without notes or name preserves existing values",
+			cli:             "1.0.0 --released-at '2026-10-30T10:00:00Z'",
+			wantDescription: "Existing release description",
+			wantName:        "Existing release title",
+			wantReleasedAt:  &releasedAtTime,
+		},
+		{
+			name:            "updating with name only preserves existing notes",
+			cli:             "1.0.0 --name 'Brand New Title'",
+			wantDescription: "Existing release description",
+			wantName:        "Brand New Title",
+		},
+		{
+			name:            "updating with notes only preserves existing name",
+			cli:             "1.0.0 --notes 'Brand new notes'",
+			wantDescription: "Brand new notes",
+			wantName:        "Existing release title",
+		},
+		{
+			name:            "explicitly clearing notes with empty notes flag",
+			cli:             "1.0.0 --notes ''",
+			wantDescription: "",
+			wantName:        "Existing release title",
+		},
+		{
+			name:            "existing release with empty name falls back to tag name",
+			cli:             "1.0.0 --released-at '2026-10-30T10:00:00Z'",
+			existingName:    &emptyName,
+			wantDescription: "Existing release description",
+			wantName:        "1.0.0",
+			wantReleasedAt:  &releasedAtTime,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tcClient := gitlabtesting.NewTestClient(t)
+			okResponse := &gitlab.Response{Response: &http.Response{StatusCode: http.StatusOK}}
+
+			tcClient.MockTags.EXPECT().GetTag("OWNER/REPO", "1.0.0", gomock.Any()).
+				Return(&gitlab.Tag{Name: "1.0.0"}, nil, nil)
+
+			existingName := "Existing release title"
+			if tc.existingName != nil {
+				existingName = *tc.existingName
+			}
+
+			tcClient.MockReleases.EXPECT().GetRelease("OWNER/REPO", "1.0.0", gomock.Any()).
+				Return(&gitlab.Release{
+					Name:        existingName,
+					TagName:     "1.0.0",
+					Description: "Existing release description",
+					Links: gitlab.ReleaseLinks{
+						Self: "https://gitlab.example.com/OWNER/REPO/-/releases/1.0.0",
+					},
+				}, okResponse, nil)
+
+			var updateCalled bool
+			tcClient.MockReleases.EXPECT().UpdateRelease("OWNER/REPO", "1.0.0", gomock.Any()).
+				DoAndReturn(func(pid any, tagName string, opts *gitlab.UpdateReleaseOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Release, *gitlab.Response, error) {
+					updateCalled = true
+					require.NotNil(t, opts.Description)
+					assert.Equal(t, tc.wantDescription, *opts.Description)
+
+					require.NotNil(t, opts.Name)
+					assert.Equal(t, tc.wantName, *opts.Name)
+
+					if tc.wantReleasedAt != nil {
+						require.NotNil(t, opts.ReleasedAt)
+						assert.Equal(t, *tc.wantReleasedAt, *opts.ReleasedAt)
+					}
+
+					return &gitlab.Release{
+						Name:        *opts.Name,
+						TagName:     "1.0.0",
+						Description: *opts.Description,
+						Links: gitlab.ReleaseLinks{
+							Self: "https://gitlab.example.com/OWNER/REPO/-/releases/1.0.0",
+						},
+					}, okResponse, nil
+				})
+
+			exec := cmdtest.SetupCmdForTest(
+				t,
+				NewCmdCreate,
+				false,
+				cmdtest.WithGitLabClient(tcClient.Client),
+				cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+			)
+
+			output, err := exec(tc.cli)
+			require.NoError(t, err)
+			assert.Contains(t, output.String(), "Release updated")
+			require.True(t, updateCalled, "expected UpdateRelease to be called")
+		})
+	}
+}
+
+func TestReleaseCreate_InteractiveUpdate_LeaveBlankPreservesExistingNotesAndName(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+	okResponse := &gitlab.Response{Response: &http.Response{StatusCode: http.StatusOK}}
+
+	testClient.MockTags.EXPECT().GetTag("OWNER/REPO", "1.0.0", gomock.Any()).
+		Return(&gitlab.Tag{Name: "1.0.0"}, nil, nil)
+
+	testClient.MockReleases.EXPECT().GetRelease("OWNER/REPO", "1.0.0", gomock.Any()).
+		Return(&gitlab.Release{
+			Name:        "Existing release title",
+			TagName:     "1.0.0",
+			Description: "Existing release description",
+			Links: gitlab.ReleaseLinks{
+				Self: "https://gitlab.example.com/OWNER/REPO/-/releases/1.0.0",
+			},
+		}, okResponse, nil)
+
+	var updateCalled bool
+	testClient.MockReleases.EXPECT().UpdateRelease("OWNER/REPO", "1.0.0", gomock.Any()).
+		DoAndReturn(func(pid any, tagName string, opts *gitlab.UpdateReleaseOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Release, *gitlab.Response, error) {
+			updateCalled = true
+			require.NotNil(t, opts.Description)
+			assert.Equal(t, "Existing release description", *opts.Description)
+
+			require.NotNil(t, opts.Name)
+			assert.Equal(t, "Existing release title", *opts.Name)
+
+			return &gitlab.Release{
+				Name:        *opts.Name,
+				TagName:     "1.0.0",
+				Description: *opts.Description,
+				Links: gitlab.ReleaseLinks{
+					Self: "https://gitlab.example.com/OWNER/REPO/-/releases/1.0.0",
+				},
+			}, okResponse, nil
+		})
+
+	c := ugh.New(t,
+		ugh.WithSize(cmdtest.ConsoleWidth, cmdtest.ConsoleHeight),
+		ugh.WithTimeout(10*time.Second),
+	)
+	c.Expect(ugh.Input("Release title (optional)")).
+		Do(ugh.PressEnter)
+	c.Expect(ugh.Select("Release notes")).
+		Do(ugh.SelectOption(noteOptionsNames[noteOptLeaveBlank]))
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		func(f cmdutils.Factory) *cobra.Command {
+			cmd := NewCmdCreate(f)
+			cmdutils.EnableRepoOverride(cmd, f)
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			t.Cleanup(cancel)
+			cmd.SetContext(ctx)
+			return cmd
+		},
+		true,
+		cmdtest.WithGitLabClient(testClient.Client),
+		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		cmdtest.WithConfig(config.NewFromString("editor: vi")),
+		cmdtest.WithConsole(t, c),
+	)
+
+	output, err := exec("1.0.0 --repo OWNER/REPO")
+	require.NoError(t, err)
+	assert.Contains(t, output.String(), "Release updated")
+	require.True(t, updateCalled, "expected UpdateRelease to be called")
 }

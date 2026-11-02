@@ -72,6 +72,7 @@ type options struct {
 	noCloseMilestone            bool
 
 	noteProvided bool
+	nameProvided bool
 
 	assetLink  []*upload.ReleaseAsset
 	assetFiles []*upload.ReleaseFile
@@ -256,11 +257,13 @@ func (o *options) complete(flags *pflag.FlagSet, args []string) error {
 		}
 	}
 
+	o.nameProvided = flags.Changed("name")
+
 	o.notes, err = resolveNotes(flags, o)
 	if err != nil {
 		return err
 	}
-	o.noteProvided = o.notes != ""
+	o.noteProvided = flags.Changed("notes") || flags.Changed("notes-file") || flags.Changed("experimental-notes-text-or-file") || o.notes != ""
 
 	if !flags.Changed("use-package-registry") {
 		if usePackageRegistry, err := strconv.ParseBool(os.Getenv("GITLAB_RELEASE_ASSETS_USE_PACKAGE_REGISTRY")); err == nil {
@@ -474,6 +477,14 @@ func createRun(opts *options) error {
 			if err != nil {
 				return err
 			}
+			opts.noteProvided = true
+		} else if opts.ReleaseNotesAction == noteOptionsNames[noteOptLeaveBlank] {
+			opts.noteProvided = false
+			opts.notes = ""
+		}
+
+		if opts.Name != "" {
+			opts.nameProvided = true
 		}
 	}
 	start := time.Now()
@@ -503,11 +514,11 @@ func createRun(opts *options) error {
 		}
 	}
 
-	if opts.Name == "" {
-		opts.Name = opts.tagName
-	}
-
 	if (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound) || release == nil {
+		if opts.Name == "" {
+			opts.Name = opts.tagName
+		}
+
 		createOpts := &gitlab.CreateReleaseOptions{
 			Name:    &opts.Name,
 			TagName: &opts.tagName,
@@ -566,11 +577,21 @@ func createRun(opts *options) error {
 			return releaseFailedErr(fmt.Errorf("release for tag %q already exists and --no-update flag was specified", opts.tagName), start)
 		}
 
-		updateOpts := &gitlab.UpdateReleaseOptions{
-			Name: &opts.Name,
+		name := release.Name
+		if opts.nameProvided {
+			name = opts.Name
 		}
-		if opts.notes != "" {
+		if name == "" {
+			name = opts.tagName
+		}
+
+		updateOpts := &gitlab.UpdateReleaseOptions{
+			Name: &name,
+		}
+		if opts.noteProvided {
 			updateOpts.Description = &opts.notes
+		} else {
+			updateOpts.Description = &release.Description
 		}
 
 		if opts.releasedAt != "" {
