@@ -264,6 +264,36 @@ To connect the interface:
 
 Without this connection, `glab` warns and falls back to plaintext file storage.
 
+## Git credential helper
+
+You can configure `glab` as Git's credential helper for a host:
+
+```shell
+glab auth login --hostname <HOSTNAME> --setup-git-credential-helper
+```
+
+Or when signing in with OAuth:
+
+```shell
+glab auth login --hostname <HOSTNAME> --web --setup-git-credential-helper
+```
+
+This configures a host-scoped Git credential helper that supplies your stored or refreshed tokens to Git during HTTP and HTTPS operations.
+
+### Recommended setup for OAuth-only instances
+
+On GitLab instances where personal access tokens are disabled, users cannot generate tokens manually for Git over HTTPS. Setting up Git Credential Manager often requires registering a separate personal OAuth application and client secret on the GitLab instance.
+
+Using `glab` as your Git credential helper avoids this:
+
+- `glab` uses its existing OAuth application, so you do not need to register a separate OAuth app or manage client secrets.
+- `glab` automatically manages and refreshes OAuth tokens for Git operations.
+
+You can replace Git Credential Manager with `glab` whenever:
+
+- Your Git remote URLs use HTTP or HTTPS to connect to GitLab.
+- You use `glab` for authentication against the instance.
+
 ## Claude Code sandboxing
 
 By default, the Claude Code sandbox allows writes only to the current working directory.
