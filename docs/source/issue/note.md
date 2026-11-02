@@ -14,9 +14,9 @@ Comment on an issue in GitLab.
 
 ## Synopsis
 
-Opens an editor for the comment if you don't use `--message`.
+Without `--message`, opens an editor at a terminal, and otherwise reads the comment from standard input, such as when input is piped or redirected.
 
-`--attach` uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass `-` to read the file from standard input. An attachment is content on its own, so a comment with only `--attach` skips the editor.
+`--attach` uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass `-` to read the file from standard input. An attachment is content on its own, so a comment with only `--attach` neither prompts nor reads a body from standard input.
 
 The `--attach` flag is an experiment. It might be
 unstable or removed at any time, and is not ready for production use.
@@ -50,6 +50,9 @@ glab issue note 123 --message "Here is the repro." --attach ./screenshot.png
 
 # Attach an image piped from the clipboard
 pngpaste - | glab issue note 123 --attach -
+
+# Comment with the message read from a file
+glab issue note 123 < comment.md
 ```
 
 ## Options
