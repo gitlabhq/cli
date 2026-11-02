@@ -26,9 +26,9 @@ func NewCmdNote(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Command
 		Aliases: []string{"comment"},
 		Short:   fmt.Sprintf("Comment on an %s in GitLab.", issueType),
 		Long: heredoc.Docf(`
-			Opens an editor for the comment if you don't use %[1]s--message%[1]s.
+			Without %[1]s--message%[1]s, opens an editor at a terminal, and otherwise reads the comment from standard input, such as when input is piped or redirected.
 
-			%[1]s--attach%[1]s uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. An attachment is content on its own, so a comment with only %[1]s--attach%[1]s skips the editor.
+			%[1]s--attach%[1]s uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. An attachment is content on its own, so a comment with only %[1]s--attach%[1]s neither prompts nor reads a body from standard input.
 			%[2]s`, "`", fmt.Sprintf(text.ExperimentalFlagString, "`--attach`")),
 		Example: heredoc.Docf(`
 			# Comment on %[1]s 123, opening an editor for the message
@@ -44,7 +44,10 @@ func NewCmdNote(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Command
 			glab %[1]s note 123 --message "Here is the repro." --attach ./screenshot.png
 
 			# Attach an image piped from the clipboard
-			pngpaste - | glab %[1]s note 123 --attach -`, issueType),
+			pngpaste - | glab %[1]s note 123 --attach -
+
+			# Comment with the message read from a file
+			glab %[1]s note 123 < comment.md`, issueType),
 		Args: cobra.ExactArgs(1),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
@@ -71,12 +74,7 @@ func NewCmdNote(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Command
 			body, _ := cmd.Flags().GetString("message")
 
 			if strings.TrimSpace(body) == "" && len(attach) == 0 {
-				editor, err := cmdutils.GetEditor(f.Config)
-				if err != nil {
-					return err
-				}
-
-				err = f.IO().Editor(cmd.Context(), &body, "Message:", "Enter the note's message.", "", editor)
+				body, err = cmdutils.NoteBodyFromStdinOrEditor(cmd.Context(), f.IO(), f.Config, "Message:", "Enter the note's message.")
 				if err != nil {
 					return err
 				}

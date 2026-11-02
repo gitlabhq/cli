@@ -320,3 +320,81 @@ func Test_IssuableNoteCreate_prompt(t *testing.T) {
 		}
 	}
 }
+
+func Test_IssuableNoteCreate_stdin(t *testing.T) {
+	t.Parallel()
+
+	commands := []struct {
+		name      string
+		issueType issuable.IssueType
+	}{
+		{"issue", issuable.TypeIssue},
+		{"incident", issuable.TypeIncident},
+	}
+
+	tests := []struct {
+		name     string
+		args     string
+		stdin    string
+		wantBody string
+		wantErr  string
+	}{
+		{name: "reads_body_from_stdin_when_not_a_tty", args: `1`, stdin: "Message from stdin\n", wantBody: "Message from stdin"},
+		{
+			name: "aborts_when_stdin_is_empty", args: `1`, stdin: "", wantBody: "",
+			wantErr: "aborted: note is empty",
+		},
+		{name: "message_flag_wins_over_stdin", args: `1 --message "inline message"`, stdin: "Message from stdin\n", wantBody: "inline message"},
+	}
+	for _, test := range tests {
+		for _, cc := range commands {
+			t.Run(cc.name+"_"+test.name, func(t *testing.T) {
+				t.Parallel()
+
+				testClient := gitlabtesting.NewTestClient(t)
+
+				testClient.MockIssues.EXPECT().
+					GetIssue("OWNER/REPO", int64(1), gomock.Any()).
+					Return(&gitlab.Issue{
+						ID:        1,
+						IID:       1,
+						IssueType: new(string(cc.issueType)),
+						WebURL:    "https://gitlab.com/OWNER/REPO/issues/1",
+					}, nil, nil)
+
+				if test.wantErr == "" {
+					testClient.MockNotes.EXPECT().
+						CreateIssueNote("OWNER/REPO", int64(1), gomock.Any()).
+						DoAndReturn(func(pid any, issueIID int64, opts *gitlab.CreateIssueNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Note, *gitlab.Response, error) {
+							assert.Equal(t, test.wantBody, *opts.Body)
+							return &gitlab.Note{
+								ID:           301,
+								NoteableID:   1,
+								NoteableType: "Issue",
+								NoteableIID:  1,
+							}, nil, nil
+						})
+				}
+
+				exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+					return NewCmdNote(f, cc.issueType)
+				}, false,
+					cmdtest.WithGitLabClient(testClient.Client),
+					cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+					cmdtest.WithConfig(config.NewFromString("editor: vi")),
+					cmdtest.WithStdin(test.stdin),
+				)
+
+				output, err := exec(test.args)
+				if test.wantErr != "" {
+					require.Error(t, err)
+					assert.Equal(t, test.wantErr, err.Error())
+					return
+				}
+				require.NoError(t, err)
+				assert.Empty(t, output.Stderr())
+				assert.Equal(t, "https://gitlab.com/OWNER/REPO/issues/1#note_301\n", output.String())
+			})
+		}
+	}
+}
