@@ -25,14 +25,14 @@ GitLab operations. Run `glab <command> --help` for detailed flag information.
 # Issues
 glab issue view <iid>
 glab issue list --label "bug,priority::1"
-glab issue create --title "title" --description "$(cat /tmp/desc.md)"
+glab issue create --title "title" --description-file /tmp/desc.md
 glab issue note <iid> -m "comment text"
 
 # Merge requests
-glab mr create --push --title "fix: title" --description "$(cat /tmp/desc.md)"
+glab mr create --push --title "fix: title" --description-file /tmp/desc.md
 glab mr view <iid>
 glab mr list --assignee <user>
-glab mr update <iid> --description "$(cat /tmp/desc.md)"
+glab mr update <iid> --description-file /tmp/desc.md
 glab mr note create <iid> -m "comment text"
 
 # CI/CD
@@ -73,10 +73,11 @@ glab incident note     <iid> -m "comment text"
 glab mr note create <iid> -m "..." --repo group/project
 ```
 
-### Long or Markdown bodies — pipe to stdin (preferred for MR notes)
+### Long or Markdown bodies — pipe to stdin
 
-`glab mr note create` reads the body from stdin when its input is a pipe.
-This avoids shell-quoting pitfalls (backticks, `$`, backslashes) and is the
+`glab mr note create`, `glab issue note`, and `glab incident note` read the
+body from stdin when `-m` is omitted and the input is a pipe. This avoids
+shell-quoting pitfalls (backticks, `$`, backslashes, apostrophes) and is the
 safest pattern for non-interactive use.
 
 ```shell
@@ -88,24 +89,32 @@ glab mr note create <iid> << 'EOF'
 Your **markdown** comment.
 Code blocks and `inline code`, $variables, and \backslashes are all literal.
 EOF
+
+glab issue note <iid> << 'EOF'
+It's the same for issues and incidents.
+EOF
 ```
 
-`glab issue note` and `glab incident note` do **not** read stdin. For long
-bodies on those commands, use `glab api` with `-F body=@file` (see
-[Content-type guidance](#content-type-guidance)) or inline a quoted heredoc
-into `-m`:
+For descriptions on `glab issue create` / `glab issue update` /
+`glab mr create` / `glab mr update` / `glab work-items create` /
+`glab work-items update`, pass `--description-file`. A path of `-` reads
+from stdin, so a quoted heredoc works directly:
 
 ```shell
-glab issue note <iid> -m "$(cat << 'EOF'
-Your **markdown** comment.
-Code blocks and `inline code` are safe.
+glab mr create --push --title "fix: title" --description-file - << 'EOF'
+## What does this MR do?
+
+It's a fix for `foo`.
 EOF
-)"
+
+glab mr update <iid> --description-file /tmp/desc.md
 ```
 
-For descriptions on `glab issue create` / `glab mr create` / `glab mr update`,
-inline a quoted heredoc into `--description`, or for very large or reusable
-bodies write to a file and use `--description "$(cat /tmp/desc.md)"`.
+Do not nest a heredoc inside command substitution, such as
+`--description "$(cat << 'EOF' ... EOF)"` or `-m "$(cat << 'EOF' ... EOF)"`.
+The default `/bin/bash` on macOS is bash 3.2, which fails with
+`unexpected EOF while looking for matching ''` when the body contains an
+apostrophe. Feed the heredoc to `--description-file -` or to stdin instead.
 
 ### Threaded replies on merge requests
 
@@ -262,10 +271,9 @@ JSON for arrays. On GET and DELETE requests, and whenever `--input` is used,
 
 ## Common mistakes
 
-- **`-m` is required on `note` commands** — without it, `glab issue note` and
-  `glab incident note` open `$EDITOR` (which hangs in non-interactive
-  environments). `glab mr note create` falls back to reading stdin on a pipe,
-  but still opens `$EDITOR` on a TTY.
+- **`-m` or piped stdin is required on `note` commands** — with neither,
+  `glab mr note create`, `glab issue note`, and `glab incident note` open
+  `$EDITOR` on a TTY, which hangs in non-interactive environments.
 - **Use `glab mr note create`, not `glab mr note -m`** — the `--message`,
   `--unique`, `--resolve`, and `--unresolve` flags on the root `glab mr note`
   command are deprecated. Use the `create`, `resolve`, and `reopen`
