@@ -266,33 +266,30 @@ Without this connection, `glab` warns and falls back to plaintext file storage.
 
 ## Git credential helper
 
-You can configure `glab` as Git's credential helper for a host:
+`glab` can act as the Git credential helper for HTTP and HTTPS remotes on a host. It supplies
+your stored token to Git and refreshes expired OAuth tokens.
+
+To configure it, run:
 
 ```shell
 glab auth login --hostname <HOSTNAME> --setup-git-credential-helper
 ```
 
-Or when signing in with OAuth:
+Interactive sign-in offers this setup in a prompt. Use the flag instead when no prompt is
+available, such as in a CI/CD job.
+
+On instances where personal access tokens are disabled, use `glab` instead of Git Credential Manager.
+Unlike Git Credential Manager, `glab` needs no OAuth client secret. On GitLab Self-Managed and
+GitLab Dedicated, an administrator sets up one
+[OAuth application](#oauth-gitlab-self-managed-gitlab-dedicated) for all users.
+
+To sign in with OAuth and configure the helper, run:
 
 ```shell
 glab auth login --hostname <HOSTNAME> --web --setup-git-credential-helper
 ```
 
-This configures a host-scoped Git credential helper that supplies your stored or refreshed tokens to Git during HTTP and HTTPS operations.
-
-### Recommended setup for OAuth-only instances
-
-On GitLab instances where personal access tokens are disabled, users cannot generate tokens manually for Git over HTTPS. Setting up Git Credential Manager often requires registering a separate personal OAuth application and client secret on the GitLab instance.
-
-Using `glab` as your Git credential helper avoids this:
-
-- `glab` uses its existing OAuth application, so you do not need to register a separate OAuth app or manage client secrets.
-- `glab` automatically manages and refreshes OAuth tokens for Git operations.
-
-You can replace Git Credential Manager with `glab` whenever:
-
-- Your Git remote URLs use HTTP or HTTPS to connect to GitLab.
-- You use `glab` for authentication against the instance.
+Without a local browser, use `--device` instead of `--web`.
 
 ## Claude Code sandboxing
 

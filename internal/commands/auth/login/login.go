@@ -108,7 +108,9 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 
 			To pass a token on standard input, use %[1]s--stdin%[1]s.
 
-			To configure glab as the Git credential helper for the host without a prompt, for example in a CI/CD job or on an OAuth-only instance where personal access tokens are disabled, use %[1]s--setup-git-credential-helper%[1]s. On OAuth-only instances, this uses glab's OAuth application and replaces the need for Git Credential Manager.
+			On instances where personal access tokens are disabled, sign in with OAuth and use glab as the Git credential helper instead of Git Credential Manager. glab automatically refreshes the OAuth token for Git and doesn't need an OAuth client secret.
+
+			To configure glab as the Git credential helper non-interactively (for example, in a CI/CD job), use %[1]s--setup-git-credential-helper%[1]s.
 
 			In interactive mode, glab detects GitLab instances from your Git remotes
 			and lists them as options, so you do not have to type the hostname manually.
@@ -166,7 +168,8 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 			# Non-interactive setup that also lets Git push and pull with the same token
 			glab auth login --hostname $CI_SERVER_FQDN --token $GITLAB_TOKEN --setup-git-credential-helper
 
-			# Authenticate with OAuth and configure glab as Git's credential helper (recommended on OAuth-only instances)
+			# Sign in with OAuth and configure glab as the Git credential helper (recommended when personal access tokens are disabled)
+			glab config set client_id <CLIENT_ID> --host gitlab.example.com
 			glab auth login --hostname gitlab.example.com --web --setup-git-credential-helper
 		`, "`"),
 		Annotations: map[string]string{
@@ -235,7 +238,7 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.GitProtocol, "git-protocol", "g", "", "Git protocol. Options: ssh, https, http.")
 	cmd.Flags().StringVar(&opts.SSHHostname, "ssh-hostname", "", "SSH hostname for instances with a different SSH endpoint. A port is not required; Git uses the port from the remote URL. Also skips the SSH hostname prompt in interactive mode.")
 	cmd.Flags().StringVar(&opts.ContainerRegistryDomains, "container-registry-domains", "", "Container registry and image dependency proxy domains, comma-separated.")
-	cmd.Flags().BoolVar(&opts.SetupGitCredentialHelper, "setup-git-credential-helper", false, "Configure glab as the Git credential helper for this host without prompting. Useful for CI/CD jobs and OAuth-only instances.")
+	cmd.Flags().BoolVar(&opts.SetupGitCredentialHelper, "setup-git-credential-helper", false, "Configure glab as the Git credential helper for this host without prompting. Use this in non-interactive runs, such as CI/CD jobs.")
 
 	cmd.MarkFlagsMutuallyExclusive("token", "stdin", "job-token", "web", "device")
 	cmd.MarkFlagsMutuallyExclusive("use-keyring", "insecure-storage")
