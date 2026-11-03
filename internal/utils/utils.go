@@ -13,10 +13,10 @@ import (
 
 	"charm.land/glamour/v2"
 	"github.com/google/shlex"
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/extension"
+	"github.com/yuin/goldmark/v2/parser"
+	"github.com/yuin/goldmark/v2/text"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
@@ -63,7 +63,7 @@ func RenderMarkdownWithoutIndentations(text, glamourStyle string) (string, error
 
 // markdownParser must use the same extensions as glamour, so that a block is
 // a paragraph here exactly when glamour treats it as one.
-var markdownParser = goldmark.New(goldmark.WithExtensions(extension.GFM, extension.DefinitionList)).Parser()
+var markdownParser = parser.New(parser.WithExtensions(extension.GFMParser, extension.DefinitionListParser))
 
 // collapseSoftLineBreaks replaces soft line breaks in paragraphs with spaces so
 // that glamour can preserve intentional hard line breaks without also
@@ -72,7 +72,7 @@ var markdownParser = goldmark.New(goldmark.WithExtensions(extension.GFM, extensi
 // Workaround for https://github.com/charmbracelet/glamour/issues/84: glamour
 // either joins every line in a paragraph or preserves every newline.
 //
-// Every edit is made between two of a paragraph's Lines() segments, which give
+// Every edit is made between two of a paragraph's Source() segments, which give
 // the exact byte range of each line with container markers and indentation
 // already removed. Hard line breaks are left untouched: the line that follows
 // one must keep its own indentation and container markers, otherwise removing
@@ -81,7 +81,7 @@ var markdownParser = goldmark.New(goldmark.WithExtensions(extension.GFM, extensi
 // copied, and no character in the source is inspected to guess where a line or
 // a block ends.
 func collapseSoftLineBreaks(src []byte) []byte {
-	doc := markdownParser.Parse(text.NewReader(src))
+	doc := markdownParser.Parse(src)
 
 	type edit struct {
 		start, stop int
@@ -93,25 +93,18 @@ func collapseSoftLineBreaks(src []byte) []byte {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
-		// A paragraph in a tight list item or a tight definition description
-		// is parsed as a TextBlock rather than a Paragraph, but glamour reflows
-		// both the same way, so both have their soft breaks collapsed here.
-		var lines *text.Segments
-		switch block := n.(type) {
-		case *ast.Paragraph:
-			lines = block.Lines()
-		case *ast.TextBlock:
-			lines = block.Lines()
-		default:
+		paragraph, ok := n.(*ast.Paragraph)
+		if !ok {
 			return ast.WalkContinue, nil
 		}
-		if lines == nil || lines.Len() < 2 {
+		lines := paragraph.Source()
+		if len(lines) < 2 {
 			return ast.WalkContinue, nil
 		}
 
 		breaks := paragraphBreaks(n, lines)
 
-		for i := 0; i < lines.Len()-1; i++ {
+		for i := 0; i < len(lines)-1; i++ {
 			kind := breaks[i]
 			// A hard break needs no rewriting. Its marker is valid Markdown
 			// and the following line stays exactly as the author wrote it.
@@ -125,15 +118,15 @@ func collapseSoftLineBreaks(src []byte) []byte {
 			// space. A break inside a code span is not a line break: its line
 			// ending becomes a space, but its trailing whitespace is content
 			// and must be kept.
-			start := lineContentEnd(src, lines.At(i))
+			start := lineContentEnd(src, lines[i])
 			if kind == breakSoft {
-				for start > lines.At(i).Start && (src[start-1] == ' ' || src[start-1] == '	') {
+				for start > lines[i].Start && (src[start-1] == ' ' || src[start-1] == '	') {
 					start--
 				}
 			}
 			edits = append(edits, edit{
 				start: start,
-				stop:  lines.At(i + 1).Start,
+				stop:  lines[i+1].Start,
 				text:  " ",
 			})
 		}
@@ -171,8 +164,8 @@ const (
 // the end of the text node that carries it. A line ending inside a code span
 // has no text node of its own, so it stays breakNone: CommonMark normalizes a
 // line ending in a code span to a space, and that is the only rewrite it gets.
-func paragraphBreaks(paragraph ast.Node, lines *text.Segments) []breakKind {
-	breaks := make([]breakKind, lines.Len())
+func paragraphBreaks(paragraph ast.Node, lines []text.Segment) []breakKind {
+	breaks := make([]breakKind, len(lines))
 	_ = ast.Walk(paragraph, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
@@ -185,8 +178,8 @@ func paragraphBreaks(paragraph ast.Node, lines *text.Segments) []breakKind {
 		if textNode.HardLineBreak() {
 			kind = breakHard
 		}
-		for i := 0; i < lines.Len(); i++ {
-			if textNode.Segment.Stop <= lines.At(i).Stop {
+		for i, line := range lines {
+			if textNode.Value.Index().Stop <= line.Stop {
 				breaks[i] = kind
 				break
 			}

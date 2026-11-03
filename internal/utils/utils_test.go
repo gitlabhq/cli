@@ -279,6 +279,16 @@ func Test_CollapseSoftLineBreaks(t *testing.T) {
 			want:  "# a  \ntext",
 		},
 		{
+			name:  "soft break inside tight list item among siblings collapses",
+			input: "- a\n  b\n- c",
+			want:  "- a b\n- c",
+		},
+		{
+			name:  "soft break in definition description collapses",
+			input: "Term\n: def\n  cont",
+			want:  "Term\n: def cont",
+		},
+		{
 			name:  "hard break in definition description is untouched",
 			input: "Term\n: def  \n  cont",
 			want:  "Term\n: def  \n  cont",
