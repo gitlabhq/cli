@@ -13,6 +13,10 @@ import (
 
 	"charm.land/glamour/v2"
 	"github.com/google/shlex"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/text"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
@@ -57,10 +61,162 @@ func RenderMarkdownWithoutIndentations(text, glamourStyle string) (string, error
 	return renderMarkdown(text, opts)
 }
 
+// markdownParser must use the same extensions as glamour, so that a block is
+// a paragraph here exactly when glamour treats it as one.
+var markdownParser = goldmark.New(goldmark.WithExtensions(extension.GFM, extension.DefinitionList)).Parser()
+
+// collapseSoftLineBreaks replaces soft line breaks in paragraphs with spaces so
+// that glamour can preserve intentional hard line breaks without also
+// preserving the source document's line wrapping.
+//
+// Workaround for https://github.com/charmbracelet/glamour/issues/84: glamour
+// either joins every line in a paragraph or preserves every newline.
+//
+// Every edit is made between two of a paragraph's Lines() segments, which give
+// the exact byte range of each line with container markers and indentation
+// already removed. Hard line breaks are left untouched: the line that follows
+// one must keep its own indentation and container markers, otherwise removing
+// them can turn a paragraph continuation into a new block (a heading, a
+// blockquote, or a list). Inline content, including code spans, is never
+// copied, and no character in the source is inspected to guess where a line or
+// a block ends.
+func collapseSoftLineBreaks(src []byte) []byte {
+	doc := markdownParser.Parse(text.NewReader(src))
+
+	type edit struct {
+		start, stop int
+		text        string
+	}
+	var edits []edit
+
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		// A paragraph in a tight list item or a tight definition description
+		// is parsed as a TextBlock rather than a Paragraph, but glamour reflows
+		// both the same way, so both have their soft breaks collapsed here.
+		var lines *text.Segments
+		switch block := n.(type) {
+		case *ast.Paragraph:
+			lines = block.Lines()
+		case *ast.TextBlock:
+			lines = block.Lines()
+		default:
+			return ast.WalkContinue, nil
+		}
+		if lines == nil || lines.Len() < 2 {
+			return ast.WalkContinue, nil
+		}
+
+		breaks := paragraphBreaks(n, lines)
+
+		for i := 0; i < lines.Len()-1; i++ {
+			kind := breaks[i]
+			// A hard break needs no rewriting. Its marker is valid Markdown
+			// and the following line stays exactly as the author wrote it.
+			if kind == breakHard {
+				continue
+			}
+
+			// The edited range runs from the end of this line's text to the
+			// start of the next line's text, so the line ending and the next
+			// line's container markers and indentation are replaced by one
+			// space. A break inside a code span is not a line break: its line
+			// ending becomes a space, but its trailing whitespace is content
+			// and must be kept.
+			start := lineContentEnd(src, lines.At(i))
+			if kind == breakSoft {
+				for start > lines.At(i).Start && (src[start-1] == ' ' || src[start-1] == '	') {
+					start--
+				}
+			}
+			edits = append(edits, edit{
+				start: start,
+				stop:  lines.At(i + 1).Start,
+				text:  " ",
+			})
+		}
+		return ast.WalkContinue, nil
+	})
+
+	if len(edits) == 0 {
+		return src
+	}
+
+	// Apply from the end so earlier byte offsets stay valid.
+	out := src
+	for _, e := range slices.Backward(edits) {
+		replaced := make([]byte, 0, len(out)-(e.stop-e.start)+len(e.text))
+		replaced = append(replaced, out[:e.start]...)
+		replaced = append(replaced, e.text...)
+		replaced = append(replaced, out[e.stop:]...)
+		out = replaced
+	}
+	return out
+}
+
+// breakKind classifies the line ending that the parser recorded at the end of
+// a paragraph line, if any.
+type breakKind int
+
+const (
+	breakNone breakKind = iota
+	breakSoft
+	breakHard
+)
+
+// paragraphBreaks reports, for each of the paragraph's lines, what the parser
+// recorded at its end. A break is attributed to the line whose segment contains
+// the end of the text node that carries it. A line ending inside a code span
+// has no text node of its own, so it stays breakNone: CommonMark normalizes a
+// line ending in a code span to a space, and that is the only rewrite it gets.
+func paragraphBreaks(paragraph ast.Node, lines *text.Segments) []breakKind {
+	breaks := make([]breakKind, lines.Len())
+	_ = ast.Walk(paragraph, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		textNode, ok := n.(*ast.Text)
+		if !ok || (!textNode.HardLineBreak() && !textNode.SoftLineBreak()) {
+			return ast.WalkContinue, nil
+		}
+		kind := breakSoft
+		if textNode.HardLineBreak() {
+			kind = breakHard
+		}
+		for i := 0; i < lines.Len(); i++ {
+			if textNode.Segment.Stop <= lines.At(i).Stop {
+				breaks[i] = kind
+				break
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	return breaks
+}
+
+// lineContentEnd returns the offset just past a paragraph line's content,
+// excluding its line ending. goldmark includes the line ending in every line
+// segment except the block's last one.
+func lineContentEnd(src []byte, segment text.Segment) int {
+	stop := segment.Stop
+	for stop > segment.Start && (src[stop-1] == '\n' || src[stop-1] == '\r') {
+		stop--
+	}
+	return stop
+}
+
 func renderMarkdown(text string, opts MarkdownRenderOpts) (string, error) {
 	// Glamour rendering preserves carriage return characters in code blocks, but
 	// we need to ensure that no such characters are present in the output.
 	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = string(collapseSoftLineBreaks([]byte(text)))
+
+	// Glamour joins every line in a paragraph unless newlines are preserved.
+	// Collapsing soft breaks above leaves only intentional hard breaks, which
+	// must survive the paragraph reflow.
+	opts = append(opts, glamour.WithPreservedNewLines())
 
 	tr, err := glamour.NewTermRenderer(opts...)
 	if err != nil {
