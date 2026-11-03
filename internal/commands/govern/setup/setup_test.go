@@ -713,11 +713,11 @@ func TestSetupPrompt(t *testing.T) {
 
 	assert.Equal(t,
 		"glab will install agent session hooks in ~/.claude/settings.json and a systemd user timer (~/.config/systemd/user/glab-govern-audit-sync.timer) that syncs sessions in the background every 30 minutes, replacing any existing job. "+
-			"Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and file edits. Do you wish to continue?",
+			"Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are. Do you wish to continue?",
 		setupPrompt("linux", false, plan{claudeHooks: true}), "every setup says what is uploaded, not only --agents")
 
 	withAgents := setupPrompt("linux", false, plan{claudeHooks: true, discovered: []string{"codex", "cursor"}})
-	assert.Contains(t, withAgents, "including your prompts and each tool call's arguments, such as commands and file edits")
+	assert.Contains(t, withAgents, "including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are")
 	assert.Contains(t, withAgents, "The job will also upload your codex and cursor sessions the same way, from the last 89 days and from now on")
 
 	hooksOnly := setupPrompt("linux", true, plan{claudeHooks: true, discovered: []string{"codex"}})

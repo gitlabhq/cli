@@ -193,6 +193,50 @@ func TestAuditEvents_Limits(t *testing.T) {
 	}
 }
 
+func TestAuditEvents_RedactionDoesNotOmitArguments(t *testing.T) {
+	t.Parallel()
+
+	// Each marker is longer than the password it replaces.
+	command := strings.Repeat("curl https://u:Abc12345@example.com\n", 10)
+	padding := strings.Repeat("x", maxValueBytes-encodedLen(map[string]string{"command": command})-10)
+	arguments, err := json.Marshal(map[string]string{"command": command + padding})
+	require.NoError(t, err)
+	require.LessOrEqual(t, encodedLen(json.RawMessage(arguments)), maxValueBytes)
+	require.Greater(t, encodedLen(redactJSON(arguments)), maxValueBytes, "redaction lengthens the arguments past the limit")
+
+	now := time.Date(2026, 10, 9, 1, 0, 0, 0, time.UTC)
+	events := auditEvents("claude-code", &sessionData{
+		ToolCalls: []toolCall{{ID: "toolu_1", Name: "Bash", Input: arguments, Timestamp: now}},
+	}, now)
+	require.Len(t, events, 1)
+
+	details, err := json.Marshal(events[0].Details)
+	require.NoError(t, err)
+	assert.NotContains(t, string(details), "Abc12345")
+	assert.Contains(t, string(details), redactedMarker("url_password"))
+	assert.NotContains(t, string(details), "omitted")
+	assert.LessOrEqual(t, encodedLen(events[0].Details), 10*1024, "GitLab measures the encoded details")
+}
+
+func TestAuditEvents_OmitsArgumentsThatRedactionMakesTooLarge(t *testing.T) {
+	t.Parallel()
+
+	line := "curl https://u:Abc12345@example.com\n"
+	command := strings.Repeat(line, (maxValueBytes-20)/(len(line)+1))
+	arguments, err := json.Marshal(map[string]string{"command": command})
+	require.NoError(t, err)
+	require.LessOrEqual(t, encodedLen(json.RawMessage(arguments)), maxValueBytes)
+
+	now := time.Date(2026, 10, 9, 1, 0, 0, 0, time.UTC)
+	events := auditEvents("claude-code", &sessionData{
+		ToolCalls: []toolCall{{ID: "toolu_1", Name: "Bash", Input: arguments, Timestamp: now}},
+	}, now)
+	require.Len(t, events, 1)
+
+	assert.Equal(t, argumentsOmitted, events[0].Details["arguments"])
+	assert.LessOrEqual(t, encodedLen(events[0].Details), 10*1024, "GitLab measures the encoded details")
+}
+
 func TestSyncAll_PostsRichEvents(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	path := env.writeClaudeSession(t, "sess-1", "my-group/my-project")

@@ -16,7 +16,11 @@ Sync agent session data to GitLab. (EXPERIMENTAL)
 
 Read new entries from the local agent transcript since the last sync and POST them to GitLab as audit events.
 
-The audit events contain the prompts you type, each tool call with its arguments (such as commands, file paths, and edits, replaced with a marker when over 8 KB), each tool call's outcome, duration, and error message, and the model and token usage of each response. Tool output and the text of responses are not sent. When glab creates a session on GitLab, it also sends the glab version and the agent's version. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old.
+The audit events contain the prompts you type, each tool call with its arguments (such as commands, file paths, and edits, replaced with a marker when over 8 KB), each tool call's outcome, duration, and error message, and the model and token usage of each response. Tool output and the text of responses are not sent.
+
+Before anything is sent, glab replaces common secret formats with a marker such as `[REDACTED:gitlab_token]`: GitLab, GitHub, Slack, npm and PyPI tokens, AWS, Google, Stripe, OpenAI and Anthropic API keys, JWTs, private keys, credentials in Authorization and token headers or under credential-like keys, and passwords in URLs. This is best effort: other secrets in prompts, commands, or file contents are sent as they are.
+
+When glab creates a session on GitLab, it also sends the glab version and the agent's version. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old.
 
 Some agents record less:
 
