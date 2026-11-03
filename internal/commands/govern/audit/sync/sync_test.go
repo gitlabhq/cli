@@ -175,6 +175,68 @@ func TestParseTranscript(t *testing.T) {
 		assert.Len(t, data.ToolCalls, 1)
 		assert.Equal(t, "Edit", data.ToolCalls[0].Name)
 	})
+
+	t.Run("reads an entry that was still being written on the next sync", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "session.jsonl")
+		toolUse := func(id string) []byte {
+			return makeEntry("assistant", map[string]any{
+				"sessionId": "sess-partial",
+				"timestamp": time.Now().Format(time.RFC3339),
+				"message": map[string]any{
+					"content": []map[string]any{
+						{"type": "tool_use", "id": id, "name": "Bash"},
+					},
+				},
+			})
+		}
+		first := append(toolUse("toolu_first"), '\n')
+		second := append(toolUse("toolu_second"), '\n')
+		half := len(second) / 2
+		require.NoError(t, os.WriteFile(path, append(slices.Clone(first), second[:half]...), 0o644))
+
+		data, offset, err := parseTranscript(path, 0)
+		require.NoError(t, err)
+		require.Len(t, data.ToolCalls, 1)
+		assert.Equal(t, "toolu_first", data.ToolCalls[0].ID)
+		assert.Equal(t, int64(len(first)), offset)
+
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+		require.NoError(t, err)
+		_, err = f.Write(second[half:])
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		data, offset, err = parseTranscript(path, offset)
+		require.NoError(t, err)
+		require.Len(t, data.ToolCalls, 1)
+		assert.Equal(t, "toolu_second", data.ToolCalls[0].ID)
+		assert.Equal(t, int64(len(first)+len(second)), offset)
+	})
+
+	t.Run("reads entries longer than 1 MB", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "session.jsonl")
+		line := makeEntry("assistant", map[string]any{
+			"sessionId": "sess-large",
+			"timestamp": time.Now().Format(time.RFC3339),
+			"message": map[string]any{
+				"content": []map[string]any{
+					{
+						"type": "tool_use", "id": "toolu_large", "name": "Write",
+						"input": map[string]any{"content": strings.Repeat("a", 2<<20)},
+					},
+				},
+			},
+		})
+		require.NoError(t, os.WriteFile(path, append(line, '\n'), 0o644))
+
+		data, offset, err := parseTranscript(path, 0)
+		require.NoError(t, err)
+		require.Len(t, data.ToolCalls, 1)
+		assert.Equal(t, "toolu_large", data.ToolCalls[0].ID)
+		assert.Equal(t, int64(len(line)+1), offset)
+	})
 }
 
 func TestTranscriptSHA256(t *testing.T) {

@@ -294,37 +294,19 @@ func goalFromText(text string) string {
 	return text
 }
 
-// parseTranscript reads new entries from the transcript file starting at offset,
-// extracts session data, and returns the new offset.
+// parseTranscript reads the complete entries of the transcript file after
+// startOffset, extracts session data, and returns the offset after the last
+// complete entry, so an entry that is still being written is read next time.
 func parseTranscript(path string, startOffset int64) (*sessionData, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, 0, fmt.Errorf("could not open transcript: %w", err)
-	}
-	defer f.Close()
-
-	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
-		return nil, 0, fmt.Errorf("could not seek transcript: %w", err)
-	}
-
 	data := &sessionData{}
-	scanner := bufio.NewScanner(f)
-	// Increase buffer for large lines
-	buf := make([]byte, 1024*1024)
-	scanner.Buffer(buf, len(buf))
-
-	var currentOffset int64 = startOffset
 	goalFound := startOffset > 0 // if we have a cursor, we already captured the goal
 	calls := map[string]toolCall{}
 	responses := map[string]int{}
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		currentOffset += int64(len(line)) + 1 // +1 for newline
-
+	offset, err := scanJSONL(path, startOffset, func(line []byte, _ int64) {
 		var entry transcriptEntry
 		if err := json.Unmarshal(line, &entry); err != nil {
-			continue // skip malformed lines
+			return // skip malformed lines
 		}
 
 		if data.SessionID == "" && entry.SessionID != "" {
@@ -362,11 +344,11 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 				data.ToolResults = append(data.ToolResults, result)
 			}
 			if entry.IsMeta || entry.PromptID == "" || hasResults {
-				continue
+				return
 			}
 			text := extractPrompt(entry.Message)
 			if text == "" {
-				continue
+				return
 			}
 			data.Prompts = append(data.Prompts, prompt{ID: entry.UUID, Text: text, Timestamp: ts})
 			if !goalFound {
@@ -378,7 +360,7 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 		case "assistant":
 			var msg assistantMessage
 			if err := json.Unmarshal(entry.Message, &msg); err != nil {
-				continue
+				return
 			}
 
 			for _, block := range msg.Content {
@@ -411,13 +393,12 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 				}
 			}
 		}
+	})
+	if err != nil {
+		return nil, offset, err
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, currentOffset, fmt.Errorf("error reading transcript: %w", err)
-	}
-
-	return data, currentOffset, nil
+	return data, offset, nil
 }
 
 // toolResultText returns the text of a tool_result content, which is either a
