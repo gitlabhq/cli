@@ -9,6 +9,7 @@ import (
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/google/shlex"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -84,4 +85,20 @@ func TestAliasDelete(t *testing.T) {
 			assert.Equal(t, tt.wantStderr, stderr.String())
 		})
 	}
+}
+
+func TestAliasDeleteCompletion(t *testing.T) {
+	t.Parallel()
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	cfg := config.NewFromString("aliases:\n  co: mr checkout\n  il: issue list\n")
+	cmd := NewCmdDelete(cmdtest.NewTestFactory(ios, cmdtest.WithConfig(cfg)))
+
+	got, dir := cmd.ValidArgsFunction(cmd, nil, "")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, dir)
+	assert.Equal(t, []string{cobra.CompletionWithDesc("co", "mr checkout"), cobra.CompletionWithDesc("il", "issue list")}, got)
+
+	got, dir = cmd.ValidArgsFunction(cmd, []string{"co"}, "")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, dir)
+	assert.Empty(t, got)
 }
