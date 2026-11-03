@@ -31,7 +31,7 @@ glab packages delete [<id> | --id <id> | --name <name>] [flags]
 ## Aliases
 
 ```plaintext
-rm
+del
 ```
 
 ## Examples
@@ -50,9 +50,6 @@ glab packages delete --name example-maven --version 1.0.0 --package-type maven
 # Skip the confirmation prompt
 glab packages delete 1 -y
 glab packages delete --name example-generic --version 1.0.0 --yes
-
-# Use the 'rm' alias
-glab packages rm 1
 
 ```
 
