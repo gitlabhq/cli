@@ -3,6 +3,8 @@
 package api
 
 import (
+	"context"
+	"crypto/tls"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -202,4 +205,39 @@ func TestTransportCache_BuildErrorIsNotCached(t *testing.T) {
 	client, err := NewClientFromConfig(serverHost(srv), cfg, false, "glab-test", WithTransportCache(cache))
 	require.NoError(t, err)
 	mustGet(t, client, srv.URL)
+}
+
+func TestProxyAwareTLSDialer_HandshakeTimeout(t *testing.T) {
+	t.Parallel()
+
+	// The listener never accepts, so the TCP connect succeeds and the TLS
+	// handshake waits for a ServerHello that never comes.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	newDialer := func(timeout time.Duration) *proxyAwareTLSDialer {
+		return &proxyAwareTLSDialer{dialer: &net.Dialer{}, config: &tls.Config{}, handshakeTimeout: timeout}
+	}
+
+	t.Run("its own timeout reports a TLS handshake timeout", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := newDialer(50*time.Millisecond).DialTLSContext(t.Context(), "tcp", ln.Addr().String())
+
+		require.EqualError(t, err, "net/http: TLS handshake timeout")
+		require.NotErrorIs(t, err, context.DeadlineExceeded)
+		var netErr net.Error
+		require.ErrorAs(t, err, &netErr)
+		assert.True(t, netErr.Timeout())
+	})
+
+	t.Run("the caller's deadline is reported as its own", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+		_, err := newDialer(time.Minute).DialTLSContext(ctx, "tcp", ln.Addr().String())
+
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	})
 }

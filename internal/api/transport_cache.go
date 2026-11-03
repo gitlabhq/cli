@@ -1,13 +1,17 @@
 package api
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -107,20 +111,124 @@ func newTransport(key transportKey) (*http.Transport, error) {
 		proxy = http.ProxyURL(u)
 	}
 
+	dialer := &net.Dialer{
+		Timeout:   dialTimeout,
+		KeepAlive: keepAlive,
+	}
+	tlsHandshakeTimeout := 10 * time.Second
+	tlsDialer := &proxyAwareTLSDialer{
+		dialer:           dialer,
+		config:           tlsConfig,
+		handshakeTimeout: tlsHandshakeTimeout,
+	}
+
 	return &http.Transport{
-		Proxy: proxy,
-		DialContext: (&net.Dialer{
-			Timeout:   dialTimeout,
-			KeepAlive: keepAlive,
-		}).DialContext,
+		Proxy:                 tlsDialer.recordHTTPSProxies(proxy),
+		DialContext:           dialer.DialContext,
+		DialTLSContext:        tlsDialer.DialTLSContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   25,
 		IdleConnTimeout:       idleTimeout,
-		TLSHandshakeTimeout:   10 * time.Second,
+		TLSHandshakeTimeout:   tlsHandshakeTimeout,
 		ExpectContinueTimeout: 1 * time.Second,
 		TLSClientConfig:       tlsConfig,
 	}, nil
+}
+
+// proxyAwareTLSDialer opens the TLS connections http.Transport makes itself:
+// direct HTTPS connections and connections to HTTPS proxies. The Transport
+// offers the target's ALPN protocols to the proxy too, so a proxy that picks
+// h2 receives an HTTP/1.1 CONNECT it cannot parse. The handshake with a proxy
+// therefore offers only HTTP/1.1; the tunnelled handshake with GitLab still
+// offers HTTP/2.
+type proxyAwareTLSDialer struct {
+	dialer           *net.Dialer
+	config           *tls.Config
+	handshakeTimeout time.Duration
+	// httpsProxyAddrs holds the host:port of every https:// proxy the Proxy
+	// func has returned, in the form the Transport passes to DialTLSContext.
+	httpsProxyAddrs sync.Map
+}
+
+func (d *proxyAwareTLSDialer) recordHTTPSProxies(proxy func(*http.Request) (*url.URL, error)) func(*http.Request) (*url.URL, error) {
+	return func(req *http.Request) (*url.URL, error) {
+		u, err := proxy(req)
+		if err == nil && u != nil && u.Scheme == "https" {
+			port := u.Port()
+			if port == "" {
+				port = "443"
+			}
+			d.httpsProxyAddrs.LoadOrStore(net.JoinHostPort(u.Hostname(), port), struct{}{})
+		}
+		return u, err
+	}
+}
+
+func (d *proxyAwareTLSDialer) DialTLSContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	// The Transport adds its ALPN protocols to the shared config before its
+	// first dial, so the clone already offers h2 when HTTP/2 is enabled.
+	cfg := d.config.Clone()
+	if cfg.ServerName == "" {
+		cfg.ServerName = host
+	}
+	if _, ok := d.httpsProxyAddrs.Load(addr); ok {
+		cfg.NextProtos = []string{"http/1.1"}
+	}
+	// http.Transport clears NextProtos for these requests when it dials
+	// itself, but a custom DialTLSContext bypasses that.
+	if ctx.Value(http1OnlyKey{}) != nil {
+		cfg.NextProtos = nil
+	}
+
+	conn, err := d.dialer.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	handshakeCtx, cancel := context.WithTimeout(ctx, d.handshakeTimeout)
+	defer cancel()
+	tlsConn := tls.Client(conn, cfg)
+	if err := tlsConn.HandshakeContext(handshakeCtx); err != nil {
+		if ctx.Err() == nil && handshakeCtx.Err() != nil {
+			err = tlsHandshakeTimeoutError{}
+		}
+		closeErr := conn.Close()
+		// HandshakeContext has already closed conn when its context ended.
+		if errors.Is(closeErr, net.ErrClosed) {
+			closeErr = nil
+		}
+		return nil, errors.Join(err, closeErr)
+	}
+	return tlsConn, nil
+}
+
+// tlsHandshakeTimeoutError is what http.Transport returns when its own
+// TLSHandshakeTimeout expires. Unlike the handshake context's error, it does not
+// match context.DeadlineExceeded, which callers read as their own deadline.
+type tlsHandshakeTimeoutError struct{}
+
+func (tlsHandshakeTimeoutError) Error() string   { return "net/http: TLS handshake timeout" }
+func (tlsHandshakeTimeoutError) Timeout() bool   { return true }
+func (tlsHandshakeTimeoutError) Temporary() bool { return true }
+
+// http1OnlyKey marks a request http.Transport keeps off HTTP/2: a websocket
+// upgrade. The Transport dials with the request's context values, and pools
+// these connections separately, so no other request reuses one.
+type http1OnlyKey struct{}
+
+// requiresHTTP1 is http.Request.requiresHTTP1, which is unexported.
+func requiresHTTP1(req *http.Request) bool {
+	connection := strings.FieldsFunc(req.Header.Get("Connection"), func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t'
+	})
+	return slices.ContainsFunc(connection, func(token string) bool { return strings.EqualFold(token, "upgrade") }) &&
+		strings.EqualFold(req.Header.Get("Upgrade"), "websocket")
 }
 
 // pooledTransport hides CloseIdleConnections, which go-retryablehttp calls
@@ -131,5 +239,8 @@ type pooledTransport struct {
 }
 
 func (t *pooledTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if requiresHTTP1(req) {
+		req = req.WithContext(context.WithValue(req.Context(), http1OnlyKey{}, true))
+	}
 	return t.rt.RoundTrip(req)
 }
