@@ -198,3 +198,23 @@ func TestConfigSet_RejectsUnknownKey(t *testing.T) {
 	_, written := cfg["_written"]
 	assert.False(t, written, "config should not be written when key is rejected")
 }
+
+// State glab maintains for itself is read from the global file only, so
+// `config set` must not put it in the repository's local file where nothing
+// would read it again. configStub.Local returns nil, so a local write would not
+// reach the config at all and the assertions below would not hold.
+func TestConfigSet_GlobalOnlyKeyWritesGloballyWithoutTheFlag(t *testing.T) {
+	t.Parallel()
+
+	cfg := configStub{}
+	exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+	out, err := exec("duo_cli_binary_version 9.26.0")
+	require.NoError(t, err)
+
+	assert.Contains(t, out.Stderr(), "always stored in the global configuration",
+		"the user must be told the write was routed to the global config")
+	assert.Equal(t, "9.26.0", cfg["duo_cli_binary_version"],
+		"the value must land in the global config, which is the one glab reads")
+	assert.Equal(t, "true", cfg["_written"])
+}

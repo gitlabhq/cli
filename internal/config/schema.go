@@ -50,6 +50,42 @@ type KeyDef struct {
 	Fallback bool
 	// Completion candidates; not enforced by config set.
 	Values []string
+	// GlobalOnly marks state glab maintains for itself rather than settings a
+	// user tunes per repository. glab writes these to the global file, so a
+	// value in a repository's local file would win every read while every
+	// write went somewhere that is never read. Reads skip the local file for
+	// these, and `config set` routes them to the global one.
+	//
+	// Scope does not express this: ScopeGlobal means "not per host", and
+	// ordinary ScopeGlobal keys such as git_protocol are meant to be set per
+	// repository.
+	GlobalOnly bool
+}
+
+// globalOnlyKeys is the set of names and aliases whose values glab maintains
+// for itself. Built once from KeySchema so it cannot drift from the schema.
+var globalOnlyKeys = func() map[string]struct{} {
+	keys := map[string]struct{}{}
+
+	for _, def := range KeySchema {
+		if !def.GlobalOnly {
+			continue
+		}
+
+		keys[def.Name] = struct{}{}
+		for _, alias := range def.Aliases {
+			keys[alias] = struct{}{}
+		}
+	}
+
+	return keys
+}()
+
+// IsGlobalOnlyKey reports whether key names state glab maintains for itself,
+// which lives only in the global config file.
+func IsGlobalOnlyKey(key string) bool {
+	_, ok := globalOnlyKeys[ConfigKeyEquivalence(key)]
+	return ok
 }
 
 // KeySchema is the declared list of every config key glab understands.
@@ -127,6 +163,7 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "last_update_check_timestamp", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
 		UserSettable: true, HelpHidden: true,
 		Description: "Last update check timestamp, used for checking when the last update check was performed.",
 	},
@@ -138,6 +175,7 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "last_seen_version", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly: true,
 		// Seeded so the post-upgrade banner can surface immediately when
 		// existing users upgrade to the release that ships `glab whatsnew`.
 		// Bump only when intentionally re-announcing the feature.
@@ -146,6 +184,7 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "last_whatsnew_version", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly: true,
 		// Same seeded default as last_seen_version so the default whatsnew
 		// invocation has a non-empty baseline before the user runs it.
 		Default: "v1.100.0", UserSettable: true, Fallback: true, HelpHidden: true,
@@ -200,22 +239,26 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "duo_cli_binary_path", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
 		UserSettable: true, HelpHidden: true,
 		EnvVars:     []string{"GLAB_DUO_CLI_BINARY_PATH"},
 		Description: "Path to the installed Duo CLI binary (automatically set). Default: ~/.config/glab-cli/bin/duo",
 	},
 	{
 		Name: "duo_cli_binary_version", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
 		UserSettable: true, HelpHidden: true,
 		Description: "Version of the installed Duo CLI binary (automatically set).",
 	},
 	{
 		Name: "duo_cli_binary_checksum", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
 		UserSettable: true, HelpHidden: true,
 		Description: "SHA256 checksum of the installed Duo CLI binary (automatically set).",
 	},
 	{
 		Name: "duo_cli_last_update_check", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
 		UserSettable: true, HelpHidden: true,
 		Description: "Last time an update check was performed (automatically set).",
 	},
@@ -236,22 +279,26 @@ var KeySchema = []KeyDef{
 	},
 	{
 		Name: "orbit_cli_binary_path", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
 		UserSettable: true, HelpHidden: true,
 		EnvVars:     []string{"GLAB_ORBIT_CLI_BINARY_PATH"},
 		Description: "Path to the installed GitLab Orbit CLI binary (automatically set). Default: ~/.config/glab-cli/bin/orbit",
 	},
 	{
 		Name: "orbit_cli_binary_version", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
 		UserSettable: true, HelpHidden: true,
 		Description: "Version of the installed GitLab Orbit CLI binary (automatically set).",
 	},
 	{
 		Name: "orbit_cli_binary_checksum", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
 		UserSettable: true, HelpHidden: true,
 		Description: "SHA256 checksum of the installed GitLab Orbit CLI binary (automatically set).",
 	},
 	{
 		Name: "orbit_cli_last_update_check", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
 		UserSettable: true, HelpHidden: true,
 		Description: "Last time a GitLab Orbit CLI update check was performed (automatically set).",
 	},

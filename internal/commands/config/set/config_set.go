@@ -36,6 +36,9 @@ func NewCmdSet(f cmdutils.Factory) *cobra.Command {
 		Short: "Updates configuration with the value of a given key.",
 		Long: heredoc.Docf(`Use %[1]sglab config set --global%[1]s to write to the global configuration.
 		Specifying the %[1]s--host%[1]s flag also saves to the global configuration file.
+
+		Keys that glab manages for itself are always written to the global
+		configuration, even without %[1]s--global%[1]s.
 		`, "`"),
 		Example: heredoc.Doc(`
 glab config set editor vim
@@ -90,8 +93,18 @@ func (o *options) run() error {
 		return err
 	}
 
+	// A key glab maintains for itself is read from the global file only, so a
+	// local write would land where nothing reads it and the old local value
+	// would keep winning. Route those to the global file instead.
+	routed := !o.isGlobal && o.hostname == "" && config.IsGlobalOnlyKey(o.key)
+	writeGlobal := o.isGlobal || o.hostname != "" || routed
+	if routed {
+		o.io.LogErrorf("%s %s is managed by glab and is always stored in the global configuration: %s\n",
+			o.io.Color().DotWarnIcon(), o.key, config.ConfigFile())
+	}
+
 	var err error
-	if o.isGlobal || o.hostname != "" {
+	if writeGlobal {
 		err = cfg.Set(o.hostname, o.key, o.value)
 	} else {
 		err = localCfg.Set(o.key, o.value)
@@ -105,7 +118,7 @@ func (o *options) run() error {
 		return fmt.Errorf("failed to set %q: %w", o.key, err)
 	}
 
-	if o.isGlobal || o.hostname != "" {
+	if writeGlobal {
 		err = cfg.Write()
 	} else {
 		err = localCfg.Write()

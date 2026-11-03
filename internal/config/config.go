@@ -329,10 +329,23 @@ func (c *fileConfig) GetWithSource(hostname, key string, searchENVVars bool) (st
 
 	source := ConfigFile()
 
-	l, _ := c.Local()
-	value, err := l.GetStringValue(key)
+	// State glab maintains for itself is written to the global file only, so a
+	// value sitting in a repository's local file would win every read while
+	// every write went to a file that is never read. Skip the local file for
+	// those keys rather than let a stale copy shadow the real one.
+	skipLocal := IsGlobalOnlyKey(key)
 
-	if (err != nil && isNotFoundError(err)) || value == "" {
+	var (
+		value string
+		err   error
+	)
+
+	if !skipLocal {
+		l, _ := c.Local()
+		value, err = l.GetStringValue(key)
+	}
+
+	if skipLocal || (err != nil && isNotFoundError(err)) || value == "" {
 		value, err = c.GetStringValue(key)
 		if err != nil && isNotFoundError(err) {
 			return defaultFor(key), source, cfgError

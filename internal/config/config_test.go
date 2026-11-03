@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -1095,4 +1096,64 @@ func Test_GetFromEnvWithSource_CI_SSHHost(t *testing.T) {
 		assert.Equal(t, "ssh.example.com:3000", value)
 		assert.Equal(t, "GITLAB_SSH_HOST", source)
 	})
+}
+
+func Test_IsGlobalOnlyKey(t *testing.T) {
+	// Drift guards against the schema rather than a hand-kept list, so a new
+	// glab-managed key cannot slip in without IsGlobalOnlyKey covering it.
+	for _, def := range KeySchema {
+		if strings.Contains(def.Description, "(automatically set)") {
+			assert.Truef(t, def.GlobalOnly,
+				"%s is described as automatically set, so it must be GlobalOnly", def.Name)
+		}
+
+		if !def.GlobalOnly {
+			continue
+		}
+
+		assert.Equalf(t, ScopeGlobal, def.Scope, "a GlobalOnly key is not per host: %s", def.Name)
+
+		// The name and every alias resolve as glab-managed state.
+		assert.Truef(t, IsGlobalOnlyKey(def.Name), "%s is state glab maintains for itself", def.Name)
+		for _, alias := range def.Aliases {
+			assert.Truef(t, IsGlobalOnlyKey(alias), "alias %s of %s is glab-managed state", alias, def.Name)
+		}
+	}
+
+	// Ordinary ScopeGlobal keys are still meant to be set per repository.
+	for _, key := range []string{"git_protocol", "branch_prefix", "editor", "remote_alias"} {
+		assert.Falsef(t, IsGlobalOnlyKey(key), "%s is a user setting, not glab-managed state", key)
+	}
+}
+
+// A value for a glab-managed key sitting in a repository's local file used to
+// win every read, while every write went to the global file. `glab duo cli
+// update` then re-downloaded the same version on each run.
+func Test_GetWithSource_GlobalOnlyKeySkipsLocalConfig(t *testing.T) {
+	cfg := NewBlankConfig()
+
+	local, err := cfg.Local()
+	require.NoError(t, err)
+	require.NoError(t, local.SetStringValue("duo_cli_binary_version", "9.5.0"))
+	require.NoError(t, cfg.Set("", "duo_cli_binary_version", "9.26.0"))
+
+	value, source, err := cfg.GetWithSource("", "duo_cli_binary_version", false)
+	require.NoError(t, err)
+	assert.Equal(t, "9.26.0", value, "the global value is the one glab writes and must be the one it reads")
+	assert.Equal(t, ConfigFile(), source)
+}
+
+// A user setting keeps its existing precedence: local wins over global.
+func Test_GetWithSource_OrdinaryKeyStillPrefersLocalConfig(t *testing.T) {
+	cfg := NewBlankConfig()
+
+	local, err := cfg.Local()
+	require.NoError(t, err)
+	require.NoError(t, local.SetStringValue("git_protocol", "https"))
+	require.NoError(t, cfg.Set("", "git_protocol", "ssh"))
+
+	value, source, err := cfg.GetWithSource("", "git_protocol", false)
+	require.NoError(t, err)
+	assert.Equal(t, "https", value)
+	assert.Equal(t, LocalConfigFile(), source)
 }
