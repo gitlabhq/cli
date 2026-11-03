@@ -28,6 +28,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmdutils.EnableRepoOverride(cmd, f)
 
 	cmd.AddCommand(packagesDeleteCmd.NewCmd(f))
+	cmd.AddCommand(packagesDeleteCmd.NewRmCmd(f))
 	cmd.AddCommand(packagesDownloadCmd.NewCmd(f))
 	cmd.AddCommand(packagesListCmd.NewCmd(f))
 	cmd.AddCommand(packagesUploadCmd.NewCmd(f))

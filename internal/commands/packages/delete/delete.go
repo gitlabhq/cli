@@ -31,13 +31,39 @@ type options struct {
 }
 
 func NewCmd(f cmdutils.Factory) *cobra.Command {
+	return newCmd(f, "delete [<id> | --id <id> | --name <name>] [flags]", []string{"del"}, "")
+}
+
+// NewRmCmd returns the deprecated `rm` spelling of delete, kept so existing
+// scripts keep working. Cobra prints the deprecation notice on every
+// invocation; the command is hidden from help (including fang's renderer,
+// which unlike cobra does not hide Deprecated commands), completion, and
+// generated docs, and excluded from MCP tool registration, so the alias is
+// no longer advertised anywhere.
+//
+// Cobra has no way to deprecate an alias, so this twin command is how the
+// `rm` spelling keeps working while `delete` advertises `del` alone.
+func NewRmCmd(f cmdutils.Factory) *cobra.Command {
+	return newCmd(f, "rm [<id> | --id <id> | --name <name>] [flags]", nil, "use `glab packages del` instead.")
+}
+
+func newCmd(f cmdutils.Factory, use string, aliases []string, deprecated string) *cobra.Command {
 	opts := &options{
 		io:           f.IO(),
 		gitlabClient: f.GitLabClient,
 		baseRepo:     f.BaseRepo,
 	}
+	annotations := map[string]string{
+		mcpannotations.Destructive: "true",
+	}
+	if deprecated != "" {
+		// MCP tool registration walks every command regardless of
+		// Hidden/Deprecated, so a deprecated spelling must opt out explicitly
+		// or it surfaces as a duplicate tool next to the real command.
+		annotations[mcpannotations.Exclude] = "true"
+	}
 	cmd := &cobra.Command{
-		Use:   "delete [<id> | --id <id> | --name <name>] [flags]",
+		Use:   use,
 		Short: `Delete a package from a project's package registry.`,
 		Long: heredoc.Docf(`
 		Identify the package by its numeric ID (as a positional argument or with
@@ -50,8 +76,10 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		By default, the package is removed from the current project. Use %[1]s--repo%[1]s
 		to target another project.
 		`, "`"),
-		Aliases: []string{"rm"},
-		Args:    cobra.MaximumNArgs(1),
+		Aliases:    aliases,
+		Deprecated: deprecated,
+		Hidden:     deprecated != "",
+		Args:       cobra.MaximumNArgs(1),
 		Example: heredoc.Doc(`
 			# Delete a package by ID
 			glab packages delete 1
@@ -66,13 +94,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Skip the confirmation prompt
 			glab packages delete 1 -y
 			glab packages delete --name example-generic --version 1.0.0 --yes
-
-			# Use the 'rm' alias
-			glab packages rm 1
 		`),
-		Annotations: map[string]string{
-			mcpannotations.Destructive: "true",
-		},
+		Annotations: annotations,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.complete(cmd, args); err != nil {
 				return err
