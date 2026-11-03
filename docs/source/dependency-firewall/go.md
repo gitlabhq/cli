@@ -20,7 +20,9 @@ Module downloads go through a Go module proxy that the command starts on `127.0.
 
 For the run, `GOPROXY` points at that proxy, `GONOPROXY` is `none`, and `GO111MODULE` is `on`, so every module download is checked. Private modules matched by `GOPRIVATE` are also checked, then fetched the way your configuration fetches them.
 
-If you set `GOPROXY=off`, the command keeps it. If you set `GOPROXY` to any other non-default value, the command stops before it runs `go`.
+If you set `GOPROXY=off`, the command keeps it.
+
+Allowed modules are downloaded through your configured `GOPROXY`, from the environment or the `go env` file, in list order and with its fallbacks. Credentials for that proxy come from your `.netrc` file, `GOAUTH`, or the URL itself. A `GOSUMDB` with its own URL is reached through the proxy the command starts; credentials for that URL must be in the URL itself, because `.netrc` and `GOAUTH` apply only to `GOPROXY`.
 
 The command checks only modules that `go` downloads during the run:
 

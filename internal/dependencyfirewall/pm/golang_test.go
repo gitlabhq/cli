@@ -194,6 +194,7 @@ func TestGolangSetupPassesEffectiveSettingsToFetcher(t *testing.T) {
 	assert.Equal(t, "/opt/go/bin/go", backend.goBin)
 	assert.Equal(t, []string{"sum.golang.org"}, backend.proxiedSumDBs)
 	assert.Equal(t, map[string]string{
+		"GOPROXY":    "https://proxy.golang.org,direct",
 		"GONOPROXY":  "corp.example/*",
 		"GONOSUMDB":  "corp.example/*",
 		"GOPRIVATE":  "corp.example/*",
@@ -203,22 +204,28 @@ func TestGolangSetupPassesEffectiveSettingsToFetcher(t *testing.T) {
 	assert.Equal(t, []string{"GOPROXY=" + m.server.BaseURL()}, res.env)
 }
 
-func TestGolangProxiedSumDBs(t *testing.T) {
+func TestGolangChecksumDB(t *testing.T) {
 	t.Parallel()
+	const key = "sumdb.example+1a2b3c4d+AW5vdCBhIHJlYWwga2V5"
 	cases := []struct {
 		gosumdb string
-		want    []string
+		child   string
+		proxied []string
 	}{
-		{"sum.golang.org", []string{"sum.golang.org"}},
-		{"off", nil},
-		{"sumdb.example+1a2b3c4d+AW5vdCBhIHJlYWwga2V5", []string{"sumdb.example"}},
-		{"sumdb.example+1a2b3c4d+AW5vdCBhIHJlYWwga2V5 https://mirror.example/sumdb", []string{"sumdb.example"}},
-		{"", nil},
+		{"sum.golang.org", "sum.golang.org", []string{"sum.golang.org"}},
+		{"off", "off", nil},
+		{"", "", nil},
+		{key, key, []string{"sumdb.example"}},
+		{key + " https://mirror.example/sumdb", key, []string{"sumdb.example https://mirror.example/sumdb"}},
+		{"sum.golang.org https://mirror.example", "sum.golang.org", []string{"sum.golang.org https://mirror.example"}},
+		{"sum.golang.google.cn", "sum.golang.org", []string{"sum.golang.org https://sum.golang.google.cn"}},
 	}
 	for _, c := range cases {
 		t.Run(c.gosumdb, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, c.want, proxiedSumDBs(c.gosumdb))
+			child, proxied := checksumDB(c.gosumdb)
+			assert.Equal(t, c.child, child)
+			assert.Equal(t, c.proxied, proxied)
 		})
 	}
 }
@@ -260,13 +267,12 @@ func TestGolangRunFailsWhenPreflightFails(t *testing.T) {
 	assert.Zero(t, backend.built)
 }
 
-func TestGolangSetupRefusesCustomGOPROXY(t *testing.T) {
+func TestGolangSetupPassesCustomGOPROXYToFetcherOnly(t *testing.T) {
 	t.Parallel()
 	for _, goproxy := range []string{
 		"https://corp.example",
 		"https://user:secret@corp.example,direct",
-		"https://proxy.golang.org",
-		"https://proxy.golang.org|direct",
+		"corp.example|https://proxy.golang.org|direct",
 		"direct",
 	} {
 		t.Run(goproxy, func(t *testing.T) {
@@ -276,12 +282,10 @@ func TestGolangSetupRefusesCustomGOPROXY(t *testing.T) {
 			backend := &fixtureGoBackend{}
 			m := &golangManager{newBackend: backend.newBackend}
 
-			_, err := setupGolang(t, m, &fakeGoExecutor{settings: settings})
-			require.ErrorIs(t, err, errCustomGOPROXY)
-			assert.NotContains(t, err.Error(), "corp.example")
-			assert.NotContains(t, err.Error(), "secret")
-			assert.Zero(t, backend.built, "nothing may be fetched for a refused GOPROXY")
-			assert.Nil(t, m.server)
+			res, err := setupGolang(t, m, &fakeGoExecutor{settings: settings})
+			require.NoError(t, err)
+			assert.Equal(t, goproxy, backend.overrides["GOPROXY"])
+			assert.Equal(t, []string{"GOPROXY=" + m.server.BaseURL()}, res.env)
 		})
 	}
 }

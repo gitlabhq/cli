@@ -2,6 +2,7 @@ package gomodproxy
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -15,8 +16,6 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
-const upstreamGOPROXY = "https://proxy.golang.org,direct"
-
 // Backend serves allowed module proxy requests through goproxy and owns the
 // temp tree goproxy fetches into.
 type Backend struct {
@@ -24,23 +23,29 @@ type Backend struct {
 	tempDir string
 }
 
-// NewBackend builds a goproxy handler that shells out to goBin for direct
-// fetches. proxiedSumDBs names the checksum databases served under /sumdb/.
-// envOverrides replaces the fetcher environment's value for each key it
-// sets, except the isolation pins, which always win.
+// NewBackend builds a goproxy handler that fetches through goBin.
+// proxiedSumDBs lists the checksum databases served under /sumdb/, as
+// goproxy's "name" or "name URL" entries. envOverrides replaces the fetcher
+// environment's value for each key it sets, GOPROXY included, except the
+// isolation pins, which always win.
 func NewBackend(goBin string, proxiedSumDBs []string, envOverrides map[string]string) (*Backend, error) {
 	tempDir, err := os.MkdirTemp("", "glab-df-gomodproxy-*")
 	if err != nil {
+		return nil, err
+	}
+	workDir := filepath.Join(tempDir, "work")
+	if err := os.Mkdir(workDir, 0o700); err != nil {
+		os.RemoveAll(tempDir)
 		return nil, err
 	}
 
 	return &Backend{
 		tempDir: tempDir,
 		handler: &goproxy.Goproxy{
-			Fetcher: &goproxy.GoFetcher{
-				Env:     fetcherEnv(tempDir, envOverrides),
-				GoBin:   goBin,
-				TempDir: tempDir,
+			Fetcher: &goFetcher{
+				goBin: goBin,
+				env:   fetcherEnv(tempDir, envOverrides),
+				dir:   workDir,
 			},
 			Cacher:        goproxy.DirCacher(filepath.Join(tempDir, "cache")),
 			TempDir:       tempDir,
@@ -51,7 +56,41 @@ func NewBackend(goBin string, proxiedSumDBs []string, envOverrides map[string]st
 }
 
 func (b *Backend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	b.handler.ServeHTTP(w, r)
+	failure := new(fetchFailure)
+	r = r.WithContext(context.WithValue(r.Context(), fetchFailureKey{}, failure))
+	b.handler.ServeHTTP(&failureWriter{ResponseWriter: w, failure: failure}, r)
+}
+
+// failureWriter turns goproxy's bare 500 for a failed fetch into a 502 that
+// carries go's error, which the child prints as the server response.
+type failureWriter struct {
+	http.ResponseWriter
+	failure  *fetchFailure
+	replaced bool
+}
+
+func (w *failureWriter) WriteHeader(code int) {
+	if code != http.StatusInternalServerError || w.failure.msg == "" {
+		w.ResponseWriter.WriteHeader(code)
+		return
+	}
+	w.replaced = true
+	w.ResponseWriter.WriteHeader(http.StatusBadGateway)
+	_, _ = io.WriteString(w.ResponseWriter, w.failure.msg+"\n")
+}
+
+func (w *failureWriter) Write(p []byte) (int, error) {
+	if w.replaced {
+		return len(p), nil
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *failureWriter) ReadFrom(r io.Reader) (int64, error) {
+	if w.replaced {
+		return io.Copy(io.Discard, r)
+	}
+	return io.Copy(w.ResponseWriter, r)
 }
 
 // Close removes the temp tree, including modules fetched while resolving a
@@ -62,20 +101,22 @@ func (b *Backend) Close() {
 	}
 }
 
-// fetcherEnv starts from os.Environ because goproxy treats a non-nil Env as
-// the complete environment of its go subprocess, which needs PATH for git and
-// HOME for SSH keys, .netrc, and gitconfig. Settings are appended last
-// because goproxy uses the last value per key. The isolation pins are
-// applied after the overrides:
+// fetcherEnv starts from os.Environ because the fetcher's go needs PATH for
+// git and HOME for SSH keys, .netrc, gitconfig, and the go env file.
+// Settings are appended last because exec uses the last value per key. The
+// isolation pins are applied after the overrides:
 //   - a private GOMODCACHE, because sharing the child's deadlocks on the
 //     module-cache lock and would let the child skip the zip request;
 //   - -modcacherw, so Close can delete what go extracts read-only;
 //   - GOTOOLCHAIN=local, so the fetcher never downloads a toolchain;
-//   - GOWORK=off, so an absolute GOWORK cannot apply workspace replaces.
+//   - GOWORK=off, so an absolute GOWORK cannot apply workspace replaces;
+//   - GO111MODULE=on, because go list -m and go mod download refuse to run
+//     with modules off.
 func fetcherEnv(tempDir string, overrides map[string]string) []string {
-	settings := map[string]string{"GOPROXY": upstreamGOPROXY}
+	settings := map[string]string{}
 	maps.Copy(settings, overrides)
 	maps.Copy(settings, map[string]string{
+		"GO111MODULE": "on",
 		"GOMODCACHE":  filepath.Join(tempDir, "modcache"),
 		"GOFLAGS":     "-mod=mod -modcacherw",
 		"GOTOOLCHAIN": "local",
@@ -102,7 +143,7 @@ func (debugHandler) Handle(_ context.Context, r slog.Record) error {
 		b.WriteString(" " + a.String())
 		return true
 	})
-	dbg.Debugf("gomodproxy: %s\n", b.String())
+	dbg.Debugf("gomodproxy: %s\n", redactUserinfo(b.String()))
 	return nil
 }
 
