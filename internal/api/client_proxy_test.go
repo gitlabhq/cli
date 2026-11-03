@@ -45,6 +45,17 @@ func TestNewClientFromConfigProxy(t *testing.T) {
 		assert.Nil(t, client.proxyURL)
 	})
 
+	t.Run("GLAB_PROXY environment variable", func(t *testing.T) {
+		t.Setenv("GLAB_PROXY", "http://env-proxy.local:3128")
+		cfg := config.NewBlankConfig()
+		require.NoError(t, cfg.Set("gitlab.example.com", "token", "glpat-test"))
+
+		client, err := NewClientFromConfig("gitlab.example.com", cfg, false, "glab-test")
+		require.NoError(t, err)
+		require.NotNil(t, client.proxyURL)
+		assert.Equal(t, "http://env-proxy.local:3128", client.proxyURL.String())
+	})
+
 	t.Run("invalid configured proxy", func(t *testing.T) {
 		cfg := config.NewBlankConfig()
 		require.NoError(t, cfg.Set("bad.example.com", "token", "glpat-test"))

@@ -261,14 +261,24 @@ func (c *fileConfig) Get(hostname, key string) (string, error) {
 	return val, err
 }
 
+// envValueForHost returns key's environment value, withholding credential keys
+// from hosts that are neither the default nor configured.
+func (c *fileConfig) envValueForHost(hostname, key string) (string, string) {
+	value, source := GetFromEnvWithSource(key)
+	if value == "" {
+		return "", ""
+	}
+	if hostname == "" || !envScopedToTrustedHosts(key) || IsTrustedHost(c, hostname) {
+		return value, source
+	}
+	dbg.Debugf("config: ignoring environment variable %s for host %q: it is neither the default host nor a configured host", source, hostname)
+	return "", ""
+}
+
 func (c *fileConfig) GetWithSource(hostname, key string, searchENVVars bool) (string, string, error) {
 	if searchENVVars {
-		value, source := GetFromEnvWithSource(key)
-		if value != "" {
-			if hostname == "" || !envScopedToTrustedHosts(key) || IsTrustedHost(c, hostname) {
-				return value, source, nil
-			}
-			dbg.Debugf("config: ignoring environment variable %s for host %q: it is neither the default host nor a configured host", source, hostname)
+		if value, source := c.envValueForHost(hostname, key); value != "" {
+			return value, source, nil
 		}
 	}
 

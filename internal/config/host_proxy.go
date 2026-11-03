@@ -8,19 +8,8 @@ import (
 
 // resolveHostProxy retrieves the proxy value for a given host, if set.
 func (c *fileConfig) resolveHostProxy(hostname string) (*url.URL, error) {
-	hostCfg, err := c.configForHost(hostname)
+	value, err := c.hostProxyValue(hostname)
 	if err != nil {
-		if isNotFoundError(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	value, err := hostCfg.GetStringValue("proxy")
-	if err != nil {
-		if isNotFoundError(err) {
-			return nil, nil
-		}
 		return nil, err
 	}
 
@@ -35,6 +24,32 @@ func (c *fileConfig) resolveHostProxy(hostname string) (*url.URL, error) {
 	}
 
 	return parsed, nil
+}
+
+// hostProxyValue avoids GetWithSource's root-level fallback: proxy is a
+// per-host key, and a top-level value has never applied to hosts.
+func (c *fileConfig) hostProxyValue(hostname string) (string, error) {
+	if hostname == "" {
+		return "", nil
+	}
+
+	if value, _ := c.envValueForHost(hostname, "proxy"); value != "" {
+		return value, nil
+	}
+
+	hostCfg, err := c.configForHost(hostname)
+	if err != nil {
+		if isNotFoundError(err) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	value, err := hostCfg.GetStringValue("proxy")
+	if err != nil && !isNotFoundError(err) {
+		return "", err
+	}
+	return value, nil
 }
 
 // ResolveHostProxy exposes per-host proxy resolution for consumers.
