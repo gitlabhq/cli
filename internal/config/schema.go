@@ -373,7 +373,7 @@ var KeySchema = []KeyDef{
 		Name: "ca_cert", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_CA_CERT", "CA_CERT"},
-		Description:  "Path to a CA certificate (PEM) used to verify the GitLab server's\nTLS certificate. Useful for self-signed or private certificate authorities.",
+		Description:  "Path to a CA certificate (PEM) used to verify the GitLab server's\nTLS certificate. glab dependency-firewall commands also trust it for\npackage registries and outbound proxies. Useful for self-signed or private\ncertificate authorities.",
 	},
 	{
 		Name: "client_cert", Scope: ScopePerHost, Type: TypeString,

@@ -7,11 +7,13 @@ import (
 	"os"
 	"strings"
 
+	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/pm"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -34,6 +36,7 @@ type options struct {
 	executor     cmdutils.Executor
 	baseRepo     func() (host, projectID string, err error)
 	gitlabClient func() (*gitlab.Client, error)
+	config       func() config.Config
 	manager      func() pm.PackageManager
 	name         string
 
@@ -54,6 +57,7 @@ func NewProxyCmd(f cmdutils.Factory, spec ProxySpec) *cobra.Command {
 			return r.RepoHost(), r.FullName(), nil
 		},
 		gitlabClient: f.GitLabClient,
+		config:       f.Config,
 		manager:      spec.Manager,
 		name:         firstWord(spec.Use),
 	}
@@ -63,6 +67,10 @@ func NewProxyCmd(f cmdutils.Factory, spec ProxySpec) *cobra.Command {
 		Short: spec.Short + " (BETA)",
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
+			"help:environment": heredoc.Doc(`
+				HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
+				NO_PROXY: hosts glab reaches directly instead of through HTTPS_PROXY.
+			`),
 		},
 		DisableFlagParsing: true,
 		Long:               spec.Long + text.BetaString,
@@ -94,7 +102,7 @@ func (o *options) complete() error {
 }
 
 func (o *options) run(ctx context.Context) error {
-	_, projectID, err := o.baseRepo()
+	host, projectID, err := o.baseRepo()
 	if err != nil {
 		return cmdutils.WrapError(err, "failed to resolve GitLab project from the git remote.")
 	}
@@ -104,13 +112,19 @@ func (o *options) run(ctx context.Context) error {
 		return cmdutils.WrapError(err, "failed to create a GitLab API client.")
 	}
 
+	caCert, err := o.config().Get(host, "ca_cert")
+	if err != nil {
+		return cmdutils.WrapError(err, "failed to read ca_cert from the glab configuration.")
+	}
+
 	if err := pm.Run(ctx, o.manager(), pm.RunOptions{
-		IO:        o.io,
-		Executor:  o.executor,
-		BaseDir:   o.baseDir,
-		Client:    client,
-		ProjectID: projectID,
-		Args:      o.args,
+		IO:         o.io,
+		Executor:   o.executor,
+		BaseDir:    o.baseDir,
+		Client:     client,
+		ProjectID:  projectID,
+		Args:       o.args,
+		CACertPath: caCert,
 	}); err != nil {
 		if ee, ok := errors.AsType[*pm.ExitError](err); ok {
 			if ee.ChildExited {

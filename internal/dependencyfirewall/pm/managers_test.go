@@ -160,6 +160,10 @@ func TestManagerExistingBundleVars(t *testing.T) {
 				_, ok := declared[k]
 				assert.Truef(t, ok, "%s CATrustEnviron sets %q but ExistingBundleVars does not declare it", c.m.Name(), k)
 			}
+			// Registry connections trust these files whichever manager runs.
+			for _, v := range c.m.ExistingBundleVars() {
+				assert.Containsf(t, upstreamCAVars, v, "%s declares %q but upstreamCAVars does not list it", c.m.Name(), v)
+			}
 		})
 	}
 }

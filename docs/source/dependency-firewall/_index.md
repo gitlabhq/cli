@@ -34,6 +34,10 @@ If GitLab can't evaluate a package, the command blocks it. If the Dependency Fir
 
 The command does not change your registry configuration. For the length of the run, it sets environment variables that route the package manager's traffic through the proxy and make the package manager trust the proxy certificate. Your existing CA bundles stay trusted.
 
+To reach package registries, the proxy uses the outbound proxy in `HTTPS_PROXY`, including any credentials in its URL, and connects directly to the hosts listed in `NO_PROXY`. The `proxy` setting in your glab configuration applies only to GitLab API calls.
+
+Connections to package registries trust the system certificates, the certificate in the `ca_cert` setting for your GitLab host, and the CA bundles in `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`, `TWINE_CERT`, `NODE_EXTRA_CA_CERTS`, `BUNDLE_SSL_CA_CERT`, and `CARGO_HTTP_CAINFO`. GitLab API calls trust only the system certificates and `ca_cert`, so if your outbound proxy uses a private certificate authority, set `ca_cert` to that CA to cover both. Module downloads by `glab dependency-firewall go` trust only the system certificates or `SSL_CERT_FILE`.
+
 The command writes `.gitlab/df/ci-log.json` to the working directory on every run, including local runs. Add `.gitlab/df/` to your `.gitignore` file.
 
 To run a package manager command in a GitLab CI/CD job, set `GLAB_ENABLE_CI_AUTOLOGIN` to `true` so the command signs in with the CI/CD job token. When the firewall blocks a package, the install fails, and so does the job. For more information, see [CI/CD auto-login](https://docs.gitlab.com/cli/authentication/#auto-login).
