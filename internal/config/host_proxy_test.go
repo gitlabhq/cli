@@ -35,3 +35,14 @@ func TestResolveHostProxy(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, value)
 }
+
+func TestResolveHostProxyEnvAlias(t *testing.T) {
+	t.Setenv("GLAB_PROXY", "http://env-proxy.local:3128")
+	cfg := NewBlankConfig()
+	require.NoError(t, cfg.Set("gitlab.com", "proxy", "https://proxy.local:3128"))
+
+	value, err := ResolveHostProxy(cfg, "gitlab.com")
+	require.NoError(t, err)
+	require.NotNil(t, value)
+	assert.Equal(t, "http://env-proxy.local:3128", value.String())
+}

@@ -366,7 +366,7 @@ var KeySchema = []KeyDef{
 	{
 		Name: "proxy", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
-		EnvVars:      []string{"GLAB_PROXY", "PROXY"},
+		EnvVars:      []string{"GLAB_PROXY"},
 		Description:  "Custom proxy for this host. Overrides environment proxy settings when set.",
 	},
 	{

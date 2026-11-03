@@ -112,7 +112,6 @@ For more information, see
 | `CONTAINER_REGISTRY_DOMAINS` | `container_registry_domains` | `gitlab.com,gitlab.com:443,registry.gitlab.com` | Alternative name for `GLAB_CONTAINER_REGISTRY_DOMAINS`, checked after it. |
 | `GLAB_ENABLE_CI_AUTOLOGIN` | - | `false` | Set to true to enable auto-login in GitLab CI. Together with `GITLAB_CI=true`, glab signs in using predefined CI/CD variables such as `CI_SERVER_FQDN` and `CI_JOB_TOKEN`, and ignores host variables such as `GITLAB_HOST`. |
 | `GLAB_PROXY` | `proxy` | - | Custom proxy for this host. Overrides environment proxy settings when set. |
-| `PROXY` | `proxy` | - | Alternative name for `GLAB_PROXY`, checked after it. |
 | `GLAB_SKIP_TLS_VERIFY` | `skip_tls_verify` | - | Skip TLS certificate verification when talking to this host (true/false). Empty is treated as false. Use only for development; do not enable in production. |
 | `SKIP_TLS_VERIFY` | `skip_tls_verify` | - | Alternative name for `GLAB_SKIP_TLS_VERIFY`, checked after it. |
 | `GLAB_USE_KEYRING` | `use_keyring` | - | Store the host's credentials in the operating system's keyring (true/false). Set automatically by `glab auth login`, which defaults to `true` when a keyring backend is available. Empty is treated as false (plaintext file storage). |
