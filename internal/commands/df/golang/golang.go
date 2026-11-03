@@ -21,7 +21,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			For the run, %[1]sGOPROXY%[1]s points at that proxy, %[1]sGONOPROXY%[1]s is %[1]snone%[1]s, and %[1]sGO111MODULE%[1]s is %[1]son%[1]s, so every module download is checked. Private modules matched by %[1]sGOPRIVATE%[1]s are also checked, then fetched the way your configuration fetches them.
 
-			If you set %[1]sGOPROXY=off%[1]s, the command keeps it. If you set %[1]sGOPROXY%[1]s to any other non-default value, the command stops before it runs %[1]sgo%[1]s.
+			If you set %[1]sGOPROXY=off%[1]s, the command keeps it.
+
+			Allowed modules are downloaded through your configured %[1]sGOPROXY%[1]s, from the environment or the %[1]sgo env%[1]s file, in list order and with its fallbacks. Credentials for that proxy come from your %[1]s.netrc%[1]s file, %[1]sGOAUTH%[1]s, or the URL itself. A %[1]sGOSUMDB%[1]s with its own URL is reached through the proxy the command starts; credentials for that URL must be in the URL itself, because %[1]s.netrc%[1]s and %[1]sGOAUTH%[1]s apply only to %[1]sGOPROXY%[1]s.
 
 			The command checks only modules that %[1]sgo%[1]s downloads during the run:
 

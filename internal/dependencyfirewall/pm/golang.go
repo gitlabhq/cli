@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,14 +14,9 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/proxy"
 )
 
-const defaultGOPROXY = "https://proxy.golang.org,direct"
-
 var goFetcherSettings = []string{"GONOPROXY", "GONOSUMDB", "GOPRIVATE", "GOSUMDB", "GOINSECURE"}
 
 var goSettings = append([]string{"GOPROXY"}, goFetcherSettings...)
-
-var errCustomGOPROXY = errors.New("glab df go supports only the default GOPROXY (" + defaultGOPROXY +
-	") or GOPROXY=off")
 
 const goNothingCheckedNotice = "No Go module downloads were checked in this run. Modules already in the module cache, vendored code, and local replace targets are not checked."
 
@@ -66,23 +60,23 @@ func (m *golangManager) Setup(ctx context.Context, in setupInput) (setupResult, 
 	if err != nil {
 		return setupResult{}, err
 	}
-	switch settings["GOPROXY"] {
-	case "off":
+	if settings["GOPROXY"] == "off" {
 		return setupResult{env: []string{"GOPROXY=off"}, stop: func() { in.io.LogError(goNothingCheckedNotice) }}, nil
-	case defaultGOPROXY:
-	default:
-		return setupResult{}, errCustomGOPROXY
 	}
 
-	overrides := make(map[string]string, len(goFetcherSettings))
+	overrides := map[string]string{"GOPROXY": settings["GOPROXY"]}
+	// "none" is a pattern that matches nothing, which keeps an empty list
+	// from falling back to GOPRIVATE. GOSUMDB names a database, not a
+	// pattern, so an empty one stays empty and go reports it as missing.
 	for _, k := range goFetcherSettings {
 		v := settings[k]
-		if v == "" {
+		if v == "" && k != "GOSUMDB" {
 			v = "none"
 		}
 		overrides[k] = v
 	}
-	handler, closeBackend, err := m.newBackend(in.bin, proxiedSumDBs(settings["GOSUMDB"]), overrides)
+	childSumDB, proxied := checksumDB(settings["GOSUMDB"])
+	handler, closeBackend, err := m.newBackend(in.bin, proxied, overrides)
 	if err != nil {
 		return setupResult{}, fmt.Errorf("failed to create the Go module proxy: %w", err)
 	}
@@ -92,8 +86,12 @@ func (m *golangManager) Setup(ctx context.Context, in setupInput) (setupResult, 
 		return setupResult{}, fmt.Errorf("failed to start the Go module proxy: %w", err)
 	}
 	m.server = server
+	env := []string{"GOPROXY=" + server.BaseURL()}
+	if childSumDB != settings["GOSUMDB"] {
+		env = append(env, "GOSUMDB="+childSumDB)
+	}
 	return setupResult{
-		env: []string{"GOPROXY=" + server.BaseURL()},
+		env: env,
 		stop: func() { //nolint:contextcheck // server shutdown manages its own context internally
 			server.Stop()
 			closeBackend()
@@ -129,16 +127,26 @@ func goPreflight(ctx context.Context, exec Executor, bin string, parent []string
 	return settings, nil
 }
 
-// proxiedSumDBs names the checksum database the child looks up through the
-// module proxy. go does that only for a GOSUMDB without a URL, so the URL
-// field is dropped.
-func proxiedSumDBs(gosumdb string) []string {
-	fields := strings.Fields(gosumdb)
-	if len(fields) == 0 || gosumdb == "off" {
-		return nil
+// checksumDB returns the GOSUMDB the child uses and the server's
+// ProxiedSumDBs entry for it. go looks a database up through the module
+// proxy only when GOSUMDB names no URL; an explicit URL it contacts directly,
+// through the MITM proxy. So the child gets the key alone and the server
+// fetches from the URL. sum.golang.google.cn is go's alias for sum.golang.org
+// served from that host.
+func checksumDB(gosumdb string) (string, []string) {
+	resolved := gosumdb
+	if resolved == "sum.golang.google.cn" {
+		resolved = "sum.golang.org https://sum.golang.google.cn"
+	}
+	fields := strings.Fields(resolved)
+	if len(fields) == 0 || resolved == "off" {
+		return gosumdb, nil
 	}
 	name, _, _ := strings.Cut(fields[0], "+")
-	return []string{name}
+	if len(fields) != 2 {
+		return gosumdb, []string{name}
+	}
+	return fields[0], []string{name + " " + fields[1]}
 }
 
 func (m *golangManager) checkedZips() int {

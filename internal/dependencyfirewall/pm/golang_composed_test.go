@@ -3,12 +3,10 @@
 package pm
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,6 +41,7 @@ type realGoExecutor struct {
 	proxied atomic.Int64
 	proxy   string
 	calls   [][]string
+	env     []string
 }
 
 func newRealGoExecutor(t *testing.T) *realGoExecutor {
@@ -64,6 +63,7 @@ func (e *realGoExecutor) ExecWithIO(ctx context.Context, name string, args, env 
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = e.dir
 	cmd.Env = append(slices.Clone(env), "HTTPS_PROXY="+e.proxy, "HTTP_PROXY="+e.proxy)
+	e.env = cmd.Env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
 	return cmd.Run()
 }
@@ -265,28 +265,4 @@ func TestRunComposedGolangGOFLAGSChanged(t *testing.T) {
 	assert.Contains(t, r.stdout, r.m.server.BaseURL(), "the child's GOPROXY must be the gate")
 	assert.Equal(t, "corp.example/*", b.overrides["GONOPROXY"], "private paths must not be fetched from the public proxy")
 	assert.Equal(t, "corp.example/*", b.overrides["GONOSUMDB"])
-}
-
-func TestRunComposedGolangRefusesEnvFileGOPROXY(t *testing.T) {
-	for _, goproxy := range []string{"https://corp.example", "https://user:secret@corp.example"} {
-		t.Run(goproxy, func(t *testing.T) {
-			isolateGo(t, "GOPROXY="+goproxy+"\n")
-			t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
-			t.Setenv("GLAB_DEBUG", "true")
-			var debugLog bytes.Buffer
-			log.SetOutput(&debugLog)
-			t.Cleanup(func() { log.SetOutput(os.Stderr) })
-			b := newModuleBackend(t, "")
-
-			r := runRealGo(t, b, "mod", "download", fixtureModule+"@"+fixtureVersion)
-			require.ErrorIs(t, r.err, errCustomGOPROXY)
-			require.Len(t, r.exec.calls, 1, "go must not start")
-			assert.Equal(t, "env", r.exec.calls[0][0])
-			assert.Zero(t, b.built, "no request may leave the machine")
-			for _, out := range []string{r.err.Error(), r.stderr, debugLog.String()} {
-				assert.NotContains(t, out, "corp.example")
-				assert.NotContains(t, out, "secret")
-			}
-		})
-	}
 }
