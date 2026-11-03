@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -143,10 +144,9 @@ const tunnelDrainTimeout = 5 * time.Second
 type Option func(*Proxy)
 
 // WithUpstreamRootCAs overrides the certificate pool the proxy uses to verify
-// the upstream registry's TLS certificate. When unset, the proxy verifies
-// against the system trust store, which is the correct default. This option
-// exists for tests (which need to trust an httptest.Server's self-signed cert)
-// and for future support of enterprise CA bundles.
+// the upstream registry's TLS certificate, and the certificate of an https://
+// outbound proxy in front of it. When unset, the proxy verifies against the
+// system trust store.
 func WithUpstreamRootCAs(pool *x509.CertPool) Option {
 	return func(p *Proxy) {
 		p.upstream.TLSClientConfig = &tls.Config{
@@ -154,6 +154,16 @@ func WithUpstreamRootCAs(pool *x509.CertPool) Option {
 			MinVersion: tls.VersionTLS12,
 			NextProtos: []string{"http/1.1"}, // see New(): tunnel is HTTP/1.1
 		}
+	}
+}
+
+// WithUpstreamProxy overrides how the proxy picks an outbound proxy for each
+// upstream registry request. When unset, it uses http.ProxyFromEnvironment.
+// This option exists for tests: http.ProxyFromEnvironment reads the
+// environment once per process, so a test cannot change it with t.Setenv.
+func WithUpstreamProxy(proxyFunc func(*http.Request) (*url.URL, error)) Option {
+	return func(p *Proxy) {
+		p.upstream.Proxy = proxyFunc
 	}
 }
 
@@ -173,7 +183,11 @@ func New(matcher Matcher, checker policy.Checker, projectID string, opts ...Opti
 		// HTTP/2 response from the upstream would be re-serialized as HTTP/2
 		// framing over an HTTP/1 tunnel and the client sees
 		// `UnknownProtocol('HTTP/2.0')`.
+		//
+		// Only the package manager's environment points at this proxy, so the
+		// caller's HTTPS_PROXY in glab's own environment cannot loop back here.
 		upstream: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
 			TLSClientConfig: &tls.Config{
 				MinVersion: tls.VersionTLS12,
 				NextProtos: []string{"http/1.1"},
@@ -376,6 +390,7 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 
 		resp, err := p.upstream.RoundTrip(req)
 		if err != nil {
+			dbg.Debugf("dependency firewall proxy: upstream request to %s failed: %v", authority, err)
 			return
 		}
 

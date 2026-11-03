@@ -102,7 +102,7 @@ For more information, see
 | `API_PROTOCOL` | `api_protocol` | `https` | Alternative name for `GLAB_API_PROTOCOL`, checked after it. |
 | `GLAB_ARTIFACT_REGISTRY_DOMAINS` | `artifact_registry_domains` | - | The domains of associated Artifact Registries. These are used to configure the Docker credential helper. Only list a domain here if it is actually backed by GitLab Artifact Registry: the credential helper tries this key first, and a successful token exchange is used as-is, with no fallback to container_registry_domains. A container-registry domain listed here by mistake gets an artifact-registry token the registry rejects, and `docker pull` hard-fails. |
 | `ARTIFACT_REGISTRY_DOMAINS` | `artifact_registry_domains` | - | Alternative name for `GLAB_ARTIFACT_REGISTRY_DOMAINS`, checked after it. |
-| `GLAB_CA_CERT` | `ca_cert` | - | Path to a CA certificate (PEM) used to verify the GitLab server's TLS certificate. Useful for self-signed or private certificate authorities. |
+| `GLAB_CA_CERT` | `ca_cert` | - | Path to a CA certificate (PEM) used to verify the GitLab server's TLS certificate. glab dependency-firewall commands also trust it for package registries and outbound proxies. Useful for self-signed or private certificate authorities. |
 | `CA_CERT` | `ca_cert` | - | Alternative name for `GLAB_CA_CERT`, checked after it. |
 | `GLAB_CLIENT_CERT` | `client_cert` | - | Path to a client certificate (PEM) used for mutual TLS authentication. |
 | `CLIENT_CERT` | `client_cert` | - | Alternative name for `GLAB_CLIENT_CERT`, checked after it. |

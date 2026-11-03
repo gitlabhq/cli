@@ -14,7 +14,9 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -762,6 +764,101 @@ func (c *curlingExecutor) ExecWithIO(ctx context.Context, _ string, _ []string, 
 	_, _ = io.Copy(io.Discard, resp.Body)
 	c.resp = resp
 	// Mirror a package manager: a 403 from the registry is a failure.
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("registry returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// TestRunTrustsConfiguredCAsUpstream proves the inspection proxy verifies the
+// registry against the CAs the user configured: glab's ca_cert (CACertPath)
+// and any package-manager CA variable, even one the running manager ignores.
+func TestRunTrustsConfiguredCAsUpstream(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on POSIX temp-dir isolation for the CA bundle")
+	}
+	// Not httptest's shared certificate: on Linux the process caches the system
+	// roots, and an earlier test that sets SSL_CERT_FILE to that certificate
+	// would make the "neither" registry trusted.
+	ca := newTestAuthority(t)
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	upstream.TLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{ca.serverCert(t, net.IPv4(127, 0, 0, 1))}}
+	upstream.StartTLS()
+	t.Cleanup(upstream.Close)
+	upstreamCA := writeTestFile(t, "upstream-ca.pem", ca.pem())
+
+	cases := []struct {
+		name       string
+		caCertPath string
+		requestsCA string
+		wantOK     bool
+	}{
+		{name: "ca_cert", caCertPath: upstreamCA, wantOK: true},
+		{name: "REQUESTS_CA_BUNDLE", requestsCA: upstreamCA, wantOK: true},
+		{name: "neither", wantOK: false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("GITLAB_CI", "")
+			t.Setenv("GLAB_DF_FAKE_BLOCK", "npm:left-pad@1.3.0")
+			t.Setenv("REQUESTS_CA_BUNDLE", c.requestsCA)
+
+			ios, _, _, _ := cmdtest.TestIOStreams()
+			fe := &upstreamFetchExecutor{url: upstream.URL + "/ping"}
+			err := Run(t.Context(), NPM(), RunOptions{
+				IO:         ios,
+				Executor:   fe,
+				BaseDir:    t.TempDir(),
+				ProjectID:  "group/proj",
+				CACertPath: c.caCertPath,
+			})
+			if c.wantOK {
+				require.NoError(t, err)
+				require.NotNil(t, fe.resp)
+				assert.Equal(t, http.StatusOK, fe.resp.StatusCode)
+				return
+			}
+			require.Error(t, err)
+			if fe.resp != nil {
+				assert.NotEqual(t, http.StatusOK, fe.resp.StatusCode, "an untrusted registry must not be fetched")
+			}
+		})
+	}
+}
+
+// upstreamFetchExecutor GETs url through the HTTPS_PROXY it is handed. The
+// inspection proxy mints its leaf for an IP authority with a DNS SAN only, so
+// this child skips hostname verification on its own hop to the proxy; the
+// proxy's hop to the registry is what the test exercises.
+type upstreamFetchExecutor struct {
+	url  string
+	resp *http.Response
+}
+
+func (upstreamFetchExecutor) LookPath(file string) (string, error) { return "/bin/" + file, nil }
+
+func (u *upstreamFetchExecutor) ExecWithIO(ctx context.Context, _ string, _ []string, env []string, _ io.Reader, _, _ io.Writer) error {
+	proxyURL, err := url.Parse(lookupEnv(env, "HTTPS_PROXY"))
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Transport: &http.Transport{
+		Proxy:           http.ProxyURL(proxyURL),
+		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}, //nolint:gosec // child -> inspection proxy hop only
+	}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.url, http.NoBody)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	u.resp = resp
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("registry returned %d", resp.StatusCode)
 	}

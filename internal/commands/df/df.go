@@ -50,6 +50,10 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			The command does not change your registry configuration. For the length of the run, it sets environment variables that route the package manager's traffic through the proxy and make the package manager trust the proxy certificate. Your existing CA bundles stay trusted.
 
+			To reach package registries, the proxy uses the outbound proxy in %[1]sHTTPS_PROXY%[1]s, including any credentials in its URL, and connects directly to the hosts listed in %[1]sNO_PROXY%[1]s. The %[1]sproxy%[1]s setting in your glab configuration applies only to GitLab API calls.
+
+			Connections to package registries trust the system certificates, the certificate in the %[1]sca_cert%[1]s setting for your GitLab host, and the CA bundles in %[1]sSSL_CERT_FILE%[1]s, %[1]sREQUESTS_CA_BUNDLE%[1]s, %[1]sPIP_CERT%[1]s, %[1]sTWINE_CERT%[1]s, %[1]sNODE_EXTRA_CA_CERTS%[1]s, %[1]sBUNDLE_SSL_CA_CERT%[1]s, and %[1]sCARGO_HTTP_CAINFO%[1]s. GitLab API calls trust only the system certificates and %[1]sca_cert%[1]s, so if your outbound proxy uses a private certificate authority, set %[1]sca_cert%[1]s to that CA to cover both. Module downloads by %[1]sglab dependency-firewall go%[1]s trust only the system certificates or %[1]sSSL_CERT_FILE%[1]s.
+
 			The command writes %[1]s.gitlab/df/ci-log.json%[1]s to the working directory on every run, including local runs. Add %[1]s.gitlab/df/%[1]s to your %[1]s.gitignore%[1]s file.
 
 			To run a package manager command in a GitLab CI/CD job, set %[1]sGLAB_ENABLE_CI_AUTOLOGIN%[1]s to %[1]strue%[1]s so the command signs in with the CI/CD job token. When the firewall blocks a package, the install fails, and so does the job. For more information, see [CI/CD auto-login](https://docs.gitlab.com/cli/authentication/#auto-login).

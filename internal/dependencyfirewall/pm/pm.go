@@ -269,6 +269,9 @@ type RunOptions struct {
 	Client    *gitlab.Client // authenticated API client, for the policy checker
 	ProjectID string         // project id or full-path slug, for policy scoping
 	Args      []string
+	// CACertPath is glab's ca_cert for the GitLab host. Registry connections
+	// trust it in addition to the system roots.
+	CACertPath string
 
 	// notify is a test-only seam. When nil (the production path) Run installs
 	// no signal handler at all — glab's root command owns signals via
@@ -292,7 +295,16 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	}
 	checker := policy.NewCachingChecker(baseChecker, opts.IO.LogErrorf)
 
-	p, err := proxy.New(manager.Matcher(), checker, opts.ProjectID)
+	var proxyOpts []proxy.Option
+	roots, err := upstreamRootCAs(os.Environ(), opts.CACertPath)
+	if err != nil {
+		return fmt.Errorf("failed to load registry CA certificates: %w", err)
+	}
+	if roots != nil {
+		proxyOpts = append(proxyOpts, proxy.WithUpstreamRootCAs(roots))
+	}
+
+	p, err := proxy.New(manager.Matcher(), checker, opts.ProjectID, proxyOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to create inspection proxy: %w", err)
 	}
