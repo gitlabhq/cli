@@ -3,6 +3,7 @@
 package utils
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,297 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
+
+func Test_RenderMarkdownLineBreaks(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "hard break with two spaces",
+			input: "first  \nsecond",
+			want:  []string{"first", "second"},
+		},
+		{
+			name:  "hard break with backslash",
+			input: "first\\\nsecond",
+			want:  []string{"first", "second"},
+		},
+		{
+			name:  "soft break collapses",
+			input: "first\nsecond",
+			want:  []string{"first second"},
+		},
+		{
+			name:  "soft break with one trailing space collapses",
+			input: "first \nsecond",
+			want:  []string{"first second"},
+		},
+		{
+			name:  "mixed hard and soft breaks",
+			input: "first  \nsecond\nthird",
+			want:  []string{"first", "second third"},
+		},
+		{
+			name:  "soft break in blockquote collapses",
+			input: "> first\n> second",
+			want:  []string{"first second"},
+		},
+		{
+			name:  "hard break in blockquote",
+			input: "> first  \n> second",
+			want:  []string{"first", "second"},
+		},
+		{
+			name:  "soft break in tight list item collapses",
+			input: "- first\n  second",
+			want:  []string{"first second"},
+		},
+		{
+			name:  "hard break in list item",
+			input: "- first  \n  second",
+			want:  []string{"first", "second"},
+		},
+		{
+			name:  "fenced code keeps hard breaks",
+			input: "```\nfirst  \nsecond\n```",
+			want:  []string{"first", "second"},
+		},
+		{
+			name:  "inline code is not a hard break",
+			input: "`first\nsecond`",
+			want:  []string{"first second"},
+		},
+		{
+			name:  "crlf hard break",
+			input: "first  \r\nsecond",
+			want:  []string{"first", "second"},
+		},
+		{
+			// A newline inside a code span is not a line break in CommonMark.
+			name:  "inline code spanning a newline stays on one line",
+			input: "a `b\nc` d",
+			want:  []string{"a b c d"},
+		},
+		{
+			name:  "term and definition form a definition list",
+			input: "Term\n: Definition",
+			want:  []string{"Term", "Definition"},
+		},
+		{
+			name:  "indented block keeps its angle bracket",
+			input: "a\n    > not quote",
+			want:  []string{"a > not quote"},
+		},
+		{
+			name:  "list item indented block keeps its angle bracket",
+			input: "- a\n      > b",
+			want:  []string{"a > b"},
+		},
+		{
+			name:  "soft break in definition description collapses",
+			input: "Term\n: first\n  second",
+			want:  []string{"Term", "first second"},
+		},
+		{
+			// A hard break keeps the next line in the paragraph, so the
+			// indentation that makes ">" literal must survive the rewrite.
+			name:  "hard break before indented blockquote stays literal",
+			input: "a  \n    > not quote",
+			want:  []string{"a", "> not quote"},
+		},
+		{
+			name:  "hard break before indented heading stays literal",
+			input: "a  \n    # not heading",
+			want:  []string{"a", "# not heading"},
+		},
+		{
+			// Removing the indentation would turn this continuation into a
+			// setext heading underline for the preceding line.
+			name:  "hard break before indented dashes is not a heading",
+			input: "a  \n    ---",
+			want:  []string{"a", "---"},
+		},
+		{
+			name:  "hard break before indented list marker stays literal",
+			input: "a  \n    - not a list",
+			want:  []string{"a", "- not a list"},
+		},
+		{
+			name:  "hard break before indented continuation in list item",
+			input: "- a  \n      > b",
+			want:  []string{"a", "> b"},
+		},
+		{
+			name:  "heading and following text are separate lines",
+			input: "# head  \ntext",
+			want:  []string{"# head", "text"},
+		},
+		{
+			name:  "blockquote heading is not lazily continued by unmarked text",
+			input: "> # head  \ntext",
+			want:  []string{"| # head", "text"},
+		},
+		{
+			name:  "blockquote in list item keeps its hard break",
+			input: "- > quote  \n  > cont",
+			want:  []string{"•", "| quote", "| cont"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rendered, err := RenderMarkdown(tt.input, "notty")
+			require.NoError(t, err)
+
+			lines := nonEmptyTrimmedLines(rendered)
+			require.Len(t, lines, len(tt.want))
+			for i, want := range tt.want {
+				require.Contains(t, lines[i], want)
+			}
+		})
+	}
+}
+
+// Test_CollapseSoftLineBreaks checks the rewritten Markdown itself. A hard line
+// break must leave the source untouched: the line following it keeps the
+// indentation and container markers that keep it a paragraph continuation.
+func Test_CollapseSoftLineBreaks(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "soft break becomes a space",
+			input: "first\nsecond",
+			want:  "first second",
+		},
+		{
+			name:  "soft break drops trailing space and indentation",
+			input: "first \n    second",
+			want:  "first second",
+		},
+		{
+			name:  "hard break with two spaces is untouched",
+			input: "first  \nsecond",
+			want:  "first  \nsecond",
+		},
+		{
+			name:  "hard break with backslash is untouched",
+			input: "first\\\nsecond",
+			want:  "first\\\nsecond",
+		},
+		{
+			name:  "indented continuation after hard break is untouched",
+			input: "a  \n    > not quote",
+			want:  "a  \n    > not quote",
+		},
+		{
+			name:  "indented heading after hard break is untouched",
+			input: "a  \n    # not heading",
+			want:  "a  \n    # not heading",
+		},
+		{
+			name:  "indented setext underline after hard break is untouched",
+			input: "a  \n    ---",
+			want:  "a  \n    ---",
+		},
+		{
+			name:  "indented list marker after hard break is untouched",
+			input: "a  \n    - not a list",
+			want:  "a  \n    - not a list",
+		},
+		{
+			name:  "hard break inside blockquote is untouched",
+			input: "> a  \n> b",
+			want:  "> a  \n> b",
+		},
+		{
+			name:  "soft break inside blockquote collapses",
+			input: "> a\n> b",
+			want:  "> a b",
+		},
+		{
+			name:  "lazy blockquote continuation collapses",
+			input: "> a\nb",
+			want:  "> a b",
+		},
+		{
+			name:  "hard break inside list item is untouched",
+			input: "- a  \n  b",
+			want:  "- a  \n  b",
+		},
+		{
+			name:  "soft break inside list item collapses",
+			input: "- a\n  b",
+			want:  "- a b",
+		},
+		{
+			name:  "indented code after heading in blockquote is untouched",
+			input: "> # a  \n>     b",
+			want:  "> # a  \n>     b",
+		},
+		{
+			name:  "hard break inside blockquote in list is untouched",
+			input: "- > a  \n  > b",
+			want:  "- > a  \n  > b",
+		},
+		{
+			name:  "only the soft break of a mixed paragraph changes",
+			input: "one\ntwo  \nthree",
+			want:  "one two  \nthree",
+		},
+		{
+			name:  "hard break followed by a soft break",
+			input: "one  \ntwo\nthree",
+			want:  "one  \ntwo three",
+		},
+		{
+			name:  "newline inside code span becomes a space",
+			input: "a `b\nc` d",
+			want:  "a `b c` d",
+		},
+		{
+			name:  "code span keeps its trailing spaces",
+			input: "a `b  \nc` d",
+			want:  "a `b   c` d",
+		},
+		{
+			name:  "fenced code is untouched",
+			input: "```\na  \nb\n```",
+			want:  "```\na  \nb\n```",
+		},
+		{
+			name:  "heading and following text are left as written",
+			input: "# a  \ntext",
+			want:  "# a  \ntext",
+		},
+		{
+			name:  "hard break in definition description is untouched",
+			input: "Term\n: def  \n  cont",
+			want:  "Term\n: def  \n  cont",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, string(collapseSoftLineBreaks([]byte(tt.input))))
+		})
+	}
+}
+
+func nonEmptyTrimmedLines(s string) []string {
+	var lines []string
+	for line := range strings.SplitSeq(strings.TrimSpace(s), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
 
 func Test_PrettyTimeAgo(t *testing.T) {
 	cases := map[string]string{
