@@ -57,7 +57,7 @@ func NewCmdEvents(f cmdutils.Factory) *cobra.Command {
 				l.PerPage = api.DefaultListLimit
 			}
 
-			events, _, err := client.Events.ListCurrentUserContributionEvents(l)
+			events, resp, err := client.Events.ListCurrentUserContributionEvents(l)
 			if err != nil {
 				return err
 			}
@@ -93,6 +93,9 @@ func NewCmdEvents(f cmdutils.Factory) *cobra.Command {
 				title := utils.NewListTitle("user event")
 				title.Page = int(l.Page)
 				title.CurrentPageTotal = len(events)
+				if resp != nil {
+					title.Total = int(resp.TotalItems)
+				}
 				title.RepoName = "all projects"
 
 				f.IO().LogInfof("%s\n", title.Describe())
