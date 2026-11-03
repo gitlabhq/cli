@@ -133,7 +133,7 @@ func setupPrompt(goos string, noFallbackSync bool, p plan) string {
 		items = append(items, fmt.Sprintf("%s that syncs sessions in the background every %d minutes, replacing any existing job", fallbacksync.Description(goos), int(fallbacksync.Interval.Minutes())))
 	}
 	prompt := "glab will install " + joinAnd(items)
-	prompt += ". Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and file edits"
+	prompt += ". Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are"
 	if !noFallbackSync && len(p.discovered) > 0 {
 		prompt += fmt.Sprintf(". The job will also upload your %s sessions the same way, from the last 89 days and from now on", strings.Join(p.discovered, " and "))
 	}

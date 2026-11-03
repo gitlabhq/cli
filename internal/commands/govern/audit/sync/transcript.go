@@ -287,6 +287,7 @@ func goalFromText(text string) string {
 	if skipPrompt(text) {
 		return ""
 	}
+	text = redactSecrets(text)
 	if len(text) > 256 {
 		return text[:256] + "..."
 	}

@@ -124,8 +124,10 @@ func auditEvents(agentType string, data *sessionData, now time.Time) []auditEven
 	return events
 }
 
-// cappedArguments returns a tool call's arguments, or a marker when they are
-// too large or not valid JSON.
+// cappedArguments returns a tool call's arguments with their secrets
+// redacted, or a marker when they are too large or not valid JSON. The size is
+// checked before redaction. Arguments that redaction lengthens past GitLab's
+// limit are omitted by the check on the whole event.
 func cappedArguments(input json.RawMessage) any {
 	if len(input) == 0 || string(input) == "null" {
 		return nil
@@ -133,7 +135,7 @@ func cappedArguments(input json.RawMessage) any {
 	if !json.Valid(input) || encodedLen(input) > maxValueBytes {
 		return argumentsOmitted
 	}
-	return input
+	return redactJSON(input)
 }
 
 // encodedLen returns the length of v encoded as JSON with <, > and & escaped,
