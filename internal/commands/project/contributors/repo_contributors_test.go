@@ -3,6 +3,7 @@
 package contributors
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -110,6 +111,53 @@ func Test_ProjectContributors(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedOutput, out.String())
+			assert.Empty(t, out.Stderr())
+		})
+	}
+}
+
+func TestProjectContributors_HeaderTotal(t *testing.T) {
+	testContributors := []*gitlab.Contributor{
+		{Name: "Test User", Email: "tu@gitlab.com", Commits: 41},
+		{Name: "Test User2", Email: "tu2@gitlab.com", Commits: 12},
+	}
+
+	tests := []struct {
+		name       string
+		cli        string
+		resp       *gitlab.Response
+		wantHeader string
+	}{
+		{
+			name:       "shows the total from the API",
+			cli:        "--page 3 --per-page 5",
+			resp:       &gitlab.Response{CurrentPage: 3, TotalPages: 3, TotalItems: 14},
+			wantHeader: "Showing 2 of 14 contributors on OWNER/REPO. (Page 3)\n",
+		},
+		{
+			name:       "without a total from the API",
+			resp:       &gitlab.Response{CurrentPage: 1, NextPage: 2},
+			wantHeader: "Showing 2 contributors on OWNER/REPO. (Page 1)\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testClient := gitlabtesting.NewTestClient(t)
+			testClient.MockRepositories.EXPECT().
+				Contributors("OWNER/REPO", gomock.Any()).
+				Return(testContributors, tt.resp, nil)
+
+			exec := cmdtest.SetupCmdForTest(
+				t,
+				NewCmdContributors,
+				false,
+				cmdtest.WithGitLabClient(testClient.Client),
+			)
+
+			out, err := exec(tt.cli)
+			require.NoError(t, err)
+			assert.True(t, strings.HasPrefix(out.String(), tt.wantHeader), "got %q", out.String())
 			assert.Empty(t, out.Stderr())
 		})
 	}

@@ -97,7 +97,7 @@ func (o *options) run() error {
 		l.Sort = new(o.sort)
 	}
 
-	users, _, err := client.Repositories.Contributors(repo.FullName(), l)
+	users, resp, err := client.Repositories.Contributors(repo.FullName(), l)
 	if err != nil {
 		return err
 	}
@@ -111,6 +111,9 @@ func (o *options) run() error {
 	title.RepoName = repo.FullName()
 	title.Page = int(l.Page)
 	title.CurrentPageTotal = len(users)
+	if resp != nil {
+		title.Total = int(resp.TotalItems)
+	}
 
 	// List
 	table := tableprinter.NewTablePrinter()
