@@ -805,7 +805,7 @@ func TestRunTrustsConfiguredCAsUpstream(t *testing.T) {
 			t.Setenv("GLAB_DF_FAKE_BLOCK", "npm:left-pad@1.3.0")
 			t.Setenv("REQUESTS_CA_BUNDLE", c.requestsCA)
 
-			ios, _, _, _ := cmdtest.TestIOStreams()
+			ios, _, _, errOut := cmdtest.TestIOStreams()
 			fe := &upstreamFetchExecutor{url: upstream.URL + "/ping"}
 			err := Run(t.Context(), NPM(), RunOptions{
 				IO:         ios,
@@ -818,12 +818,14 @@ func TestRunTrustsConfiguredCAsUpstream(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, fe.resp)
 				assert.Equal(t, http.StatusOK, fe.resp.StatusCode)
+				assert.NotContains(t, errOut.String(), "warning:")
 				return
 			}
 			require.Error(t, err)
 			if fe.resp != nil {
 				assert.NotEqual(t, http.StatusOK, fe.resp.StatusCode, "an untrusted registry must not be fetched")
 			}
+			assert.Contains(t, errOut.String(), "warning: dependency firewall request to registry "+upstream.Listener.Addr().String()+" failed")
 		})
 	}
 }

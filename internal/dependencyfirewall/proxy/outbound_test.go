@@ -6,6 +6,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -18,6 +20,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
 )
 
 // corporateProxy is a CONNECT-only forward proxy that requires basic auth, like
@@ -235,4 +239,124 @@ func TestProxyUsesEnvironmentOutboundProxyByDefault(t *testing.T) {
 	assert.Equal(t,
 		reflect.ValueOf(http.ProxyFromEnvironment).Pointer(),
 		reflect.ValueOf(p.upstream.Proxy).Pointer())
+}
+
+type warningRecorder struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (w *warningRecorder) Logf(format string, a ...any) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lines = append(w.lines, fmt.Sprintf(format, a...))
+}
+
+func (w *warningRecorder) Lines() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.lines...)
+}
+
+func startWarningProxy(t *testing.T, outbound *url.URL, warn policy.Logf, upstreams ...*httptest.Server) *Proxy {
+	t.Helper()
+	pool := x509.NewCertPool()
+	for _, u := range upstreams {
+		pool.AddCert(u.Certificate())
+	}
+	p, err := New(stubMatcher{}, stubChecker{}, "group/proj",
+		WithUpstreamRootCAs(pool), WithUpstreamProxy(http.ProxyURL(outbound)), WithUpstreamFailureWarning(warn))
+	require.NoError(t, err)
+	require.NoError(t, p.Start())
+	t.Cleanup(p.Stop)
+	return p
+}
+
+func getExpectingFailure(t *testing.T, client *http.Client, rawURL string) {
+	t.Helper()
+	resp, err := client.Get(rawURL)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatalf("expected the request to %s to fail, got status %d", rawURL, resp.StatusCode)
+	}
+}
+
+func TestProxyWarnsOncePerRegistryWhenUpstreamFails(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "TARBALL")
+	}))
+	defer upstream.Close()
+	corporate := startCorporateProxy(t, "corp-user", "right-password")
+	warnings := &warningRecorder{}
+
+	p := startWarningProxy(t, corporate.URL(t, "corp-user", "wrong-password"), warnings.Logf, upstream)
+	client := newClient(t, p)
+	getExpectingFailure(t, client, upstream.URL+"/left-pad/-/left-pad-1.3.0.tgz")
+	getExpectingFailure(t, client, upstream.URL+"/is-odd/-/is-odd-3.0.1.tgz")
+
+	lines := warnings.Lines()
+	require.Len(t, lines, 1, "repeated failures to one registry must warn once")
+	assert.Contains(t, lines[0], upstream.Listener.Addr().String())
+	assert.Contains(t, lines[0], "Proxy Authentication Required")
+	assert.NotContains(t, lines[0], "corp-user")
+	assert.NotContains(t, lines[0], "password")
+}
+
+func TestProxyWarnsForEachFailingRegistry(t *testing.T) {
+	t.Parallel()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "TARBALL")
+	})
+	first := httptest.NewTLSServer(handler)
+	defer first.Close()
+	second := httptest.NewTLSServer(handler)
+	defer second.Close()
+	corporate := startCorporateProxy(t, "corp-user", "right-password")
+	warnings := &warningRecorder{}
+
+	p := startWarningProxy(t, corporate.URL(t, "corp-user", "wrong-password"), warnings.Logf, first, second)
+	client := newClient(t, p)
+	getExpectingFailure(t, client, first.URL+"/left-pad/-/left-pad-1.3.0.tgz")
+	getExpectingFailure(t, client, second.URL+"/left-pad/-/left-pad-1.3.0.tgz")
+	getExpectingFailure(t, client, first.URL+"/is-odd/-/is-odd-3.0.1.tgz")
+
+	lines := warnings.Lines()
+	require.Len(t, lines, 2, "each failing registry must warn once")
+	assert.Contains(t, lines[0], first.Listener.Addr().String())
+	assert.Contains(t, lines[1], second.Listener.Addr().String())
+}
+
+func TestProxyDoesNotWarnWhenClientAbortsUpload(t *testing.T) {
+	t.Parallel()
+	arrived := make(chan struct{}, 1)
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		arrived <- struct{}{}
+		_, _ = io.Copy(io.Discard, r.Body)
+	}))
+	defer upstream.Close()
+	corporate := startCorporateProxy(t, "corp-user", "right-password")
+	warnings := &warningRecorder{}
+	p := startWarningProxy(t, corporate.URL(t, "corp-user", "right-password"), warnings.Logf, upstream)
+
+	body, bodyWriter := io.Pipe()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, upstream.URL+"/left-pad", body)
+	require.NoError(t, err)
+	req.ContentLength = 1 << 20
+	done := make(chan error, 1)
+	go func() {
+		resp, err := newClient(t, p).Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+		done <- err
+	}()
+	_, err = bodyWriter.Write([]byte("partial upload"))
+	require.NoError(t, err)
+	<-arrived
+	bodyWriter.CloseWithError(errors.New("package manager aborted the upload"))
+	require.Error(t, <-done)
+	p.Stop()
+
+	assert.Empty(t, warnings.Lines(), "a request the package manager aborted is not a registry failure")
 }
