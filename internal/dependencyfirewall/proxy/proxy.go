@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -18,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gitlab.com/gitlab-org/cli/internal/dbg"
@@ -131,6 +133,10 @@ type Proxy struct {
 	mu       sync.Mutex
 	verdicts []verdict.Entry
 	seen     map[string]struct{}
+
+	warnUpstreamFailure policy.Logf
+	warnMu              sync.Mutex
+	warnedAuthorities   map[string]struct{}
 }
 
 // tunnelDrainTimeout bounds how long Stop waits for in-flight MITM tunnels to
@@ -167,6 +173,15 @@ func WithUpstreamProxy(proxyFunc func(*http.Request) (*url.URL, error)) Option {
 	}
 }
 
+// WithUpstreamFailureWarning sets where the proxy reports a failed upstream
+// registry request. It reports each registry authority at most once per
+// proxy. When unset, failures are only debug-logged.
+func WithUpstreamFailureWarning(warn policy.Logf) Option {
+	return func(p *Proxy) {
+		p.warnUpstreamFailure = warn
+	}
+}
+
 func New(matcher Matcher, checker policy.Checker, projectID string, opts ...Option) (*Proxy, error) {
 	ca, err := newCertAuthority()
 	if err != nil {
@@ -194,10 +209,11 @@ func New(matcher Matcher, checker policy.Checker, projectID string, opts ...Opti
 			},
 			TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
 		},
-		matcher:   matcher,
-		checker:   checker,
-		projectID: projectID,
-		seen:      map[string]struct{}{},
+		matcher:           matcher,
+		checker:           checker,
+		projectID:         projectID,
+		seen:              map[string]struct{}{},
+		warnedAuthorities: map[string]struct{}{},
 	}
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	for _, opt := range opts {
@@ -271,6 +287,35 @@ func (p *Proxy) record(e verdict.Entry) {
 	}
 	p.seen[e.Key()] = struct{}{}
 	p.verdicts = append(p.verdicts, e)
+}
+
+func (p *Proxy) warnUpstreamFailureOnce(authority string, err error) {
+	if p.warnUpstreamFailure == nil {
+		return
+	}
+	// The sink runs under warnMu so tunnels never write to it concurrently.
+	p.warnMu.Lock()
+	defer p.warnMu.Unlock()
+	if _, ok := p.warnedAuthorities[authority]; ok {
+		return
+	}
+	p.warnedAuthorities[authority] = struct{}{}
+	p.warnUpstreamFailure("warning: dependency firewall request to registry %s failed: %v\n", authority, err)
+}
+
+// inboundBody records whether reading the package manager's request body
+// failed, which the upstream round trip reports as its own error.
+type inboundBody struct {
+	io.ReadCloser
+	readFailed atomic.Bool
+}
+
+func (b *inboundBody) Read(buf []byte) (int, error) {
+	n, err := b.ReadCloser.Read(buf)
+	if err != nil && !errors.Is(err, io.EOF) {
+		b.readFailed.Store(true)
+	}
+	return n, err
 }
 
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
@@ -387,10 +432,19 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 			}
 		}
 		req.Header.Set(firewallHeader, "allowed")
+		var inbound *inboundBody
+		if req.Body != nil && req.Body != http.NoBody {
+			inbound = &inboundBody{ReadCloser: req.Body}
+			req.Body = inbound
+		}
 
 		resp, err := p.upstream.RoundTrip(req)
 		if err != nil {
 			dbg.Debugf("dependency firewall proxy: upstream request to %s failed: %v", authority, err)
+			// A package manager that aborts its own upload is not a registry failure.
+			if inbound == nil || !inbound.readFailed.Load() {
+				p.warnUpstreamFailureOnce(authority, err)
+			}
 			return
 		}
 
