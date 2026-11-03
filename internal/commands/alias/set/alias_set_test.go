@@ -222,3 +222,19 @@ func TestShellAlias_bang(t *testing.T) {
 `
 	assert.Equal(t, expected, persistedAliases(t, dir))
 }
+
+func TestAliasSetCompletion(t *testing.T) {
+	t.Parallel()
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	cfg := config.NewFromString("aliases:\n  co: mr checkout\n  il: issue list\n")
+	cmd := NewCmdSet(cmdtest.NewTestFactory(ios, cmdtest.WithConfig(cfg)))
+
+	got, dir := cmd.ValidArgsFunction(cmd, nil, "")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, dir)
+	assert.Empty(t, got)
+
+	got, dir = cmd.ValidArgsFunction(cmd, []string{"co"}, "")
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, dir)
+	assert.Empty(t, got)
+}

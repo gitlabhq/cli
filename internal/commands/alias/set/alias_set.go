@@ -71,7 +71,8 @@ func NewCmdSet(f cmdutils.Factory) *cobra.Command {
 		# Run the shell alias with two arguments
 		glab igrep user foo
 		`),
-		Args: cobra.ExactArgs(2),
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},

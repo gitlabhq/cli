@@ -2,12 +2,14 @@ package delete
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
@@ -36,6 +38,23 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 		glab alias delete mrv
 		`),
 		Args: cobra.ExactArgs(1),
+		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			aliasCfg, err := opts.config().Aliases()
+			if err != nil {
+				dbg.Debugf("error getting aliases: %v", err)
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			aliases := aliasCfg.All()
+			completions := make([]string, 0, len(aliases))
+			for k, v := range aliases {
+				completions = append(completions, cobra.CompletionWithDesc(k, v))
+			}
+			slices.Sort(completions)
+			return completions, cobra.ShellCompDirectiveNoFileComp
+		},
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
