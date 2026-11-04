@@ -167,8 +167,9 @@ func TestExchangeToken_ServerBadRequest(t *testing.T) {
 }
 
 func TestExchangeToken_NotFound(t *testing.T) {
-	// gate_token_exchange_endpoint disabled on the instance means the
-	// endpoint itself does not exist, so the server 404s.
+	// An instance that does not serve token exchange responds 404: a
+	// Community Edition instance, a release before 19.1, or 19.1 to 19.3
+	// with the gate_token_exchange_endpoint feature flag disabled.
 	srv, count := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	})
@@ -178,7 +179,7 @@ func TestExchangeToken_NotFound(t *testing.T) {
 	result, err := client.ExchangeToken(t.Context(), 15*time.Minute)
 	require.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "token exchange is not enabled on this instance")
+	assert.Contains(t, err.Error(), "token exchange is not available on this instance (requires GitLab EE 19.4 or later)")
 	assert.EqualValues(t, 1, count.Load())
 }
 

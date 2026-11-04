@@ -46,9 +46,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Prerequisites:
 
-			- A GitLab Enterprise Edition (EE) instance on GitLab 19.1 or later.
-			- Token exchange enabled on the instance (the
-			  %[1]sgate_token_exchange_endpoint%[1]s feature flag).
+			- A GitLab Enterprise Edition (EE) instance on GitLab 19.4 or later.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Get a token using the default duration

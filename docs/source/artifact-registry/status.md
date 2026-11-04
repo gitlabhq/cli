@@ -21,9 +21,7 @@ credentials are written to disk.
 
 Prerequisites:
 
-- A GitLab Enterprise Edition (EE) instance on GitLab 19.1 or later.
-- Token exchange enabled on the instance (the
-  `gate_token_exchange_endpoint` feature flag).
+- A GitLab Enterprise Edition (EE) instance on GitLab 19.4 or later.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.

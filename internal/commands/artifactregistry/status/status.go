@@ -47,9 +47,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Prerequisites:
 
-			- A GitLab Enterprise Edition (EE) instance on GitLab 19.1 or later.
-			- Token exchange enabled on the instance (the
-			  `+"`gate_token_exchange_endpoint`"+` feature flag).
+			- A GitLab Enterprise Edition (EE) instance on GitLab 19.4 or later.
 		`) + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Show Artifact Registry access status
