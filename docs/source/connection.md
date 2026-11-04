@@ -64,6 +64,19 @@ hosts:
 
 - `ca_cert` is optional for mTLS support if you use a publicly signed server certificate.
 - `token` is not required if you use a different authentication method.
+- `client_cert` and `client_key` can be PEM or DER files.
+
+To use a PKCS#12 bundle (`.p12` or `.pfx`) that holds both the certificate and the key, set
+`client_cert` to the bundle, leave `client_key` unset, and set the bundle's password:
+
+```shell
+glab config set --host git.your-domain.com client_cert /path/to/client.p12
+glab config set --host git.your-domain.com client_cert_password <password>
+```
+
+If the host uses the operating system keyring (`use_keyring: true`), `glab` stores
+`client_cert_password` in the keyring. You can also set it with the `GLAB_CLIENT_CERT_PASSWORD`
+environment variable.
 
 ## Use self-signed certificates
 

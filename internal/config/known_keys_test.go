@@ -33,6 +33,7 @@ func TestKnownKeys_IncludesUserSettableKeysFromSchema(t *testing.T) {
 		"ca_cert",
 		"client_cert",
 		"client_key",
+		"client_cert_password",
 		"skip_tls_verify",
 		"use_keyring",
 		"api_protocol",

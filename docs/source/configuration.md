@@ -104,9 +104,10 @@ For more information, see
 | `ARTIFACT_REGISTRY_DOMAINS` | `artifact_registry_domains` | - | Alternative name for `GLAB_ARTIFACT_REGISTRY_DOMAINS`, checked after it. |
 | `GLAB_CA_CERT` | `ca_cert` | - | Path to a CA certificate (PEM) used to verify the GitLab server's TLS certificate. glab dependency-firewall commands also trust it for package registries and outbound proxies. Useful for self-signed or private certificate authorities. |
 | `CA_CERT` | `ca_cert` | - | Alternative name for `GLAB_CA_CERT`, checked after it. |
-| `GLAB_CLIENT_CERT` | `client_cert` | - | Path to a client certificate (PEM) used for mutual TLS authentication. |
+| `GLAB_CLIENT_CERT` | `client_cert` | - | Path to a client certificate used for mutual TLS authentication. Use a PEM or DER certificate with client_key, or a PKCS#12 bundle (.p12, .pfx) and leave client_key unset. |
 | `CLIENT_CERT` | `client_cert` | - | Alternative name for `GLAB_CLIENT_CERT`, checked after it. |
-| `GLAB_CLIENT_KEY` | `client_key` | - | Path to the private key (PEM) that matches client_cert. |
+| `GLAB_CLIENT_CERT_PASSWORD` | `client_cert_password` | - | Password that decrypts a PKCS#12 client_cert. Stored in the operating system's keyring when use_keyring is true. |
+| `GLAB_CLIENT_KEY` | `client_key` | - | Path to the private key (PEM or DER, in PKCS#8, PKCS#1, or EC format) that matches client_cert. Leave unset when client_cert is a PKCS#12 bundle. |
 | `CLIENT_KEY` | `client_key` | - | Alternative name for `GLAB_CLIENT_KEY`, checked after it. |
 | `GLAB_CONTAINER_REGISTRY_DOMAINS` | `container_registry_domains` | `gitlab.com,gitlab.com:443,registry.gitlab.com` | The domains of associated container registries. These are used to configure the Docker credential helper. |
 | `CONTAINER_REGISTRY_DOMAINS` | `container_registry_domains` | `gitlab.com,gitlab.com:443,registry.gitlab.com` | Alternative name for `GLAB_CONTAINER_REGISTRY_DOMAINS`, checked after it. |
