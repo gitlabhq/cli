@@ -60,7 +60,7 @@ require (
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
 	golang.org/x/text v0.43.0
-	k8s.io/apimachinery v0.37.1
+	k8s.io/apimachinery v0.37.2
 	k8s.io/client-go v0.37.1
 	mvdan.cc/xurls/v2 v2.6.0
 	software.sslmate.com/src/go-pkcs12 v0.7.4
