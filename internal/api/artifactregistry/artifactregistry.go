@@ -186,7 +186,7 @@ func (c *Client) exchange(ctx context.Context, expiresIn *int) (*ExchangeResult,
 	var resp tokenExchangeResponse
 	if _, err := c.gl.Do(req, &resp); err != nil {
 		if errors.Is(err, gitlab.ErrNotFound) {
-			return nil, fmt.Errorf("token exchange is not enabled on this instance: %w", err)
+			return nil, fmt.Errorf("token exchange is not available on this instance (requires GitLab EE 19.4 or later): %w", err)
 		}
 		return nil, fmt.Errorf("failed to exchange token: %w", err)
 	}

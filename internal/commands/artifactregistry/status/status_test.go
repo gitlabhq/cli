@@ -192,10 +192,11 @@ func TestStatus_ServerError(t *testing.T) {
 	assert.Contains(t, err.Error(), "audience is not a valid value")
 }
 
-func TestStatus_TokenExchangeNotEnabled(t *testing.T) {
-	// When gate_token_exchange_endpoint is disabled on the instance, the
-	// endpoint itself is absent, so the server responds 404 rather than a
-	// feature-specific error.
+func TestStatus_TokenExchangeNotAvailable(t *testing.T) {
+	// An instance that does not serve token exchange responds 404 rather
+	// than a feature-specific error: a Community Edition instance, a
+	// release before 19.1, or 19.1 to 19.3 with the
+	// gate_token_exchange_endpoint feature flag disabled.
 	srv, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	})
@@ -203,5 +204,13 @@ func TestStatus_TokenExchangeNotEnabled(t *testing.T) {
 
 	_, err := exec("")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "token exchange is not enabled on this instance")
+	assert.Contains(t, err.Error(), "token exchange is not available on this instance (requires GitLab EE 19.4 or later)")
+}
+
+func TestStatus_HelpNamesNoRemovedFeatureFlag(t *testing.T) {
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	cmd := NewCmd(cmdtest.NewTestFactory(ios))
+
+	assert.Contains(t, cmd.Long, "GitLab 19.4 or later")
+	assert.NotContains(t, cmd.Long, "gate_token_exchange_endpoint")
 }
