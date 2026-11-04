@@ -15,41 +15,41 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/api/artifactregistry"
-	"gitlab.com/gitlab-org/cli/internal/testing/artifactregistrytest"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
+	"gitlab.com/gitlab-org/cli/internal/testing/tokenexchangetest"
 )
 
 // wireRequest mirrors the JSON body `glab artifact-registry get-token` is expected to send
 // to POST /api/v4/token_exchange, via artifactregistry.
-type wireRequest = artifactregistrytest.WireRequest
+type wireRequest = tokenexchangetest.WireRequest
 
 // newTestServer starts a fake token_exchange endpoint and returns it along
 // with a counter of how many requests it received, so tests can assert that
 // invalid input (e.g. an out-of-range --duration) never reaches the network.
 func newTestServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
-	return artifactregistrytest.NewTestServer(t, handler)
+	return tokenexchangetest.NewTestServer(t, handler)
 }
 
 // newTestExec wires NewCmd to an api.Client pointed at srv, mirroring how
 // f.ApiClient(hostname).Lab() resolves in production.
 func newTestExec(t *testing.T, srv *httptest.Server) cmdtest.CmdExecFunc {
 	t.Helper()
-	return artifactregistrytest.NewTestExec(t, srv, NewCmd)
+	return tokenexchangetest.NewTestExec(t, srv, NewCmd)
 }
 
 // makeJWT mints a JWT carrying claims. The command never verifies token
 // signatures, so any signing key works here.
 func makeJWT(t *testing.T, claims jwt.RegisteredClaims) string {
 	t.Helper()
-	return artifactregistrytest.MakeJWT(t, claims)
+	return tokenexchangetest.MakeJWT(t, claims)
 }
 
 // tokenServer starts a fake token_exchange endpoint that always returns
 // wantToken, decoding each request body into gotBody.
 func tokenServer(t *testing.T, wantToken string, gotBody *wireRequest) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
-	return artifactregistrytest.NewTokenExchangeServer(t, wantToken, gotBody)
+	return tokenexchangetest.NewTokenExchangeServer(t, wantToken, gotBody)
 }
 
 func TestGetToken_DefaultDuration(t *testing.T) {

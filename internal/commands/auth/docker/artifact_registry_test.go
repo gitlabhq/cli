@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
-	"gitlab.com/gitlab-org/cli/internal/testing/artifactregistrytest"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
+	"gitlab.com/gitlab-org/cli/internal/testing/tokenexchangetest"
 )
 
 func TestHelper_findArtifactRegistryHostname(t *testing.T) {
@@ -130,7 +130,7 @@ hosts:
 	})
 
 	t.Run("a server error is not mistaken for the fall-through sentinel", func(t *testing.T) {
-		srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"message":"artifact registry is disabled for this project"}`))
@@ -153,13 +153,13 @@ hosts:
 	})
 
 	t.Run("success returns the token convention Docker expects", func(t *testing.T) {
-		wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+		wantToken := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 			Issuer:    "https://gitlab.example.com",
 			Subject:   "gid://gitlab/User/1",
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		})
-		var gotBody artifactregistrytest.WireRequest
-		srv, count := artifactregistrytest.NewTokenExchangeServer(t, wantToken, &gotBody)
+		var gotBody tokenexchangetest.WireRequest
+		srv, count := tokenexchangetest.NewTokenExchangeServer(t, wantToken, &gotBody)
 		cfg := config.NewFromString(`
 ---
 hosts:
@@ -192,10 +192,10 @@ hosts:
 func TestHelper_getArtifactRegistryToken_IgnoresEnvironmentToken(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "env-token")
 
-	srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "config-token", r.Header.Get("Private-Token"))
 
-		wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+		wantToken := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 			Issuer:    "https://gitlab.example.com",
 			Subject:   "gid://gitlab/User/1",
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
