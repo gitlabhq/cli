@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -80,11 +81,11 @@ func NewTestClient(t *testing.T, baseURL string) *gitlab.Client {
 
 // NewTestExec wires cmdFunc to an api.Client pointed at srv, mirroring how
 // f.ApiClient(hostname).Lab() resolves in production.
-func NewTestExec(t *testing.T, srv *httptest.Server, cmdFunc cmdtest.CmdFunc) cmdtest.CmdExecFunc {
+func NewTestExec(t *testing.T, srv *httptest.Server, cmdFunc cmdtest.CmdFunc, opts ...cmdtest.FactoryOption) cmdtest.CmdExecFunc {
 	t.Helper()
 
 	apiClient := cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(NewTestClient(t, srv.URL)))
-	return cmdtest.SetupCmdForTest(t, cmdFunc, false, cmdtest.WithApiClient(apiClient))
+	return cmdtest.SetupCmdForTest(t, cmdFunc, false, append(slices.Clip(opts), cmdtest.WithApiClient(apiClient))...)
 }
 
 // MakeJWT mints a JWT carrying claims. Code under test never verifies token
