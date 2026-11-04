@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"bytes"
 	"encoding/json"
 	"math"
 	"time"
@@ -9,9 +10,12 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
-// Event names and detail keys follow the audit events GitLab's own MCP server
-// records (ee/app/services/mcp/audit/capture_event_service.rb), so the
-// governance views read glab's events the same way.
+// Event names and the content and token keys follow the audit events GitLab
+// Duo Agent Platform records (duo_workflow_service/audit_events/event_types.py
+// in gitlab-org/modelops/applied-ml/code-suggestions/ai-assist), so the audit
+// event views show glab's events the same way. DAP records no tool outcome, so
+// outcome, agent_initiated and duration_s follow GitLab's MCP server
+// (ee/app/services/mcp/audit/capture_event_service.rb).
 const (
 	eventToolInvoked      = "ai_tool_invoked"
 	eventToolResponse     = "ai_tool_response_received"
@@ -46,11 +50,11 @@ func auditEvents(agentType string, data *sessionData, now time.Time) []auditEven
 		}
 		details["agent_name"] = agentType
 		if encodedLen(details) > maxDetailsBytes {
-			if _, ok := details["arguments"]; ok {
-				details["arguments"] = argumentsOmitted
+			if _, ok := details["tool_args"]; ok {
+				details["tool_args"] = argumentsOmitted
 			}
-			if _, ok := details["input"]; ok {
-				details["input"], details["input_truncated"] = "", true
+			if _, ok := details["content"]; ok {
+				details["content"], details["content_truncated"] = "", true
 			}
 		}
 		events = append(events, auditEventRequest{
@@ -63,9 +67,13 @@ func auditEvents(agentType string, data *sessionData, now time.Time) []auditEven
 
 	for _, p := range data.Prompts {
 		text, truncated := truncateEncoded(p.Text, maxValueBytes)
-		details := map[string]any{"input": text}
+		details := map[string]any{
+			"input_type":     "message",
+			"content":        text,
+			"content_length": utf8.RuneCountInString(p.Text),
+		}
 		if truncated {
-			details["input_truncated"] = true
+			details["content_truncated"] = true
 		}
 		add(eventUserInput, "prompt:"+p.ID, p.Timestamp, details)
 	}
@@ -80,7 +88,7 @@ func auditEvents(agentType string, data *sessionData, now time.Time) []auditEven
 			details["tool_namespace"] = call.Namespace
 		}
 		if arguments := cappedArguments(call.Input); arguments != nil {
-			details["arguments"] = arguments
+			details["tool_args"] = arguments
 		}
 		// The ID is the tool call ID alone, as before results were recorded,
 		// so calls synced by an earlier glab version are not duplicated.
@@ -109,9 +117,9 @@ func auditEvents(agentType string, data *sessionData, now time.Time) []auditEven
 		add(name, r.CallID+":result", r.Timestamp, details)
 	}
 	for _, r := range data.Responses {
-		details := map[string]any{"input_tokens": r.Usage.InputTokens, "output_tokens": r.Usage.OutputTokens}
+		details := map[string]any{"prompt_token_count": r.Usage.InputTokens, "completion_token_count": r.Usage.OutputTokens}
 		if r.Model != "" {
-			details["model"] = r.Model
+			details["model_name"] = r.Model
 		}
 		if r.Usage.CacheReadInputTokens > 0 {
 			details["cache_read_input_tokens"] = r.Usage.CacheReadInputTokens
@@ -127,7 +135,8 @@ func auditEvents(agentType string, data *sessionData, now time.Time) []auditEven
 // cappedArguments returns a tool call's arguments with their secrets
 // redacted, or a marker when they are too large or not valid JSON. The size is
 // checked before redaction. Arguments that redaction lengthens past GitLab's
-// limit are omitted by the check on the whole event.
+// limit are omitted by the check on the whole event. DAP's tool_args is an
+// object, so other values are wrapped in one.
 func cappedArguments(input json.RawMessage) any {
 	if len(input) == 0 || string(input) == "null" {
 		return nil
@@ -135,7 +144,11 @@ func cappedArguments(input json.RawMessage) any {
 	if !json.Valid(input) || encodedLen(input) > maxValueBytes {
 		return argumentsOmitted
 	}
-	return redactJSON(input)
+	redacted := redactJSON(input)
+	if trimmed := bytes.TrimSpace(redacted); trimmed[0] != '{' {
+		return map[string]json.RawMessage{"input": trimmed}
+	}
+	return redacted
 }
 
 // encodedLen returns the length of v encoded as JSON with <, > and & escaped,
