@@ -636,3 +636,26 @@ func TestFormatTimeStats(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatTimeSpent(t *testing.T) {
+	tests := []struct {
+		name    string
+		seconds int64
+		want    string
+	}{
+		{name: "zero", seconds: 0, want: "0h"},
+		{name: "minutes", seconds: 45 * 60, want: "45m"},
+		{name: "hours and minutes", seconds: 5400, want: "1h 30m"},
+		{name: "a working day is 8 hours", seconds: 8 * 3600, want: "1d"},
+		{name: "a week is 5 working days", seconds: 5*8*3600 + 2*8*3600 + 3*3600 + 30*60, want: "1w 2d 3h 30m"},
+		{name: "a month is 4 weeks", seconds: 4 * 5 * 8 * 3600, want: "1mo"},
+		{name: "seconds", seconds: 90, want: "1m 30s"},
+		{name: "negative", seconds: -5400, want: "-1h 30m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, FormatTimeSpent(tt.seconds))
+		})
+	}
+}

@@ -406,6 +406,41 @@ func FormatTimeStats(ts *gitlab.TimeStats) string {
 	return strings.Join(parts, " of ")
 }
 
+// timeTrackingUnits uses the GitLab time tracking conversion rates, which
+// count a working day of 8 hours rather than a calendar day.
+var timeTrackingUnits = []struct {
+	suffix  string
+	seconds int64
+}{
+	{"mo", 4 * 5 * 8 * 3600},
+	{"w", 5 * 8 * 3600},
+	{"d", 8 * 3600},
+	{"h", 3600},
+	{"m", 60},
+	{"s", 1},
+}
+
+// FormatTimeSpent formats a number of seconds as GitLab displays tracked
+// time, for example "1w 2d 3h 30m". Negative values keep a leading "-".
+func FormatTimeSpent(seconds int64) string {
+	if seconds == 0 {
+		return "0h"
+	}
+	sign := ""
+	if seconds < 0 {
+		sign = "-"
+		seconds = -seconds
+	}
+	var parts []string
+	for _, unit := range timeTrackingUnits {
+		if n := seconds / unit.seconds; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d%s", n, unit.suffix))
+			seconds %= unit.seconds
+		}
+	}
+	return sign + strings.Join(parts, " ")
+}
+
 // ParseEditorCommand parses an editor command string into separate command and arguments.
 // This is useful when passing editor commands to libraries like huh that expect separate
 // command and argument parameters.
