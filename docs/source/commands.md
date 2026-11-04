@@ -60,6 +60,7 @@ subcommands, options, and examples.
 - [`glab snippet`](snippet/_index.md)
 - [`glab ssh-key`](ssh-key/_index.md)
 - [`glab stack`](stack/_index.md)
+- [`glab timelog`](timelog/_index.md)
 - [`glab todo`](todo/_index.md)
 - [`glab token`](token/_index.md)
 - [`glab user`](user/_index.md)

@@ -637,6 +637,11 @@
       url: 'cli/stack/switch/'
     - title: glab stack sync
       url: 'cli/stack/sync/'
+- title: glab timelog
+  url: 'cli/timelog/'
+  submenu:
+    - title: glab timelog list
+      url: 'cli/timelog/list/'
 - title: glab todo
   url: 'cli/todo/'
   submenu:

@@ -104,6 +104,7 @@ Run `glab --help` to view a list of core commands in your terminal.
 - [`glab snippet`](docs/source/snippet): Create snippets.
 - [`glab ssh-key`](docs/source/ssh-key): Manage SSH keys registered with your GitLab account.
 - [`glab stack`](docs/source/stack): Create, manage, and work with stacked diffs. (EXPERIMENTAL)
+- [`glab timelog`](docs/source/timelog): Report on time logged on issues and merge requests.
 - [`glab todo`](docs/source/todo): Manage your to-do list.
 - [`glab token`](docs/source/token): Manage personal, project, or group tokens.
 - [`glab user`](docs/source/user): Interact with a GitLab user account.

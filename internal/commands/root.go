@@ -49,6 +49,7 @@ import (
 	snippetCmd "gitlab.com/gitlab-org/cli/internal/commands/snippet"
 	sshCmd "gitlab.com/gitlab-org/cli/internal/commands/ssh-key"
 	stackCmd "gitlab.com/gitlab-org/cli/internal/commands/stack"
+	timelogCmd "gitlab.com/gitlab-org/cli/internal/commands/timelog"
 	todoCmd "gitlab.com/gitlab-org/cli/internal/commands/todo"
 	tokenCmd "gitlab.com/gitlab-org/cli/internal/commands/token"
 	updateCmd "gitlab.com/gitlab-org/cli/internal/commands/update"
@@ -150,6 +151,7 @@ func NewCmdRoot(f cmdutils.Factory) *cobra.Command {
 	rootCmd.AddCommand(snippetCmd.NewCmdSnippet(f))
 	rootCmd.AddCommand(sshCmd.NewCmdSSHKey(f))
 	rootCmd.AddCommand(stackCmd.NewCmdStack(f))
+	rootCmd.AddCommand(timelogCmd.NewCmd(f))
 	rootCmd.AddCommand(todoCmd.NewCmd(f))
 	rootCmd.AddCommand(tokenCmd.NewTokenCmd(f))
 	rootCmd.AddCommand(userCmd.NewCmdUser(f))
