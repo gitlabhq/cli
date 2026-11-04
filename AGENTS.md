@@ -107,10 +107,12 @@ make gen-docs                                 # regenerate docs/source/** from c
 make generate                                 # go generate ./... (mockgen mocks)
 ```
 
-`make test` forcibly clears `VISUAL`, `EDITOR`, `PAGER`, and `GITLAB_TOKEN`,
-and sets `CI_PROJECT_PATH` from the origin remote. Some tests depend on
-this. If you run `go test` directly and see environment-dependent failures,
-replicate that setup.
+`make test` and `make test-race` clear `VISUAL`, `EDITOR`, and `PAGER`,
+unset `CI`, `GL_HOST`, and every `GITLAB_*`, `GLAB_*`, and `CI_*` variable,
+and set `CI_PROJECT_PATH` from the origin remote. Tests therefore pass inside
+a CI job. If you run `go test` directly and see environment-dependent
+failures, replicate that setup. A test that needs one of these variables must
+set it with `t.Setenv`.
 
 > [!note]
 > Local vendor workflow: `vendor/` is gitignored. Do not request vendor

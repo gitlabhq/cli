@@ -135,23 +135,24 @@ bin/gotestsum-${GOTESTSUM_VERSION}:
 	curl -L https://github.com/gotestyourself/gotestsum/releases/download/v${GOTESTSUM_VERSION}/gotestsum_${GOTESTSUM_VERSION}_${OS}_${ARCH}.tar.gz | tar -zOxf - gotestsum > ./bin/gotestsum-${GOTESTSUM_VERSION} && chmod +x ./bin/gotestsum-${GOTESTSUM_VERSION}
 
 TEST_PKGS ?= ./internal/... ./cmd/...
+
+# Recipe prefix that unsets the variables glab reads, so a CI job or a
+# configured shell does not change unit test results. Tests that need one set
+# it with t.Setenv.
+UNSET_GLAB_ENV = unset $$(compgen -e | grep -E '^(GITLAB_|GLAB_|CI_|(CI|GL_HOST)$$)' | grep -vx CI_PROJECT_PATH);
+
 .PHONY: test
 # NOTE: some tests require uncustomized environment variables for VISUAL, EDITOR, and PAGER to test
 # certain behaviors related to glab output preferences. Also, the CI_PROJECT_PATH environment variable
 # is set to support forked clones that will have a different origin remote url.
-#
-# Finally, there are some integration tests perform actual API calls and require GITLAB_TOKEN (personal access token)
-# and GITLAB_TEST_HOST (GitLab instance to test) to be set. If either of these are not set the integration tests
-# will fail in CI or will be skipped if not in CI.
 test: TEST_FORMAT ?= short
 test: SHELL = /bin/bash # set environment variables to ensure consistent test behavior
 test: VISUAL=
 test: EDITOR=
 test: PAGER=
-test: GITLAB_TOKEN=
 test: export CI_PROJECT_PATH=$(shell git remote get-url origin)
 test: bin/gotestsum ## Run tests
-	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage-unit.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage-unit.txt -covermode=atomic $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...)
+	$(UNSET_GLAB_ENV) $(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage-unit.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage-unit.txt -covermode=atomic $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...)
 
 .PHONY: test-changed
 test-changed: bin/gotestsum ## Run tests on packages changed vs origin/main (including reverse dependencies)
@@ -168,10 +169,9 @@ test-race: SHELL = /bin/bash # set environment variables to ensure consistent te
 test-race: VISUAL=
 test-race: EDITOR=
 test-race: PAGER=
-test-race: GITLAB_TOKEN=
 test-race: export CI_PROJECT_PATH=$(shell git remote get-url origin)
 test-race: bin/gotestsum ## Run tests with race detection
-	$(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage-unit.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage-unit.txt -covermode=atomic -race $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...)
+	$(UNSET_GLAB_ENV) $(GOTEST) --no-summary=skipped --format-hide-empty-pkg --junitfile ./coverage-unit.xml --format ${TEST_FORMAT} -- -coverprofile=./coverage-unit.txt -covermode=atomic -race $(filter-out -v,${GOARGS}) $(if ${TEST_PKGS},${TEST_PKGS},./...)
 
 # Only the packages that hold integration tests. Derived rather than listed so
 # a new *_integration_test.go is picked up without editing this file. The
