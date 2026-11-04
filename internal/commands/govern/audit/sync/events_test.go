@@ -126,7 +126,7 @@ func TestAuditEvents(t *testing.T) {
 	assert.NotContains(t, invoked.Details, "tool_namespace", "agents that record only a name send no namespace")
 	assert.Equal(t, "pending", invoked.Details["outcome"])
 	assert.Equal(t, true, invoked.Details["agent_initiated"])
-	assert.JSONEq(t, `{"command":"go test ./..."}`, string(invoked.Details["arguments"].(json.RawMessage))) //nolint:forcetypeassert // set by auditEvents
+	assert.JSONEq(t, `{"command":"go test ./..."}`, string(invoked.Details["tool_args"].(json.RawMessage))) //nolint:forcetypeassert // set by auditEvents
 
 	failed := byName[eventToolFailed][0]
 	assert.Equal(t, "error", failed.Details["outcome"])
@@ -139,11 +139,16 @@ func TestAuditEvents(t *testing.T) {
 	assert.NotContains(t, succeeded.Details, "tool_name", "a result whose call was synced earlier has no name")
 	assert.NotContains(t, succeeded.Details, "duration_s")
 
-	assert.Equal(t, "run the tests", byName[eventUserInput][0].Details["input"])
+	userInput := byName[eventUserInput][0]
+	assert.Equal(t, "message", userInput.Details["input_type"])
+	assert.Equal(t, "run the tests", userInput.Details["content"])
+	assert.Equal(t, 13, userInput.Details["content_length"])
+	assert.NotContains(t, userInput.Details, "content_truncated")
 
 	response := byName[eventResponseReceived][0]
-	assert.Equal(t, "claude-opus-5-5", response.Details["model"])
-	assert.Equal(t, 42, response.Details["output_tokens"])
+	assert.Equal(t, "claude-opus-5-5", response.Details["model_name"])
+	assert.Equal(t, 10, response.Details["prompt_token_count"])
+	assert.Equal(t, 42, response.Details["completion_token_count"])
 }
 
 func TestAuditEvents_ToolNamespace(t *testing.T) {
@@ -179,13 +184,14 @@ func TestAuditEvents_Limits(t *testing.T) {
 	events := auditEvents("claude-code", data, now)
 	require.Len(t, events, 2, "an event older than GitLab accepts is dropped")
 
-	input, ok := events[0].Details["input"].(string)
+	content, ok := events[0].Details["content"].(string)
 	require.True(t, ok)
-	assert.LessOrEqual(t, len(input), maxValueBytes)
-	assert.True(t, strings.HasSuffix(input, "é"), "truncation does not split a character")
-	assert.Equal(t, true, events[0].Details["input_truncated"])
+	assert.LessOrEqual(t, len(content), maxValueBytes)
+	assert.True(t, strings.HasSuffix(content, "é"), "truncation does not split a character")
+	assert.Equal(t, true, events[0].Details["content_truncated"])
+	assert.Equal(t, maxValueBytes, events[0].Details["content_length"], "the length is of the whole prompt")
 
-	assert.Equal(t, argumentsOmitted, events[1].Details["arguments"])
+	assert.Equal(t, argumentsOmitted, events[1].Details["tool_args"])
 	for _, e := range events {
 		details, err := json.Marshal(e.Details)
 		require.NoError(t, err)
@@ -233,7 +239,7 @@ func TestAuditEvents_OmitsArgumentsThatRedactionMakesTooLarge(t *testing.T) {
 	}, now)
 	require.Len(t, events, 1)
 
-	assert.Equal(t, argumentsOmitted, events[0].Details["arguments"])
+	assert.Equal(t, argumentsOmitted, events[0].Details["tool_args"])
 	assert.LessOrEqual(t, encodedLen(events[0].Details), 10*1024, "GitLab measures the encoded details")
 }
 
@@ -266,6 +272,26 @@ func TestAuditEvents_OutcomeOverride(t *testing.T) {
 	assert.Equal(t, "completed", events[0].Details["outcome"], "agents that do not record success do not claim it")
 }
 
+func TestAuditEvents_ToolArgsAreObjects(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 10, 9, 1, 0, 0, 0, time.UTC)
+	events := auditEvents("codex", &sessionData{ToolCalls: []toolCall{
+		{ID: "call_1", Name: "exec_command", Input: json.RawMessage(`"not json"`), Timestamp: at},
+		{ID: "call_2", Name: "tool_search", Input: json.RawMessage(` [1, 2]`), Timestamp: at},
+		{ID: "call_3", Name: "exec_command", Input: json.RawMessage(` {"cmd":"ls"}`), Timestamp: at},
+		{ID: "call_4", Name: "exec_command", Input: json.RawMessage(`"curl https://u:Abc12345@example.com"`), Timestamp: at},
+	}}, at)
+	require.Len(t, events, 4)
+
+	redacted := `{"input":"curl https://u:` + redactedMarker("url_password") + `@example.com"}`
+	for i, want := range []string{`{"input":"not json"}`, `{"input":[1, 2]}`, `{"cmd":"ls"}`, redacted} {
+		encoded, err := json.Marshal(events[i].Details["tool_args"])
+		require.NoError(t, err)
+		assert.JSONEq(t, want, string(encoded))
+	}
+}
+
 func TestAuditEvents_CapsEncodedSize(t *testing.T) {
 	t.Parallel()
 
@@ -283,12 +309,13 @@ func TestAuditEvents_CapsEncodedSize(t *testing.T) {
 	}, now)
 	require.Len(t, events, 2)
 
-	input, ok := events[0].Details["input"].(string)
+	content, ok := events[0].Details["content"].(string)
 	require.True(t, ok)
-	assert.LessOrEqual(t, encodedLen(input), maxValueBytes, "the prompt is capped on its encoded size")
-	assert.True(t, utf8.ValidString(input))
-	assert.Equal(t, true, events[0].Details["input_truncated"])
-	assert.Equal(t, argumentsOmitted, events[1].Details["arguments"], "the arguments are too large once encoded")
+	assert.LessOrEqual(t, encodedLen(content), maxValueBytes, "the prompt is capped on its encoded size")
+	assert.True(t, utf8.ValidString(content))
+	assert.Equal(t, true, events[0].Details["content_truncated"])
+	assert.Equal(t, utf8.RuneCountInString(escaped)+1, events[0].Details["content_length"])
+	assert.Equal(t, argumentsOmitted, events[1].Details["tool_args"], "the arguments are too large once encoded")
 
 	for _, e := range events {
 		assert.LessOrEqual(t, encodedLen(e.Details), 10*1024, "GitLab measures the encoded details")
