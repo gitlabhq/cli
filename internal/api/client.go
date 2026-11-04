@@ -51,8 +51,9 @@ type Client struct {
 	// custom certificate
 	caFile string
 	// client certificate files
-	clientCertFile string
-	clientKeyFile  string
+	clientCertFile     string
+	clientKeyFile      string
+	clientCertPassword func() (string, error)
 
 	baseURL    string
 	authSource gitlab.AuthSource
@@ -156,13 +157,18 @@ func (c *Client) initializeHTTPClient() error {
 	if err != nil {
 		return err
 	}
+	clientCertPassword, err := pkcs12Password(c.clientCertFile, c.clientKeyFile, c.clientCertPassword)
+	if err != nil {
+		return err
+	}
 
 	key := transportKey{
-		caFile:         c.caFile,
-		clientCertFile: c.clientCertFile,
-		clientKeyFile:  c.clientKeyFile,
-		insecure:       c.allowInsecure,
-		gitlabCom:      !glinstance.IsSelfHosted(u.Hostname()),
+		caFile:             c.caFile,
+		clientCertFile:     c.clientCertFile,
+		clientKeyFile:      c.clientKeyFile,
+		clientCertPassword: clientCertPassword,
+		insecure:           c.allowInsecure,
+		gitlabCom:          !glinstance.IsSelfHosted(u.Hostname()),
 	}
 	if c.proxyURL != nil {
 		key.proxyURL = c.proxyURL.String()
@@ -231,11 +237,14 @@ func WithCustomCA(caFile string) ClientOption {
 	}
 }
 
-// WithClientCertificate configures the client to use client certificates for mTLS
-func WithClientCertificate(certFile, keyFile string) ClientOption {
+// WithClientCertificate configures the client to use client certificates for mTLS.
+// An empty keyFile means certFile is tried as a PKCS#12 bundle, and if it is not
+// one, no certificate is sent. password is called only for a bundle that needs one.
+func WithClientCertificate(certFile, keyFile string, password func() (string, error)) ClientOption {
 	return func(c *Client) error {
 		c.clientCertFile = certFile
 		c.clientKeyFile = keyFile
+		c.clientCertPassword = password
 		return nil
 	}
 }
@@ -513,8 +522,15 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 		options = append(options, WithCustomCA(caCert))
 	}
 
-	if clientCert != "" && keyFile != "" {
-		options = append(options, WithClientCertificate(clientCert, keyFile))
+	if clientCert != "" {
+		clientCertPassword := func() (string, error) {
+			password, err := cfg.Get(repoHost, "client_cert_password")
+			if err != nil {
+				return "", fmt.Errorf("failed to read client_cert_password for %q: %w", repoHost, err)
+			}
+			return password, nil
+		}
+		options = append(options, WithClientCertificate(clientCert, keyFile, clientCertPassword))
 	}
 
 	if skipTlsVerify {

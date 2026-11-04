@@ -379,13 +379,19 @@ var KeySchema = []KeyDef{
 		Name: "client_cert", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_CLIENT_CERT", "CLIENT_CERT"},
-		Description:  "Path to a client certificate (PEM) used for mutual TLS authentication.",
+		Description:  "Path to a client certificate used for mutual TLS authentication. Use a PEM or DER\ncertificate with client_key, or a PKCS#12 bundle (.p12, .pfx) and leave client_key unset.",
 	},
 	{
 		Name: "client_key", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_CLIENT_KEY", "CLIENT_KEY"},
-		Description:  "Path to the private key (PEM) that matches client_cert.",
+		Description:  "Path to the private key (PEM or DER, in PKCS#8, PKCS#1, or EC format) that matches client_cert.\nLeave unset when client_cert is a PKCS#12 bundle.",
+	},
+	{
+		Name: "client_cert_password", Scope: ScopePerHost, Type: TypeString,
+		UserSettable: true, Keyring: true,
+		EnvVars:     []string{"GLAB_CLIENT_CERT_PASSWORD"},
+		Description: "Password that decrypts a PKCS#12 client_cert. Stored in the operating system's\nkeyring when use_keyring is true.",
 	},
 	{
 		Name: "skip_tls_verify", Scope: ScopePerHost, Type: TypeString,

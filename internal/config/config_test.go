@@ -829,6 +829,49 @@ func Test_SetKeyring_OAuth2RefreshToken(t *testing.T) {
 	assert.NotContains(t, configContent, "refresh-secret-token", "Refresh token should not be in plaintext config")
 }
 
+func Test_ClientCertPassword_StoredInKeyring(t *testing.T) {
+	dir := t.TempDir()
+	keyring.MockInit()
+	cfg := NewBlankConfigInDir(dir)
+	require.NoError(t, cfg.Set("git.example.com", "use_keyring", "true"))
+
+	require.NoError(t, cfg.Set("git.example.com", "client_cert_password", "p12-secret"))
+
+	stored, err := keyring.Get("glab:git.example.com:client_cert_password", "")
+	require.NoError(t, err)
+	assert.Equal(t, "p12-secret", stored)
+	value, source, err := cfg.GetWithSource("git.example.com", "client_cert_password", false)
+	require.NoError(t, err)
+	assert.Equal(t, "p12-secret", value)
+	assert.Equal(t, "keyring", source)
+	require.NoError(t, cfg.Write())
+	assert.NotContains(t, persistedFile(t, dir, "config.yml"), "p12-secret")
+}
+
+func Test_ClientCertPassword_RoundTripsThroughConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := NewBlankConfigInDir(dir)
+	require.NoError(t, cfg.Set("git.example.com", "client_cert_password", "p12-secret"))
+	require.NoError(t, cfg.Write())
+
+	reloaded, err := cfg.Reload()
+	require.NoError(t, err)
+	value, err := reloaded.Get("git.example.com", "client_cert_password")
+	require.NoError(t, err)
+	assert.Equal(t, "p12-secret", value)
+}
+
+func Test_ClientCertPassword_ReadsEnvironmentVariable(t *testing.T) {
+	t.Setenv("GLAB_CLIENT_CERT_PASSWORD", "from-env")
+	cfg := NewBlankConfig()
+	require.NoError(t, cfg.Set("git.example.com", "client_cert_password", "from-file"))
+
+	value, source, err := cfg.GetWithSource("git.example.com", "client_cert_password", true)
+	require.NoError(t, err)
+	assert.Equal(t, "from-env", value)
+	assert.Equal(t, "GLAB_CLIENT_CERT_PASSWORD", source)
+}
+
 func Test_GetWithSource_RetrievesFromKeyringWhenUseKeyringSet(t *testing.T) {
 	dir := t.TempDir()
 	seedFile(t, dir, "config.yml", heredoc.Doc(`

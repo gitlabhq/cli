@@ -20,12 +20,13 @@ import (
 // keys can share one connection pool.
 type transportKey struct {
 	// proxyURL is empty when the proxy comes from the environment.
-	proxyURL       string
-	caFile         string
-	clientCertFile string
-	clientKeyFile  string
-	insecure       bool
-	gitlabCom      bool
+	proxyURL           string
+	caFile             string
+	clientCertFile     string
+	clientKeyFile      string
+	clientCertPassword string
+	insecure           bool
+	gitlabCom          bool
 }
 
 // TransportCache lets API clients with identical transport settings share a
@@ -84,12 +85,12 @@ func newTransport(key transportKey) (*http.Transport, error) {
 		tlsConfig.RootCAs = caCertPool
 	}
 
-	if key.clientCertFile != "" && key.clientKeyFile != "" {
-		clientCert, err := tls.LoadX509KeyPair(key.clientCertFile, key.clientKeyFile)
+	if key.clientCertFile != "" {
+		clientCerts, err := loadClientCertificates(key.clientCertFile, key.clientKeyFile, key.clientCertPassword)
 		if err != nil {
 			return nil, err
 		}
-		tlsConfig.Certificates = []tls.Certificate{clientCert}
+		tlsConfig.Certificates = clientCerts
 	}
 
 	// Set appropriate timeouts based on whether custom CA is used
