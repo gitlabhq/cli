@@ -174,6 +174,8 @@ func main() {
 	colorEnv.apply()
 	scopeColorEnvToFang(rootCmd, colorEnv)
 
+	help.AppendAnnotationSections(rootCmd, cmdFactory.IO())
+
 	if err := fang.Execute(context.Background(), rootCmd,
 		fang.WithoutCompletions(),
 		fang.WithoutManpage(),

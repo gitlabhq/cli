@@ -28,6 +28,15 @@ glab mr merge 123
 glab mr note -m "needs to do X before it can be merged" branch-foo
 ```
 
+## Arguments
+
+```plaintext
+Specify a merge request in one of the following formats:
+- By number, for example "123"
+- By the name of its source branch, for example "patch-1" or "OWNER:patch-1"
+- By URL, for example "https://gitlab.com/gitlab-org/cli/-/merge_requests/123"
+```
+
 ## Options
 
 ```plaintext

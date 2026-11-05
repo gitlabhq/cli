@@ -26,6 +26,14 @@ Use `--repo` to target a project other than the current one.
 glab incident list
 ```
 
+## Arguments
+
+```plaintext
+Specify an incident in one of the following formats:
+- By number, for example "123"
+- By URL, for example "https://gitlab.com/NAMESPACE/REPO/-/issues/incident/123"
+```
+
 ## Options
 
 ```plaintext

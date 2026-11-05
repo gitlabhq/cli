@@ -29,6 +29,14 @@ glab issue view --web 123
 glab issue note -m "closing because !123 was merged" <issue number>
 ```
 
+## Arguments
+
+```plaintext
+Specify an issue in one of the following formats:
+- By number, for example "123"
+- By URL, for example "https://gitlab.com/NAMESPACE/REPO/-/issues/123"
+```
+
 ## Options
 
 ```plaintext

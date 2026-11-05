@@ -36,6 +36,14 @@ glab attestation verify gitlab-org/gitlab filename.txt
 glab attestation verify 123 filename.txt
 ```
 
+## Arguments
+
+```plaintext
+Specify a project in one of the following formats:
+- By number, for example "123"
+- By path, for example "gitlab-org/cli"
+```
+
 ## Options inherited from parent commands
 
 ```plaintext

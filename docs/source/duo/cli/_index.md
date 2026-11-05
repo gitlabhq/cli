@@ -80,6 +80,14 @@ glab duo cli --install --yes
 glab duo cli update
 ```
 
+## Environment variables
+
+```plaintext
+- `GLAB_DUO_CLI_BINARY_PATH`: Use a local binary instead of the managed one.
+  Skips download, version checks, and updates. Can also be set through the
+  `duo_cli_binary_path` configuration key.
+```
+
 ## Options
 
 ```plaintext

@@ -23,8 +23,7 @@ func NewCmdSnippet(f cmdutils.Factory) *cobra.Command {
 			glab snippet create --title "Title of the snippet" --filename "main.go"`),
 		Annotations: map[string]string{
 			"help:arguments": heredoc.Doc(`
-			A snippet can be supplied as argument in the following format:
-			- by number, e.g. "123"
+			Specify a snippet by number, for example "123".
 			`),
 		},
 	}

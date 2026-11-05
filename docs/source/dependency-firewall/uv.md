@@ -42,6 +42,13 @@ glab dependency-firewall uv sync
 
 ```
 
+## Environment variables
+
+```plaintext
+HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
+NO_PROXY: hosts glab reaches directly instead of through HTTPS_PROXY.
+```
+
 ## Options inherited from parent commands
 
 ```plaintext

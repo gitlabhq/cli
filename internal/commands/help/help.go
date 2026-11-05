@@ -225,14 +225,11 @@ func RootHelpFunc(streams *iostreams.IOStreams, command *cobra.Command, args []s
 	if inheritedFlagUsages != "" {
 		helpEntries = append(helpEntries, helpEntry{"INHERITED FLAGS", dedent(inheritedFlagUsages)})
 	}
-	if _, ok := command.Annotations["help:arguments"]; ok {
-		helpEntries = append(helpEntries, helpEntry{"ARGUMENTS", command.Annotations["help:arguments"]})
-	}
 	if command.Example != "" {
 		helpEntries = append(helpEntries, helpEntry{"EXAMPLES", command.Example})
 	}
-	if _, ok := command.Annotations["help:environment"]; ok {
-		helpEntries = append(helpEntries, helpEntry{"ENVIRONMENT VARIABLES", command.Annotations["help:environment"]})
+	for _, s := range AnnotationSections(command) {
+		helpEntries = append(helpEntries, helpEntry{strings.ToUpper(s.Title), s.Body})
 	}
 	helpEntries = append(helpEntries, helpEntry{"LEARN MORE", `
 Use 'glab <command> <subcommand> --help' for more information about a command.`})

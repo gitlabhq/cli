@@ -29,10 +29,9 @@ func NewCmdIncident(f cmdutils.Factory) *cobra.Command {
 			glab incident list`),
 		Annotations: map[string]string{
 			"help:arguments": heredoc.Doc(`
-				An incident can be supplied as argument in any of the following formats:
-
-				- by number, e.g. "123"
-				- by URL, e.g. "https://gitlab.com/NAMESPACE/REPO/-/issues/incident/123"
+				Specify an incident in one of the following formats:
+				- By number, for example "123"
+				- By URL, for example "https://gitlab.com/NAMESPACE/REPO/-/issues/incident/123"
 			`),
 		},
 	}

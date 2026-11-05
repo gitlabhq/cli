@@ -44,10 +44,10 @@ func NewCmdMR(f cmdutils.Factory) *cobra.Command {
 			glab mr note -m "needs to do X before it can be merged" branch-foo`),
 		Annotations: map[string]string{
 			"help:arguments": heredoc.Doc(`
-			A merge request can be supplied as argument in any of the following formats:
-			- by number, e.g. "123"; or
-			- by the name of its source branch, e.g. "patch-1" or "OWNER:patch-1"; or
-			- by URL, e.g. "https://gitlab.com/gitlab-org/cli/-/merge_requests/123".
+			Specify a merge request in one of the following formats:
+			- By number, for example "123"
+			- By the name of its source branch, for example "patch-1" or "OWNER:patch-1"
+			- By URL, for example "https://gitlab.com/gitlab-org/cli/-/merge_requests/123"
 			`),
 		},
 	}
