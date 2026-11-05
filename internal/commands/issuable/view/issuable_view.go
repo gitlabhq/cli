@@ -1,6 +1,7 @@
 package view
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -20,15 +21,13 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/utils"
 )
 
-var listIssueNotes = func(client *gitlab.Client, projectID any, issueID int64, opts *gitlab.ListIssueNotesOptions) ([]*gitlab.Note, error) {
+var listIssueNotes = func(ctx context.Context, client *gitlab.Client, projectID any, issueID int64, opts *gitlab.ListIssueNotesOptions) ([]*gitlab.Note, error) {
 	if opts.PerPage == 0 {
 		opts.PerPage = api.DefaultListLimit
 	}
-	notes, _, err := client.Notes.ListIssueNotes(projectID, issueID, opts)
-	if err != nil {
-		return nil, err
-	}
-	return notes, nil
+	return gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.Note, *gitlab.Response, error) {
+		return client.Notes.ListIssueNotes(projectID, issueID, opts, p, gitlab.WithContext(ctx))
+	})
 }
 
 type IssueWithNotes struct {
@@ -90,7 +89,7 @@ func NewCmdView(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Command
 			mcpannotations.Safe: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return opts.run(issueType, args)
+			return opts.run(cmd.Context(), issueType, args)
 		},
 	}
 
@@ -104,7 +103,7 @@ func NewCmdView(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Command
 	return issueViewCmd
 }
 
-func (o *options) run(issueType issuable.IssueType, args []string) error {
+func (o *options) run(ctx context.Context, issueType issuable.IssueType, args []string) error {
 	client, err := o.gitlabClient()
 	if err != nil {
 		return err
@@ -144,7 +143,7 @@ func (o *options) run(issueType issuable.IssueType, args []string) error {
 		if o.commentLimit != 0 {
 			l.PerPage = int64(o.commentLimit)
 		}
-		o.notes, err = listIssueNotes(client, baseRepo.FullName(), o.issue.IID, l)
+		o.notes, err = listIssueNotes(ctx, client, baseRepo.FullName(), o.issue.IID, l)
 		if err != nil {
 			return err
 		}
