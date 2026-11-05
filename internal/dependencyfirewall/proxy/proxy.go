@@ -405,11 +405,11 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 			return
 		}
 		if m.Matched {
-			res := p.checkPolicy(ctx, m)
+			res, coordinate := p.checkPolicy(ctx, m)
 			if res.Blocked() {
 				p.record(verdict.Entry{
-					Package: m.Coordinate.Name,
-					Version: m.Coordinate.Version,
+					Package: coordinate.Name,
+					Version: coordinate.Version,
 					Verdict: verdict.Blocked,
 					Status:  http.StatusForbidden,
 					Reason:  res.Reason,
@@ -424,8 +424,8 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 				// response status is unknown here. Recording StatusOK would be a
 				// guess that could contradict a later non-200 upstream response.
 				p.record(verdict.Entry{
-					Package: m.Coordinate.Name,
-					Version: m.Coordinate.Version,
+					Package: coordinate.Name,
+					Version: coordinate.Version,
 					Verdict: verdict.Warning,
 					Reason:  res.Reason,
 				})
@@ -475,32 +475,41 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 	}
 }
 
-// checkPolicy runs the policy check for a matched request under a bounded
-// context so a hung or unreachable backend degrades to a block rather than
-// hanging the tunnel goroutine. It fails closed: any error obtaining a
-// decision is mapped to a Blocked result. The deferred cancel scopes the
-// context to this call, which matters because the caller invokes it once per
-// request in a long-lived tunnel loop.
-func (p *Proxy) checkPolicy(ctx context.Context, m Match) policy.Result {
-	checkCtx, cancel := context.WithTimeout(ctx, policy.CheckTimeout)
+// checkPolicy checks every candidate coordinate m carries and returns the
+// strongest verdict, with the coordinate it belongs to; a block always wins.
+// All candidates share one overall policy.CheckTimeout deadline so a slow
+// backend bounds total latency instead of compounding per candidate.
+func (p *Proxy) checkPolicy(ctx context.Context, m Match) (policy.Result, policy.Coordinate) {
+	ctx, cancel := context.WithTimeout(ctx, policy.CheckTimeout)
 	defer cancel()
-	res, err := p.checker.Check(checkCtx, policy.Request{
-		Coordinate: m.Coordinate,
-		ProjectID:  p.projectID,
-		Operation:  m.Operation,
-	})
-	if err != nil {
-		// Fail closed: a policy decision we cannot obtain is treated as a
-		// block, never allowed through. The CachingChecker also enforces
-		// this, but the proxy must not depend on its wrapper for its
-		// security posture.
-		dbg.Debugf("dependency firewall policy check failed for %s: %v", m.Coordinate.Key(), err)
-		return policy.Result{
-			Verdict: verdict.Blocked,
-			Reason:  fmt.Sprintf("policy check failed: %v", err),
+
+	strongest := policy.Result{}
+	strongestCoordinate := m.Coordinate
+
+	for _, coordinate := range append([]policy.Coordinate{m.Coordinate}, m.Alternates...) {
+		res, err := p.checker.Check(ctx, policy.Request{Coordinate: coordinate, ProjectID: p.projectID, Operation: m.Operation})
+		if err != nil {
+			// Fail closed, naming the request's own coordinate rather than the
+			// invented candidate that errored.
+			dbg.Debugf("dependency firewall policy check failed for %s: %v", coordinate.Key(), err)
+			return policy.Result{
+				Verdict:     verdict.Blocked,
+				Reason:      fmt.Sprintf("policy check failed: %v", err),
+				CheckFailed: true,
+			}, m.Coordinate
+		}
+		if res.Blocked() {
+			// A failed check says nothing about the candidate, so name the request.
+			if res.CheckFailed {
+				return res, m.Coordinate
+			}
+			return res, coordinate
+		}
+		if res.Verdict == verdict.Warning && strongest.Verdict == verdict.Allowed {
+			strongest, strongestCoordinate = res, coordinate
 		}
 	}
-	return res
+	return strongest, strongestCoordinate
 }
 
 // blockDrainLimit bounds how much of a blocked upload's request body the proxy

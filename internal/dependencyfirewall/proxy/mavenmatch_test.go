@@ -12,8 +12,14 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
 )
 
-func mvn(method, path string) *http.Request {
-	return httptest.NewRequest(method, "https://repo.maven.apache.org"+path, http.NoBody)
+// mvn builds a request against Maven Central by default; pass host to
+// simulate a mirror instead.
+func mvn(method, path string, host ...string) *http.Request {
+	h := "https://repo.maven.apache.org"
+	if len(host) > 0 {
+		h = host[0]
+	}
+	return httptest.NewRequest(method, h+path, http.NoBody)
 }
 
 func TestMavenMatchJarDownload(t *testing.T) {

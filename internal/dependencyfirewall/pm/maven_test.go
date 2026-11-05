@@ -18,11 +18,17 @@ import (
 // traffic through the inspection proxy. A regression that dropped it would
 // silently fail open, so assert the exact wiring.
 func TestMavenCATrustRoutesThroughProxy(t *testing.T) {
+	t.Setenv("MAVEN_ARGS", "")
+	t.Chdir(t.TempDir())
 	ca := selfSignedTestCA(t)
 	caPath := filepath.Join(t.TempDir(), "ca.pem")
 	require.NoError(t, os.WriteFile(caPath, caPEM(t, ca), 0o600))
 
-	m := Maven()
+	m := mavenWithoutInstall(t)
+	// An empty user.home keeps the machine's own ~/.m2/settings.xml out.
+	a, ok := m.(argsManager)
+	require.True(t, ok)
+	a.SetArgs([]string{"-Duser.home=" + t.TempDir()})
 	m.Environment("http://127.0.0.1:52999")
 	env := m.CATrustEnviron(caPath)
 
