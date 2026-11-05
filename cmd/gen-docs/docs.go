@@ -319,7 +319,7 @@ func writeGeneratedHeader(buf *bytes.Buffer, title string) {
 	buf.WriteString("title: " + title + "\n")
 	buf.WriteString("stage: AI Clients" + "\n")
 	buf.WriteString("group: Developer Clients" + "\n")
-	buf.WriteString("info: To determine the technical writer assigned to the Stage/Group associated with this page, see <https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments>" + "\n")
+	buf.WriteString("info: To determine the technical writer assigned to the Stage/Group associated with this page, see <https://handbook.gitlab.com/handbook/marketing/product-and-technical-marketing/technical-writing/#assignments>" + "\n")
 	buf.WriteString("---" + "\n\n")
 
 	buf.WriteString("<!--" + "\n")
