@@ -3,6 +3,8 @@
 package commands
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -12,6 +14,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/help"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -138,6 +141,52 @@ func TestAllDeprecatedFlagsRouteToStderr(t *testing.T) {
 			_ = tg.cmd.ParseFlags([]string{arg})
 
 			assert.NotContains(t, stdout.String(), "deprecated", "deprecation warning leaked to stdout for %s", name)
+		})
+	}
+}
+
+// AppendAnnotationSections replaces the help func of every direct child of
+// root, so one set there before main.go calls it would be lost silently.
+func TestTopLevelCommandsInheritRootHelpFunc(t *testing.T) {
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	rootCmd := NewCmdRoot(cmdtest.NewTestFactory(ios))
+	rootHelp := reflect.ValueOf(rootCmd.HelpFunc()).Pointer()
+
+	for _, c := range rootCmd.Commands() {
+		assert.Equal(t, rootHelp, reflect.ValueOf(c.HelpFunc()).Pointer(),
+			"%s sets its own help func, which help.AppendAnnotationSections would replace. Set it on a subcommand instead, or make AppendAnnotationSections keep it.", c.CommandPath())
+	}
+}
+
+// A command that sets its own help func must chain to its parent's, or its
+// help loses the sections that AppendAnnotationSections adds.
+func TestAnnotatedCommandHelpShowsAnnotationSections(t *testing.T) {
+	ios, _, stdout, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	rootCmd := NewCmdRoot(cmdtest.NewTestFactory(ios))
+	rootCmd.SetHelpFunc(func(*cobra.Command, []string) {})
+	rootCmd.SetOut(stdout)
+	help.AppendAnnotationSections(rootCmd, ios)
+
+	var annotated []*cobra.Command
+	var walk func(*cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			if len(help.AnnotationSections(sub)) > 0 {
+				annotated = append(annotated, sub)
+			}
+			walk(sub)
+		}
+	}
+	walk(rootCmd)
+	require.NotEmpty(t, annotated, "expected annotated commands in the command tree — did the walk break?")
+
+	for _, c := range annotated {
+		t.Run(c.CommandPath(), func(t *testing.T) {
+			stdout.Reset()
+			c.HelpFunc()(c, nil)
+			for _, s := range help.AnnotationSections(c) {
+				assert.Contains(t, stdout.String(), strings.ToUpper(s.Title))
+			}
 		})
 	}
 }

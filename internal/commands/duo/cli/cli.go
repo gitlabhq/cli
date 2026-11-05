@@ -23,7 +23,7 @@ import (
 // Duo CLI's own help, depending on whether the binary is installed.
 func AppendBinaryStatusFooter(cmd *cobra.Command, f cmdutils.Factory) {
 	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
-		c.Root().HelpFunc()(c, args)
+		cmd.Parent().HelpFunc()(c, args)
 		// Subcommands inherit this help func, but the footer only describes cmd.
 		if c != cmd {
 			return

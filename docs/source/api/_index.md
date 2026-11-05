@@ -213,6 +213,14 @@ glab api graphql --paginate -f query='
 
 ```
 
+## Environment variables
+
+```plaintext
+GITLAB_TOKEN, OAUTH_TOKEN (in order of precedence): an authentication token for API requests.
+GITLAB_HOST, GITLAB_URI, GITLAB_URL: specify a GitLab host to make request to.
+GLAB_DEBUG_HTTP: print the full HTTP request and response, including headers and body, to stderr.
+```
+
 ## Options
 
 ```plaintext

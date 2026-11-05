@@ -43,6 +43,12 @@ glab config path --dir
 $EDITOR "$(glab config path)"
 ```
 
+## Environment variables
+
+```plaintext
+GLAB_CONFIG_DIR: Set to a directory path to override the global configuration location.
+```
+
 ## Options
 
 ```plaintext

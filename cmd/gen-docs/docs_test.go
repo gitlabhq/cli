@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -85,6 +86,31 @@ func TestGenWebDocsPrunesAndDocuments(t *testing.T) {
 	// Non-generated content is preserved.
 	assert.FileExists(t, filepath.Join(dir, "keepme.md"))
 	assert.FileExists(t, filepath.Join(dir, "img", "logo.png"))
+}
+
+func TestGenMarkdownCustomRendersHelpAnnotations(t *testing.T) {
+	root := &cobra.Command{Use: "glab"}
+	child := &cobra.Command{
+		Use:   "child",
+		Short: "Child command",
+		Run:   func(*cobra.Command, []string) {},
+		Annotations: map[string]string{
+			"help:arguments":   "A child can be supplied by number.\n",
+			"help:environment": "CHILD_VAR: a variable the child reads.\nOTHER_VAR: another one.\n",
+		},
+	}
+	plain := &cobra.Command{Use: "plain", Short: "Plain command", Run: func(*cobra.Command, []string) {}}
+	root.AddCommand(child, plain)
+
+	var page bytes.Buffer
+	require.NoError(t, GenMarkdownCustom(child, &page))
+	assert.Contains(t, page.String(), "\n## Arguments\n\n```plaintext\nA child can be supplied by number.\n```\n")
+	assert.Contains(t, page.String(), "\n## Environment variables\n\n```plaintext\nCHILD_VAR: a variable the child reads.\nOTHER_VAR: another one.\n```\n")
+
+	page.Reset()
+	require.NoError(t, GenMarkdownCustom(plain, &page))
+	assert.NotContains(t, page.String(), "## Arguments")
+	assert.NotContains(t, page.String(), "## Environment variables")
 }
 
 // TestGenCommandsPage checks that the commands landing page lists the available

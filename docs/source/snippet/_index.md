@@ -26,6 +26,12 @@ To view and edit existing snippets, use the GitLab UI or `glab api` with the [Pr
 glab snippet create --title "Title of the snippet" --filename "main.go"
 ```
 
+## Arguments
+
+```plaintext
+Specify a snippet by number, for example "123".
+```
+
 ## Options
 
 ```plaintext

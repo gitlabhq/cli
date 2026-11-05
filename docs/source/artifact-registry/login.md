@@ -127,6 +127,17 @@ glab artifact-registry login --maven --registry https://ar.example.com --config-
 
 ```
 
+## Environment variables
+
+```plaintext
+DOCKER_CONFIG: the directory holding Docker's config.json, written by --docker. Defaults to ~/.docker.
+GRADLE_USER_HOME: the directory holding gradle.properties, written by --gradle. Defaults to ~/.gradle.
+npm_config_userconfig: the .npmrc written by --npm. Defaults to ~/.npmrc.
+SBT_CONFIG_HOME: the sbt 2.x global base; --sbt writes 2/credentials.sbt in it. Defaults to $XDG_CONFIG_HOME/sbt, else ~/.config/sbt. On Windows, the sbt.bat of sbt 2.x overrides it with %LOCALAPPDATA%\sbt. --sbt skips a blank or relative value of this variable and the next two.
+XDG_CONFIG_HOME: used by --sbt for the sbt 2.x base when SBT_CONFIG_HOME is unset. Not read on Windows.
+LOCALAPPDATA: on Windows, used by --sbt in place of XDG_CONFIG_HOME, and for the base the sbt.bat of sbt 2.x passes.
+```
+
 ## Options
 
 ```plaintext

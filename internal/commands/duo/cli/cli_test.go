@@ -15,6 +15,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
 	"gitlab.com/gitlab-org/cli/internal/binarymgr/binaries"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/help"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -371,4 +372,24 @@ func TestAppendBinaryStatusFooter_OmittedFromSubcommandHelp(t *testing.T) {
 	require.NoError(t, update.Help())
 
 	assert.NotContains(t, stdout.String(), "GITLAB DUO CLI")
+}
+
+func TestAppendBinaryStatusFooter_KeepsAnnotationSections(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	ios, _, stdout, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	cmd := NewCmd(cmdtest.NewTestFactory(ios))
+	duo := &cobra.Command{Use: "duo"}
+	duo.AddCommand(cmd)
+	root := &cobra.Command{Use: "glab"}
+	root.SetHelpFunc(func(*cobra.Command, []string) {})
+	root.SetOut(stdout)
+	root.AddCommand(duo)
+	help.AppendAnnotationSections(root, ios)
+
+	require.NoError(t, cmd.Help())
+
+	out := stdout.String()
+	assert.Contains(t, out, "ENVIRONMENT VARIABLES")
+	assert.Contains(t, out, "GLAB_DUO_CLI_BINARY_PATH")
+	assert.Contains(t, out, "GITLAB DUO CLI")
 }

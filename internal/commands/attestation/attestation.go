@@ -29,9 +29,9 @@ func NewCmdAttestation(f cmdutils.Factory) *cobra.Command {
 			glab attestation verify 123 filename.txt`),
 		Annotations: map[string]string{
 			"help:arguments": heredoc.Doc(`
-			A project can be supplied as an argument in the following formats:
-			- By number: "123"
-			- By path: "gitlab-org/cli"
+			Specify a project in one of the following formats:
+			- By number, for example "123"
+			- By path, for example "gitlab-org/cli"
 			`),
 		},
 	}

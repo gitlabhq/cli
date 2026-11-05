@@ -21,6 +21,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands"
+	"gitlab.com/gitlab-org/cli/internal/commands/help"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/config/confighelp"
 	"gitlab.com/gitlab-org/cli/internal/git"
@@ -620,6 +621,10 @@ func GenMarkdownCustom(cmd *cobra.Command, w io.Writer) error {
 	if cmd.Example != "" {
 		buf.WriteString("\n## Examples\n\n")
 		fmt.Fprintf(buf, "```console\n%s\n```\n", cmd.Example)
+	}
+
+	for _, s := range help.AnnotationSections(cmd) {
+		fmt.Fprintf(buf, "\n## %s\n\n```plaintext\n%s\n```\n", s.Title, s.Body)
 	}
 
 	if err := printOptions(buf, cmd); err != nil {
