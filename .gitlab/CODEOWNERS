@@ -12,6 +12,10 @@
 #
 # Documentation is owned jointly so technical writing can approve a docs-only
 # change without a maintainer.
+#
+# /docs-locale/ holds translations opened by the localization pipeline. It is
+# owned by the localization tech docs maintainers, who approve translations.
+# The CLI maintainers are co-owners only so they can unblock a release.
 
 * @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers
 /cmd/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-bot
@@ -30,3 +34,4 @@
 /docs/source/govern/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @nrosandich @jeanvdw @andrew.jung
 /internal/commands/orbit/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/orbit/team
 /docs/source/orbit/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @gitlab-org/orbit/team
+/docs-locale/ @gitlab-com/localization/maintainers/tech-docs @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers
