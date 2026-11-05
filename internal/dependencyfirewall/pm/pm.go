@@ -78,6 +78,20 @@ type setupManager interface {
 	Setup(ctx context.Context, in setupInput) (setupResult, error)
 }
 
+// argsManager receives the arguments destined for the package manager binary.
+// Run calls SetArgs before it builds the child environment, for managers whose
+// environment depends on what the caller asked for (Maven, whose settings file
+// can be named on the command line).
+type argsManager interface {
+	SetArgs(args []string)
+}
+
+// warnManager receives Run's stderr logger, for managers that can find a
+// problem in the caller's setup that the user needs to see.
+type warnManager interface {
+	SetWarn(warnf func(format string, args ...any))
+}
+
 type setupInput struct {
 	parent    []string // the environment the child would otherwise inherit
 	bin       string   // the manager binary's path from LookPath
@@ -350,6 +364,13 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	binPath, err := opts.Executor.LookPath(manager.Binary())
 	if err != nil {
 		return fmt.Errorf("%s not found on PATH: %w", manager.Binary(), err)
+	}
+
+	if a, ok := manager.(argsManager); ok {
+		a.SetArgs(opts.Args)
+	}
+	if w, ok := manager.(warnManager); ok {
+		w.SetWarn(opts.IO.LogErrorf)
 	}
 
 	var setup setupResult

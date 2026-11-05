@@ -169,6 +169,19 @@ func TestCacheFailsClosedOnError(t *testing.T) {
 	require.NoError(t, err, "fail-closed returns a blocked Result, not an error")
 	assert.Equal(t, verdict.Blocked, r.Verdict)
 	assert.Contains(t, r.Reason, "policy check failed")
+	assert.True(t, r.CheckFailed, "a block standing in for a failed check must say so")
+}
+
+func TestCacheCheckFailedOnlyMarksFailures(t *testing.T) {
+	t.Parallel()
+	t.Run("when the policy blocks", func(t *testing.T) {
+		t.Parallel()
+		c := NewCachingChecker(&countingChecker{result: Result{Verdict: verdict.Blocked, Reason: "denied"}}, nil)
+		r, err := c.Check(t.Context(), req("maven", "a:b", "1.0"))
+		require.NoError(t, err)
+		assert.True(t, r.Blocked())
+		assert.False(t, r.CheckFailed, "a rule's block is a decision, not a failure")
+	})
 }
 
 func TestCacheDoesNotCacheErrors(t *testing.T) {

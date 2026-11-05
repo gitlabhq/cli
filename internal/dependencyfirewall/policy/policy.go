@@ -19,12 +19,8 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 )
 
-// CheckTimeout bounds a single policy evaluation (the REST call to the
-// dependency_firewall/evaluate endpoint). Every caller of Checker.Check should
-// pass a context deadlined by it so a hung or unreachable backend degrades
-// (the proxy fails closed, the package command reports a transport error)
-// instead of blocking indefinitely. Shared here so the proxy and the one-shot
-// package command agree on the bound.
+// CheckTimeout is the deadline every Checker.Check caller must set, shared
+// across a request's candidates, since the API client has no timeout of its own.
 const CheckTimeout = 60 * time.Second
 
 // Operation is the package-manager action that triggered a check.
@@ -87,6 +83,9 @@ func (r Request) Key() string {
 type Result struct {
 	Verdict verdict.Verdict // verdict.Allowed, verdict.Blocked, or verdict.Warning
 	Reason  string          // human-readable; used in the 403 body and summary
+	// CheckFailed marks a block standing in for a decision the policy could
+	// not give, as opposed to one a rule made.
+	CheckFailed bool
 }
 
 // Allowed reports whether the result permits the coordinate.

@@ -25,6 +25,9 @@ type Match struct {
 	Operation  policy.Operation
 	Pass       bool
 	Reason     string
+	// Alternates are other coordinates the same request could denote, since a
+	// mirror's path prefix can leave the real coordinate ambiguous.
+	Alternates []policy.Coordinate
 }
 
 // unparseableMatch is the fail-closed result for a request a matcher has

@@ -135,8 +135,9 @@ func (c *CachingChecker) Check(ctx context.Context, r Request) (Result, error) {
 			delete(c.cache, r)
 			c.mu.Unlock()
 			e.res = Result{
-				Verdict: verdict.Blocked,
-				Reason:  fmt.Sprintf("policy check failed: %v", err),
+				Verdict:     verdict.Blocked,
+				Reason:      fmt.Sprintf("policy check failed: %v", err),
+				CheckFailed: true,
 			}
 		default:
 			e.res = res
