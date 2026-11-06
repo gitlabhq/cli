@@ -39,16 +39,32 @@ func testSpec() Spec {
 		MaxCompatibleMajor: 8,
 		SupportedOS:        []string{"darwin", "linux", "windows"},
 		NormalizeArch: func(goos, goarch string) (string, error) {
-			switch goarch {
-			case "amd64":
+			if goarch == "amd64" {
 				return "x64", nil
-			case "arm64":
-				return "arm64", nil
 			}
-			return "", ErrUnsupportedPlatform
+			return goarch, nil
 		},
 		AssetName:     func(os, arch string) string { return "test-" + os + "-" + arch },
 		InstalledName: func(os string) string { return "test" },
+	}
+}
+
+func TestTestSpec_NormalizeArch(t *testing.T) {
+	t.Parallel()
+
+	for arch, want := range map[string]string{
+		"amd64":   "x64",
+		"arm64":   "arm64",
+		"s390x":   "s390x",
+		"ppc64le": "ppc64le",
+		"riscv64": "riscv64",
+	} {
+		t.Run(arch, func(t *testing.T) {
+			t.Parallel()
+			got, err := testSpec().NormalizeArch("linux", arch)
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
 	}
 }
 
