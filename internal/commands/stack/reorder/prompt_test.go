@@ -19,7 +19,6 @@ func Test_promptForReorder(t *testing.T) {
 	type args struct {
 		stack git.Stack
 		input string
-		noTTY bool
 	}
 	tests := []struct {
 		name    string
@@ -35,19 +34,10 @@ func Test_promptForReorder(t *testing.T) {
 				stack: git.Stack{},
 			},
 		},
-		{
-			name: "Getting a prompt with noTTY returns an error",
-			args: args{
-				input: "hello",
-				noTTY: true,
-			},
-			wantErr: true,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isTTY := !tt.args.noTTY
-			factory := setupTestFactory(t, nil, isTTY)
+			factory := setupTestFactory(t, nil, true)
 
 			prompts := []string{}
 			getText := getMockEditor(tt.args.input, &prompts)

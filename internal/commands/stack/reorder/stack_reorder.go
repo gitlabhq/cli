@@ -41,18 +41,22 @@ func NewCmdReorderStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.G
 	}
 
 	stackReorderCmd := &cobra.Command{
-		Use:   "reorder",
+		Use:   "reorder [<branch>...]",
 		Short: "Reorder a stack of diffs. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`
 			Opens an editor with one diff per line, so you can rearrange them.
+			Or pass the branch names in order to reorder non-interactively without an editor.
 
-			When you save and close the file, each diff's branch is rebased onto the branch of the diff now before it, and each moved diff's merge request is retargeted to match. The rebased branches are not pushed automatically, so run %[1]sglab stack sync%[1]s to force-push them and replace the old commits on GitLab.
+			When you save and close the file (or pass the branch names as arguments), each diff's branch is rebased onto the branch of the diff now before it, and each moved diff's merge request is retargeted to match. The rebased branches are not pushed automatically, so run %[1]sglab stack sync%[1]s to force-push them and replace the old commits on GitLab.
 
 			If a rebase hits a conflict, resolve it, run %[1]sgit rebase --continue%[1]s, and then run %[1]sglab stack reorder --continue%[1]s. To restore the original order instead, run %[1]sglab stack reorder --abort%[1]s.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Reorder the stack by choosing a new branch order in your editor
 			glab stack reorder
+
+			# Reorder the stack non-interactively by specifying branch names in order
+			glab stack reorder branch1 branch2 branch3
 
 			# Continue a reorder after resolving a conflict
 			glab stack reorder --continue
@@ -63,7 +67,7 @@ func NewCmdReorderStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.G
 			mcpannotations.Destructive: "true",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return opts.run(cmd.Context(), f, getText)
+			return opts.run(cmd.Context(), f, getText, args)
 		},
 	}
 
@@ -76,18 +80,22 @@ func NewCmdReorderStack(f cmdutils.Factory, gr git.GitRunner, getText cmdutils.G
 	return stackReorderCmd
 }
 
-func (o *options) run(ctx context.Context, f cmdutils.Factory, getText cmdutils.GetTextUsingEditor) error {
+func (o *options) run(ctx context.Context, f cmdutils.Factory, getText cmdutils.GetTextUsingEditor, args []string) error {
+	if len(args) > 0 && (o.continueReorder || o.abortReorder) {
+		return errors.New("cannot specify branch order with --continue or --abort")
+	}
+
 	switch {
 	case o.continueReorder:
 		return o.runContinue(ctx, f)
 	case o.abortReorder:
 		return o.runAbort()
 	default:
-		return o.runReorder(ctx, f, getText)
+		return o.runReorder(ctx, f, getText, args)
 	}
 }
 
-func (o *options) runReorder(ctx context.Context, f cmdutils.Factory, getText cmdutils.GetTextUsingEditor) error {
+func (o *options) runReorder(ctx context.Context, f cmdutils.Factory, getText cmdutils.GetTextUsingEditor, args []string) error {
 	title, err := git.GetCurrentStackTitle()
 	if err != nil {
 		return fmt.Errorf("error retrieving current stack title: %w", err)
@@ -117,9 +125,19 @@ func (o *options) runReorder(ctx context.Context, f cmdutils.Factory, getText cm
 	o.io.StopSpinner("")
 	// pausing the spinner in case it's a terminal based editor
 
-	branches, err := promptForOrder(ctx, f, getText, stack, ref.Branch)
-	if err != nil {
-		return fmt.Errorf("error getting new branch order: %w", err)
+	var branches []string
+	if len(args) > 0 {
+		branches = args
+	} else {
+		if !f.IO().IsOutputTTY() {
+			return errors.New("no TTY available: specify the branch order as arguments (glab stack reorder <branch>...)")
+		}
+
+		var err error
+		branches, err = promptForOrder(ctx, f, getText, stack, ref.Branch)
+		if err != nil {
+			return fmt.Errorf("error getting new branch order: %w", err)
+		}
 	}
 
 	// resuming spinner
@@ -496,6 +514,14 @@ func updateMRsForReorder(ctx context.Context, f cmdutils.Factory, baseBranch str
 }
 
 func matchBranchesToStack(stack git.Stack, branches []string) (git.Stack, error) {
+	seen := make(map[string]struct{}, len(branches))
+	for _, b := range branches {
+		if _, ok := seen[b]; ok {
+			return git.Stack{}, fmt.Errorf("duplicate branch %q in reordered list", b)
+		}
+		seen[b] = struct{}{}
+	}
+
 	stackBranches := stack.Branches()
 
 	// need to clone the refs here so we don't modify the original stack

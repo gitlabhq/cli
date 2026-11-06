@@ -76,6 +76,21 @@ func Test_matchBranchesToStack(t *testing.T) {
 		},
 
 		{
+			name: "duplicate branch in reordered list",
+			args: args{
+				stack: git.Stack{
+					Refs: map[string]git.StackRef{
+						"123": {SHA: "123", Prev: "", Next: "456", Branch: "Branch1"},
+						"456": {SHA: "456", Prev: "123", Next: "", Branch: "Branch2"},
+					},
+				},
+				branches: []string{"Branch1", "Branch1"},
+			},
+			expected: git.Stack{},
+			wantErr:  true,
+		},
+
+		{
 			name: "large stack",
 			args: args{
 				stack: git.Stack{
@@ -1170,4 +1185,119 @@ func runReorderCmd(t *testing.T, gr git.GitRunner, args string, opts ...cmdtest.
 
 	_, err := exec(args)
 	return err
+}
+
+func Test_reorderCmd_noTTY_noArgs(t *testing.T) {
+	git.InitGitRepoWithCommit(t)
+	gitExec(t, "checkout", "-b", "branchA")
+	oldRefs := map[string]git.StackRef{
+		"ref-a": {SHA: "ref-a", Prev: "", Next: "ref-b", Branch: "branchA"},
+		"ref-b": {SHA: "ref-b", Prev: "ref-a", Next: "", Branch: "branchB"},
+	}
+	require.NoError(t, git.CreateRefFiles(oldRefs, "test-stack"))
+	require.NoError(t, git.SetCurrentStackTitle("test-stack"))
+
+	ctrl := gomock.NewController(t)
+	mockGr := gittesting.NewMockGitRunner(ctrl)
+	mockGr.EXPECT().Git("status", "--porcelain", "--untracked-files=no").Return("", nil)
+
+	err := runReorderCmd(t, mockGr, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no TTY available: specify the branch order as arguments (glab stack reorder <branch>...)")
+}
+
+func Test_reorderCmd_argsWithFlags(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockGr := gittesting.NewMockGitRunner(ctrl)
+
+	err := runReorderCmd(t, mockGr, "--continue branchA branchB")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot specify branch order with --continue or --abort")
+
+	err = runReorderCmd(t, mockGr, "--abort branchA branchB")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot specify branch order with --continue or --abort")
+}
+
+func Test_reorderCmd_positionalArgs_nonInteractive_reordersAndRetargets(t *testing.T) {
+	git.InitGitRepoWithCommit(t)
+	gr := git.StandardGitCommand{}
+	gitExec(t, "branch", "-M", "main")
+	gitExec(t, "remote", "add", "origin", "http://gitlab.com/stack_guy/stackproject.git")
+
+	for _, b := range []string{"branchA", "branchB"} {
+		gitExec(t, "checkout", "-b", b)
+		require.NoError(t, os.WriteFile("file"+b, []byte(b), 0o644))
+		gitExec(t, "add", "file"+b)
+		gitExec(t, "commit", "-m", "commit "+b)
+	}
+	gitExec(t, "checkout", "branchA")
+
+	mr := func(iid string) string { return "http://gitlab.com/stack_guy/stackproject/-/merge_requests/" + iid }
+	oldRefs := map[string]git.StackRef{
+		"ref-a": {SHA: "ref-a", Prev: "", Next: "ref-b", Branch: "branchA", MR: mr("1")},
+		"ref-b": {SHA: "ref-b", Prev: "ref-a", Next: "", Branch: "branchB", MR: mr("2")},
+	}
+	require.NoError(t, git.CreateRefFiles(oldRefs, "test-stack"))
+	require.NoError(t, git.AddStackBaseBranch("test-stack", "main"))
+	require.NoError(t, git.SetCurrentStackTitle("test-stack"))
+
+	testClient := gitlabtesting.NewTestClient(t)
+	expectRetargets(t, testClient, map[string]retarget{
+		"branchB": {iid: 2, target: "main"},
+		"branchA": {iid: 1, target: "branchB"},
+	})
+
+	err := runReorderCmd(t, gr, "branchB branchA", reorderFactoryOptions(t, testClient)...)
+	require.NoError(t, err)
+
+	assert.Equal(t, gitExec(t, "rev-parse", "main"), gitExec(t, "rev-parse", "branchB~1"), "branchB should sit on main")
+	assert.Equal(t, gitExec(t, "rev-parse", "branchB"), gitExec(t, "rev-parse", "branchA~1"), "branchA should sit on branchB")
+
+	currentBranch, err := git.CurrentBranch()
+	require.NoError(t, err)
+	assert.Equal(t, "branchA", currentBranch)
+
+	expectedRefs := map[string]git.StackRef{
+		"ref-b": {SHA: "ref-b", Prev: "", Next: "ref-a", Branch: "branchB", MR: mr("2")},
+		"ref-a": {SHA: "ref-a", Prev: "ref-b", Next: "", Branch: "branchA", MR: mr("1")},
+	}
+	onDisk, err := git.GatherStackRefs("test-stack")
+	require.NoError(t, err)
+	assert.Equal(t, expectedRefs, onDisk.Refs)
+
+	inProgress, err := git.ReorderInProgress("test-stack")
+	require.NoError(t, err)
+	assert.False(t, inProgress)
+}
+
+func Test_reorderCmd_positionalArgs_validationErrors(t *testing.T) {
+	git.InitGitRepoWithCommit(t)
+	gitExec(t, "checkout", "-b", "branchA")
+	oldRefs := map[string]git.StackRef{
+		"ref-a": {SHA: "ref-a", Prev: "", Next: "ref-b", Branch: "branchA"},
+		"ref-b": {SHA: "ref-b", Prev: "ref-a", Next: "", Branch: "branchB"},
+	}
+	require.NoError(t, git.CreateRefFiles(oldRefs, "test-stack"))
+	require.NoError(t, git.SetCurrentStackTitle("test-stack"))
+
+	gr := git.StandardGitCommand{}
+
+	t.Run("unknown branch errors", func(t *testing.T) {
+		err := runReorderCmd(t, gr, "branchUnknown branchA")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Could not find stack ref for branch: branchUnknown")
+	})
+
+	t.Run("missing branch errors", func(t *testing.T) {
+		err := runReorderCmd(t, gr, "branchA")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing one or more refs from the reordered list")
+	})
+
+	t.Run("duplicate branch errors", func(t *testing.T) {
+		err := runReorderCmd(t, gr, "branchA branchA")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `duplicate branch "branchA" in reordered list`)
+	})
 }

@@ -15,8 +15,9 @@ Add diffs to a stack based on a range of commits. (EXPERIMENTAL)
 ## Synopsis
 
 Opens an editor with the commits in the range for you to choose from.
+With --all, includes every commit in the range without opening an editor.
 
-When you save and close the file, the command creates one diff for each commit listed in the file and appends them to the stack. If there's no stack to add them to, the command creates one first.
+When you save and close the file (or pass --all), the command creates one diff for each commit listed in the file and appends them to the stack. If there's no stack to add them to, the command creates one first.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
@@ -36,6 +37,9 @@ glab stack infer <revision-range> [flags]
 # Add diffs from the commits between main and the current branch
 glab stack infer main..HEAD
 
+# Add diffs from all commits between main and the current branch without an editor
+glab stack infer --all main..HEAD
+
 # Add diffs from the commits on a feature branch since it diverged from develop
 glab stack infer develop..HEAD
 
@@ -47,6 +51,7 @@ glab stack infer --name feature-stack main..HEAD
 ## Options
 
 ```plaintext
+  -a, --all           Include all commits in the revision range without prompting
   -n, --name string   Name for the new stack (used when creating a stack)
 ```
 

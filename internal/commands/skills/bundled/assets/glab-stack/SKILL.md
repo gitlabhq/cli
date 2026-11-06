@@ -42,7 +42,8 @@ Each diff should represent a discrete, logical concern that can be reviewed inde
 **These commands launch interactive TUIs or prompt for input — they will hang:**
 
 - ❌ `glab stack move` — fuzzy-finder for selecting a diff; agents cannot interact with it
-- ❌ `glab stack reorder` — opens a text editor to reorder diffs; requires user interaction
+- ❌ `glab stack reorder` without arguments — opens a text editor to reorder diffs; pass branch names in order instead (`glab stack reorder <branch>...`)
+- ❌ `glab stack infer` without `--all` — opens a text editor to select commits; pass `--all` instead (`glab stack infer --all <revision-range>`)
 - ❌ `glab stack save` without `-m` — prompts interactively for a commit message if none is provided
 - ❌ `glab stack amend` without `-m` — prompts interactively for a description if none is provided
 - ❌ `glab stack create` without a name argument — may prompt
@@ -53,7 +54,8 @@ Each diff should represent a discrete, logical concern that can be reviewed inde
 2. **Use `glab stack list` to inspect the stack, not `glab stack move`.** `list` is non-interactive; `move` is not usable by agents.
 3. **Navigate with `first`, `last`, `prev`, `next`.** These are all non-interactive. Do not use `move` for navigation.
 4. **Pass an explicit name to `glab stack switch`.** Stack names are the directory names under `.git/stacked/`. Note: `switch` only changes the active stack in config — it does not check out any branch. After switching, use `glab stack last` (or `first`, `next`, etc.) to move to a diff in the new stack.
-5. **If the user needs to reorder diffs**, tell them to run `glab stack reorder` in their terminal directly — agents cannot do this.
+5. **To reorder diffs non-interactively**, run `glab stack reorder <branch>...` with the branches in the desired order. Run `glab stack list` first to get the branch names. If you omit the arguments, `reorder` fails fast when not on a TTY.
+6. **To infer diffs from a commit range non-interactively**, run `glab stack infer --all <revision-range>`. If you omit `--all`, `infer` fails fast when not on a TTY.
 
 ## Stack structure
 
@@ -81,6 +83,8 @@ For precise control over which files go into a diff, stage with `git add <files>
 | Push branches and create/update MRs | `glab stack sync` |
 | Sync and set reviewer/assignee/label | `glab stack sync --reviewer <user> --assignee <user> --label <label>` |
 | Rebase stack onto latest base branch | `glab stack sync --update-base` |
+| Reorder diffs non-interactively | `glab stack reorder <branch>...` |
+| Add diffs from commit range without editor | `glab stack infer --all <revision-range>` |
 | List all diffs in the stack | `glab stack list` |
 | Go to the oldest diff | `glab stack first` |
 | Go to the newest diff | `glab stack last` |
