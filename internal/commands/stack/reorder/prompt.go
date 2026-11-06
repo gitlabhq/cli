@@ -3,7 +3,6 @@ package reorder
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -60,10 +59,6 @@ func promptForOrder(ctx context.Context, f cmdutils.Factory, getText cmdutils.Ge
 	}
 
 	var branches []string
-
-	if !f.IO().IsOutputTTY() {
-		return []string{}, errors.New("no TTY available")
-	}
 
 	promptResponse, err := getText(ctx, editor, "glab-stack-reorder*.gitrebase", message)
 	if err != nil {

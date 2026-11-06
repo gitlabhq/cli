@@ -42,7 +42,7 @@ func parseCommitSelection(input string) ([]string, error) {
 	return result, nil
 }
 
-func promptForCommits(ctx context.Context, f cmdutils.Factory, gr git.GitRunner, args []string) ([]string, error) {
+func promptForCommits(ctx context.Context, f cmdutils.Factory, gr git.GitRunner, args []string, allCommits bool) ([]string, error) {
 	if len(args) == 0 {
 		return nil, errors.New("no revision arguments provided")
 	}
@@ -55,6 +55,7 @@ func promptForCommits(ctx context.Context, f cmdutils.Factory, gr git.GitRunner,
 	}
 
 	var buffer bytes.Buffer
+	allHashes := []string{}
 
 	buffer.WriteString(heredoc.Doc(`
 		# Choose which commits you'd like to include in your stack.
@@ -85,6 +86,8 @@ func promptForCommits(ctx context.Context, f cmdutils.Factory, gr git.GitRunner,
 			author = parts[2]
 		}
 
+		allHashes = append(allHashes, hash)
+
 		// Format: hash # subject (author)
 		if author != "" {
 			buffer.WriteString(fmt.Sprintf("%s # %s (%s)\n", hash, subject, author))
@@ -93,13 +96,13 @@ func promptForCommits(ctx context.Context, f cmdutils.Factory, gr git.GitRunner,
 		}
 	}
 
+	if allCommits {
+		return allHashes, nil
+	}
+
 	editor, err := cmdutils.GetEditor(f.Config)
 	if err != nil {
 		return nil, err
-	}
-
-	if !f.IO().IsOutputTTY() {
-		return nil, errors.New("no TTY available")
 	}
 
 	var promptResponse string

@@ -2,6 +2,7 @@ package infer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 type options struct {
 	stackName  string
 	baseBranch string
+	allCommits bool
 }
 
 func NewCmdInferStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
@@ -30,8 +32,9 @@ func NewCmdInferStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 		Short: `Add diffs to a stack based on a range of commits. (EXPERIMENTAL)`,
 		Long: heredoc.Doc(`
 			Opens an editor with the commits in the range for you to choose from.
+			With --all, includes every commit in the range without opening an editor.
 
-			When you save and close the file, the command creates one diff for each commit listed in the file and appends them to the stack. If there's no stack to add them to, the command creates one first.
+			When you save and close the file (or pass --all), the command creates one diff for each commit listed in the file and appends them to the stack. If there's no stack to add them to, the command creates one first.
 		`) + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Commit range syntax is similar to "git rev-list".
@@ -39,6 +42,9 @@ func NewCmdInferStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 
 			# Add diffs from the commits between main and the current branch
 			glab stack infer main..HEAD
+
+			# Add diffs from all commits between main and the current branch without an editor
+			glab stack infer --all main..HEAD
 
 			# Add diffs from the commits on a feature branch since it diverged from develop
 			glab stack infer develop..HEAD
@@ -56,6 +62,7 @@ func NewCmdInferStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 	}
 
 	stackInferCmd.Flags().StringVarP(&o.stackName, "name", "n", "", "Name for the new stack (used when creating a stack)")
+	stackInferCmd.Flags().BoolVarP(&o.allCommits, "all", "a", false, "Include all commits in the revision range without prompting")
 
 	return stackInferCmd
 }
@@ -100,6 +107,10 @@ func run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner, args []strin
 		return err
 	}
 
+	if !o.allCommits && !f.IO().IsOutputTTY() {
+		return errors.New("no TTY available: use --all to include all commits in the revision range (glab stack infer --all <revision-range>)")
+	}
+
 	baseBranch, err := parseBaseBranch(gr, args)
 	if err != nil {
 		return err
@@ -126,7 +137,7 @@ func run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner, args []strin
 	io.StopSpinner("")
 	// pausing the spinner in case it's a terminal based editor
 
-	commits, err := promptForCommits(ctx, f, gr, args)
+	commits, err := promptForCommits(ctx, f, gr, args, o.allCommits)
 	if err != nil {
 		return fmt.Errorf("error getting commits for stack: %w", err)
 	}

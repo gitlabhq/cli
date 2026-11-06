@@ -446,8 +446,102 @@ func TestRunNoTTY(t *testing.T) {
 			cmdtest.WithGitLabClient(cmdtest.NewTestApiClient(t, nil, "", "gitlab.com").Lab()),
 		)
 
-		_, err := exec("main..HEAD")
+		_, err := exec("main..HEAD --all")
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no stack found and no TTY available. Use --name to specify a stack name")
+	})
+
+	t.Run("errors when not on TTY and --all not specified", func(t *testing.T) {
+		git.InitGitRepoWithCommit(t)
+
+		stackTitle := "test-stack"
+		require.NoError(t, git.SetCurrentStackTitle(stackTitle))
+		_, err := git.AddStackRefDir(stackTitle)
+		require.NoError(t, err)
+		require.NoError(t, git.AddStackBaseBranch(stackTitle, "main"))
+
+		ctrl := gomock.NewController(t)
+		mockGR := git_testing.NewMockGitRunner(ctrl)
+
+		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+			return NewCmdInferStack(f, mockGR)
+		}, false,
+			cmdtest.WithGitLabClient(cmdtest.NewTestApiClient(t, nil, "", "gitlab.com").Lab()),
+		)
+
+		_, err = exec("main..HEAD")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no TTY available: use --all to include all commits in the revision range (glab stack infer --all <revision-range>)")
+	})
+
+	t.Run("errors before creating stack when no TTY and --all not specified", func(t *testing.T) {
+		git.InitGitRepoWithCommit(t)
+
+		ctrl := gomock.NewController(t)
+		mockGR := git_testing.NewMockGitRunner(ctrl)
+
+		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+			return NewCmdInferStack(f, mockGR)
+		}, false,
+			cmdtest.WithGitLabClient(cmdtest.NewTestApiClient(t, nil, "", "gitlab.com").Lab()),
+		)
+
+		_, err := exec("main..HEAD --name new-stack")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no TTY available: use --all to include all commits in the revision range (glab stack infer --all <revision-range>)")
+
+		_, err = git.GetCurrentStackTitle()
+		require.Error(t, err)
+	})
+
+	t.Run("succeeds when not on TTY with --all", func(t *testing.T) {
+		git.InitGitRepoWithCommit(t)
+
+		stackTitle := "test-stack"
+		require.NoError(t, git.SetCurrentStackTitle(stackTitle))
+		_, err := git.AddStackRefDir(stackTitle)
+		require.NoError(t, err)
+		require.NoError(t, git.AddStackBaseBranch(stackTitle, "main"))
+
+		ctrl := gomock.NewController(t)
+		mockGR := git_testing.NewMockGitRunner(ctrl)
+
+		mockGR.EXPECT().
+			Git("rev-parse", "--abbrev-ref", "main").
+			Return("main", nil)
+
+		mockGR.EXPECT().
+			Git("log", "--format=%s%x00%h%x00%an", "--reverse", "main..HEAD").
+			Return("commit 1\x00abc123\x00author\n", nil)
+
+		mockGR.EXPECT().
+			Git("symbolic-ref", "--quiet", "--short", "HEAD").
+			Return("main", nil)
+
+		mockGR.EXPECT().
+			Git("log", "-1", "--format=%s", "abc123").
+			Return("commit 1", nil)
+
+		mockGR.EXPECT().
+			Git("checkout", "-b", gomock.Any(), "main").
+			Return("", nil)
+
+		mockGR.EXPECT().
+			Git("cherry-pick", "abc123").
+			Return("", nil)
+
+		mockGR.EXPECT().
+			Git("checkout", "main").
+			Return("", nil)
+
+		exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+			return NewCmdInferStack(f, mockGR)
+		}, false,
+			cmdtest.WithGitLabClient(cmdtest.NewTestApiClient(t, nil, "", "gitlab.com").Lab()),
+		)
+
+		_, err = exec("main..HEAD --all")
+		require.NoError(t, err)
 	})
 }
 
