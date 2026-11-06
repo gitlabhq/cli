@@ -8,16 +8,17 @@ import (
 
 // CheckPathExists checks if a folder exists and is a directory
 func CheckPathExists(path string) bool {
-	if info, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
-		return info.IsDir()
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
 	}
-	return false
+	return info.IsDir()
 }
 
 // CheckFileExists: checks if a file exists and is not a directory.
 func CheckFileExists(filename string) bool {
 	info, err := os.Stat(filename)
-	if os.IsNotExist(err) {
+	if err != nil {
 		return false
 	}
 	return !info.IsDir()
