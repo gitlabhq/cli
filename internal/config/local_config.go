@@ -20,11 +20,26 @@ type LocalConfig struct {
 // for later use we might prefer relative paths
 // GitDir will find a directory or just return ".git"
 func GitDir(preferRelative bool) []string {
+	// `git rev-parse --git-dir` since git v1.2.2
+	return revParseDir("--git-dir", preferRelative)
+}
+
+// GitCommonDir will find the directory every linked worktree of a repository has
+// in common, or just return ".git". In a normal checkout it is the same directory
+// GitDir returns; in a linked worktree GitDir is .git/worktrees/<name> while this
+// is the main repository's .git. A submodule keeps its own, .git/modules/<name>.
+func GitCommonDir(preferRelative bool) []string {
+	// `git rev-parse --git-common-dir` since git v2.5, which introduced worktrees
+	return revParseDir("--git-common-dir", preferRelative)
+}
+
+// revParseDir resolves one `git rev-parse` directory flag to the caller's
+// preferred path form, falling back to ".git" when git cannot answer.
+func revParseDir(revParseFlag string, preferRelative bool) []string {
 	var err error
 	var out strings.Builder
 
-	// `git rev-parse --git-dir` since git v1.2.2
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	cmd := exec.Command("git", "rev-parse", revParseFlag)
 
 	cmd.Stdout = &out
 	err = cmd.Run()
@@ -44,8 +59,8 @@ func GitDir(preferRelative bool) []string {
 				return []string{workDir, gitDir}
 			}
 		}
-		// relative should work
-		return []string{gitDir}
+		// relative should work, cleaned because git answers with forward slashes
+		return []string{filepath.Clean(gitDir)}
 	} else {
 		// gitDir is absolute
 		if preferRelative {
@@ -65,9 +80,23 @@ func GitDir(preferRelative bool) []string {
 }
 
 // LocalConfigDir returns the local config path in map
-// which must be joined for complete path
+// which must be joined for complete path.
+//
+// The shared git directory is used, so one repository has one local config that
+// every linked worktree reads and writes. Git itself shares .git/config the same
+// way and makes per-worktree config opt-in, and these keys describe the
+// repository rather than the checkout.
+//
+// A worktree that already has its own file keeps using it, so a config written
+// before this change is still found. In a normal checkout the two directories are
+// the same and nothing changes.
 func LocalConfigDir() []string {
-	return append(GitDir(true), "glab-cli")
+	perWorktree := append(GitDir(true), "glab-cli")
+	if CheckFileExists(filepath.Join(append(perWorktree, "config.yml")...)) {
+		return perWorktree
+	}
+
+	return append(GitCommonDir(true), "glab-cli")
 }
 
 // LocalConfigFile returns the config file name with full path

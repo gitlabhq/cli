@@ -74,3 +74,78 @@ func unsetGitHookEnv(t *testing.T) {
 		require.NoError(t, os.Unsetenv(key))
 	}
 }
+
+// newRepoWithWorktree creates a repository with one commit and a linked worktree,
+// returning the absolute path of each. A worktree needs a commit to check out.
+func newRepoWithWorktree(t *testing.T) (string, string) {
+	t.Helper()
+	unsetGitHookEnv(t)
+
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	repo := filepath.Join(base, "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
+
+	git := func(args ...string) {
+		t.Helper()
+		full := append([]string{"-C", repo}, args...)
+		out, cmdErr := exec.Command("git", full...).CombinedOutput()
+		require.NoErrorf(t, cmdErr, "git %v: %s", args, out)
+	}
+
+	git("init")
+	git("config", "user.email", "test@example.com")
+	git("config", "user.name", "test")
+	git("config", "commit.gpgsign", "false")
+	git("commit", "--allow-empty", "-m", "initial")
+
+	worktree := filepath.Join(base, "wt")
+	git("worktree", "add", "--detach", worktree)
+
+	return repo, worktree
+}
+
+func Test_GitCommonDir_MatchesGitDirInANormalCheckout(t *testing.T) {
+	chdirTwoLevelsIntoNewRepo(t)
+
+	assert.Equal(t, filepath.Join(GitDir(true)...), filepath.Join(GitCommonDir(true)...),
+		"outside a worktree the two directories are the same")
+}
+
+// Git shares .git/config across every linked worktree and makes per-worktree
+// config opt-in. Local glab config describes the repository, not the checkout, so
+// it is shared the same way. Before this, a worktree resolved to
+// .git/worktrees/<name>/glab-cli and silently saw none of the repository's config.
+func Test_LocalConfigFile_IsSharedWithLinkedWorktrees(t *testing.T) {
+	repo, worktree := newRepoWithWorktree(t)
+	shared := filepath.Join(repo, ".git", "glab-cli", "config.yml")
+
+	t.Chdir(repo)
+	fromRepo, err := filepath.Abs(LocalConfigFile())
+	require.NoError(t, err)
+	assert.Equal(t, shared, fromRepo)
+
+	t.Chdir(worktree)
+	fromWorktree, err := filepath.Abs(LocalConfigFile())
+	require.NoError(t, err)
+	assert.Equal(t, shared, fromWorktree, "a linked worktree reads the repository's config")
+}
+
+// A worktree that already carries its own file keeps using it, so a config
+// written before the shared default still applies where it was written.
+func Test_LocalConfigFile_HonoursAnExistingPerWorktreeFile(t *testing.T) {
+	repo, worktree := newRepoWithWorktree(t)
+
+	t.Chdir(worktree)
+	perWorktreeDir := filepath.Join(GitDir(false)...)
+	require.NotEqual(t, filepath.Join(repo, ".git"), perWorktreeDir,
+		"a linked worktree must have its own git dir for this case to mean anything")
+
+	own := filepath.Join(perWorktreeDir, "glab-cli", "config.yml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(own), 0o755))
+	require.NoError(t, os.WriteFile(own, []byte("editor: worktree-only\n"), 0o600))
+
+	got, err := filepath.Abs(LocalConfigFile())
+	require.NoError(t, err)
+	assert.Equal(t, own, got)
+}
