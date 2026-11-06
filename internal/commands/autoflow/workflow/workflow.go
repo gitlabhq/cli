@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	getCmd "gitlab.com/gitlab-org/cli/internal/commands/autoflow/workflow/get"
 	startCmd "gitlab.com/gitlab-org/cli/internal/commands/autoflow/workflow/start"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
@@ -16,11 +17,12 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Use:   "workflow <command>",
 		Short: "Manage AutoFlow workflows. (EXPERIMENTAL)",
 		Long: heredoc.Doc(`
-			Start workflows on the AutoFlow service of GitLab Relay.
+			Start and read workflows on the AutoFlow service of GitLab Relay.
 		`) + text.ExperimentalString,
 	}
 
 	cmd.AddCommand(startCmd.NewCmd(f))
+	cmd.AddCommand(getCmd.NewCmd(f))
 
 	return cmd
 }

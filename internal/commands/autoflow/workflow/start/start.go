@@ -56,7 +56,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			The output contains the workflow token and the token binding. Both are credentials:
 
-			- The workflow key, workflow token and namespace ID read or cancel the workflow later.
+			- The workflow key, workflow token and namespace ID read the workflow later with %[1]sglab autoflow workflow get%[1]s.
 			- The idempotency key, token binding and namespace ID re-submit the same workflow to get fresh tokens. Pass them with %[1]s--idempotency-key%[1]s, %[1]s--token-binding-file%[1]s or its environment variable, and %[1]s--namespace-id%[1]s. A re-submission returns the existing workflow and ignores the definition. A key without its binding gets %[1]sPermissionDenied%[1]s.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`

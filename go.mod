@@ -50,6 +50,7 @@ require (
 	github.com/yuin/goldmark/v2 v2.1.13
 	github.com/zalando/go-keyring v0.2.8
 	gitlab.com/gitlab-org/api/client-go/v3 v3.46.1
+	gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.13
 	gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow/rpc v0.1.10
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.6.0
@@ -63,6 +64,7 @@ require (
 	golang.org/x/term v0.47.0
 	golang.org/x/text v0.43.0
 	google.golang.org/grpc v1.85.0
+	google.golang.org/protobuf v1.36.12
 	k8s.io/apimachinery v0.37.2
 	k8s.io/client-go v0.37.2
 	mvdan.cc/xurls/v2 v2.6.0
@@ -146,7 +148,6 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
-	gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.13 // indirect
 	gitlab.com/gitlab-org/protos/gen/go/gitlab/constraint v0.1.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/exp v0.0.0-20260727155853-b88d891fe743 // indirect
@@ -154,7 +155,6 @@ require (
 	golang.org/x/time v0.16.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
