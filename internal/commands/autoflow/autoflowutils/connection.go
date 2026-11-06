@@ -20,6 +20,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api/autoflow"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
+	"gitlab.com/gitlab-org/cli/internal/iostreams"
 )
 
 // CallTimeout bounds a single RPC to the AutoFlow service.
@@ -31,6 +32,7 @@ type Connection struct {
 	hostname    string
 	address     string
 	caCertFile  string
+	insecure    bool
 	namespaceID string
 
 	// NamespaceID is the parsed --namespace-id, set by Complete.
@@ -43,11 +45,13 @@ func (c *Connection) AddFlags(cmd *cobra.Command) {
 	fl.StringVar(&c.hostname, "hostname", "", "GitLab hostname to exchange the token with. Defaults to the configured GitLab instance.")
 	fl.StringVar(&c.address, "address", "", "Address of the AutoFlow service, as <host>:<port>.")
 	fl.StringVar(&c.caCertFile, "ca-cert", "", "Path to a PEM-encoded CA certificate to trust for the AutoFlow service, in addition to the system roots.")
+	fl.BoolVar(&c.insecure, "insecure", false, "Connect to the AutoFlow service without TLS, for a local service only. The AutoFlow token and the workflow's credentials travel in cleartext.")
 	fl.StringVar(&c.namespaceID, "namespace-id", "", "UUID of your organization, the only AutoFlow namespace your token can address.")
 
 	cobra.CheckErr(cmd.MarkFlagRequired("address"))
 	cobra.CheckErr(cmd.MarkFlagRequired("namespace-id"))
 	cobra.CheckErr(cmd.MarkFlagFilename("ca-cert", "pem", "crt"))
+	cmd.MarkFlagsMutuallyExclusive("insecure", "ca-cert")
 }
 
 // Complete parses and validates the connection flags.
@@ -70,10 +74,16 @@ func (c *Connection) Complete() error {
 
 // Dial connects to the AutoFlow service with a token exchanged on the GitLab
 // instance. The caller must close the returned connection.
-func (c *Connection) Dial(ctx context.Context, apiClient func(repoHost string) (*api.Client, error)) (autoflowrpcv1.AutoFlowServiceClient, io.Closer, error) {
-	tlsConfig, err := c.tlsConfig()
-	if err != nil {
-		return nil, nil, err
+func (c *Connection) Dial(ctx context.Context, ios *iostreams.IOStreams, apiClient func(repoHost string) (*api.Client, error)) (autoflowrpcv1.AutoFlowServiceClient, io.Closer, error) {
+	var tlsConfig *tls.Config
+	if c.insecure {
+		ios.LogErrorf("warning: --insecure sends the AutoFlow token and the workflow's credentials to %s in cleartext\n", c.address)
+	} else {
+		var err error
+		tlsConfig, err = c.tlsConfig()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	client, err := apiClient(c.hostname)
 	if err != nil {

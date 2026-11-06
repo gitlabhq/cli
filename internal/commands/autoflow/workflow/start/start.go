@@ -207,7 +207,7 @@ func (o *options) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	client, conn, err := o.conn.Dial(ctx, o.apiClient)
+	client, conn, err := o.conn.Dial(ctx, o.io, o.apiClient)
 	if err != nil {
 		return err
 	}

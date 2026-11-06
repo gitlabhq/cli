@@ -45,11 +45,26 @@ func NewRelay(t *testing.T) *Relay {
 	caCertFile := filepath.Join(t.TempDir(), "ca.pem")
 	require.NoError(t, os.WriteFile(caCertFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certSrc.Certificate().Raw}), 0o600))
 
+	relay := serve(t, grpc.Creds(credentials.NewServerTLSFromCert(&certSrc.TLS.Certificates[0])))
+	relay.CACertFile = caCertFile
+	return relay
+}
+
+// NewCleartextRelay starts a Relay without TLS. Its CACertFile is empty.
+func NewCleartextRelay(t *testing.T) *Relay {
+	t.Helper()
+
+	return serve(t)
+}
+
+func serve(t *testing.T, opts ...grpc.ServerOption) *Relay {
+	t.Helper()
+
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	mock := NewMockAutoFlowServiceServer(gomock.NewController(t))
-	srv := grpc.NewServer(grpc.Creds(credentials.NewServerTLSFromCert(&certSrc.TLS.Certificates[0])))
+	srv := grpc.NewServer(opts...)
 	// The mock cannot embed UnimplementedAutoFlowServiceServer, so
 	// UnsafeAutoFlowServiceServer supplies the unexported method instead.
 	autoflowrpcv1.RegisterAutoFlowServiceServer(srv, struct {
@@ -59,7 +74,7 @@ func NewRelay(t *testing.T) *Relay {
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 
-	return &Relay{Mock: mock, Address: lis.Addr().String(), CACertFile: caCertFile}
+	return &Relay{Mock: mock, Address: lis.Addr().String()}
 }
 
 // Args returns the flags that address the relay and NamespaceID.

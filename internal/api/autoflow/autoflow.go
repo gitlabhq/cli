@@ -14,6 +14,7 @@ import (
 	autoflowrpcv1 "gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow/rpc/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
@@ -37,18 +38,22 @@ const TokenBindingSize = 64
 
 // Dial exchanges the caller's GitLab credential for a token Relay accepts on
 // its public listener and connects to the AutoFlow service at address over
-// TLS. Each call exchanges a fresh token when the current one has less than
-// refreshMargin left, so the connection outlives a single token. The caller
-// must close the returned connection.
+// TLS, or in cleartext if tlsConfig is nil. Each call exchanges a fresh token
+// when the current one has less than refreshMargin left, so the connection
+// outlives a single token. The caller must close the returned connection.
 func Dial(ctx context.Context, gl *gitlab.Client, address string, tlsConfig *tls.Config) (autoflowrpcv1.AutoFlowServiceClient, *grpc.ClientConn, error) {
-	src := &tokenSource{gl: gl, now: time.Now}
+	src := &tokenSource{gl: gl, now: time.Now, cleartext: tlsConfig == nil}
 	// Exchanged before the dial, so a user without the feature flag gets
 	// GitLab's answer instead of a failed RPC.
 	if err := src.refresh(ctx); err != nil {
 		return nil, nil, err
 	}
+	transport := insecure.NewCredentials()
+	if tlsConfig != nil {
+		transport = credentials.NewTLS(tlsConfig)
+	}
 	conn, err := grpc.NewClient(address,
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithTransportCredentials(transport),
 		grpc.WithPerRPCCredentials(src),
 	)
 	if err != nil {
@@ -58,8 +63,9 @@ func Dial(ctx context.Context, gl *gitlab.Client, address string, tlsConfig *tls
 }
 
 type tokenSource struct {
-	gl  *gitlab.Client
-	now func() time.Time
+	gl        *gitlab.Client
+	now       func() time.Time
+	cleartext bool
 
 	mu        sync.Mutex
 	token     string
@@ -78,8 +84,8 @@ func (s *tokenSource) GetRequestMetadata(ctx context.Context, _ ...string) (map[
 	return map[string]string{"authorization": "Bearer " + s.token}, nil
 }
 
-func (*tokenSource) RequireTransportSecurity() bool {
-	return true
+func (s *tokenSource) RequireTransportSecurity() bool {
+	return !s.cleartext
 }
 
 func (s *tokenSource) refresh(ctx context.Context) error {

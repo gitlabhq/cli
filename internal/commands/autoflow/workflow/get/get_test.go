@@ -289,3 +289,28 @@ func TestGet_FlagErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestGet_Insecure(t *testing.T) {
+	t.Parallel()
+
+	relay := autoflowtest.NewCleartextRelay(t)
+	calls := expectGet(relay, completed)
+	exec, token := autoflowtest.NewTestExec(t, NewCmd)
+
+	out, err := exec("wf-key --insecure --address " + relay.Address + " --namespace-id " + autoflowtest.NamespaceID + " --workflow-token-file " + autoflowtest.WriteFile(t, "wf-token"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Bearer " + token}, autoflowtest.Received(t, calls).Auth)
+	assert.Equal(t, "warning: --insecure sends the AutoFlow token and the workflow's credentials to "+relay.Address+" in cleartext\n", out.ErrBuf.String())
+	assert.Contains(t, out.OutBuf.String(), "state: COMPLETED\n")
+}
+
+func TestGet_InsecureAndCACert(t *testing.T) {
+	t.Parallel()
+
+	relay := autoflowtest.NewRelay(t)
+	exec, _ := autoflowtest.NewTestExec(t, NewCmd)
+
+	_, err := exec("wf-key --insecure " + relay.Args() + " --workflow-token-file " + autoflowtest.WriteFile(t, "wf-token"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "if any flags in the group [insecure ca-cert] are set none of the others can be")
+}
