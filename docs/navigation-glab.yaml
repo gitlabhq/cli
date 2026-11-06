@@ -579,6 +579,13 @@
           url: 'cli/security/config/enable/'
         - title: glab security config status
           url: 'cli/security/config/status/'
+- title: glab service-account
+  url: 'cli/service-account/'
+  submenu:
+    - title: glab service-account get
+      url: 'cli/service-account/get/'
+    - title: glab service-account list
+      url: 'cli/service-account/list/'
 - title: glab skills
   url: 'cli/skills/'
   submenu:
