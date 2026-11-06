@@ -17,9 +17,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	autoflowrpcv1 "gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow/rpc/v1"
+	autoflowv1 "gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow/v1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"gitlab.com/gitlab-org/cli/internal/testing/autoflowtest"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -394,4 +396,72 @@ func TestStart_Resubmit(t *testing.T) {
 	assert.Equal(t, "my-key", gotReq.GetIdempotencyKey())
 	assert.Equal(t, binding, gotReq.GetTokenBinding())
 	assert.Contains(t, out.OutBuf.String(), "token_binding: "+encoded+"\n")
+}
+
+func TestStart_KwargsAndChannels(t *testing.T) {
+	t.Parallel()
+
+	relay := autoflowtest.NewRelay(t)
+	calls := expectStart(relay, &autoflowrpcv1.StartWorkflowResponse{
+		WorkflowKey:   "wf-key",
+		WorkflowToken: "wf-token",
+		ChannelTokens: []*autoflowv1.ChannelToken{{ChannelName: "inbox", Token: "ch-token"}},
+	}, nil)
+	var gotBody tokenexchangetest.WireRequest
+	srv, _, _ := autoflowtest.NewTokenServer(t, &gotBody)
+	exec := newTestExec(t, srv)
+
+	out, err := exec(relay.Args() + ` --script x --kwarg count=2 --kwarg 'opts={"a": [true, null]}' --kwarg 'msg="a=b"' --channel inbox`)
+	require.NoError(t, err)
+
+	want := []*autoflowv1.Kwarg{
+		{Name: "count", Value: &autoflowv1.Value{Kind: &autoflowv1.Value_IntegerValue{IntegerValue: 2}}},
+		{Name: "opts", Value: &autoflowv1.Value{Kind: &autoflowv1.Value_DictValue{DictValue: &autoflowv1.DictValue{KeyValues: []*autoflowv1.KeyValue{{
+			Key: &autoflowv1.Value{Kind: &autoflowv1.Value_StringValue{StringValue: "a"}},
+			Val: &autoflowv1.Value{Kind: &autoflowv1.Value_ListValue{ListValue: &autoflowv1.ListValue{Values: []*autoflowv1.Value{
+				{Kind: &autoflowv1.Value_BoolValue{BoolValue: true}},
+				{Kind: &autoflowv1.Value_NoneValue{}},
+			}}}},
+		}}}}}},
+		{Name: "msg", Value: &autoflowv1.Value{Kind: &autoflowv1.Value_StringValue{StringValue: "a=b"}}},
+		{Name: "inbox", Value: &autoflowv1.Value{Kind: &autoflowv1.Value_ChannelValue{ChannelValue: &autoflowv1.ChannelValue{Name: "inbox"}}}},
+	}
+	got := autoflowtest.Received(t, calls).Req.GetKwargs()
+	require.Len(t, got, len(want))
+	for i := range want {
+		assert.True(t, proto.Equal(want[i], got[i]), "kwarg %d: got %v", i, got[i])
+	}
+	assert.Contains(t, out.OutBuf.String(), "token_binding: ")
+	assert.True(t, strings.HasSuffix(out.OutBuf.String(), "\nchannel_token.inbox: ch-token\n"), out.OutBuf.String())
+}
+
+func TestStart_KwargErrors(t *testing.T) {
+	t.Parallel()
+
+	relay := autoflowtest.NewRelay(t)
+	tests := []struct {
+		name    string
+		args    string
+		wantErr string
+	}{
+		{name: "no equals sign", args: "--kwarg count", wantErr: "error parsing --kwarg count: want <name>=<JSON value>"},
+		{name: "invalid JSON", args: "--kwarg count=two", wantErr: "error parsing --kwarg count: invalid character"},
+		{name: "no name", args: "--kwarg =1", wantErr: "a keyword argument needs a name"},
+		{name: "duplicate kwarg", args: "--kwarg a=1 --kwarg a=2", wantErr: `keyword argument "a" is passed more than once`},
+		{name: "kwarg and channel", args: "--kwarg inbox=1 --channel inbox", wantErr: `keyword argument "inbox" is passed more than once`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotBody tokenexchangetest.WireRequest
+			srv, count, _ := autoflowtest.NewTokenServer(t, &gotBody)
+			exec := newTestExec(t, srv)
+
+			_, err := exec(relay.Args() + " --script x " + tc.args)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.EqualValues(t, 0, count.Load())
+		})
+	}
 }
