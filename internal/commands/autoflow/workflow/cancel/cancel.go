@@ -49,7 +49,6 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Cancel a workflow on Runway staging and wait until it is canceled
 			glab autoflow workflow cancel "$WORKFLOW_KEY" --hostname staging.gitlab.com \
 			  --address staging.autoflow-gke.svc.gitlab.net:443 \
-			  --namespace-id 00000000-0000-0000-0000-000000000001 \
 			  --workflow-token-file workflow-token.txt --wait
 		`),
 		Args:              cobra.ExactArgs(1),

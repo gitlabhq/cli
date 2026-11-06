@@ -35,7 +35,8 @@ type Connection struct {
 	insecure    bool
 	namespaceID string
 
-	// NamespaceID is the parsed --namespace-id, set by Complete.
+	// NamespaceID is the parsed --namespace-id, set by Complete, or the
+	// organization of the AutoFlow token, set by Dial.
 	NamespaceID uuid.UUID
 }
 
@@ -46,10 +47,9 @@ func (c *Connection) AddFlags(cmd *cobra.Command) {
 	fl.StringVar(&c.address, "address", "", "Address of the AutoFlow service, as <host>:<port>.")
 	fl.StringVar(&c.caCertFile, "ca-cert", "", "Path to a PEM-encoded CA certificate to trust for the AutoFlow service, in addition to the system roots.")
 	fl.BoolVar(&c.insecure, "insecure", false, "Connect to the AutoFlow service without TLS, for a local service only. The AutoFlow token and the workflow's credentials travel in cleartext.")
-	fl.StringVar(&c.namespaceID, "namespace-id", "", "UUID of your organization, the only AutoFlow namespace your token can address.")
+	fl.StringVar(&c.namespaceID, "namespace-id", "", "UUID of the AutoFlow namespace. Defaults to the organization of your token.")
 
 	cobra.CheckErr(cmd.MarkFlagRequired("address"))
-	cobra.CheckErr(cmd.MarkFlagRequired("namespace-id"))
 	cobra.CheckErr(cmd.MarkFlagFilename("ca-cert", "pem", "crt"))
 	cmd.MarkFlagsMutuallyExclusive("insecure", "ca-cert")
 }
@@ -60,6 +60,9 @@ func (c *Connection) Complete() error {
 		if err := glinstance.HostnameValidator(c.hostname); err != nil {
 			return &cmdutils.FlagError{Err: fmt.Errorf("error parsing --hostname: %w", err)}
 		}
+	}
+	if c.namespaceID == "" {
+		return nil
 	}
 	id, err := uuid.Parse(c.namespaceID)
 	if err != nil {
@@ -73,7 +76,8 @@ func (c *Connection) Complete() error {
 }
 
 // Dial connects to the AutoFlow service with a token exchanged on the GitLab
-// instance. The caller must close the returned connection.
+// instance and sets NamespaceID to the token's organization unless
+// --namespace-id is set. The caller must close the returned connection.
 func (c *Connection) Dial(ctx context.Context, ios *iostreams.IOStreams, apiClient func(repoHost string) (*api.Client, error)) (autoflowrpcv1.AutoFlowServiceClient, io.Closer, error) {
 	var tlsConfig *tls.Config
 	if c.insecure {
@@ -89,7 +93,18 @@ func (c *Connection) Dial(ctx context.Context, ios *iostreams.IOStreams, apiClie
 	if err != nil {
 		return nil, nil, err
 	}
-	return autoflow.Dial(ctx, client.Lab(), c.address, tlsConfig)
+	conn, err := autoflow.Dial(ctx, client.Lab(), c.address, tlsConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if c.NamespaceID == uuid.Nil {
+		c.NamespaceID, err = conn.Organization()
+		if err != nil {
+			_ = conn.Close()
+			return nil, nil, err
+		}
+	}
+	return conn, conn, nil
 }
 
 func (c *Connection) tlsConfig() (*tls.Config, error) {

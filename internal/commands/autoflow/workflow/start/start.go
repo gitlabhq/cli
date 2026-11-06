@@ -57,37 +57,33 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Docf(`
 			Submit a Starlark workflow definition to the AutoFlow service of GitLab Relay and start a workflow for it. The command returns once the workflow is persisted and does not wait for it to run.
 
-			The command exchanges your GitLab credential for a short-lived token for AutoFlow, so your user needs the %[1]stoken_exchange_autoflow_audience%[1]s feature flag on the GitLab instance.
+			The command exchanges your GitLab credential for a short-lived token for AutoFlow, so your user needs the %[1]stoken_exchange_autoflow_audience%[1]s feature flag on the GitLab instance. By default, the workflow belongs to the namespace of your organization.
 
 			%[1]s--kwarg%[1]s passes a keyword argument to the workflow's %[1]smain%[1]s function as JSON: %[1]snull%[1]s becomes %[1]sNone%[1]s, a number without a fraction or exponent an integer, an array a list and an object a dict. Sensitive values are not supported yet. %[1]s--channel%[1]s creates a channel and passes it as the keyword argument of the same name, so %[1]sglab autoflow workflow send%[1]s can send to it.
 
 			The output contains the workflow token, the token binding and a token for each channel. All of them are credentials:
 
-			- The workflow key, workflow token and namespace ID read or cancel the workflow later with %[1]sglab autoflow workflow get%[1]s and %[1]sglab autoflow workflow cancel%[1]s.
-			- The idempotency key, token binding and namespace ID re-submit the same workflow to get fresh tokens. Pass them with %[1]s--idempotency-key%[1]s, %[1]s--token-binding-file%[1]s or its environment variable, and %[1]s--namespace-id%[1]s. A re-submission returns the existing workflow and ignores the definition and the keyword arguments. A key without its binding gets %[1]sPermissionDenied%[1]s. It returns channel tokens for the channels it passes again.
+			- The workflow key and workflow token read or cancel the workflow later with %[1]sglab autoflow workflow get%[1]s and %[1]sglab autoflow workflow cancel%[1]s.
+			- The idempotency key and token binding re-submit the same workflow to get fresh tokens. Pass them with %[1]s--idempotency-key%[1]s and %[1]s--token-binding-file%[1]s, or the token binding in its environment variable. A re-submission returns the existing workflow and ignores the definition and the keyword arguments. A key without its binding gets %[1]sPermissionDenied%[1]s. It returns channel tokens for the channels it passes again.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Start the workflow in main.star on Runway staging
 			glab autoflow workflow start --hostname staging.gitlab.com \
 			  --address staging.autoflow-gke.svc.gitlab.net:443 \
-			  --namespace-id 00000000-0000-0000-0000-000000000001 \
 			  --script-file main.star
 
 			# Start a workflow with a keyword argument and a channel
 			glab autoflow workflow start --address relay.example.com:443 \
-			  --namespace-id 00000000-0000-0000-0000-000000000001 \
 			  --script 'def main(w, count, inbox): return [gather(inbox) for _ in range(count)]' \
 			  --kwarg count=2 --channel inbox
 
 			# Re-submit a workflow to get fresh tokens for it
 			glab autoflow workflow start --address relay.example.com:443 \
-			  --namespace-id 00000000-0000-0000-0000-000000000001 \
 			  --idempotency-key glab-T3KQZ7WMXH4RJ2NVB6YLC5DPEA \
 			  --token-binding-file token-binding.txt --script-file main.star
 
 			# Start an inline workflow and print the result as JSON
 			glab autoflow workflow start --address relay.example.com:443 \
-			  --namespace-id 00000000-0000-0000-0000-000000000001 \
 			  --script 'def main(w): return "hello"' --output json
 		`),
 		Args:              cobra.NoArgs,

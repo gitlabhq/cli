@@ -263,9 +263,9 @@ func TestGet_FlagErrors(t *testing.T) {
 			wantErr: "failed to read --workflow-token-file",
 		},
 		{
-			name:    "no namespace ID",
-			args:    "wf-key --address " + relay.Address,
-			wantErr: `required flag(s) "namespace-id" not set`,
+			name:    "no address",
+			args:    "wf-key --workflow-token-file " + autoflowtest.WriteFile(t, "wf-token"),
+			wantErr: `required flag(s) "address" not set`,
 		},
 		{
 			name:    "poll interval not positive",

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	autoflowrpcv1 "gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow/rpc/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -41,12 +43,12 @@ const TokenBindingSize = 64
 // TLS, or in cleartext if tlsConfig is nil. Each call exchanges a fresh token
 // when the current one has less than refreshMargin left, so the connection
 // outlives a single token. The caller must close the returned connection.
-func Dial(ctx context.Context, gl *gitlab.Client, address string, tlsConfig *tls.Config) (autoflowrpcv1.AutoFlowServiceClient, *grpc.ClientConn, error) {
+func Dial(ctx context.Context, gl *gitlab.Client, address string, tlsConfig *tls.Config) (*Conn, error) {
 	src := &tokenSource{gl: gl, now: time.Now, cleartext: tlsConfig == nil}
 	// Exchanged before the dial, so a user without the feature flag gets
 	// GitLab's answer instead of a failed RPC.
 	if err := src.refresh(ctx); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	transport := insecure.NewCredentials()
 	if tlsConfig != nil {
@@ -57,9 +59,47 @@ func Dial(ctx context.Context, gl *gitlab.Client, address string, tlsConfig *tls
 		grpc.WithPerRPCCredentials(src),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to %s: %w", address, err)
+		return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
 	}
-	return autoflowrpcv1.NewAutoFlowServiceClient(conn), conn, nil
+	return &Conn{AutoFlowServiceClient: autoflowrpcv1.NewAutoFlowServiceClient(conn), conn: conn, token: src.token}, nil
+}
+
+// Conn is a connection to the AutoFlow service.
+type Conn struct {
+	autoflowrpcv1.AutoFlowServiceClient
+
+	conn  *grpc.ClientConn
+	token string
+}
+
+// Close closes the connection.
+func (c *Conn) Close() error {
+	return c.conn.Close()
+}
+
+// Organization returns the organization the connection's token is issued
+// for, its gitlab.origin_id claim.
+func (c *Conn) Organization() (uuid.UUID, error) {
+	var claims struct {
+		jwt.RegisteredClaims
+		GitLab struct {
+			Origin   string `json:"origin"`
+			OriginID string `json:"origin_id"`
+		} `json:"gitlab"`
+	}
+	// GitLab's TLS connection vouches for the token, as it does for the claims
+	// tokenexchange.Exchange reads.
+	if _, _, err := jwt.NewParser().ParseUnverified(c.token, &claims); err != nil {
+		return uuid.Nil, fmt.Errorf("failed to decode the AutoFlow token: %w", err)
+	}
+	if claims.GitLab.Origin != "organization" {
+		return uuid.Nil, fmt.Errorf("the AutoFlow token is not issued for an organization (its gitlab.origin claim is %q)", claims.GitLab.Origin)
+	}
+	id, err := uuid.Parse(claims.GitLab.OriginID)
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("the gitlab.origin_id claim of the AutoFlow token is %q, not an organization UUID", claims.GitLab.OriginID)
+	}
+	return id, nil
 }
 
 type tokenSource struct {

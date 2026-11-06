@@ -24,7 +24,8 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/tokenexchangetest"
 )
 
-// NamespaceID is the namespace the tests address.
+// NamespaceID is the organization the tokens of NewTokenServer are issued
+// for, and so the namespace the tests address.
 const NamespaceID = "5b4a3928-1706-4f5e-8d4c-3b2a19081726"
 
 // Relay is a mocked AutoFlow service listening on Address with a self-signed
@@ -77,9 +78,9 @@ func serve(t *testing.T, opts ...grpc.ServerOption) *Relay {
 	return &Relay{Mock: mock, Address: lis.Addr().String()}
 }
 
-// Args returns the flags that address the relay and NamespaceID.
+// Args returns the flags that address the relay.
 func (r *Relay) Args() string {
-	return "--address " + r.Address + " --ca-cert " + r.CACertFile + " --namespace-id " + NamespaceID
+	return "--address " + r.Address + " --ca-cert " + r.CACertFile
 }
 
 // Call is one RPC the relay received.
@@ -117,14 +118,25 @@ func Received[Req any](t *testing.T, calls <-chan Call[Req]) Call[Req] {
 func NewTokenServer(t *testing.T, gotBody *tokenexchangetest.WireRequest) (*httptest.Server, *atomic.Int32, string) {
 	t.Helper()
 
-	token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
-		Issuer:    "https://gitlab.example.com",
-		Subject:   "gid://gitlab/User/1",
-		Audience:  jwt.ClaimStrings{"gitlab-autoflow"},
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
-	})
+	token := MakeToken(t, map[string]any{"origin": "organization", "origin_id": NamespaceID})
 	srv, count := tokenexchangetest.NewTokenExchangeServer(t, token, gotBody)
 	return srv, count, token
+}
+
+// MakeToken mints a gitlab-autoflow token with the gitlab claim set to
+// gitlabClaims.
+func MakeToken(t *testing.T, gitlabClaims map[string]any) string {
+	t.Helper()
+
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"iss":    "https://gitlab.example.com",
+		"sub":    "gid://gitlab/User/1",
+		"aud":    "gitlab-autoflow",
+		"exp":    time.Now().Add(time.Minute).Unix(),
+		"gitlab": gitlabClaims,
+	}).SignedString([]byte("test-signing-key"))
+	require.NoError(t, err)
+	return token
 }
 
 // NewTestExec wires cmdFunc to a token exchange endpoint that answers with

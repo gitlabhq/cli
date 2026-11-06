@@ -345,6 +345,50 @@ func TestStart_InvalidCACert(t *testing.T) {
 	assert.EqualValues(t, 0, count.Load())
 }
 
+func TestStart_NamespaceOverride(t *testing.T) {
+	t.Parallel()
+
+	relay := autoflowtest.NewRelay(t)
+	calls := expectStart(relay, startedResponse, nil)
+	var gotBody tokenexchangetest.WireRequest
+	// The token carries no organization: an explicit namespace does not need one.
+	srv, _ := tokenexchangetest.NewTokenExchangeServer(t, autoflowtest.MakeToken(t, nil), &gotBody)
+	exec := newTestExec(t, srv)
+	other := uuid.New()
+
+	out, err := exec(relay.Args() + " --script x --namespace-id " + other.String())
+	require.NoError(t, err)
+	assert.Equal(t, other[:], autoflowtest.Received(t, calls).Req.GetNamespaceId())
+	assert.Contains(t, out.OutBuf.String(), "namespace_id: "+other.String()+"\n")
+}
+
+func TestStart_TokenWithoutOrganization(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		claims  map[string]any
+		wantErr string
+	}{
+		{name: "no gitlab claims", claims: nil, wantErr: `the AutoFlow token is not issued for an organization (its gitlab.origin claim is "")`},
+		{name: "origin ID not a UUID", claims: map[string]any{"origin": "organization", "origin_id": "42"}, wantErr: `the gitlab.origin_id claim of the AutoFlow token is "42", not an organization UUID`},
+		{name: "nil origin ID", claims: map[string]any{"origin": "organization", "origin_id": "00000000-0000-0000-0000-000000000000"}, wantErr: `the gitlab.origin_id claim of the AutoFlow token is "00000000-0000-0000-0000-000000000000", not an organization UUID`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			relay := autoflowtest.NewRelay(t)
+			var gotBody tokenexchangetest.WireRequest
+			srv, _ := tokenexchangetest.NewTokenExchangeServer(t, autoflowtest.MakeToken(t, tc.claims), &gotBody)
+			exec := newTestExec(t, srv)
+
+			_, err := exec(relay.Args() + " --script x")
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
 func TestStart_TokenBindingFromEnvironment(t *testing.T) {
 	relay := autoflowtest.NewRelay(t)
 	calls := expectStart(relay, startedResponse, nil)

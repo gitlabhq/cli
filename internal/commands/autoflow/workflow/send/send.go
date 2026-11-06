@@ -57,7 +57,6 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Send a string to a channel of a workflow on Runway staging
 			glab autoflow workflow send --hostname staging.gitlab.com \
 			  --address staging.autoflow-gke.svc.gitlab.net:443 \
-			  --namespace-id 00000000-0000-0000-0000-000000000001 \
 			  --workflow-token-file workflow-token.txt --channel-token-file inbox-token.txt \
 			  --value '"hello"'
 		`),
