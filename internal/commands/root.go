@@ -45,6 +45,7 @@ import (
 	searchCmd "gitlab.com/gitlab-org/cli/internal/commands/search"
 	securefileCmd "gitlab.com/gitlab-org/cli/internal/commands/securefile"
 	securityCmd "gitlab.com/gitlab-org/cli/internal/commands/security"
+	serviceAccountCmd "gitlab.com/gitlab-org/cli/internal/commands/service-account"
 	skillsCmd "gitlab.com/gitlab-org/cli/internal/commands/skills"
 	snippetCmd "gitlab.com/gitlab-org/cli/internal/commands/snippet"
 	sshCmd "gitlab.com/gitlab-org/cli/internal/commands/ssh-key"
@@ -148,6 +149,7 @@ func NewCmdRoot(f cmdutils.Factory) *cobra.Command {
 	rootCmd.AddCommand(searchCmd.NewCmd(f))
 	rootCmd.AddCommand(securefileCmd.NewCmdSecurefile(f))
 	rootCmd.AddCommand(securityCmd.NewCmd(f))
+	rootCmd.AddCommand(serviceAccountCmd.NewCmd(f))
 	rootCmd.AddCommand(snippetCmd.NewCmdSnippet(f))
 	rootCmd.AddCommand(sshCmd.NewCmdSSHKey(f))
 	rootCmd.AddCommand(stackCmd.NewCmdStack(f))

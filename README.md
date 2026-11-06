@@ -100,6 +100,7 @@ Run `glab --help` to view a list of core commands in your terminal.
 - [`glab search`](docs/source/search): Search for code and resources in a GitLab project. (BETA)
 - [`glab securefile`](docs/source/securefile): Manage secure files for a project.
 - [`glab security`](docs/source/security): Manage GitLab security scan profiles for a project. (EXPERIMENTAL)
+- [`glab service-account`](docs/source/service-account): Manage service accounts.
 - [`glab skills`](docs/source/skills): Manage glab agent skills. (EXPERIMENTAL)
 - [`glab snippet`](docs/source/snippet): Create snippets.
 - [`glab ssh-key`](docs/source/ssh-key): Manage SSH keys registered with your GitLab account.
