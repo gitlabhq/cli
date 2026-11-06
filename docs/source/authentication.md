@@ -32,6 +32,9 @@ To authenticate your installation of `glab` with an OAuth application connected 
 1. Authorize the application when prompted.
 1. Complete the authentication process in your terminal, selecting the appropriate options for your needs.
 
+For GitLab.com, `glab` always uses its built-in OAuth application and ignores `client_id`
+and `GITLAB_CLIENT_ID`.
+
 ## OAuth (GitLab Self-Managed, GitLab Dedicated)
 
 Prerequisites:
