@@ -84,8 +84,11 @@ func (c *Client) Credential(ctx context.Context) (Credential, error) {
 		cred.Expiry = token.Expiry
 		cred.RefreshToken = token.RefreshToken
 	case oauth2AccessTokenOnlyAuthSource:
-		// The stored expiry is all there is: with no refresh token, nothing can
-		// renew this token, and a consumer still needs to know when it dies.
+		// The Duo CLI shows its "session expired" message only when the error
+		// contains "failed to refresh the OAuth2 token", so keep that prefix.
+		if err := as.checkExpiry(); err != nil {
+			return Credential{}, fmt.Errorf("%w: %w", ErrRefreshFailed, err)
+		}
 		cred.Token = as.token
 		cred.Expiry = as.expiry
 	case gitlab.AccessTokenAuthSource:

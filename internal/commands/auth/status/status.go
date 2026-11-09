@@ -409,7 +409,7 @@ func incompleteOAuth2Warning(cfg config.Config, instance string) (string, bool) 
 		return "", false
 	}
 
-	return fmt.Sprintf("%s is configured for OAuth, but no refresh token is stored, so the token cannot be renewed when it expires. This is left behind by switching to a personal access token without logging out.", instance), true
+	return fmt.Sprintf("%s is configured for OAuth, but no refresh token is stored, so the token cannot be renewed when it expires. Either GitLab rejected the refresh token, or the host was switched to a personal access token without logging out.", instance), true
 }
 
 // isPlaintextTokenSource reports whether the token was read from the plaintext

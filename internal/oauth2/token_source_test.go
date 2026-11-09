@@ -286,6 +286,91 @@ func TestToken_ReturnsErrorWhenInvalidGrantWithoutRecovery(t *testing.T) {
 	assert.True(t, isInvalidGrant(err), "expected the original invalid_grant error to be surfaced")
 }
 
+func TestToken_ForgetsRejectedRefreshToken(t *testing.T) {
+	withoutAdoptBackoff(t)
+	cfg := newKeyringConfig(t, "access-old", "refresh-old", time.Now().Add(-time.Hour))
+
+	var refreshes atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		refreshes.Add(1)
+		writeInvalidGrant(t, w)
+	}))
+	defer srv.Close()
+
+	ts := tokenSourceForServer(cfg, srv)
+	_, err := ts.Token()
+	require.Error(t, err)
+	assert.True(t, isInvalidGrant(err))
+
+	_, err = keyring.Get("glab:gitlab.com:oauth2_refresh_token", "")
+	require.ErrorIs(t, err, keyring.ErrNotFound, "the rejected refresh token must be deleted")
+
+	sent := refreshes.Load()
+	_, err = ts.Token()
+	require.Error(t, err)
+	assert.Equal(t, sent, refreshes.Load(), "a forgotten refresh token must not be sent again")
+}
+
+func TestToken_ForgetsRejectedRefreshToken_FileBacked(t *testing.T) {
+	withoutAdoptBackoff(t)
+	keyring.MockInit()
+	t.Cleanup(keyring.MockInit)
+	dir := t.TempDir()
+	writeOAuthConfig(t, dir, false, "access-old", "refresh-old", time.Now().Add(-time.Hour))
+	cfg, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+
+	var refreshes atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		refreshes.Add(1)
+		writeInvalidGrant(t, w)
+	}))
+	defer srv.Close()
+
+	ts := tokenSourceForServer(cfg, srv)
+	_, err = ts.Token()
+	require.Error(t, err)
+	assert.True(t, isInvalidGrant(err))
+
+	onDisk, err := os.ReadFile(filepath.Join(dir, "config.yml"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(onDisk), "refresh-old", "the rejected refresh token must be removed from config.yml")
+
+	sent := refreshes.Load()
+	_, err = tokenSourceForServer(cfg, srv).Token()
+	require.Error(t, err)
+	assert.Equal(t, sent, refreshes.Load(), "a forgotten refresh token must not be sent again")
+}
+
+func TestToken_KeepsRefreshTokenRotatedAfterRejection(t *testing.T) {
+	withoutAdoptBackoff(t)
+	dir := t.TempDir()
+	cfg := newKeyringConfigInDir(t, dir, "access-old", "refresh-old", time.Now().Add(-time.Hour))
+
+	// Another process stores a different refresh token, with an access token
+	// adopt won't take. forget must not delete a token it never presented.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		other, err := config.ParseConfig(filepath.Join(dir, "config.yml"))
+		if !assert.NoError(t, err) {
+			writeInvalidGrant(t, w)
+			return
+		}
+		assert.NoError(t, other.Set(testHost, "oauth2_refresh_token", "refresh-other"))
+		assert.NoError(t, other.Write())
+
+		writeInvalidGrant(t, w)
+	}))
+	defer srv.Close()
+
+	ts := tokenSourceForServer(cfg, srv)
+	_, err := ts.Token()
+	require.Error(t, err)
+
+	stored, err := keyring.Get("glab:gitlab.com:oauth2_refresh_token", "")
+	require.NoError(t, err)
+	assert.Equal(t, "refresh-other", stored)
+}
+
 func TestIsInvalidGrant(t *testing.T) {
 	assert.True(t, isInvalidGrant(&oauth2.RetrieveError{ErrorCode: "invalid_grant"}))
 	assert.False(t, isInvalidGrant(&oauth2.RetrieveError{ErrorCode: "invalid_client"}))

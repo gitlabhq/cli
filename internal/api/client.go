@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -477,8 +478,14 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 				return nil, unauthenticatedError{fmt.Errorf("OAuth2 authentication is configured for %q but no access or refresh token was found (the stored credentials may be missing or incomplete); run `glab auth login --hostname %s` to re-authenticate", repoHost, repoHost)}
 			}
 
+			// The stored expiry belongs to the stored token, not one from the environment.
+			var expiry time.Time
+			if !slices.Contains(config.EnvKeyEquivalence("token"), tokenSource) {
+				expiry = storedOAuth2Expiry(cfg, repoHost)
+			}
+
 			newAuthSource = func(client *http.Client) (gitlab.AuthSource, error) {
-				return oauth2AccessTokenOnlyAuthSource{token: token, expiry: storedOAuth2Expiry(cfg, repoHost)}, nil
+				return oauth2AccessTokenOnlyAuthSource{token: token, host: repoHost, expiry: expiry}, nil
 			}
 			break
 		}
