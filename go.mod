@@ -47,7 +47,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
 	github.com/tidwall/pretty v1.2.2
-	github.com/yuin/goldmark/v2 v2.1.11
+	github.com/yuin/goldmark/v2 v2.1.13
 	github.com/zalando/go-keyring v0.2.8
 	gitlab.com/gitlab-org/api/client-go/v3 v3.43.0
 	go.uber.org/goleak v1.3.0
