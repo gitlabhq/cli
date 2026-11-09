@@ -791,6 +791,29 @@ func TestNewClientFromConfig_AccessTokenOnlyCarriesStoredExpiry(t *testing.T) {
 	}
 }
 
+// forget() leaves is_oauth2 and a lapsed oauth2_expiry_date behind. A fresh
+// token from the environment must not be judged against that stale date.
+func TestNewClientFromConfig_EnvTokenIgnoresStoredExpiry(t *testing.T) {
+	for _, k := range []string{"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GLAB_IS_OAUTH2"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("OAUTH_TOKEN", "env-access-token")
+
+	cfg := config.NewFromString("hosts:\n  example.com:\n    is_oauth2: \"true\"\n    oauth2_expiry_date: \"2000-01-02T03:04:05Z\"\n")
+	client, err := NewClientFromConfig("example.com", cfg, false, "ua")
+	require.NoError(t, err)
+
+	key, value, err := client.AuthSource().Header(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, gitlab.OAuthTokenHeaderName, key)
+	assert.Equal(t, "Bearer env-access-token", value)
+
+	cred, err := client.Credential(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "env-access-token", cred.Token)
+	assert.True(t, cred.Expiry.IsZero(), "the stored expiry is not the environment token's")
+}
+
 func TestNewClientFromConfig_DoesNotRetryPostOnServerError(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "test-pat")
 

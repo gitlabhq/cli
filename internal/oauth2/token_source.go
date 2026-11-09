@@ -102,7 +102,7 @@ func NewConfigTokenSource(cfg config.Config, httpClient *http.Client, protocol, 
 }
 
 func (c *configTokenSource) Token() (*oauth2.Token, error) {
-	token, err := c.refreshLocked()
+	token, presented, err := c.refreshLocked()
 	if err == nil {
 		return token, nil
 	}
@@ -121,15 +121,45 @@ func (c *configTokenSource) Token() (*oauth2.Token, error) {
 		if adopted, ok := c.adopt(); ok {
 			return adopted, nil
 		}
+		c.forget(presented)
 	}
 	return nil, err
+}
+
+// forget deletes a refresh token GitLab rejected, so later commands fail
+// locally instead of each sending the same refresh request. It leaves a token
+// another process rotated in since then alone.
+func (c *configTokenSource) forget(rejected string) {
+	fresh, err := c.cfg.Reload()
+	if err != nil {
+		dbg.Debugf("oauth2: forget: could not re-read config for %q: %v", c.hostname, err)
+		return
+	}
+
+	stored, err := fresh.Get(c.hostname, "oauth2_refresh_token")
+	if err != nil {
+		dbg.Debugf("oauth2: forget: could not read the refresh token for %q: %v", c.hostname, err)
+		return
+	}
+	if stored != rejected {
+		return
+	}
+
+	if err := fresh.Set(c.hostname, "oauth2_refresh_token", ""); err != nil {
+		dbg.Debugf("oauth2: forget: could not clear the refresh token for %q: %v", c.hostname, err)
+		return
+	}
+	if err := fresh.Write(); err != nil {
+		dbg.Debugf("oauth2: forget: could not write config for %q: %v", c.hostname, err)
+	}
 }
 
 // refreshLocked runs the read-refresh-write cycle while holding the per-process
 // lock (scoped to this method via defer, so adopt() in Token stays outside it).
 // It returns the already-valid or newly refreshed token, or the refresh error
-// for Token to inspect for a lost race.
-func (c *configTokenSource) refreshLocked() (*oauth2.Token, error) {
+// for Token to inspect for a lost race. When the token endpoint rejects the
+// refresh, it also returns the refresh token it presented.
+func (c *configTokenSource) refreshLocked() (*oauth2.Token, string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -142,20 +172,20 @@ func (c *configTokenSource) refreshLocked() (*oauth2.Token, error) {
 	// rewritten from a stale in-memory document.
 	src, token, err := c.freshest()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Another process may have rotated the token while we were reading it. If the
 	// freshest copy is already valid, use it and skip the network refresh (and the
 	// redundant credential write that would follow).
 	if validWithGrace(token) {
-		return token, nil
+		return token, "", nil
 	}
 
 	// An access-token-only session has nothing to renew with, so hand the token
 	// back while it is still usable rather than fail five minutes early.
 	if token.RefreshToken == "" && token.Valid() {
-		return token, nil
+		return token, "", nil
 	}
 
 	// Everything below is irreversible: GitLab spends the single-use refresh
@@ -166,9 +196,9 @@ func (c *configTokenSource) refreshLocked() (*oauth2.Token, error) {
 		// The refreshed token could not be saved, but this one is still usable.
 		if token.Valid() {
 			dbg.Debugf("oauth2: not refreshing early for %q, the refreshed credentials could not be saved: %v", c.hostname, err)
-			return token, nil
+			return token, "", nil
 		}
-		return nil, fmt.Errorf("not refreshing the OAuth token for %q, because the refreshed credentials could not be saved: %w", c.hostname, err)
+		return nil, "", fmt.Errorf("not refreshing the OAuth token for %q, because the refreshed credentials could not be saved: %w", c.hostname, err)
 	}
 
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, c.httpClient)
@@ -178,20 +208,20 @@ func (c *configTokenSource) refreshLocked() (*oauth2.Token, error) {
 	// before expiry and returns it as is.
 	refreshedToken, err := c.oauth2Config.TokenSource(ctx, &oauth2.Token{RefreshToken: token.RefreshToken}).Token()
 	if err != nil {
-		return nil, err
+		return nil, token.RefreshToken, err
 	}
 
 	err = marshal(c.hostname, src, refreshedToken)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	err = src.Write()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return refreshedToken, nil
+	return refreshedToken, "", nil
 }
 
 // freshest returns the config to write back through and the freshest token for

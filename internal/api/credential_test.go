@@ -195,3 +195,20 @@ func clientWithAuthSource(t *testing.T, as gitlab.AuthSource) *Client {
 	require.NoError(t, err)
 	return client
 }
+
+// A host whose refresh token was forgotten must not hand its dead access token
+// to the credential helper: the Duo CLI keys its "session expired" message on
+// this prefix.
+func TestClient_Credential_expiredAccessTokenOnly(t *testing.T) {
+	client := clientWithAuthSource(t, oauth2AccessTokenOnlyAuthSource{
+		token:  "access-expired",
+		host:   "gitlab.example.com",
+		expiry: time.Now().Add(-time.Minute),
+	})
+
+	_, err := client.Credential(t.Context())
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrRefreshFailed)
+	require.ErrorContains(t, err, "failed to refresh the OAuth2 token")
+	assert.ErrorContains(t, err, "glab auth login --hostname gitlab.example.com")
+}
