@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -236,6 +238,38 @@ func Test_sshParser_readMatchAndInclude(t *testing.T) {
 			},
 			want: SSHAliasMap{"gl": "main.example.com"},
 		},
+		"Include of two files returns to the including block after each": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Host gl
+						Include a.conf b.conf
+				`),
+				"HOME/.ssh/a.conf": heredoc.Doc(`
+					Host *.internal
+						User git
+				`),
+				"HOME/.ssh/b.conf": heredoc.Doc(`
+					HostName main.example.com
+				`),
+			},
+			want: SSHAliasMap{"gl": "main.example.com"},
+		},
+		"Include pattern matching two files returns to the including block after each": {
+			files: map[string]string{
+				"HOME/.ssh/config": heredoc.Doc(`
+					Host gl
+						Include conf.d/*
+				`),
+				"HOME/.ssh/conf.d/a.conf": heredoc.Doc(`
+					Host *.internal
+						User git
+				`),
+				"HOME/.ssh/conf.d/b.conf": heredoc.Doc(`
+					HostName main.example.com
+				`),
+			},
+			want: SSHAliasMap{"gl": "main.example.com"},
+		},
 	}
 
 	for name, tt := range tests {
@@ -257,10 +291,18 @@ func newStubSSHParser(files map[string]string) *sshParser {
 			return nil, fmt.Errorf("no test file stub found: %q", s)
 		},
 		glob: func(pattern string) ([]string, error) {
-			if _, ok := files[filepath.ToSlash(pattern)]; ok {
-				return []string{pattern}, nil
+			var matches []string
+			for name := range files {
+				if ok, _ := path.Match(filepath.ToSlash(pattern), name); ok {
+					matches = append(matches, name)
+				}
 			}
-			return nil, fmt.Errorf("no glob stub found: %q", pattern)
+			if len(matches) == 0 {
+				return nil, fmt.Errorf("no glob stub found: %q", pattern)
+			}
+			// Map order is random, and filepath.Glob returns lexical order.
+			slices.Sort(matches)
+			return matches, nil
 		},
 	}
 }
