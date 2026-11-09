@@ -272,7 +272,7 @@ func TestSyncAll_PausesDiscoveredAgentOnceDisabled(t *testing.T) {
 	_, err = env.exec("--all")
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"codex: codex is not enabled; run 'glab govern setup --agents codex' to enable it"}, readStatus(t).Paused)
+	assert.Equal(t, []string{"codex: codex is not enabled; run 'glab minder setup --agents codex' to enable it"}, readStatus(t).Paused)
 }
 
 func TestSyncAll_DiscoversCursorSession(t *testing.T) {

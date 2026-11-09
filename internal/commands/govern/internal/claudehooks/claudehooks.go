@@ -18,11 +18,24 @@ const (
 	SettingsFile = ".claude/settings.json"
 
 	// StopHookCommand fires after every Claude Code turn.
-	StopHookCommand = "glab govern audit sync --silent >/dev/null 2>&1 &"
+	StopHookCommand = "glab minder audit sync --silent >/dev/null 2>&1 &"
 
 	// SessionEndHookCommand fires when a Claude Code session ends.
-	SessionEndHookCommand = "glab govern audit sync --silent --complete >/dev/null 2>&1 &"
+	SessionEndHookCommand = "glab minder audit sync --silent --complete >/dev/null 2>&1 &"
+
+	// legacyStopHookCommand and legacySessionEndHookCommand are the hooks that
+	// glab versions before the rename to glab minder installed. They still run,
+	// through the hidden glab govern command, until setup replaces them.
+	legacyStopHookCommand       = "glab govern audit sync --silent >/dev/null 2>&1 &"
+	legacySessionEndHookCommand = "glab govern audit sync --silent --complete >/dev/null 2>&1 &"
 )
+
+// hookCommands maps each hook event to the command setup installs for it, and
+// the command that earlier glab versions installed.
+var hookCommands = map[string]struct{ current, legacy string }{
+	"Stop":       {StopHookCommand, legacyStopHookCommand},
+	"SessionEnd": {SessionEndHookCommand, legacySessionEndHookCommand},
+}
 
 // HookEntry mirrors the Claude Code hook entry format.
 type HookEntry struct {
@@ -254,8 +267,8 @@ func AddHook(hooks map[string][]HookGroup, event, command string) bool {
 	return true
 }
 
-// SyncHookInstalled reports whether the glab Stop hook is present in the
-// Claude Code settings file at path.
+// SyncHookInstalled reports whether the glab Stop hook, current or legacy, is
+// present in the Claude Code settings file at path.
 func SyncHookInstalled(path string) (bool, error) {
 	raw, err := LoadRawSettings(path)
 	if err != nil {
@@ -265,7 +278,48 @@ func SyncHookInstalled(path string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", path, err)
 	}
-	return HookPresent(hooks, "Stop", StopHookCommand), nil
+	return GlabHookPresent(hooks, "Stop"), nil
+}
+
+// GlabHookPresent reports whether glab's hook for event, current or legacy,
+// is present in hooks.
+func GlabHookPresent(hooks map[string][]HookGroup, event string) bool {
+	commands := hookCommands[event]
+	return HookPresent(hooks, event, commands.current) || HookPresent(hooks, event, commands.legacy)
+}
+
+// LegacyHookPresent reports whether hooks still has a hook that an earlier glab
+// version installed, which runs glab govern instead of glab minder.
+func LegacyHookPresent(hooks map[string][]HookGroup) bool {
+	for event, commands := range hookCommands {
+		if HookPresent(hooks, event, commands.legacy) {
+			return true
+		}
+	}
+	return false
+}
+
+// InstallGlabHooks adds glab's hooks to hooks and removes the legacy ones they
+// replace, so that a session is not synced twice. It mutates hooks in place
+// and returns whether anything changed.
+func InstallGlabHooks(hooks map[string][]HookGroup) bool {
+	changed := false
+	for event, commands := range hookCommands {
+		changed = RemoveHook(hooks, event, commands.legacy) || changed
+		changed = AddHook(hooks, event, commands.current) || changed
+	}
+	return changed
+}
+
+// RemoveGlabHooks removes glab's hooks, current and legacy, from hooks. It
+// mutates hooks in place and returns whether anything changed.
+func RemoveGlabHooks(hooks map[string][]HookGroup) bool {
+	changed := false
+	for event, commands := range hookCommands {
+		changed = RemoveHook(hooks, event, commands.current) || changed
+		changed = RemoveHook(hooks, event, commands.legacy) || changed
+	}
+	return changed
 }
 
 // RemoveHook removes every hook for event that runs command. Groups left

@@ -214,18 +214,6 @@
       submenu:
         - title: glab duo cli update
           url: 'cli/duo/cli/update/'
-- title: glab govern
-  url: 'cli/govern/'
-  submenu:
-    - title: glab govern audit
-      url: 'cli/govern/audit/'
-      submenu:
-        - title: glab govern audit sync
-          url: 'cli/govern/audit/sync/'
-    - title: glab govern doctor
-      url: 'cli/govern/doctor/'
-    - title: glab govern setup
-      url: 'cli/govern/setup/'
 - title: glab gpg-key
   url: 'cli/gpg-key/'
   submenu:
@@ -320,6 +308,18 @@
       url: 'cli/milestone/get/'
     - title: glab milestone list
       url: 'cli/milestone/list/'
+- title: glab minder
+  url: 'cli/minder/'
+  submenu:
+    - title: glab minder audit
+      url: 'cli/minder/audit/'
+      submenu:
+        - title: glab minder audit sync
+          url: 'cli/minder/audit/sync/'
+    - title: glab minder doctor
+      url: 'cli/minder/doctor/'
+    - title: glab minder setup
+      url: 'cli/minder/setup/'
 - title: glab mr
   url: 'cli/mr/'
   submenu:

@@ -58,6 +58,22 @@ func TestCheckClaudeHooks_HooksPresent(t *testing.T) {
 	assert.Equal(t, "Stop and SessionEnd hooks installed", result.message)
 }
 
+func TestCheckClaudeHooks_HooksFromBeforeTheRename(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	path := filepath.Join(dir, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`{"hooks":{
+		"Stop":[{"hooks":[{"type":"command","command":"glab govern audit sync --silent >/dev/null 2>&1 &"}]}],
+		"SessionEnd":[{"hooks":[{"type":"command","command":"glab govern audit sync --silent --complete >/dev/null 2>&1 &"}]}]
+	}}`), 0o644))
+
+	result := checkClaudeHooks()
+
+	assert.True(t, result.ok, "the old hooks still sync")
+	assert.Contains(t, result.message, "run 'glab minder setup' to update them")
+}
+
 func TestCheckClaudeHooks_HooksMissing(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -204,7 +220,7 @@ func TestCheckFallbackSync_VersionDrift(t *testing.T) {
 
 	assert.False(t, result.ok)
 	assert.Equal(t, fmt.Sprintf("the job runs %s, which reports %q, not %q like this glab", glab, "glab 1.100.0 (old1234)", testVersion), result.message)
-	assert.Equal(t, "Run: glab govern setup", result.fix)
+	assert.Equal(t, "Run: glab minder setup", result.fix)
 }
 
 func TestCheckFallbackSync_VersionUnreadable(t *testing.T) {
@@ -221,7 +237,7 @@ func TestCheckFallbackSync_VersionUnreadable(t *testing.T) {
 
 	assert.False(t, result.ok)
 	assert.Equal(t, fmt.Sprintf("could not run %s version: exec format error", glab), result.message)
-	assert.Equal(t, "Run: glab govern setup", result.fix)
+	assert.Equal(t, "Run: glab minder setup", result.fix)
 }
 
 func TestCheckFallbackSync_NotLoaded(t *testing.T) {
@@ -235,7 +251,7 @@ func TestCheckFallbackSync_NotLoaded(t *testing.T) {
 
 	assert.False(t, result.ok)
 	assert.Equal(t, "the job is installed but not loaded, so it never runs", result.message)
-	assert.Equal(t, "Run: glab govern setup", result.fix)
+	assert.Equal(t, "Run: glab minder setup", result.fix)
 }
 
 func TestCheckFallbackSync_LastRunFailedToStart(t *testing.T) {
@@ -251,7 +267,7 @@ func TestCheckFallbackSync_LastRunFailedToStart(t *testing.T) {
 
 	assert.False(t, result.ok)
 	assert.Equal(t, "the job's last run exited with code 1", result.message)
-	assert.Contains(t, result.fix, glab+" govern audit sync --all")
+	assert.Contains(t, result.fix, glab+" minder audit sync --all")
 }
 
 func TestCheckFallbackSync_NotInstalled(t *testing.T) {
@@ -282,7 +298,7 @@ func TestCheckFallbackSync_BinaryMissing(t *testing.T) {
 
 	assert.False(t, result.ok)
 	assert.Contains(t, result.message, "/opt/homebrew/Cellar/glab/1.0.0/bin/glab, which no longer exists")
-	assert.Equal(t, "Run: glab govern setup", result.fix)
+	assert.Equal(t, "Run: glab minder setup", result.fix)
 }
 
 func TestCheckFallbackSync_NoRunYet(t *testing.T) {
@@ -347,7 +363,7 @@ func TestCheckFallbackSync_LastRunOnlyFailed(t *testing.T) {
 	assert.Equal(t,
 		fmt.Sprintf("installed (%s), but the last run synced nothing; last run 5m0s ago: 0 sessions synced, 0 completed, 0 events posted, 2 errors (first: session a: could not create session: 404 Not Found)", glab),
 		result.message)
-	assert.Equal(t, fmt.Sprintf("Run '%s govern audit sync --all' to see the errors", glab), result.fix)
+	assert.Equal(t, fmt.Sprintf("Run '%s minder audit sync --all' to see the errors", glab), result.fix)
 }
 
 func TestDescribeLastRun_Singular(t *testing.T) {
@@ -531,7 +547,7 @@ func TestCheckOpenCodePlugin(t *testing.T) {
 		require.NoError(t, os.MkdirAll(dir, 0o755))
 		result := checkOpenCodePlugin()
 		assert.True(t, result.ok, "not syncing an agent you did not choose is not a failure")
-		assert.Contains(t, result.message, "run 'glab govern setup --agents opencode'")
+		assert.Contains(t, result.message, "run 'glab minder setup --agents opencode'")
 	})
 
 	t.Run("chosen without the plugin", func(t *testing.T) {
@@ -539,7 +555,7 @@ func TestCheckOpenCodePlugin(t *testing.T) {
 		result := checkOpenCodePlugin()
 		assert.False(t, result.ok)
 		assert.Contains(t, result.message, "not installed")
-		assert.Equal(t, "Run: glab govern setup", result.fix)
+		assert.Equal(t, "Run: glab minder setup", result.fix)
 	})
 
 	t.Run("plugin installed", func(t *testing.T) {
@@ -576,7 +592,7 @@ func TestCheckOpenCodePlugin(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o600))
 		result := checkOpenCodePlugin()
 		assert.False(t, result.ok)
-		assert.Contains(t, result.fix, "glab govern setup --uninstall")
+		assert.Contains(t, result.fix, "glab minder setup --uninstall")
 	})
 
 	t.Run("file not installed by glab", func(t *testing.T) {
@@ -601,12 +617,12 @@ func TestCheckClaudeHooks_NotChosen(t *testing.T) {
 }
 
 func TestCheckClaudeHooks_UnreadableAgents(t *testing.T) {
-	uninstallFix := "Fix it, or run 'glab govern setup --uninstall' to start again"
+	uninstallFix := "Fix it, or run 'glab minder setup --uninstall' to start again"
 	tests := map[string]struct {
 		file    []string
 		wantFix string
 	}{
-		"Claude Code settings":    {file: []string{".claude", "settings.json"}, wantFix: "Fix it, then run 'glab govern setup' again"},
+		"Claude Code settings":    {file: []string{".claude", "settings.json"}, wantFix: "Fix it, then run 'glab minder setup' again"},
 		"setup's hook agents":     {file: []string{"glab", "gaig", "hook-agents.json"}, wantFix: uninstallFix},
 		"setup's discovered list": {file: []string{"glab", "gaig", "discovered-agents.json"}, wantFix: uninstallFix},
 	}

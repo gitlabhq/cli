@@ -1,4 +1,4 @@
-// Installed by glab govern setup. Remove it with: glab govern setup --uninstall
+// Installed by glab minder setup. Remove it with: glab minder setup --uninstall
 //
 // Syncs each OpenCode session to GitLab when it goes idle. glab is started
 // detached, because OpenCode does not wait for plugins when it exits.
@@ -12,7 +12,7 @@ function sync(directory, sessionID) {
   const env = { ...process.env, OPENCODE_SESSION_ID: sessionID }
   delete env.CLAUDE_CODE_SESSION_ID
   try {
-    const child = spawn("glab", ["govern", "audit", "sync", "--silent"], {
+    const child = spawn("glab", ["minder", "audit", "sync", "--silent"], {
       cwd: directory,
       env,
       detached: true,
@@ -22,7 +22,7 @@ function sync(directory, sessionID) {
     child.on("error", () => {})
     child.unref()
   } catch {
-    // A missing glab must not break OpenCode. glab govern doctor reports it.
+    // A missing glab must not break OpenCode. glab minder doctor reports it.
   }
 }
 

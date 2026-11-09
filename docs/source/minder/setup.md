@@ -1,5 +1,5 @@
 ---
-title: '`glab govern setup`'
+title: '`glab minder setup`'
 stage: AI Clients
 group: Developer Clients
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see <https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments>
@@ -24,13 +24,13 @@ Choose the agents to sync with `--agents`. Without it, setup syncs the agents se
 
 Setup also installs the fallback periodic sync: a launchd agent (`~/Library/LaunchAgents/com.gitlab.glab-govern-audit-sync.plist`) on macOS, or a systemd user timer (`~/.config/systemd/user/glab-govern-audit-sync.timer`) on Linux.
 
-The fallback periodic sync runs `glab govern audit sync --all` every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see `glab govern audit sync --help` for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. Each session goes to the project and host of the Git repository the agent ran in. It also marks sessions completed once they have been idle for 24 hours. It pauses sessions from agents that use hooks while those hooks are not installed. Pass `--no-fallback-sync` to install only the hooks and plugin, which Codex and Cursor cannot be synced without. The fallback periodic sync is not available on Windows.
+The fallback periodic sync runs `glab minder audit sync --all` every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see `glab minder audit sync --help` for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. Each session goes to the project and host of the Git repository the agent ran in. It also marks sessions completed once they have been idle for 24 hours. It pauses sessions from agents that use hooks while those hooks are not installed. Pass `--no-fallback-sync` to install only the hooks and plugin, which Codex and Cursor cannot be synced without. The fallback periodic sync is not available on Windows.
 
 Run setup again with `--agents` to add agents. Agents set up by an earlier run stay set up, so to stop syncing an agent, run `--uninstall` and then set up the agents you want. Every setup prompt names the agents that are synced.
 
-Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run `glab govern doctor` afterwards to verify the setup.
+Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run `glab minder doctor` afterwards to verify the setup.
 
-Run `glab govern setup --uninstall` to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also forgets the agents you set up, so the next setup starts with Claude Code again. Other hooks and settings in `~/.claude/settings.json`, and other OpenCode plugins, are left unchanged.
+Run `glab minder setup --uninstall` to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also forgets the agents you set up, so the next setup starts with Claude Code again. Other hooks and settings in `~/.claude/settings.json`, and other OpenCode plugins, are left unchanged.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
@@ -38,26 +38,26 @@ For more information, see
 <https://docs.gitlab.com/policy/development_stages_support/>.
 
 ```plaintext
-glab govern setup [flags]
+glab minder setup [flags]
 ```
 
 ## Examples
 
 ```console
 # Sync Claude Code sessions, or the agents set up earlier
-$ glab govern setup
+$ glab minder setup
 
 # Sync OpenCode sessions
-$ glab govern setup --agents opencode
+$ glab minder setup --agents opencode
 
 # Sync Claude Code, OpenCode, and Codex sessions
-$ glab govern setup --agents claude-code,opencode,codex
+$ glab minder setup --agents claude-code,opencode,codex
 
 # Install only the hooks and plugin, without the fallback periodic sync
-$ glab govern setup --no-fallback-sync
+$ glab minder setup --no-fallback-sync
 
 # Remove everything setup installed
-$ glab govern setup --uninstall
+$ glab minder setup --uninstall
 
 ```
 

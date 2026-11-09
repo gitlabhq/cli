@@ -106,22 +106,22 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Project is resolved from the Git remote of the current directory, or overridden with %[1]s-R/--repo%[1]s.
 
-			With %[1]s--all%[1]s, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them. The fallback periodic sync installed by %[1]sglab govern setup%[1]s runs this, and %[1]sglab govern doctor%[1]s shows the result of its last run.
+			With %[1]s--all%[1]s, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them. The fallback periodic sync installed by %[1]sglab minder setup%[1]s runs this, and %[1]sglab minder doctor%[1]s shows the result of its last run.
 
-			Supports Claude Code, OpenCode, Codex, and Cursor sessions. OpenCode sessions are read with %[1]sopencode session export%[1]s, or %[1]sopencode export%[1]s before OpenCode 2. With %[1]s--all%[1]s, it also finds and syncs the sessions of Codex and Cursor, when they are enabled with %[1]sglab govern setup --agents%[1]s, by scanning their transcripts, for repositories on GitLab hosts glab is logged in to.
+			Supports Claude Code, OpenCode, Codex, and Cursor sessions. OpenCode sessions are read with %[1]sopencode session export%[1]s, or %[1]sopencode export%[1]s before OpenCode 2. With %[1]s--all%[1]s, it also finds and syncs the sessions of Codex and Cursor, when they are enabled with %[1]sglab minder setup --agents%[1]s, by scanning their transcripts, for repositories on GitLab hosts glab is logged in to.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Sync the current agent session to GitLab
-			$ glab govern audit sync
+			$ glab minder audit sync
 
 			# Sync and mark the session as completed
-			$ glab govern audit sync --complete
+			$ glab minder audit sync --complete
 
 			# Sync against a specific project
-			$ glab govern audit sync -R my-group/my-project
+			$ glab minder audit sync -R my-group/my-project
 
 			# Sync every recorded session that has unsynced activity
-			$ glab govern audit sync --all
+			$ glab minder audit sync --all
 		`),
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
@@ -838,7 +838,7 @@ func auditEventBatches(events []auditEventRequest) [][]auditEventRequest {
 //
 // A hook returns the error instead when the fallback sync is installed. It
 // leaves the cursor where it is, so the fallback sync splits the batch and
-// records any skipped events in the status file that glab govern doctor reads,
+// records any skipped events in the status file that glab minder doctor reads,
 // without the hook using up the rate limit.
 func (p auditEventPoster) postSplitting(ctx context.Context, events []auditEventRequest) (int, error) {
 	err := p.postBatch(ctx, events)

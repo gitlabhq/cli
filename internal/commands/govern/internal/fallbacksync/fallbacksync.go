@@ -1,5 +1,5 @@
 // Package fallbacksync manages the scheduled job that runs
-// `glab govern audit sync --all` when agent hooks fail to sync a session.
+// `glab minder audit sync --all` when agent hooks fail to sync a session.
 package fallbacksync
 
 import (
@@ -111,7 +111,7 @@ func launchdPlist(job Job) string {
     <key>ProgramArguments</key>
     <array>
         <string>%s</string>
-        <string>govern</string>
+        <string>minder</string>
         <string>audit</string>
         <string>sync</string>
         <string>--all</string>
@@ -144,7 +144,7 @@ Description=GitLab AI agent governance fallback sync
 [Service]
 Type=oneshot
 Environment="GLAB_CONFIG_DIR=%s"
-ExecStart="%s" govern audit sync --all --silent
+ExecStart="%s" minder audit sync --all --silent
 `, systemdQuoter.Replace(job.ConfigDir), systemdQuoter.Replace(job.GlabPath))
 }
 
@@ -250,25 +250,42 @@ func run(ctx context.Context, executor cmdutils.Executor, name string, args ...s
 	return nil
 }
 
-// ErrNotInstalled is returned by InstalledBinary when the job's files are absent.
+// ErrNotInstalled is returned by ReadInstalled and InstalledBinary when the
+// job's files are absent.
 var ErrNotInstalled = errors.New("fallback periodic sync is not installed")
 
 // InstalledBinary returns the glab path that the installed job runs.
 func InstalledBinary(goos, home string) (string, error) {
+	job, err := ReadInstalled(goos, home)
+	return job.GlabPath, err
+}
+
+// Installed describes the installed job.
+type Installed struct {
+	// GlabPath is the glab that the job runs.
+	GlabPath string
+	// Legacy reports whether the job runs glab govern, as jobs that glab
+	// versions before the rename to glab minder installed do.
+	Legacy bool
+}
+
+// ReadInstalled reads the installed job.
+func ReadInstalled(goos, home string) (Installed, error) {
 	units, err := Units(goos, home, Job{})
 	if err != nil {
-		return "", err
+		return Installed{}, err
 	}
 	data, err := os.ReadFile(units[0].Path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", ErrNotInstalled
+		return Installed{}, ErrNotInstalled
 	}
 	if err != nil {
-		return "", err
+		return Installed{}, err
 	}
 
 	if goos == "darwin" {
-		return plistProgram(data)
+		path, err := plistProgram(data)
+		return Installed{GlabPath: path, Legacy: strings.Contains(string(data), "<string>govern</string>")}, err
 	}
 	for line := range strings.Lines(string(data)) {
 		rest, ok := strings.CutPrefix(line, `ExecStart="`)
@@ -276,11 +293,12 @@ func InstalledBinary(goos, home string) (string, error) {
 			continue
 		}
 		if path, ok := cutQuoted(rest); ok {
-			return systemdUnquoter.Replace(path), nil
+			legacy := strings.HasPrefix(rest[len(path)+1:], " govern audit sync ")
+			return Installed{GlabPath: systemdUnquoter.Replace(path), Legacy: legacy}, nil
 		}
 		break
 	}
-	return "", fmt.Errorf("could not find ExecStart in %s", units[0].Path)
+	return Installed{}, fmt.Errorf("could not find ExecStart in %s", units[0].Path)
 }
 
 // cutQuoted returns s up to its first unescaped double quote.
@@ -394,7 +412,7 @@ func systemdState(out string) JobState {
 	return state
 }
 
-// Status records the outcome of the most recent `glab govern audit sync --all` run.
+// Status records the outcome of the most recent `glab minder audit sync --all` run.
 type Status struct {
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
@@ -498,9 +516,9 @@ func (e *agentsListError) Unwrap() error { return e.err }
 // it doesn't change the Claude Code settings or the OpenCode plugin.
 func AgentsReadFix(err error) string {
 	if errors.As(err, new(*agentsListError)) {
-		return "fix it, or run 'glab govern setup --uninstall' to start again"
+		return "fix it, or run 'glab minder setup --uninstall' to start again"
 	}
-	return "fix it, then run 'glab govern setup' again"
+	return "fix it, then run 'glab minder setup' again"
 }
 
 // DiscoveredAgents returns the agents whose sessions the scheduled job
