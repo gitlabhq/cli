@@ -23,7 +23,6 @@ import (
 type mavenManager struct {
 	proxyURL string
 	args     []string
-	warnf    func(format string, args ...any)
 	// mirrors is shared with the matcher Run hands the proxy before
 	// CATrustEnviron runs, and filled once the settings Maven reads are known.
 	mirrors  *proxy.MavenMirrors
@@ -33,7 +32,7 @@ type mavenManager struct {
 // Maven returns a fresh maven package manager (it stashes the proxy URL from
 // Environment for CATrustEnviron to build the settings.xml and truststore).
 func Maven() PackageManager {
-	return &mavenManager{warnf: func(string, ...any) {}, mirrors: &proxy.MavenMirrors{}, lookPath: exec.LookPath}
+	return &mavenManager{mirrors: &proxy.MavenMirrors{}, lookPath: exec.LookPath}
 }
 
 func (m *mavenManager) Name() string   { return "maven" }
@@ -42,8 +41,6 @@ func (m *mavenManager) Binary() string { return "mvn" }
 // SetArgs stashes the mvn arguments so CATrustEnviron can merge the caller's
 // settings file into the firewall's.
 func (m *mavenManager) SetArgs(args []string) { m.args = args }
-
-func (m *mavenManager) SetWarn(warnf func(format string, args ...any)) { m.warnf = warnf }
 
 // userSettingsFile resolves the settings.xml mvn would read on its own.
 func (m *mavenManager) userSettingsFile() string {
@@ -71,7 +68,7 @@ func (m *mavenManager) CATrustEnviron(caPath string) []string {
 	// ignores HTTP(S)_PROXY and the JVM proxy properties, so this file is the
 	// only thing routing mvn through the proxy: surface a failure via dbg so a
 	// silent firewall bypass is diagnosable rather than fail-open unnoticed.
-	settingsPath, userSettings, ok := writeMavenProxySettings(caPath+".settings.xml", m.proxyURL, m.userSettingsFile(), os.Environ(), m.warnf)
+	settingsPath, userSettings, ok := writeMavenProxySettings(caPath+".settings.xml", m.proxyURL, m.userSettingsFile(), os.Environ())
 	if !ok {
 		dbg.Debugf("dependency firewall: failed to write maven proxy settings.xml at %s; maven traffic will not be routed through the proxy", caPath+".settings.xml")
 	} else {
@@ -182,11 +179,10 @@ func mavenArgsEnv(extra string) string {
 // proxy at proxyURL and returns its path. When userPath names a readable
 // settings file, the <proxy> entries are merged into a copy of it so the
 // caller's mirrors, credentials and profiles still apply, with the variables
-// in its repository URLs expanded from environ; otherwise, or when that file
-// names a plain-HTTP repository or can't be checked for one, the file holds
-// only those entries. It also returns the caller's settings when they were
-// merged, and ok=false when proxyURL cannot be parsed.
-func writeMavenProxySettings(path, proxyURL, userPath string, environ []string, warnf func(format string, args ...any)) (string, []byte, bool) {
+// in its repository URLs expanded from environ; otherwise the file holds only
+// those entries. It also returns the caller's settings when they were merged,
+// and ok=false when proxyURL cannot be parsed.
+func writeMavenProxySettings(path, proxyURL, userPath string, environ []string) (string, []byte, bool) {
 	u, err := url.Parse(proxyURL)
 	if err != nil || u.Hostname() == "" || u.Port() == "" {
 		return "", nil, false
@@ -201,18 +197,6 @@ func writeMavenProxySettings(path, proxyURL, userPath string, environ []string, 
 			dbg.Debugf("dependency firewall: could not merge the maven settings at %s: %s; using the firewall's own settings instead", userPath, mavenSettingsError(err))
 		}
 		settings = mavenExpandEnvURLs(settings, environ)
-	}
-	// The proxy only accepts CONNECT, so a plain-HTTP repository would turn
-	// every download from it into a 405; use the standalone file instead.
-	repo, plainHTTP, err := mavenPlainHTTPRepository(settings)
-	switch {
-	case err != nil:
-		dbg.Debugf("dependency firewall: could not scan the maven settings at %s: %s", userPath, mavenSettingsError(err))
-		warnf("warning: could not check %q for plain-HTTP repositories, so that settings file is ignored and its mirrors, credentials and profiles don't apply\n", userPath)
-		settings = nil
-	case plainHTTP:
-		warnf("warning: %q names %s, whose URL is or may be plain HTTP; the dependency firewall can't route plain HTTP yet, so that settings file is ignored and its mirrors, credentials and profiles don't apply\n", userPath, repo)
-		settings = nil
 	}
 	merged := settings
 	if settings == nil {
@@ -303,65 +287,6 @@ var mavenRepositoryElems = [][]string{
 	{"settings", "profiles", "profile", "pluginRepositories", "pluginRepository"},
 }
 
-// mavenRepositoryKinds name each repository element for a warning.
-var mavenRepositoryKinds = map[string]string{
-	"mirror":           "mirror",
-	"repository":       "repository",
-	"pluginRepository": "plugin repository",
-}
-
-// mavenPlainHTTPRepository describes, by kind and <id>, the first mirror or
-// profile repository in raw whose URL is or may be plain HTTP. The URL itself
-// is never printed, since a token can sit anywhere in it. Blocked mirrors are
-// skipped: Maven's stock settings carry one on http://0.0.0.0/ and never use
-// it. An error means raw couldn't be scanned to the end, so it may name one.
-func mavenPlainHTTPRepository(raw []byte) (string, bool, error) {
-	dec := xml.NewDecoder(bytes.NewReader(raw))
-	var path []string
-	var text strings.Builder
-	var repoURL, id string
-	var blocked bool
-	for {
-		tok, err := dec.Token()
-		if errors.Is(err, io.EOF) {
-			return "", false, nil
-		}
-		if err != nil {
-			return "", false, err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			path = append(path, t.Name.Local)
-			text.Reset()
-			if mavenIsRepository(path) {
-				repoURL, id, blocked = "", "", false
-			}
-		case xml.CharData:
-			text.Write(t)
-		case xml.EndElement:
-			parent := path[:len(path)-1]
-			if mavenIsRepository(parent) {
-				switch t.Name.Local {
-				case "url":
-					repoURL = strings.TrimSpace(text.String())
-				case "id":
-					id = strings.TrimSpace(text.String())
-				case "blocked":
-					blocked = strings.EqualFold(strings.TrimSpace(text.String()), "true")
-				}
-			}
-			if mavenIsRepository(path) && !blocked && mavenMayBePlainHTTP(repoURL) {
-				if id == "" {
-					return "a " + mavenRepositoryKinds[t.Name.Local] + " with no <id>", true, nil
-				}
-				return fmt.Sprintf("the %s %q", mavenRepositoryKinds[t.Name.Local], id), true, nil
-			}
-			text.Reset()
-			path = parent
-		}
-	}
-}
-
 var mavenEnvExpression = regexp.MustCompile(`\$\{env\.[^}]*\}`)
 
 // mavenExpandEnvURLs expands ${env.NAME} in raw's mirror and profile repository
@@ -434,16 +359,6 @@ func mavenExpandEnv(s string, environ []string) (string, bool) {
 
 func mavenIsRepository(path []string) bool {
 	return slices.ContainsFunc(mavenRepositoryElems, func(p []string) bool { return slices.Equal(p, path) })
-}
-
-// mavenMayBePlainHTTP reports whether Maven could fetch from u over plain
-// HTTP. A scheme hidden in a ${...} property can't be ruled out, so it counts.
-func mavenMayBePlainHTTP(u string) bool {
-	scheme, _, ok := strings.Cut(u, "://")
-	if !ok {
-		return strings.Contains(u, "${")
-	}
-	return strings.EqualFold(scheme, "http") || strings.Contains(scheme, "${")
 }
 
 func mavenProxyElem(id, protocol, host, port string) string {

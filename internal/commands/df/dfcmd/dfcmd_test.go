@@ -75,6 +75,22 @@ func testSpec() ProxySpec {
 
 func newTestCmd(f cmdutils.Factory) *cobra.Command { return NewProxyCmd(f, testSpec()) }
 
+func TestEnvironmentHelp(t *testing.T) {
+	t.Parallel()
+	t.Run("when the spec sets no environment help", func(t *testing.T) {
+		t.Parallel()
+		cmd := newTestCmd(cmdtest.NewTestFactory(nil))
+		assert.Contains(t, cmd.Annotations["help:environment"], "HTTP_PROXY: outbound proxy for plain-HTTP registries. When it's unset, glab uses HTTPS_PROXY.")
+	})
+	t.Run("when the spec sets its own environment help", func(t *testing.T) {
+		t.Parallel()
+		spec := testSpec()
+		spec.Environment = "GOPROXY: module proxy.\n"
+		cmd := NewProxyCmd(cmdtest.NewTestFactory(nil), spec)
+		assert.Equal(t, "GOPROXY: module proxy.\n", cmd.Annotations["help:environment"])
+	})
+}
+
 func TestForwardsArgsAndRoutesThroughProxy(t *testing.T) {
 	t.Chdir(t.TempDir())
 	fe := &fakeExecutor{}

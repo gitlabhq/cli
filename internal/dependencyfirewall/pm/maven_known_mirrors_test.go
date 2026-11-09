@@ -574,11 +574,9 @@ func TestMavenManagerKnownMirrors(t *testing.T) {
 	})
 
 	t.Run("when glab can't use the caller's settings", func(t *testing.T) {
-		// A plain-HTTP repository makes glab fall back to its own settings, so
-		// Maven never sees the caller's catch-all.
-		user := writeUserSettings(t, string(mirrorsXML(
-			mirrorXML("corp", "*", "https://nexus.example.com/repository/public/"),
-			mirrorXML("old", "legacy", "http://legacy.example.com/maven/"))))
+		// A file the merge can't parse makes glab fall back to its own
+		// settings, so Maven never sees the caller's catch-all.
+		user := writeUserSettings(t, "<settings>&bogus;"+string(mirrorsXML(mirrorXML("corp", "*", "https://nexus.example.com/repository/public/")))[len("<settings xmlns=\"http://maven.apache.org/SETTINGS/1.0.0\">"):])
 
 		assert.Contains(t, run(t, nil, "-s", user), "log4j:log4j")
 	})

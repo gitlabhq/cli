@@ -202,3 +202,43 @@ func TestMavenMirrorKnownURLsThroughTunnel(t *testing.T) {
 		assert.Equal(t, "org.apache.logging.log4j:log4j", verdicts[0].Package)
 	})
 }
+
+func TestMavenMirrorKnownURLsOverPlainHTTP(t *testing.T) {
+	t.Parallel()
+
+	get := func(t *testing.T, checker policy.Checker) (int, *Proxy) {
+		t.Helper()
+		upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		t.Cleanup(upstream.Close)
+		p, err := New(MavenMatcher{Mirrors: knownMirrors(t, false, upstream.URL+"/repository/public/")}, checker, "group/proj")
+		require.NoError(t, err)
+		require.NoError(t, p.Start())
+		t.Cleanup(p.Stop)
+		proxyURL, err := url.Parse("http://" + p.Addr())
+		require.NoError(t, err)
+		client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+		defer client.CloseIdleConnections()
+		resp, err := client.Get(upstream.URL + log4jParentPOM)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		return resp.StatusCode, p
+	}
+
+	t.Run("when a rule names Log4j 1", func(t *testing.T) {
+		t.Parallel()
+		status, p := get(t, policy.NewCachingChecker(&denyChecker{name: "log4j:log4j"}, nil))
+
+		assert.Equal(t, http.StatusOK, status)
+		assert.Empty(t, p.Verdicts())
+	})
+
+	t.Run("when a rule names the real parent POM", func(t *testing.T) {
+		t.Parallel()
+		status, p := get(t, policy.NewCachingChecker(&denyChecker{name: "org.apache.logging.log4j:log4j"}, nil))
+
+		assert.Equal(t, http.StatusForbidden, status)
+		verdicts := p.Verdicts()
+		require.Len(t, verdicts, 1)
+		assert.Equal(t, "org.apache.logging.log4j:log4j", verdicts[0].Package)
+	})
+}

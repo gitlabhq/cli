@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -12,15 +13,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
@@ -139,11 +145,11 @@ type Proxy struct {
 	warnedAuthorities   map[string]struct{}
 }
 
-// tunnelDrainTimeout bounds how long Stop waits for in-flight MITM tunnels to
-// finish after the proxy context is cancelled. A hung upstream or a client
-// that will not close should not block shutdown forever; the cancelled context
-// already unblocks policy checks, so a well-behaved tunnel exits well within
-// this window.
+// tunnelDrainTimeout bounds each of Stop's waits after the proxy context is
+// cancelled: for plain-HTTP handlers to return, then for in-flight MITM
+// tunnels to finish. A hung upstream or a client that will not close should
+// not block shutdown forever; the cancelled context already unblocks policy
+// checks, so a well-behaved request finishes well within this window.
 const tunnelDrainTimeout = 5 * time.Second
 
 // Option configures a Proxy at construction time.
@@ -164,13 +170,31 @@ func WithUpstreamRootCAs(pool *x509.CertPool) Option {
 }
 
 // WithUpstreamProxy overrides how the proxy picks an outbound proxy for each
-// upstream registry request. When unset, it uses http.ProxyFromEnvironment.
-// This option exists for tests: http.ProxyFromEnvironment reads the
-// environment once per process, so a test cannot change it with t.Setenv.
+// upstream registry request. When unset, it uses upstreamProxyFromEnvironment.
 func WithUpstreamProxy(proxyFunc func(*http.Request) (*url.URL, error)) Option {
 	return func(p *Proxy) {
 		p.upstream.Proxy = proxyFunc
 	}
+}
+
+// upstreamProxyFromEnvironment reads glab's environment like
+// http.ProxyFromEnvironment, but a plain-HTTP request falls back to
+// HTTPS_PROXY, the outbound proxy glab documents, when HTTP_PROXY is unset.
+func upstreamProxyFromEnvironment() func(*http.Request) (*url.URL, error) {
+	// httpproxy.FromEnvironment reads the lowercase names first, unlike
+	// http.ProxyFromEnvironment and the rest of glab.
+	config := &httpproxy.Config{
+		HTTPProxy:  cmp.Or(os.Getenv("HTTP_PROXY"), os.Getenv("http_proxy")),
+		HTTPSProxy: cmp.Or(os.Getenv("HTTPS_PROXY"), os.Getenv("https_proxy")),
+		NoProxy:    cmp.Or(os.Getenv("NO_PROXY"), os.Getenv("no_proxy")),
+		CGI:        os.Getenv("REQUEST_METHOD") != "",
+	}
+	// In a CGI environment httpproxy refuses any HTTP_PROXY value, so keep going direct there.
+	if config.HTTPProxy == "" && !config.CGI {
+		config.HTTPProxy = config.HTTPSProxy
+	}
+	pick := config.ProxyFunc()
+	return func(r *http.Request) (*url.URL, error) { return pick(r.URL) }
 }
 
 // WithUpstreamFailureWarning sets where the proxy reports a failed upstream
@@ -202,7 +226,7 @@ func New(matcher Matcher, checker policy.Checker, projectID string, opts ...Opti
 		// Only the package manager's environment points at this proxy, so the
 		// caller's HTTPS_PROXY in glab's own environment cannot loop back here.
 		upstream: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
+			Proxy: upstreamProxyFromEnvironment(),
 			TLSClientConfig: &tls.Config{
 				MinVersion: tls.VersionTLS12,
 				NextProtos: []string{"http/1.1"},
@@ -250,8 +274,14 @@ func (p *Proxy) Stop() {
 		p.cancel()
 	}
 	if p.server != nil {
-		if err := p.server.Shutdown(context.Background()); err != nil {
+		// A plain-HTTP handler forwarding an upload stays blocked reading the
+		// client's body even once cancelled, so a stalled client could hold
+		// Shutdown open forever.
+		ctx, cancel := context.WithTimeout(context.Background(), tunnelDrainTimeout)
+		defer cancel()
+		if err := p.server.Shutdown(ctx); err != nil {
 			dbg.Debugf("dependency firewall proxy shutdown: %v", err)
+			_ = p.server.Close()
 		}
 	}
 	// Shutdown does not wait for hijacked MITM tunnels, so drain them here
@@ -319,11 +349,88 @@ func (b *inboundBody) Read(buf []byte) (int, error) {
 }
 
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodConnect {
+	switch {
+	case r.Method == http.MethodConnect:
 		p.handleConnect(w, r)
+	case r.URL.IsAbs() && r.URL.Scheme == "http":
+		p.handlePlain(w, r)
+	default:
+		http.Error(w, "only CONNECT and absolute-form http:// requests are supported", http.StatusMethodNotAllowed)
+	}
+}
+
+// plainBlockDrainTimeout keeps a stalled blocked upload from holding its connection open.
+const plainBlockDrainTimeout = 2 * time.Second
+
+var errUnpromptedSwitch = errors.New("registry switched protocols without being asked")
+
+// handlePlain serves an absolute-form request for an http:// URL, which a
+// client sends to its proxy in place of CONNECT, through the same policy
+// check as a tunnelled request.
+func (p *Proxy) handlePlain(w http.ResponseWriter, r *http.Request) {
+	// Drop any upgrade offer rather than refuse it: libcurl offers h2c on every
+	// request. With no Upgrade header ReverseProxy answers an upstream 101 with
+	// 502 instead of splicing the client past the policy check.
+	r.Header.Del("Upgrade")
+
+	// Stop cancels the proxy context; tie this request to it so a slow check
+	// or upstream round trip ends then. A client stalling mid-upload is left
+	// to Stop's bounded Shutdown.
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	defer context.AfterFunc(p.ctx, cancel)() //nolint:contextcheck // Stop's proxy context must also end this request
+	r = r.WithContext(ctx)
+
+	if ecosystem, reason, ok := p.admit(ctx, r); !ok {
+		contentType, body := blockBody(ecosystem, reason)
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.Header().Set(firewallHeader, "blocked")
+		w.Header().Set("Connection", "close")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, body)
+		// Flush before draining so a client still uploading reads the 403 at once.
+		rc := http.NewResponseController(w)
+		_ = rc.Flush()
+		_ = rc.SetReadDeadline(time.Now().Add(plainBlockDrainTimeout))
+		drainAndClose(r.Body)
 		return
 	}
-	http.Error(w, "only CONNECT supported", http.StatusMethodNotAllowed)
+	authority := r.URL.Host
+	rp := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.Out.Header.Set(firewallHeader, "allowed")
+		},
+		Transport: p.upstream,
+		// Any 101 is unprompted once Upgrade is dropped. Refusing it here makes
+		// ReverseProxy close the upstream connection, which its own 502 leaves open.
+		ModifyResponse: func(res *http.Response) error {
+			if res.StatusCode == http.StatusSwitchingProtocols {
+				return errUnpromptedSwitch
+			}
+			return nil
+		},
+		ErrorLog: log.New(debugLog{}, "", 0),
+		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+			dbg.Debugf("dependency firewall proxy: upstream request to %s failed: %v", authority, err)
+			// net/http cancels the request when the client's connection drops,
+			// as Stop does; neither is a registry failure.
+			if req.Context().Err() == nil {
+				p.warnUpstreamFailureOnce(authority, err)
+			}
+			w.WriteHeader(http.StatusBadGateway)
+		},
+	}
+	rp.ServeHTTP(w, r)
+}
+
+// debugLog sends ReverseProxy's own messages, such as a registry dropping the
+// connection mid-response, to the debug log rather than glab's stderr.
+type debugLog struct{}
+
+func (debugLog) Write(b []byte) (int, error) {
+	dbg.Debugf("dependency firewall proxy: %s", bytes.TrimSuffix(b, []byte("\n")))
+	return len(b), nil
 }
 
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
@@ -385,51 +492,10 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 		req.RequestURI = ""
 		req.Header.Del("Accept-Encoding")
 
-		// Match before the round trip: an upload carries its identity in the
-		// body, which the matcher reads and restores before RoundTrip.
-		m := p.matcher.Match(req)
-
-		if m.Matched && !m.Pass {
-			// The matcher recognized an in-scope request but did not clear it
-			// for the policy check — e.g. an over-limit upload body it could
-			// not inspect. Fail closed.
-			p.record(verdict.Entry{
-				Package: m.Coordinate.Name,
-				Version: m.Coordinate.Version,
-				Verdict: verdict.Blocked,
-				Status:  http.StatusForbidden,
-				Reason:  m.Reason,
-			})
-			_, _ = io.WriteString(conn, blockResponse(m.Coordinate.Ecosystem, m.Reason))
+		if ecosystem, reason, ok := p.admit(ctx, req); !ok {
+			_, _ = io.WriteString(conn, blockResponse(ecosystem, reason))
 			drainAndClose(req.Body)
 			return
-		}
-		if m.Matched {
-			res, coordinate := p.checkPolicy(ctx, m)
-			if res.Blocked() {
-				p.record(verdict.Entry{
-					Package: coordinate.Name,
-					Version: coordinate.Version,
-					Verdict: verdict.Blocked,
-					Status:  http.StatusForbidden,
-					Reason:  res.Reason,
-				})
-				_, _ = io.WriteString(conn, blockResponse(m.Coordinate.Ecosystem, res.Reason))
-				drainAndClose(req.Body)
-				return
-			}
-			if res.Verdict == verdict.Warning {
-				// Status is left unset: a warning allows the request through,
-				// but the upstream round trip has not happened yet, so the real
-				// response status is unknown here. Recording StatusOK would be a
-				// guess that could contradict a later non-200 upstream response.
-				p.record(verdict.Entry{
-					Package: coordinate.Name,
-					Version: coordinate.Version,
-					Verdict: verdict.Warning,
-					Reason:  res.Reason,
-				})
-			}
 		}
 		req.Header.Set(firewallHeader, "allowed")
 		var inbound *inboundBody
@@ -473,6 +539,56 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 			return
 		}
 	}
+}
+
+// admit matches req and checks it against policy, recording the verdict. It
+// returns ok=false, with the ecosystem and reason for the block response, when
+// req must not reach the upstream.
+func (p *Proxy) admit(ctx context.Context, req *http.Request) (string, string, bool) {
+	// Match before the round trip: an upload carries its identity in the
+	// body, which the matcher reads and restores before RoundTrip.
+	m := p.matcher.Match(req)
+
+	if m.Matched && !m.Pass {
+		// The matcher recognized an in-scope request but did not clear it
+		// for the policy check — e.g. an over-limit upload body it could
+		// not inspect. Fail closed.
+		p.record(verdict.Entry{
+			Package: m.Coordinate.Name,
+			Version: m.Coordinate.Version,
+			Verdict: verdict.Blocked,
+			Status:  http.StatusForbidden,
+			Reason:  m.Reason,
+		})
+		return m.Coordinate.Ecosystem, m.Reason, false
+	}
+	if !m.Matched {
+		return "", "", true
+	}
+	res, coordinate := p.checkPolicy(ctx, m)
+	if res.Blocked() {
+		p.record(verdict.Entry{
+			Package: coordinate.Name,
+			Version: coordinate.Version,
+			Verdict: verdict.Blocked,
+			Status:  http.StatusForbidden,
+			Reason:  res.Reason,
+		})
+		return m.Coordinate.Ecosystem, res.Reason, false
+	}
+	if res.Verdict == verdict.Warning {
+		// Status is left unset: a warning allows the request through, but
+		// the upstream round trip has not happened yet, so the real response
+		// status is unknown here. Recording StatusOK would be a guess that
+		// could contradict a later non-200 upstream response.
+		p.record(verdict.Entry{
+			Package: coordinate.Name,
+			Version: coordinate.Version,
+			Verdict: verdict.Warning,
+			Reason:  res.Reason,
+		})
+	}
+	return "", "", true
 }
 
 // checkPolicy checks every candidate coordinate m carries and returns the
