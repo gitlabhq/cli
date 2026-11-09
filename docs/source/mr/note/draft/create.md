@@ -27,7 +27,7 @@ The flag rules are:
 - `--line` and `--old-line` require `--file`, and cannot be used together.
 - `--file` and `--reply` are mutually exclusive.
 
-`--attach` uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass `-` to read the file from standard input. The upload happens immediately, even though the comment stays pending. An attachment is content on its own, so a comment with only `--attach` neither prompts nor reads a body from stdin.
+`--attach` uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass `-` to read the file from standard input. The upload happens immediately, even though the comment stays pending. An attachment is content on its own, so a comment with only `--attach` does not prompt for a body. When standard input is not a terminal, it is read as the comment body, unless `--attach -` reads the file from standard input. The command waits until standard input closes, so to post only the attachment from a script, redirect standard input from `/dev/null`.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.

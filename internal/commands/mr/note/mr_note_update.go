@@ -60,7 +60,7 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 
 			You can change only the note body. You cannot move the position of diff notes.
 
-			%[1]s--attach%[1]s uploads a file and references it at the end of the note. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. Without %[1]s--message%[1]s the references are added to the body the note already has, instead of replacing it.
+			%[1]s--attach%[1]s uploads a file and references it at the end of the note. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. Without %[1]s--message%[1]s, standard input that is not a terminal is read as the new body. It replaces the existing body, unless %[1]s--attach -%[1]s reads the file from standard input. With neither %[1]s--message%[1]s nor piped input, the references are added to the body the note already has, instead of replacing it. The command waits until standard input closes, so to keep the existing body from a script, redirect standard input from %[1]s/dev/null%[1]s.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Update note 12345 on merge request 1 with a new message
@@ -131,16 +131,15 @@ func (o *updateOptions) complete(cmd *cobra.Command, args []string) error {
 	}
 	o.discussionID = discussionID
 
-	// Resolve body.
 	body := o.message
-	switch {
-	case strings.TrimSpace(body) != "":
-	case len(o.attach) == 0:
+	if strings.TrimSpace(body) == "" && !cmdutils.SkipNoteBody(o.io, o.attach) {
 		body, err = mrutils.NoteBodyFromStdinOrEditor(cmd.Context(), o.io, o.factory.Config)
 		if err != nil {
 			return err
 		}
-	default:
+	}
+	// With attachments an empty body means "keep the existing note text".
+	if strings.TrimSpace(body) == "" && len(o.attach) > 0 {
 		body = note.Body
 	}
 	o.body = body

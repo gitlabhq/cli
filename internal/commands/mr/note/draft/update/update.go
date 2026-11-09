@@ -53,7 +53,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			You can change only the body. A pending diff comment stays on the same file and lines. Pending comments on images cannot be updated from the command line, because their position cannot be preserved.
 
-			%[1]s--attach%[1]s uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. Without %[1]s--message%[1]s the references are added to the body the comment already has, instead of replacing it.
+			%[1]s--attach%[1]s uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. Without %[1]s--message%[1]s, standard input that is not a terminal is read as the new body. It replaces the existing body, unless %[1]s--attach -%[1]s reads the file from standard input. With neither %[1]s--message%[1]s nor piped input, the references are added to the body the comment already has, instead of replacing it. The command waits until standard input closes, so to keep the existing body from a script, redirect standard input from %[1]s/dev/null%[1]s.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Update pending review comment 456 on merge request 123
@@ -123,15 +123,15 @@ func (o *options) complete(cmd *cobra.Command, args []string) error {
 		o.position = draft.Position
 	}
 
-	switch {
-	case strings.TrimSpace(o.message) != "":
-		o.body = o.message
-	case len(o.attach) == 0:
+	o.body = o.message
+	if strings.TrimSpace(o.body) == "" && !cmdutils.SkipNoteBody(o.io, o.attach) {
 		o.body, err = mrutils.NoteBodyFromStdinOrEditor(cmd.Context(), o.io, o.factory.Config)
 		if err != nil {
 			return err
 		}
-	default:
+	}
+	// With attachments an empty body means "keep the existing comment text".
+	if strings.TrimSpace(o.body) == "" && len(o.attach) > 0 {
 		o.body = draft.Note
 	}
 

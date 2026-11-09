@@ -63,7 +63,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			- %[1]s--line%[1]s and %[1]s--old-line%[1]s require %[1]s--file%[1]s, and cannot be used together.
 			- %[1]s--file%[1]s and %[1]s--reply%[1]s are mutually exclusive.
 
-			%[1]s--attach%[1]s uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. The upload happens immediately, even though the comment stays pending. An attachment is content on its own, so a comment with only %[1]s--attach%[1]s neither prompts nor reads a body from stdin.
+			%[1]s--attach%[1]s uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. The upload happens immediately, even though the comment stays pending. An attachment is content on its own, so a comment with only %[1]s--attach%[1]s does not prompt for a body. When standard input is not a terminal, it is read as the comment body, unless %[1]s--attach -%[1]s reads the file from standard input. The command waits until standard input closes, so to post only the attachment from a script, redirect standard input from %[1]s/dev/null%[1]s.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Add a pending comment to merge request 123
@@ -134,9 +134,7 @@ func (o *options) complete(cmd *cobra.Command, args []string) error {
 	o.repo = repo
 
 	o.body = o.message
-	// The attachment may itself be what is on stdin, so --attach suppresses
-	// reading the body from stdin or an editor.
-	if strings.TrimSpace(o.body) == "" && len(o.attach) == 0 {
+	if strings.TrimSpace(o.body) == "" && !cmdutils.SkipNoteBody(o.io, o.attach) {
 		o.body, err = mrutils.NoteBodyFromStdinOrEditor(cmd.Context(), o.io, o.factory.Config)
 		if err != nil {
 			return err

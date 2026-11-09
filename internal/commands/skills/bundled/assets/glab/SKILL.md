@@ -75,10 +75,12 @@ glab mr note create <iid> -m "..." --repo group/project
 
 ### Long or Markdown bodies — pipe to stdin
 
-`glab mr note create`, `glab issue note`, and `glab incident note` read the
-body from stdin when `-m` is omitted and the input is a pipe. This avoids
+`glab mr note create`, `glab mr note update`, `glab mr note draft create`,
+`glab mr note draft update`, `glab issue note`, and `glab incident note` read
+the body from stdin when `-m` is omitted and the input is a pipe. This avoids
 shell-quoting pitfalls (backticks, `$`, backslashes, apostrophes) and is the
-safest pattern for non-interactive use.
+safest pattern for non-interactive use. A piped body also works with
+`--attach <file>`: the attachment links are added after the body.
 
 ```shell
 # From a file
@@ -93,6 +95,9 @@ EOF
 glab issue note <iid> << 'EOF'
 It's the same for issues and incidents.
 EOF
+
+# Body from a file, with a screenshot attached after it
+glab mr note create <iid> --attach ./screenshot.png < /tmp/body.md
 ```
 
 For descriptions on `glab issue create` / `glab issue update` /
@@ -286,6 +291,12 @@ JSON for arrays. On GET and DELETE requests, and whenever `--input` is used,
   comments** — use `glab mr note create --reply` for MRs, or
   `glab api .../discussions/<id>/notes` for issues/incidents (write the body
   to a file and pass `-F body=@file` for anything non-trivial).
+- **A note with only an attachment needs `</dev/null` in scripts** — when
+  stdin is not a terminal, `note` commands read it as the body and wait until
+  it closes. Run `glab mr note create <iid> --attach ./shot.png </dev/null`
+  so glab neither waits on an open pipe nor consumes a loop's input.
+- **`--attach -` uses stdin for the file** — the body must then come from
+  `-m`, for example `pngpaste - | glab mr note create <iid> -m "Repro" --attach -`.
 - **`-F` does not upload files** — `-F file=@x.png` sends the file contents as
   a string field, and upload endpoints reject it with HTTP 400. Use `--form
   file=@x.png` for multipart uploads. `-F` reads a file only to fill a *text*

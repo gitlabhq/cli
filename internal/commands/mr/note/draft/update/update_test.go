@@ -231,6 +231,28 @@ func TestDraftUpdate(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("--attach with a body piped on stdin replaces the existing body", func(t *testing.T) {
+		t.Parallel()
+
+		path := filepath.Join(t.TempDir(), "screenshot.png")
+		require.NoError(t, os.WriteFile(path, []byte("\x89PNG\r\n\x1a\nfake png body"), 0o600))
+
+		tc := setupMR(t)
+		mockGetDraft(tc, &gitlab.DraftNote{ID: 501, Note: "Renders wrong here."})
+		tc.MockProjectMarkdownUploads.EXPECT().
+			UploadProjectMarkdown("OWNER/REPO", gomock.Any(), "screenshot.png", gomock.Any()).
+			Return(&gitlab.ProjectMarkdownUploadedFile{Markdown: "![screenshot](/uploads/abc/screenshot.png)"}, nil, nil)
+		tc.MockDraftNotes.EXPECT().
+			UpdateDraftNote("OWNER/REPO", int64(1), int64(501), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ any, _ int64, _ int64, opts *gitlab.UpdateDraftNoteOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.DraftNote, *gitlab.Response, error) {
+				assert.Equal(t, "Replacement body.\n\n![screenshot](/uploads/abc/screenshot.png)", *opts.Note)
+				return &gitlab.DraftNote{ID: 501}, nil, nil
+			})
+
+		_, err := setupExec(t, tc, cmdtest.WithStdin("Replacement body.\n"))(`1 501 --attach ` + path)
+		require.NoError(t, err)
+	})
+
 	t.Run("empty body", func(t *testing.T) {
 		t.Parallel()
 

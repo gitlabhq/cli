@@ -76,6 +76,57 @@ func TestNoteCreate_AttachOnlyPostsWithoutReadingABody(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestNoteCreate_AttachKeepsABodyPipedOnStdin(t *testing.T) {
+	t.Parallel()
+
+	path := writeAttachFixture(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	mockMR1(t, tc)
+	expectUpload(tc)
+	tc.MockDiscussions.EXPECT().
+		CreateMergeRequestDiscussion("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, _ int64, opts *gitlab.CreateMergeRequestDiscussionOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.Discussion, *gitlab.Response, error) {
+			assert.Equal(t, "Piped body.\n\n![screenshot](/uploads/abc/screenshot.png)", *opts.Body)
+			return &gitlab.Discussion{Notes: []*gitlab.Note{{ID: 303}}}, nil, nil
+		})
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, false,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		cmdtest.WithConfig(config.NewFromString("editor: vi")),
+		cmdtest.WithStdin("Piped body.\n"),
+	)
+
+	_, err := exec(`1 --attach ` + path)
+	require.NoError(t, err)
+}
+
+func TestNoteCreate_AttachWithEmptyPipedStdinPostsOnlyTheReference(t *testing.T) {
+	t.Parallel()
+
+	path := writeAttachFixture(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	mockMR1(t, tc)
+	expectUpload(tc)
+	tc.MockDiscussions.EXPECT().
+		CreateMergeRequestDiscussion("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, _ int64, opts *gitlab.CreateMergeRequestDiscussionOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.Discussion, *gitlab.Response, error) {
+			assert.Equal(t, "![screenshot](/uploads/abc/screenshot.png)", *opts.Body)
+			return &gitlab.Discussion{Notes: []*gitlab.Note{{ID: 304}}}, nil, nil
+		})
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, false,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		cmdtest.WithConfig(config.NewFromString("editor: vi")),
+	)
+
+	_, err := exec(`1 --attach ` + path)
+	require.NoError(t, err)
+}
+
 func TestNoteCreate_AttachIsRejectedWithUnique(t *testing.T) {
 	t.Parallel()
 
@@ -147,5 +198,68 @@ func TestNoteUpdate_AttachWithMessageReplacesTheNoteBody(t *testing.T) {
 	)
 
 	_, err := exec(`1 12345 --message "Replaced body." --attach ` + path)
+	require.NoError(t, err)
+}
+
+func TestNoteUpdate_AttachWithPipedStdinReplacesTheNoteBody(t *testing.T) {
+	t.Parallel()
+
+	path := writeAttachFixture(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	mockMR1(t, tc)
+	tc.MockDiscussions.EXPECT().
+		ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+		Return([]*gitlab.Discussion{{
+			ID:    "abc123",
+			Notes: []*gitlab.Note{{ID: 12345, Body: "Original note body."}},
+		}}, &gitlab.Response{}, nil)
+	expectUpload(tc)
+	tc.MockDiscussions.EXPECT().
+		UpdateMergeRequestDiscussionNote("OWNER/REPO", int64(1), "abc123", int64(12345), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, _ int64, _ string, _ int64, opts *gitlab.UpdateMergeRequestDiscussionNoteOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.Note, *gitlab.Response, error) {
+			assert.Equal(t, "Replacement body.\n\n![screenshot](/uploads/abc/screenshot.png)", *opts.Body)
+			return &gitlab.Note{ID: 12345}, nil, nil
+		})
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdUpdate, false,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		cmdtest.WithConfig(config.NewFromString("editor: vi")),
+		cmdtest.WithStdin("Replacement body.\n"),
+	)
+
+	_, err := exec(`1 12345 --attach ` + path)
+	require.NoError(t, err)
+}
+
+func TestNoteUpdate_AttachWithEmptyPipedStdinAppendsToTheExistingNoteBody(t *testing.T) {
+	t.Parallel()
+
+	path := writeAttachFixture(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	mockMR1(t, tc)
+	tc.MockDiscussions.EXPECT().
+		ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+		Return([]*gitlab.Discussion{{
+			ID:    "abc123",
+			Notes: []*gitlab.Note{{ID: 12345, Body: "Original note body."}},
+		}}, &gitlab.Response{}, nil)
+	expectUpload(tc)
+	tc.MockDiscussions.EXPECT().
+		UpdateMergeRequestDiscussionNote("OWNER/REPO", int64(1), "abc123", int64(12345), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, _ int64, _ string, _ int64, opts *gitlab.UpdateMergeRequestDiscussionNoteOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.Note, *gitlab.Response, error) {
+			assert.Equal(t, "Original note body.\n\n![screenshot](/uploads/abc/screenshot.png)", *opts.Body)
+			return &gitlab.Note{ID: 12345}, nil, nil
+		})
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdUpdate, false,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		cmdtest.WithConfig(config.NewFromString("editor: vi")),
+	)
+
+	_, err := exec(`1 12345 --attach ` + path)
 	require.NoError(t, err)
 }

@@ -188,6 +188,27 @@ func TestDraftCreate(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("attachment is appended to a body piped on stdin", func(t *testing.T) {
+		t.Parallel()
+
+		path := filepath.Join(t.TempDir(), "screenshot.png")
+		require.NoError(t, os.WriteFile(path, []byte("\x89PNG\r\n\x1a\nfake png body"), 0o600))
+
+		tc := setupMR(t)
+		tc.MockProjectMarkdownUploads.EXPECT().
+			UploadProjectMarkdown("OWNER/REPO", gomock.Any(), "screenshot.png", gomock.Any()).
+			Return(&gitlab.ProjectMarkdownUploadedFile{Markdown: "![screenshot](/uploads/abc/screenshot.png)"}, nil, nil)
+		tc.MockDraftNotes.EXPECT().
+			CreateDraftNote("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ any, _ int64, opts *gitlab.CreateDraftNoteOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.DraftNote, *gitlab.Response, error) {
+				assert.Equal(t, "Piped body.\n\n![screenshot](/uploads/abc/screenshot.png)", *opts.Note)
+				return &gitlab.DraftNote{ID: 607}, nil, nil
+			})
+
+		_, err := setupExec(t, tc, cmdtest.WithStdin("Piped body.\n"))(`1 --attach ` + path)
+		require.NoError(t, err)
+	})
+
 	t.Run("API error is wrapped", func(t *testing.T) {
 		t.Parallel()
 

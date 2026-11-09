@@ -16,7 +16,7 @@ Comment on an issue in GitLab.
 
 Without `--message`, opens an editor at a terminal, and otherwise reads the comment from standard input, such as when input is piped or redirected.
 
-`--attach` uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass `-` to read the file from standard input. An attachment is content on its own, so a comment with only `--attach` neither prompts nor reads a body from standard input.
+`--attach` uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass `-` to read the file from standard input. An attachment is content on its own, so a comment with only `--attach` does not prompt for a body. When standard input is not a terminal, it is read as the comment body, unless `--attach -` reads the file from standard input. The command waits until standard input closes, so to post only the attachment from a script, redirect standard input from `/dev/null`.
 
 The `--attach` flag is an experiment. It might be
 unstable or removed at any time, and is not ready for production use.
