@@ -108,6 +108,69 @@ func TestNoteCreate_AttachOnlyPostsWithoutAMessage(t *testing.T) {
 	assert.Equal(t, "https://gitlab.com/OWNER/REPO/issues/1#note_302\n", output.String())
 }
 
+func setupPipedNoteCmd(t *testing.T, testClient *gitlabtesting.TestClient, opts ...cmdtest.FactoryOption) cmdtest.CmdExecFunc {
+	t.Helper()
+
+	opts = append([]cmdtest.FactoryOption{
+		cmdtest.WithGitLabClient(testClient.Client),
+		cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		cmdtest.WithConfig(config.NewFromString("editor: vi")),
+	}, opts...)
+	return cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+		return NewCmdNote(f, issuable.TypeIssue)
+	}, false, opts...)
+}
+
+func TestNoteCreate_AttachKeepsABodyPipedOnStdin(t *testing.T) {
+	t.Parallel()
+
+	path := writeAttachment(t, "screenshot.png")
+
+	testClient := gitlabtesting.NewTestClient(t)
+	expectIssue(testClient)
+	testClient.MockProjectMarkdownUploads.EXPECT().
+		UploadProjectMarkdown("OWNER/REPO", gomock.Any(), "screenshot.png", gomock.Any()).
+		Return(&gitlab.ProjectMarkdownUploadedFile{
+			Markdown: "![screenshot](/uploads/abc/screenshot.png)",
+		}, nil, nil)
+	testClient.MockNotes.EXPECT().
+		CreateIssueNote("OWNER/REPO", int64(1), gomock.Any()).
+		DoAndReturn(func(pid any, iid int64, opts *gitlab.CreateIssueNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Note, *gitlab.Response, error) {
+			assert.Equal(t, "Piped body.\n\n![screenshot](/uploads/abc/screenshot.png)", *opts.Body)
+			return &gitlab.Note{ID: 305}, nil, nil
+		})
+
+	exec := setupPipedNoteCmd(t, testClient, cmdtest.WithStdin("Piped body.\n"))
+
+	_, err := exec(`1 --attach ` + path)
+	require.NoError(t, err)
+}
+
+func TestNoteCreate_AttachWithEmptyPipedStdinPostsOnlyTheReference(t *testing.T) {
+	t.Parallel()
+
+	path := writeAttachment(t, "screenshot.png")
+
+	testClient := gitlabtesting.NewTestClient(t)
+	expectIssue(testClient)
+	testClient.MockProjectMarkdownUploads.EXPECT().
+		UploadProjectMarkdown("OWNER/REPO", gomock.Any(), "screenshot.png", gomock.Any()).
+		Return(&gitlab.ProjectMarkdownUploadedFile{
+			Markdown: "![screenshot](/uploads/abc/screenshot.png)",
+		}, nil, nil)
+	testClient.MockNotes.EXPECT().
+		CreateIssueNote("OWNER/REPO", int64(1), gomock.Any()).
+		DoAndReturn(func(pid any, iid int64, opts *gitlab.CreateIssueNoteOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Note, *gitlab.Response, error) {
+			assert.Equal(t, "![screenshot](/uploads/abc/screenshot.png)", *opts.Body)
+			return &gitlab.Note{ID: 306}, nil, nil
+		})
+
+	exec := setupPipedNoteCmd(t, testClient)
+
+	_, err := exec(`1 --attach ` + path)
+	require.NoError(t, err)
+}
+
 func TestNoteCreate_MultipleAttachmentsAppendInOrder(t *testing.T) {
 	t.Parallel()
 

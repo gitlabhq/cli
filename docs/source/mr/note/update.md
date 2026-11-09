@@ -24,7 +24,7 @@ You can find note IDs with:
 
 You can change only the note body. You cannot move the position of diff notes.
 
-`--attach` uploads a file and references it at the end of the note. Repeat the flag for more than one file, or pass `-` to read the file from standard input. Without `--message` the references are added to the body the note already has, instead of replacing it.
+`--attach` uploads a file and references it at the end of the note. Repeat the flag for more than one file, or pass `-` to read the file from standard input. Without `--message`, standard input that is not a terminal is read as the new body. It replaces the existing body, unless `--attach -` reads the file from standard input. With neither `--message` nor piped input, the references are added to the body the note already has, instead of replacing it. The command waits until standard input closes, so to keep the existing body from a script, redirect standard input from `/dev/null`.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.

@@ -23,6 +23,13 @@ func AddAttachFlag(cmd *cobra.Command, paths *[]string, resource string) {
 	))
 }
 
+// SkipNoteBody reports whether --attach prevents reading a note body: an
+// attachment claims stdin for itself, or stdin is a terminal, where an
+// attachment-only note must not open the editor.
+func SkipNoteBody(ios *iostreams.IOStreams, attach []string) bool {
+	return slices.Contains(attach, upload.StdinPath) || (len(attach) > 0 && ios.IsInTTY)
+}
+
 // checkAttachmentStdin rejects sharing stdin: reading the description closes
 // the stream, leaving the attachment an exhausted reader.
 func checkAttachmentStdin(cmd *cobra.Command, descriptionFile string) error {

@@ -18,7 +18,7 @@ Replace the body of a pending review comment before you publish the review. `<dr
 
 You can change only the body. A pending diff comment stays on the same file and lines. Pending comments on images cannot be updated from the command line, because their position cannot be preserved.
 
-`--attach` uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass `-` to read the file from standard input. Without `--message` the references are added to the body the comment already has, instead of replacing it.
+`--attach` uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass `-` to read the file from standard input. Without `--message`, standard input that is not a terminal is read as the new body. It replaces the existing body, unless `--attach -` reads the file from standard input. With neither `--message` nor piped input, the references are added to the body the comment already has, instead of replacing it. The command waits until standard input closes, so to keep the existing body from a script, redirect standard input from `/dev/null`.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.

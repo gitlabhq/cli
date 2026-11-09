@@ -28,7 +28,7 @@ func NewCmdNote(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Command
 		Long: heredoc.Docf(`
 			Without %[1]s--message%[1]s, opens an editor at a terminal, and otherwise reads the comment from standard input, such as when input is piped or redirected.
 
-			%[1]s--attach%[1]s uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. An attachment is content on its own, so a comment with only %[1]s--attach%[1]s neither prompts nor reads a body from standard input.
+			%[1]s--attach%[1]s uploads a file and references it at the end of the comment. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. An attachment is content on its own, so a comment with only %[1]s--attach%[1]s does not prompt for a body. When standard input is not a terminal, it is read as the comment body, unless %[1]s--attach -%[1]s reads the file from standard input. The command waits until standard input closes, so to post only the attachment from a script, redirect standard input from %[1]s/dev/null%[1]s.
 			%[2]s`, "`", fmt.Sprintf(text.ExperimentalFlagString, "`--attach`")),
 		Example: heredoc.Docf(`
 			# Comment on %[1]s 123, opening an editor for the message
@@ -73,7 +73,7 @@ func NewCmdNote(f cmdutils.Factory, issueType issuable.IssueType) *cobra.Command
 
 			body, _ := cmd.Flags().GetString("message")
 
-			if strings.TrimSpace(body) == "" && len(attach) == 0 {
+			if strings.TrimSpace(body) == "" && !cmdutils.SkipNoteBody(f.IO(), attach) {
 				body, err = cmdutils.NoteBodyFromStdinOrEditor(cmd.Context(), f.IO(), f.Config, "Message:", "Enter the note's message.")
 				if err != nil {
 					return err

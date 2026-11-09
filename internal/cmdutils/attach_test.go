@@ -90,3 +90,29 @@ func TestAppendAttachments_NoPathsLeavesTheBodyAlone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "unchanged", body)
 }
+
+func TestSkipNoteBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		attach []string
+		isTTY  bool
+		want   bool
+	}{
+		{name: "no attachment reads the body", attach: nil, isTTY: true, want: false},
+		{name: "file attachment with piped stdin reads the body", attach: []string{"./a.png"}, isTTY: false, want: false},
+		{name: "stdin attachment claims stdin", attach: []string{"./a.png", "-"}, isTTY: false, want: true},
+		{name: "stdin attachment on a terminal", attach: []string{"-"}, isTTY: true, want: true},
+		{name: "file attachment on a terminal does not prompt", attach: []string{"./a.png"}, isTTY: true, want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ios := iostreams.New(iostreams.WithStdin(io.NopCloser(bytes.NewBufferString("")), tc.isTTY))
+			assert.Equal(t, tc.want, SkipNoteBody(ios, tc.attach))
+		})
+	}
+}
