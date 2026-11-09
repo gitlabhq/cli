@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"sync"
 	"testing"
 
@@ -231,14 +230,21 @@ func TestProxyFailsWhenTLSOutboundProxyIsUntrusted(t *testing.T) {
 }
 
 func TestProxyUsesEnvironmentOutboundProxyByDefault(t *testing.T) {
-	t.Parallel()
+	for _, k := range []string{"HTTPS_PROXY", "https_proxy"} {
+		t.Setenv(k, "http://egress.example:3128")
+	}
+	for _, k := range []string{"HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy"} {
+		t.Setenv(k, "")
+	}
 	p, err := New(stubMatcher{}, stubChecker{}, "group/proj")
 	require.NoError(t, err)
 
-	require.NotNil(t, p.upstream.Proxy)
-	assert.Equal(t,
-		reflect.ValueOf(http.ProxyFromEnvironment).Pointer(),
-		reflect.ValueOf(p.upstream.Proxy).Pointer())
+	for _, target := range []string{"https://registry.example/pkg", "http://registry.example/pkg"} {
+		got, err := p.upstream.Proxy(httptest.NewRequest(http.MethodGet, target, http.NoBody))
+		require.NoError(t, err)
+		require.NotNil(t, got, target)
+		assert.Equal(t, "http://egress.example:3128", got.String(), target)
+	}
 }
 
 type warningRecorder struct {
@@ -359,4 +365,59 @@ func TestProxyDoesNotWarnWhenClientAbortsUpload(t *testing.T) {
 	p.Stop()
 
 	assert.Empty(t, warnings.Lines(), "a request the package manager aborted is not a registry failure")
+}
+
+func TestProxyKeepsPlainHTTPDirectInCGI(t *testing.T) {
+	t.Setenv("REQUEST_METHOD", "GET")
+	for _, k := range []string{"HTTPS_PROXY", "https_proxy"} {
+		t.Setenv(k, "http://egress.example:3128")
+	}
+	for _, k := range []string{"HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy"} {
+		t.Setenv(k, "")
+	}
+	p, err := New(stubMatcher{}, stubChecker{}, "group/proj")
+	require.NoError(t, err)
+
+	got, err := p.upstream.Proxy(httptest.NewRequest(http.MethodGet, "http://registry.example/pkg", http.NoBody))
+
+	require.NoError(t, err, "httpproxy refuses an HTTP_PROXY value in a CGI environment, so the fallback must not set one")
+	assert.Nil(t, got)
+}
+
+func TestProxyReadsUppercaseProxyVariablesFirst(t *testing.T) {
+	proxyFor := func(t *testing.T, p *Proxy, target string) string {
+		t.Helper()
+		got, err := p.upstream.Proxy(httptest.NewRequest(http.MethodGet, target, http.NoBody))
+		require.NoError(t, err)
+		if got == nil {
+			return ""
+		}
+		return got.String()
+	}
+	t.Setenv("REQUEST_METHOD", "")
+	t.Setenv("HTTPS_PROXY", "http://upper.example:3128")
+	t.Setenv("https_proxy", "http://lower.example:3128")
+	t.Setenv("NO_PROXY", "direct.example")
+	t.Setenv("no_proxy", "other.example")
+
+	t.Run("when HTTP_PROXY is unset", func(t *testing.T) {
+		t.Setenv("HTTP_PROXY", "")
+		t.Setenv("http_proxy", "")
+		p, err := New(stubMatcher{}, stubChecker{}, "group/proj")
+		require.NoError(t, err)
+
+		assert.Equal(t, "http://upper.example:3128", proxyFor(t, p, "https://registry.example/pkg"))
+		assert.Equal(t, "http://upper.example:3128", proxyFor(t, p, "http://registry.example/pkg"))
+		assert.Empty(t, proxyFor(t, p, "https://direct.example/pkg"), "NO_PROXY wins over no_proxy")
+		assert.Equal(t, "http://upper.example:3128", proxyFor(t, p, "https://other.example/pkg"), "no_proxy applies only when NO_PROXY is unset")
+	})
+
+	t.Run("when both spellings of HTTP_PROXY are set", func(t *testing.T) {
+		t.Setenv("HTTP_PROXY", "http://upper-http.example:3128")
+		t.Setenv("http_proxy", "http://lower-http.example:3128")
+		p, err := New(stubMatcher{}, stubChecker{}, "group/proj")
+		require.NoError(t, err)
+
+		assert.Equal(t, "http://upper-http.example:3128", proxyFor(t, p, "http://registry.example/pkg"))
+	})
 }

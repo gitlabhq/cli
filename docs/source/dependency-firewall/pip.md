@@ -46,7 +46,8 @@ glab dependency-firewall pip install -r requirements.txt
 
 ```plaintext
 HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
-NO_PROXY: hosts glab reaches directly instead of through HTTPS_PROXY.
+HTTP_PROXY: outbound proxy for plain-HTTP registries. When it's unset, glab uses HTTPS_PROXY.
+NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.
 ```
 
 ## Options inherited from parent commands

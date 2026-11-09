@@ -1,6 +1,7 @@
 package dfcmd
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -29,7 +30,16 @@ type ProxySpec struct {
 	Short   string
 	Long    string
 	Example string
+	// Environment replaces the help for the outbound proxy variables, for a
+	// manager that doesn't reach registries through the firewall proxy.
+	Environment string
 }
+
+var proxyEnvironmentHelp = heredoc.Doc(`
+	HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
+	HTTP_PROXY: outbound proxy for plain-HTTP registries. When it's unset, glab uses HTTPS_PROXY.
+	NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.
+`)
 
 type options struct {
 	io           *iostreams.IOStreams
@@ -67,10 +77,7 @@ func NewProxyCmd(f cmdutils.Factory, spec ProxySpec) *cobra.Command {
 		Short: spec.Short + " (BETA)",
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
-			"help:environment": heredoc.Doc(`
-				HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
-				NO_PROXY: hosts glab reaches directly instead of through HTTPS_PROXY.
-			`),
+			"help:environment":     cmp.Or(spec.Environment, proxyEnvironmentHelp),
 		},
 		DisableFlagParsing: true,
 		Long:               spec.Long + text.BetaString,

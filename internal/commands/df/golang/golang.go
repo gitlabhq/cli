@@ -44,5 +44,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			# Add a dependency, checking it against the policy first
 			glab dependency-firewall go get github.com/pkg/errors@v0.9.1
 		`),
+		Environment: heredoc.Doc(`
+			HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
+			NO_PROXY: hosts glab reaches directly instead of through HTTPS_PROXY.
+		`),
 	})
 }

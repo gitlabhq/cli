@@ -86,12 +86,6 @@ type argsManager interface {
 	SetArgs(args []string)
 }
 
-// warnManager receives Run's stderr logger, for managers that can find a
-// problem in the caller's setup that the user needs to see.
-type warnManager interface {
-	SetWarn(warnf func(format string, args ...any))
-}
-
 type setupInput struct {
 	parent    []string // the environment the child would otherwise inherit
 	bin       string   // the manager binary's path from LookPath
@@ -136,13 +130,12 @@ func proxyEnviron(parent []string, proxyURL string, managerKeys ...string) []str
 	}
 	// Point both HTTP_PROXY and HTTPS_PROXY at the inspection proxy. HTTPS is
 	// the normal path (registries have served over HTTPS for years). HTTP_PROXY
-	// is set — not merely stripped — to fail closed on plaintext: the registry
-	// URL is repo-controlled, so a committed ".npmrc registry=http://mirror/"
-	// (or the equivalent for any ecosystem) would otherwise fetch over plain
-	// HTTP, consult an absent HTTP_PROXY, and connect directly with zero
-	// inspection on a green job. Routing plaintext at the proxy breaks it
-	// loudly instead: the proxy serves CONNECT only and 405s non-CONNECT
-	// traffic, so a plaintext fetch errors rather than silently bypassing.
+	// is set — not merely stripped — because the registry URL is
+	// repo-controlled: a committed ".npmrc registry=http://mirror/" (or the
+	// equivalent for any ecosystem) would otherwise fetch over plain HTTP,
+	// consult an absent HTTP_PROXY, and connect directly with zero inspection
+	// on a green job. Through the proxy, a plaintext fetch is checked against
+	// policy like any other.
 	// Manager-specific routing variables are re-added by the manager's
 	// Environment, appended by Run after this call.
 	return append(env, "HTTP_PROXY="+proxyURL, "HTTPS_PROXY="+proxyURL)
@@ -368,9 +361,6 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 
 	if a, ok := manager.(argsManager); ok {
 		a.SetArgs(opts.Args)
-	}
-	if w, ok := manager.(warnManager); ok {
-		w.SetWarn(opts.IO.LogErrorf)
 	}
 
 	var setup setupResult

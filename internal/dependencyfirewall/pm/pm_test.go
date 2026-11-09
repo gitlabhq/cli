@@ -89,14 +89,15 @@ func TestProxyEnvironStripsInheritedProxyVarsAndSetsHTTPS(t *testing.T) {
 	// Every inherited proxy/no-proxy variable (any case), plus the manager's
 	// own routing keys, must be gone. HTTP_PROXY and HTTPS_PROXY are then set
 	// to the inspection proxy (not merely stripped): a plaintext-HTTP registry
-	// must hit the proxy and fail loudly, and a surviving NO_PROXY would route
-	// traffic past the MITM proxy and silently fail open.
+	// must go through the proxy to be checked rather than be fetched directly,
+	// and a surviving NO_PROXY would route traffic past the MITM proxy and
+	// silently fail open.
 	for _, e := range got {
 		key, _, _ := strings.Cut(e, "=")
 		switch strings.ToUpper(key) {
 		case "HTTP_PROXY":
 			if e == "HTTP_PROXY=http://127.0.0.1:8080" {
-				continue // the one we set (fail-closed on plaintext)
+				continue // the one we set
 			}
 			t.Fatalf("inherited HTTP_PROXY survived sanitization: %q", e)
 		case "HTTPS_PROXY":
@@ -110,7 +111,7 @@ func TestProxyEnvironStripsInheritedProxyVarsAndSetsHTTPS(t *testing.T) {
 	}
 	assert.Contains(t, got, "PATH=/usr/bin", "non-proxy vars must be preserved")
 	assert.Contains(t, got, "HTTPS_PROXY=http://127.0.0.1:8080", "HTTPS_PROXY must point at the inspection proxy")
-	assert.Contains(t, got, "HTTP_PROXY=http://127.0.0.1:8080", "HTTP_PROXY must point at the inspection proxy so plaintext fetches fail closed")
+	assert.Contains(t, got, "HTTP_PROXY=http://127.0.0.1:8080", "HTTP_PROXY must point at the inspection proxy so plaintext fetches are checked")
 }
 
 func TestProxyEnvironWithoutManagerKeysLeavesThemForRun(t *testing.T) {

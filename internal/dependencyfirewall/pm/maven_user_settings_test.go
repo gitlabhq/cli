@@ -3,12 +3,9 @@
 package pm
 
 import (
-	"bytes"
 	"encoding/xml"
 	"errors"
-	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,7 +92,6 @@ type mavenRun struct {
 	args         string
 	settingsPath string
 	settings     string
-	warnings     []string
 }
 
 // mavenWithoutInstall returns the Maven manager with the machine's own Maven
@@ -121,10 +117,6 @@ func mavenSettingsFor(t *testing.T, args []string) mavenRun {
 	if a, ok := m.(argsManager); ok {
 		a.SetArgs(args)
 	}
-	var warnings []string
-	w, ok := m.(warnManager)
-	require.True(t, ok, "maven must take Run's stderr logger")
-	w.SetWarn(func(format string, a ...any) { warnings = append(warnings, fmt.Sprintf(format, a...)) })
 	m.Environment("http://127.0.0.1:52999")
 	var mavenArgs string
 	for _, e := range m.CATrustEnviron(caPath) {
@@ -137,7 +129,7 @@ func mavenSettingsFor(t *testing.T, args []string) mavenRun {
 	settingsPath := caPath + ".settings.xml"
 	raw, err := os.ReadFile(settingsPath)
 	require.NoError(t, err)
-	return mavenRun{args: mavenArgs, settingsPath: settingsPath, settings: string(raw), warnings: warnings}
+	return mavenRun{args: mavenArgs, settingsPath: settingsPath, settings: string(raw)}
 }
 
 // assertFirewallSettingsWin checks that the firewall's settings file is the
@@ -250,281 +242,6 @@ func plainHTTPSettings(url string) string {
 `
 }
 
-// TestMavenPlainHTTPRepositories pins the fallback for repositories the proxy
-// can't route yet: it only accepts CONNECT, so a kept http:// mirror would
-// turn every download from it into a 405.
-func TestMavenPlainHTTPRepositories(t *testing.T) {
-	t.Run("when the user's mirror is plain HTTP", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, plainHTTPSettings("http://nexus.example.com:8081/repository/public/"))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		assertFirewallProxyActive(t, r.settings, "52999")
-		assert.NotContains(t, r.settings, "nexus.example.com", "the plain-HTTP mirror must not reach mvn")
-		require.Len(t, r.warnings, 1)
-		assert.Contains(t, r.warnings[0], `mirror "corp"`)
-		assert.Contains(t, r.warnings[0], fmt.Sprintf("%q", userPath))
-		assert.NotContains(t, r.warnings[0], "nexus.example.com", "the warning names the mirror, never its URL")
-	})
-
-	t.Run("when a profile's plugin repository is plain HTTP", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, strings.Replace(complexSettingsXML,
-			"<pluginRepository>\n                  <id>corporate</id>\n                  <url>https://",
-			"<pluginRepository>\n                  <id>corporate</id>\n                  <url>http://", 1))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		assertFirewallProxyActive(t, r.settings, "52999")
-		assert.NotContains(t, r.settings, "nexus.example-corp.internal")
-		require.Len(t, r.warnings, 1)
-		assert.Contains(t, r.warnings[0], `plugin repository "corporate"`)
-	})
-
-	t.Run("when a profile's repository is plain HTTP", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, strings.Replace(complexSettingsXML,
-			"<repository>\n  \t\t\t\t<id>corporate</id>\n  \t\t\t\t<url>https://",
-			"<repository>\n  \t\t\t\t<id>corporate</id>\n  \t\t\t\t<url>http://", 1))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		assert.NotContains(t, r.settings, "nexus.example-corp.internal")
-		require.Len(t, r.warnings, 1)
-	})
-
-	t.Run("when the URL is padded or upper case", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, plainHTTPSettings("\n        HTTP://nexus.example.com/repository/public/\n      "))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		require.Len(t, r.warnings, 1)
-		assert.Contains(t, r.warnings[0], `mirror "corp"`)
-	})
-
-	t.Run("when the scheme comes from a property", func(t *testing.T) {
-		for _, u := range []string{"${env.NEXUS_URL}", "${repo.scheme}://nexus.example.com/repository/public/", "http://${env.NEXUS_HOST}/repository/public/"} {
-			t.Run(u, func(t *testing.T) {
-				t.Setenv("MAVEN_ARGS", "")
-				t.Setenv("NEXUS_URL", "")
-				t.Setenv("NEXUS_HOST", "")
-				userPath := writeUserSettings(t, plainHTTPSettings(u))
-
-				r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-				require.Len(t, r.warnings, 1, "a scheme glab can't see may be plain HTTP")
-				assert.NotContains(t, r.settings, "<mirror>")
-			})
-		}
-	})
-
-	t.Run("when only the host comes from a property behind https", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		t.Setenv("NEXUS_HOST", "")
-		userPath := writeUserSettings(t, plainHTTPSettings("https://${env.NEXUS_HOST}/repository/public/"))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		assert.Empty(t, r.warnings)
-		assert.Contains(t, r.settings, "${env.NEXUS_HOST}", "the caller's settings must still be merged")
-	})
-
-	t.Run("when the mirror URL comes from an environment variable", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		t.Setenv("CI_API_V4_URL", "https://gitlab.example.com/api/v4")
-		userPath := writeUserSettings(t, plainHTTPSettings("${env.CI_API_V4_URL}/virtual_registries/packages/maven/42"))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		assert.Empty(t, r.warnings, "glab can see the scheme once it expands the variable")
-		assert.Contains(t, r.settings, "<url>https://gitlab.example.com/api/v4/virtual_registries/packages/maven/42</url>",
-			"Maven must fetch from the URL glab checked")
-	})
-
-	t.Run("when the environment variable holds a plain-HTTP URL", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		t.Setenv("NEXUS_URL", "http://nexus.example.com/repository/public/")
-		userPath := writeUserSettings(t, plainHTTPSettings("${env.NEXUS_URL}"))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		require.Len(t, r.warnings, 1)
-		assert.NotContains(t, r.settings, "nexus.example.com", "the plain-HTTP mirror must not reach mvn")
-	})
-
-	t.Run("when the only plain-HTTP mirror is Maven's blocked http-blocker", func(t *testing.T) {
-		// Maven 3.8.1+ ships this mirror in conf/settings.xml, so copies of the
-		// stock file carry it next to the caller's real mirror.
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, strings.Replace(userSettingsXML, "<mirrors>", `<mirrors>
-    <mirror>
-      <id>maven-default-http-blocker</id>
-      <mirrorOf>external:http:*</mirrorOf>
-      <name>Pseudo repository to mirror external repositories initially using HTTP.</name>
-      <url>http://0.0.0.0/</url>
-      <blocked>true</blocked>
-    </mirror>`, 1))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		assert.Empty(t, r.warnings)
-		assertProxyAndUserContent(t, r.settings, "52999")
-	})
-
-	t.Run("when the plain-HTTP URL carries credentials or a token", func(t *testing.T) {
-		for _, u := range []string{
-			"http://svc:hunter2@nexus.example.com/repository/public/",
-			"http://hunter2@nexus.example.com/repository/public/",
-			"http://nexus.example.com/repository/public/?access_token=hunter2",
-			"http://svc:hunter2/x@nexus.example.com/repository/public/",
-			"http://svc:hunter2#x@nexus.example.com/repository/public/",
-			"http://svc:hunter2?x@nexus.example.com/repository/public/",
-			"http://nexus.example.com/repository/public/?user=a@b.com&amp;access_token=hunter2",
-			"http://nexus.example.com/repository/public/#email=a@b&amp;t=hunter2",
-			"http://nexus.example.com/repository/public/?auth=svc@hunter2",
-		} {
-			t.Run(u, func(t *testing.T) {
-				t.Setenv("MAVEN_ARGS", "")
-				userPath := writeUserSettings(t, plainHTTPSettings(u))
-
-				r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-				require.Len(t, r.warnings, 1)
-				assert.NotContains(t, r.warnings[0], "hunter2", "the warning must not print a credential")
-				assert.NotContains(t, r.warnings[0], "nexus.example.com", "the warning names the mirror, never its URL")
-				assert.NotContains(t, r.warnings[0], "/repository/public")
-				assert.Contains(t, r.warnings[0], `mirror "corp"`)
-			})
-		}
-	})
-
-	t.Run("when a blocked plain-HTTP mirror is followed by an unblocked one", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, `<settings>
-  <mirrors>
-    <mirror><id>blocker</id><mirrorOf>external:http:*</mirrorOf><url>http://0.0.0.0/</url><blocked> TRUE </blocked></mirror>
-    <mirror><id>corp</id><mirrorOf>*</mirrorOf><url>http://nexus.example.com/repository/public/</url></mirror>
-  </mirrors>
-</settings>`)
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		require.Len(t, r.warnings, 1)
-		assert.Contains(t, r.warnings[0], `mirror "corp"`, "the second mirror must not inherit the first one's <blocked>")
-	})
-
-	t.Run("when the id holds a newline", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, strings.Replace(plainHTTPSettings("http://nexus.example.com/repository/public/"),
-			"<id>corp</id>\n      <mirrorOf>", "<id>corp\nwarning: forged</id>\n      <mirrorOf>", 1))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		require.Len(t, r.warnings, 1)
-		assert.Equal(t, 1, strings.Count(r.warnings[0], "\n"), "the id must not be able to start a line of its own")
-	})
-
-	t.Run("when a mirror with an id is followed by a plain-HTTP one without", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, `<settings>
-  <mirrors>
-    <mirror><id>first</id><mirrorOf>central</mirrorOf><url>https://nexus.example.com/repository/public/</url></mirror>
-    <mirror><mirrorOf>*</mirrorOf><url>http://nexus.example.com/repository/public/</url></mirror>
-  </mirrors>
-</settings>`)
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		require.Len(t, r.warnings, 1)
-		assert.Contains(t, r.warnings[0], "a mirror with no <id>", "the second mirror must not inherit the first one's id")
-	})
-
-	t.Run("when an element inside the mirror has its own id", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, `<settings>
-  <mirrors>
-    <mirror><id>own</id><name><id>nested</id></name><mirrorOf>*</mirrorOf><url>http://nexus.example.com/repository/public/</url></mirror>
-  </mirrors>
-</settings>`)
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		require.Len(t, r.warnings, 1)
-		assert.Contains(t, r.warnings[0], `the mirror "own"`)
-	})
-
-	t.Run("when the id wraps another element's text", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, `<settings>
-  <mirrors>
-    <mirror><id><url>http://nexus.example.com/?t=hunter2</url></id><mirrorOf>*</mirrorOf><url>http://nexus.example.com/repository/public/</url></mirror>
-  </mirrors>
-</settings>`)
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		require.Len(t, r.warnings, 1)
-		assert.NotContains(t, r.warnings[0], "hunter2")
-		assert.Contains(t, r.warnings[0], "a mirror with no <id>")
-	})
-
-	t.Run("when an http:// URL sits in a server's free-form configuration", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, strings.Replace(userSettingsXML, "<password>secret</password>",
-			"<password>secret</password>\n      <configuration><url>http://wagon.example.com/</url></configuration>", 1))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		assert.Empty(t, r.warnings)
-		assertProxyAndUserContent(t, r.settings, "52999")
-	})
-
-	t.Run("when the settings can be merged but not scanned to the end", func(t *testing.T) {
-		// The merge stops parsing at <proxies/>, so a later byte the decoder
-		// rejects (but Maven accepts) must not hide the mirror after it.
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, "<settings>\n  <proxies/>\n  <mirrors>\n    <mirror><id>corp</id><name>caf\xe9</name><mirrorOf>*</mirrorOf>"+
-			"<url>http://nexus.example.com/repository/public/</url></mirror>\n  </mirrors>\n</settings>\n")
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		assertFirewallProxyActive(t, r.settings, "52999")
-		assert.NotContains(t, r.settings, "nexus.example.com", "a file that can't be scanned must fall back")
-		require.Len(t, r.warnings, 1)
-		assert.Contains(t, r.warnings[0], fmt.Sprintf("could not check %q", userPath))
-	})
-
-	t.Run("when the scan error would quote the file", func(t *testing.T) {
-		// Go's decoder quotes the text after a bad "&", here part of a password.
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, "<settings>\n  <proxies/>\n  <servers><server><id>corp</id><password>abc&hunter2!</password></server></servers>\n</settings>\n")
-		t.Setenv("GLAB_DEBUG", "true")
-		var debugLog bytes.Buffer
-		log.SetOutput(&debugLog)
-		t.Cleanup(func() { log.SetOutput(os.Stderr) })
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		require.Len(t, r.warnings, 1)
-		assert.NotContains(t, r.warnings[0], "hunter2")
-		assert.Contains(t, debugLog.String(), "XML syntax error on line", "the debug log says where the file broke")
-		assert.NotContains(t, debugLog.String(), "hunter2", "a CI log with GLAB_DEBUG on must not show the password")
-	})
-
-	t.Run("when an http:// URL is only a property or a namespace", func(t *testing.T) {
-		t.Setenv("MAVEN_ARGS", "")
-		userPath := writeUserSettings(t, strings.Replace(complexSettingsXML,
-			"<properties>", "<properties>\n  \t\t\t<site.url>http://docs.example-corp.internal/</site.url>", 1))
-
-		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
-
-		assert.Empty(t, r.warnings, "only repository and mirror URLs carry artifact traffic")
-		assert.Contains(t, r.settings, "nexus.example-corp.internal", "the caller's settings must still be merged")
-	})
-}
-
 func TestMavenExpandEnvURLs(t *testing.T) {
 	environ := []string{
 		"CI_API_V4_URL=https://gitlab.example.com/api/v4",
@@ -580,27 +297,29 @@ func TestMavenExpandEnvURLs(t *testing.T) {
 
 		assert.Equal(t, raw, string(mavenExpandEnvURLs([]byte(raw), environ)), "glab's own parse of the file reports the error")
 	})
+
+	t.Run("when the caller's mirror URL comes from an environment variable", func(t *testing.T) {
+		t.Setenv("MAVEN_ARGS", "")
+		t.Setenv("CI_API_V4_URL", "https://gitlab.example.com/api/v4")
+		userPath := writeUserSettings(t, plainHTTPSettings("${env.CI_API_V4_URL}/virtual_registries/packages/maven/42"))
+
+		r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
+
+		assert.Contains(t, r.settings, "<url>https://gitlab.example.com/api/v4/virtual_registries/packages/maven/42</url>",
+			"Maven must fetch from the URL glab checked")
+	})
 }
 
-// TestRunWarnsAboutPlainHTTPRepositories goes through Run, since that's what
-// hands the manager the stderr logger.
-func TestRunWarnsAboutPlainHTTPRepositories(t *testing.T) {
-	t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
-	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+// TestMavenPlainHTTPMirrorIsMerged pins that a plain-HTTP mirror survives the
+// merge, now that the proxy serves absolute-form http:// requests itself.
+func TestMavenPlainHTTPMirrorIsMerged(t *testing.T) {
 	t.Setenv("MAVEN_ARGS", "")
-	userPath := writeUserSettings(t, plainHTTPSettings("http://nexus.example.com:8081/repository/public/"))
-	ios, _, _, stderr := cmdtest.TestIOStreams()
+	userPath := writeUserSettings(t, strings.Replace(userSettingsXML, "https://nexus.example.com", "http://nexus.example.com", 1))
 
-	require.NoError(t, Run(t.Context(), mavenWithoutInstall(t), RunOptions{
-		IO:        ios,
-		Executor:  &fakeExecutor{},
-		BaseDir:   t.TempDir(),
-		ProjectID: "group/proj",
-		Args:      []string{"-s", userPath, "verify"},
-	}))
+	r := mavenSettingsFor(t, []string{"-s", userPath, "verify"})
 
-	assert.Contains(t, stderr.String(), `names the mirror "corp", whose URL is or may be plain HTTP`)
-	assert.Contains(t, stderr.String(), fmt.Sprintf("%q", userPath))
+	assertProxyAndUserContent(t, r.settings, "52999")
+	assert.Contains(t, r.settings, "<url>http://nexus.example.com/repository/central</url>")
 }
 
 // TestMergeMavenProxiesReportsTheCause pins that each way a merge can fail
