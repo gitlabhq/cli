@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 // FileName is the plugin's file name in the OpenCode plugin directory.
@@ -22,9 +23,17 @@ const FileName = "glab-govern.js"
 //go:embed glab-govern.js
 var Source []byte
 
-// marker starts every version of the plugin, so that glab only removes a
-// file it installed.
-var marker = []byte("// Installed by glab govern setup.")
+// markers start every version of the plugin, so that glab only removes a file
+// it installed. Versions before the rename to glab minder start with the
+// second.
+var markers = [][]byte{
+	[]byte("// Installed by glab minder setup."),
+	[]byte("// Installed by glab govern setup."),
+}
+
+func hasMarker(data []byte) bool {
+	return slices.ContainsFunc(markers, func(m []byte) bool { return bytes.HasPrefix(data, m) })
+}
 
 // ConfigDir returns OpenCode's global configuration directory, which OpenCode
 // creates when it first runs.
@@ -101,7 +110,7 @@ func Check(path string) (State, error) {
 		return NotInstalled, err
 	case bytes.Equal(data, Source):
 		return Current, nil
-	case bytes.HasPrefix(data, marker):
+	case hasMarker(data):
 		return Outdated, nil
 	default:
 		return Foreign, nil
@@ -111,7 +120,7 @@ func Check(path string) (State, error) {
 // ForeignError reports that the file at path, where the plugin goes, was not
 // installed by glab.
 func ForeignError(path string) error {
-	return fmt.Errorf("%s was not installed by glab; remove or rename it, then run 'glab govern setup --agents opencode'", Display(path))
+	return fmt.Errorf("%s was not installed by glab; remove or rename it, then run 'glab minder setup --agents opencode'", Display(path))
 }
 
 // Install writes the plugin to path, replacing an earlier version. It

@@ -1,5 +1,5 @@
 ---
-title: '`glab govern doctor`'
+title: '`glab minder doctor`'
 stage: AI Clients
 group: Developer Clients
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see <https://handbook.gitlab.com/handbook/marketing/product-and-technical-marketing/technical-writing/#assignments>
@@ -33,14 +33,14 @@ For more information, see
 <https://docs.gitlab.com/policy/development_stages_support/>.
 
 ```plaintext
-glab govern doctor [flags]
+glab minder doctor [flags]
 ```
 
 ## Examples
 
 ```console
 # Check AI agent governance configuration on this machine
-$ glab govern doctor
+$ glab minder doctor
 
 ```
 

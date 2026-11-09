@@ -379,6 +379,82 @@ func TestRunUninstall_HooksOnly(t *testing.T) {
 	assert.JSONEq(t, `"opus"`, string(raw["model"]))
 }
 
+func TestRunSetup_ReplacesHooksFromBeforeTheRename(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	path := filepath.Join(dir, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`{"hooks":{
+		"Stop":[{"hooks":[{"type":"command","command":"glab govern audit sync --silent >/dev/null 2>&1 &"}]}],
+		"SessionEnd":[{"hooks":[{"type":"command","command":"glab govern audit sync --silent --complete >/dev/null 2>&1 &"}]}]
+	}}`), 0o644))
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	opts := &options{io: ios, yes: true, noFallbackSync: true, settingsPathOverride: path}
+	require.NoError(t, runSetup(t.Context(), opts))
+
+	raw, err := claudehooks.LoadRawSettings(path)
+	require.NoError(t, err)
+	hooks, err := claudehooks.HooksFromRaw(raw)
+	require.NoError(t, err)
+	assert.False(t, claudehooks.LegacyHookPresent(hooks))
+	require.Len(t, hooks["Stop"], 1, "sessions must not be synced twice")
+	require.Len(t, hooks["SessionEnd"], 1)
+	assert.Equal(t, claudehooks.StopHookCommand, hooks["Stop"][0].Hooks[0].Command)
+	assert.Equal(t, claudehooks.SessionEndHookCommand, hooks["SessionEnd"][0].Hooks[0].Command)
+}
+
+func TestRunSetup_KeepsOneHookWhenBothFormsArePresent(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	path := filepath.Join(dir, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`{"hooks":{
+		"Stop":[
+			{"hooks":[{"type":"command","command":"glab minder audit sync --silent >/dev/null 2>&1 &"}]},
+			{"hooks":[{"type":"command","command":"glab govern audit sync --silent >/dev/null 2>&1 &"}]}
+		]
+	}}`), 0o644))
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	opts := &options{io: ios, yes: true, noFallbackSync: true, settingsPathOverride: path}
+	require.NoError(t, runSetup(t.Context(), opts))
+
+	raw, err := claudehooks.LoadRawSettings(path)
+	require.NoError(t, err)
+	hooks, err := claudehooks.HooksFromRaw(raw)
+	require.NoError(t, err)
+	require.Len(t, hooks["Stop"], 1, "sessions must not be synced twice")
+	assert.Equal(t, claudehooks.StopHookCommand, hooks["Stop"][0].Hooks[0].Command)
+	require.Len(t, hooks["SessionEnd"], 1)
+}
+
+func TestRunUninstall_RemovesHooksFromBeforeTheRename(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	path := filepath.Join(dir, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`{"model":"opus","hooks":{
+		"Stop":[{"hooks":[{"type":"command","command":"glab govern audit sync --silent >/dev/null 2>&1 &"}]}],
+		"SessionEnd":[{"hooks":[{"type":"command","command":"glab govern audit sync --silent --complete >/dev/null 2>&1 &"}]}]
+	}}`), 0o644))
+
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	mExec.EXPECT().
+		ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "is-active", "--quiet", "glab-govern-audit-sync.timer"}, nil).
+		Return(nil, &exec.ExitError{})
+	ios, _, stdout, _ := cmdtest.TestIOStreams()
+	opts := &options{io: ios, yes: true, executor: mExec, goos: "linux", settingsPathOverride: path}
+
+	require.NoError(t, runUninstall(t.Context(), opts))
+	assert.Contains(t, stdout.String(), "Hooks removed")
+
+	raw, err := claudehooks.LoadRawSettings(path)
+	require.NoError(t, err)
+	assert.NotContains(t, raw, "hooks")
+	assert.JSONEq(t, `"opus"`, string(raw["model"]))
+}
+
 func TestRunUninstall_RemovesEmptiedHooksKey(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -444,7 +520,7 @@ func TestRunUninstall_CorruptSettings(t *testing.T) {
 		ios, _, stdout, stderr := cmdtest.TestIOStreams()
 		err := runUninstall(t.Context(), &options{io: ios, executor: expectNoJob(t), goos: "linux", yes: true, settingsPathOverride: path})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "run 'glab govern setup --uninstall' again")
+		assert.Contains(t, err.Error(), "run 'glab minder setup --uninstall' again")
 		assert.Contains(t, stderr.String(), "its hooks will not be removed", "the user is warned before confirming")
 		assert.Contains(t, stdout.String(), "Stopped syncing codex sessions.")
 
@@ -1055,7 +1131,7 @@ func TestRunSetup_UnreadableAgentsSuggestsUninstall(t *testing.T) {
 		ios, _, _, _ := cmdtest.TestIOStreams()
 		err := runSetup(t.Context(), hookOnlyOptions(ios, dir, agents...))
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "run 'glab govern setup --uninstall' to start again")
+		assert.Contains(t, err.Error(), "run 'glab minder setup --uninstall' to start again")
 	}
 }
 
@@ -1071,7 +1147,7 @@ func TestRunSetup_UnreadableClaudeSettingsIsNotRecorded(t *testing.T) {
 	err := runSetup(t.Context(), hookOnlyOptions(ios, dir, "opencode"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), settings)
-	assert.Contains(t, err.Error(), "fix it, then run 'glab govern setup' again")
+	assert.Contains(t, err.Error(), "fix it, then run 'glab minder setup' again")
 	assert.NotContains(t, err.Error(), "--uninstall", "uninstalling doesn't change the settings file, so it doesn't help")
 	_, recorded, err := fallbacksync.RecordedHookAgents()
 	require.NoError(t, err)

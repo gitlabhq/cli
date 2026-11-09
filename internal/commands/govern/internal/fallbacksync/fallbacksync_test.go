@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func TestUnits_Darwin(t *testing.T) {
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/glab</string>
-        <string>govern</string>
+        <string>minder</string>
         <string>audit</string>
         <string>sync</string>
         <string>--all</string>
@@ -71,7 +72,7 @@ Description=GitLab AI agent governance fallback sync
 [Service]
 Type=oneshot
 Environment="GLAB_CONFIG_DIR=/home/me/.config/glab-cli"
-ExecStart="/home/me/.local/share/mise/shims/glab" govern audit sync --all --silent
+ExecStart="/home/me/.local/share/mise/shims/glab" minder audit sync --all --silent
 `, units[0].Content)
 
 	assert.Equal(t, "/home/me/.config/systemd/user/glab-govern-audit-sync.timer", units[1].Path)
@@ -393,4 +394,33 @@ func TestDefaultHookAgents(t *testing.T) {
 	assert.Equal(t, []string{"claude-code"}, DefaultHookAgents(nil, nil), "a first setup syncs Claude Code")
 	assert.Empty(t, DefaultHookAgents(nil, []string{"codex"}), "Claude Code is not added for someone who only set up Codex")
 	assert.Equal(t, []string{"opencode"}, DefaultHookAgents([]string{"opencode"}, nil))
+}
+
+func TestReadInstalled_Legacy(t *testing.T) {
+	t.Parallel()
+
+	for _, goos := range []string{"darwin", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			t.Parallel()
+			home := t.TempDir()
+
+			units, err := Units(goos, home, Job{GlabPath: "/usr/local/bin/glab", ConfigDir: "/home/me/.config/glab-cli"})
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Dir(units[0].Path), 0o755))
+			require.NoError(t, os.WriteFile(units[0].Path, []byte(units[0].Content), 0o644))
+
+			job, err := ReadInstalled(goos, home)
+			require.NoError(t, err)
+			assert.Equal(t, Installed{GlabPath: "/usr/local/bin/glab"}, job)
+
+			old := strings.NewReplacer("<string>minder</string>", "<string>govern</string>", `" minder audit sync `, `" govern audit sync `).
+				Replace(units[0].Content)
+			require.NotEqual(t, units[0].Content, old)
+			require.NoError(t, os.WriteFile(units[0].Path, []byte(old), 0o644))
+
+			job, err = ReadInstalled(goos, home)
+			require.NoError(t, err)
+			assert.Equal(t, Installed{GlabPath: "/usr/local/bin/glab", Legacy: true}, job, "a job from before the rename to glab minder runs glab govern")
+		})
+	}
 }

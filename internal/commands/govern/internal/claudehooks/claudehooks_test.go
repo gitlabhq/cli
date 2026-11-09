@@ -49,6 +49,16 @@ func TestSyncHookInstalled(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, installed)
 
+	hooks = map[string][]HookGroup{}
+	AddHook(hooks, "Stop", legacyStopHookCommand)
+	hooksJSON, err = json.Marshal(hooks)
+	require.NoError(t, err)
+	require.NoError(t, WriteSettings(path, map[string]json.RawMessage{"hooks": hooksJSON}))
+
+	installed, err = SyncHookInstalled(path)
+	require.NoError(t, err)
+	assert.True(t, installed, "a Stop hook from before the rename to glab minder still syncs")
+
 	require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o644))
 	_, err = SyncHookInstalled(path)
 	require.Error(t, err)
@@ -124,4 +134,42 @@ func TestRemoveHook(t *testing.T) {
 			{"type": "command", "command": "echo user-hook", "if": "Bash(git push*)"}
 		]}]
 	}`, string(out), "other hooks keep their group, matcher, and unknown fields, and emptied events are dropped")
+}
+
+func TestInstallGlabHooks_ReplacesLegacyHooks(t *testing.T) {
+	t.Parallel()
+
+	hooks := map[string][]HookGroup{}
+	AddHook(hooks, "Stop", legacyStopHookCommand)
+	AddHook(hooks, "SessionEnd", legacySessionEndHookCommand)
+	AddHook(hooks, "Stop", "echo user-hook")
+	assert.True(t, LegacyHookPresent(hooks))
+	assert.True(t, GlabHookPresent(hooks, "Stop"), "legacy hooks still sync")
+
+	assert.True(t, InstallGlabHooks(hooks))
+	assert.False(t, InstallGlabHooks(hooks), "installing again changes nothing")
+
+	assert.False(t, LegacyHookPresent(hooks))
+	assert.True(t, HookPresent(hooks, "Stop", StopHookCommand))
+	assert.True(t, HookPresent(hooks, "SessionEnd", SessionEndHookCommand))
+	assert.True(t, HookPresent(hooks, "Stop", "echo user-hook"))
+	assert.Len(t, hooks["Stop"], 2, "the legacy Stop hook is replaced, not kept next to the new one")
+	assert.Len(t, hooks["SessionEnd"], 1)
+}
+
+func TestRemoveGlabHooks_RemovesCurrentAndLegacyHooks(t *testing.T) {
+	t.Parallel()
+
+	hooks := map[string][]HookGroup{}
+	AddHook(hooks, "Stop", StopHookCommand)
+	AddHook(hooks, "Stop", legacyStopHookCommand)
+	AddHook(hooks, "SessionEnd", legacySessionEndHookCommand)
+	AddHook(hooks, "Stop", "echo user-hook")
+
+	assert.True(t, RemoveGlabHooks(hooks))
+	assert.False(t, RemoveGlabHooks(hooks), "removing twice changes nothing")
+
+	assert.False(t, GlabHookPresent(hooks, "Stop"))
+	assert.False(t, GlabHookPresent(hooks, "SessionEnd"))
+	assert.True(t, HookPresent(hooks, "Stop", "echo user-hook"))
 }

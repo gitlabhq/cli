@@ -60,29 +60,29 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Setup also installs the fallback periodic sync: a launchd agent (%[1]s~/Library/LaunchAgents/com.gitlab.glab-govern-audit-sync.plist%[1]s) on macOS, or a systemd user timer (%[1]s~/.config/systemd/user/glab-govern-audit-sync.timer%[1]s) on Linux.
 
-			The fallback periodic sync runs %[1]sglab govern audit sync --all%[1]s every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see %[1]sglab govern audit sync --help%[1]s for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. Each session goes to the project and host of the Git repository the agent ran in. It also marks sessions completed once they have been idle for 24 hours. It pauses sessions from agents that use hooks while those hooks are not installed. Pass %[1]s--no-fallback-sync%[1]s to install only the hooks and plugin, which Codex and Cursor cannot be synced without. The fallback periodic sync is not available on Windows.
+			The fallback periodic sync runs %[1]sglab minder audit sync --all%[1]s every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see %[1]sglab minder audit sync --help%[1]s for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. Each session goes to the project and host of the Git repository the agent ran in. It also marks sessions completed once they have been idle for 24 hours. It pauses sessions from agents that use hooks while those hooks are not installed. Pass %[1]s--no-fallback-sync%[1]s to install only the hooks and plugin, which Codex and Cursor cannot be synced without. The fallback periodic sync is not available on Windows.
 
 			Run setup again with %[1]s--agents%[1]s to add agents. Agents set up by an earlier run stay set up, so to stop syncing an agent, run %[1]s--uninstall%[1]s and then set up the agents you want. Every setup prompt names the agents that are synced.
 
-			Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run %[1]sglab govern doctor%[1]s afterwards to verify the setup.
+			Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run %[1]sglab minder doctor%[1]s afterwards to verify the setup.
 
-			Run %[1]sglab govern setup --uninstall%[1]s to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also forgets the agents you set up, so the next setup starts with Claude Code again. Other hooks and settings in %[1]s~/.claude/settings.json%[1]s, and other OpenCode plugins, are left unchanged.
+			Run %[1]sglab minder setup --uninstall%[1]s to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also forgets the agents you set up, so the next setup starts with Claude Code again. Other hooks and settings in %[1]s~/.claude/settings.json%[1]s, and other OpenCode plugins, are left unchanged.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Sync Claude Code sessions, or the agents set up earlier
-			$ glab govern setup
+			$ glab minder setup
 
 			# Sync OpenCode sessions
-			$ glab govern setup --agents opencode
+			$ glab minder setup --agents opencode
 
 			# Sync Claude Code, OpenCode, and Codex sessions
-			$ glab govern setup --agents claude-code,opencode,codex
+			$ glab minder setup --agents claude-code,opencode,codex
 
 			# Install only the hooks and plugin, without the fallback periodic sync
-			$ glab govern setup --no-fallback-sync
+			$ glab minder setup --no-fallback-sync
 
 			# Remove everything setup installed
-			$ glab govern setup --uninstall
+			$ glab minder setup --uninstall
 		`),
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
@@ -244,7 +244,7 @@ func runSetup(ctx context.Context, opts *options) error {
 
 	if !opts.noFallbackSync {
 		if err := installFallbackSync(ctx, opts); err != nil {
-			io.LogErrorf("warning: could not install fallback periodic sync: %v\nAny previous fallback periodic sync job has been removed. Run 'glab govern setup' again once this is fixed.\n", err)
+			io.LogErrorf("warning: could not install fallback periodic sync: %v\nAny previous fallback periodic sync job has been removed. Run 'glab minder setup' again once this is fixed.\n", err)
 		} else {
 			io.LogInfof("%s Fallback periodic sync installed: %s.\n", c.GreenCheck(), fallbacksync.Description(opts.goos))
 		}
@@ -259,7 +259,7 @@ func runSetup(ctx context.Context, opts *options) error {
 		}
 	}
 
-	io.LogInfo("\nSetup complete. Run 'glab govern doctor' to verify.")
+	io.LogInfo("\nSetup complete. Run 'glab minder doctor' to verify.")
 	return nil
 }
 
@@ -433,10 +433,10 @@ func runUninstall(ctx context.Context, opts *options) error {
 func uninstallReadErrors(hooksErr, pluginErr error) []error {
 	var errs []error
 	if hooksErr != nil {
-		errs = append(errs, fmt.Errorf("the agent session hooks were not removed; fix ~/%s and run 'glab govern setup --uninstall' again: %w", claudehooks.SettingsFile, hooksErr))
+		errs = append(errs, fmt.Errorf("the agent session hooks were not removed; fix ~/%s and run 'glab minder setup --uninstall' again: %w", claudehooks.SettingsFile, hooksErr))
 	}
 	if pluginErr != nil {
-		errs = append(errs, fmt.Errorf("the OpenCode plugin may still be installed; fix it and run 'glab govern setup --uninstall' again: %w", pluginErr))
+		errs = append(errs, fmt.Errorf("the OpenCode plugin may still be installed; fix it and run 'glab minder setup --uninstall' again: %w", pluginErr))
 	}
 	return errs
 }
@@ -476,8 +476,7 @@ func claudeHooksInstalled(opts *options) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return claudehooks.HookPresent(hooks, "Stop", claudehooks.StopHookCommand) ||
-		claudehooks.HookPresent(hooks, "SessionEnd", claudehooks.SessionEndHookCommand), nil
+	return claudehooks.GlabHookPresent(hooks, "Stop") || claudehooks.GlabHookPresent(hooks, "SessionEnd"), nil
 }
 
 // jobMayBePresent reports whether uninstall has anything to remove: the job's
@@ -526,11 +525,7 @@ func installClaudeHooks(opts *options) error {
 		return err
 	}
 
-	changed := false
-	changed = claudehooks.AddHook(hooks, "Stop", claudehooks.StopHookCommand) || changed
-	changed = claudehooks.AddHook(hooks, "SessionEnd", claudehooks.SessionEndHookCommand) || changed
-
-	if !changed {
+	if !claudehooks.InstallGlabHooks(hooks) {
 		return nil
 	}
 
@@ -559,9 +554,7 @@ func removeClaudeHooks(opts *options) (bool, error) {
 		return false, err
 	}
 
-	changed := claudehooks.RemoveHook(hooks, "Stop", claudehooks.StopHookCommand)
-	changed = claudehooks.RemoveHook(hooks, "SessionEnd", claudehooks.SessionEndHookCommand) || changed
-	if !changed {
+	if !claudehooks.RemoveGlabHooks(hooks) {
 		return false, nil
 	}
 

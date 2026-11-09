@@ -75,7 +75,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		`) + text.ExperimentalString,
 		Example: heredoc.Doc(`
 		    # Check AI agent governance configuration on this machine
-		    $ glab govern doctor
+		    $ glab minder doctor
 		`),
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
@@ -121,7 +121,7 @@ func runDoctor(ctx context.Context, opts *options) error {
 	if allPassed {
 		io.LogInfof("%s All checks passed.\n", c.GreenCheck())
 	} else {
-		io.LogInfof("%s Some checks failed. Address the issues above and re-run 'glab govern doctor'.\n", c.FailedIcon())
+		io.LogInfof("%s Some checks failed. Address the issues above and re-run 'glab minder doctor'.\n", c.FailedIcon())
 
 		return cmdutils.SilentError
 	}
@@ -199,7 +199,7 @@ func checkClaudeHooks() checkResult {
 	case err != nil:
 		return checkResult{name: "Agent session hooks", ok: false, message: fmt.Sprintf("could not tell which agents are set up: %v", err), fix: agentsReadFix(err)}
 	case !enabled:
-		return checkResult{name: "Agent session hooks", ok: true, message: "Claude Code sessions are not synced; run 'glab govern setup --agents claude-code' to sync them"}
+		return checkResult{name: "Agent session hooks", ok: true, message: "Claude Code sessions are not synced; run 'glab minder setup --agents claude-code' to sync them"}
 	}
 
 	home, err := os.UserHomeDir()
@@ -216,7 +216,7 @@ func checkClaudeHooks() checkResult {
 		return checkResult{
 			name:    "Agent session hooks",
 			ok:      true,
-			message: "No hook-based agent detected (~/.claude not found); run 'glab govern setup' after installing a supported agent",
+			message: "No hook-based agent detected (~/.claude not found); run 'glab minder setup' after installing a supported agent",
 		}
 	}
 
@@ -234,7 +234,7 @@ func checkClaudeHooks() checkResult {
 			name:    "Agent session hooks",
 			ok:      false,
 			message: fmt.Sprintf("%s not found", claudehooks.SettingsFile),
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
 		}
 	}
 
@@ -244,7 +244,7 @@ func checkClaudeHooks() checkResult {
 			name:    "Agent session hooks",
 			ok:      false,
 			message: fmt.Sprintf("could not parse %s", claudehooks.SettingsFile),
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
 		}
 	}
 
@@ -254,15 +254,15 @@ func checkClaudeHooks() checkResult {
 			name:    "Agent session hooks",
 			ok:      false,
 			message: fmt.Sprintf("could not parse hooks in %s", claudehooks.SettingsFile),
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
 		}
 	}
 
 	missingHooks := []string{}
-	if !claudehooks.HookPresent(hooks, "Stop", claudehooks.StopHookCommand) {
+	if !claudehooks.GlabHookPresent(hooks, "Stop") {
 		missingHooks = append(missingHooks, "Stop")
 	}
-	if !claudehooks.HookPresent(hooks, "SessionEnd", claudehooks.SessionEndHookCommand) {
+	if !claudehooks.GlabHookPresent(hooks, "SessionEnd") {
 		missingHooks = append(missingHooks, "SessionEnd")
 	}
 
@@ -271,7 +271,16 @@ func checkClaudeHooks() checkResult {
 			name:    "Agent session hooks",
 			ok:      false,
 			message: fmt.Sprintf("missing hooks: %s", strings.Join(missingHooks, ", ")),
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
+		}
+	}
+
+	if claudehooks.LegacyHookPresent(hooks) {
+		// The legacy hooks still sync, through the hidden glab govern command.
+		return checkResult{
+			name:    "Agent session hooks",
+			ok:      true,
+			message: "Stop and SessionEnd hooks installed, but they run 'glab govern'; run 'glab minder setup' to update them",
 		}
 	}
 
@@ -294,7 +303,7 @@ func checkOpenCodePlugin() checkResult {
 		return checkResult{name: name, ok: false, message: fmt.Sprintf("could not tell which agents are set up: %v", err), fix: agentsReadFix(err)}
 	case !enabled:
 		if detected, err := opencodeplugin.Detected(); err == nil && detected {
-			return checkResult{name: name, ok: true, message: "OpenCode sessions are not synced; run 'glab govern setup --agents opencode' to sync them"}
+			return checkResult{name: name, ok: true, message: "OpenCode sessions are not synced; run 'glab minder setup --agents opencode' to sync them"}
 		}
 		return checkResult{name: name, ok: true, message: "OpenCode sessions are not synced"}
 	}
@@ -306,17 +315,17 @@ func checkOpenCodePlugin() checkResult {
 	state, err := opencodeplugin.Check(path)
 	display := opencodeplugin.Display(path)
 	if err != nil {
-		return checkResult{name: name, ok: false, message: fmt.Sprintf("could not read %s: %v", display, err), fix: "Fix the file, then run: glab govern setup --agents opencode"}
+		return checkResult{name: name, ok: false, message: fmt.Sprintf("could not read %s: %v", display, err), fix: "Fix the file, then run: glab minder setup --agents opencode"}
 	}
 	switch state {
 	case opencodeplugin.Current:
 		return checkResult{name: name, ok: true, message: "installed in " + display}
 	case opencodeplugin.Outdated:
-		return checkResult{name: name, ok: false, message: display + " is out of date", fix: "Run: glab govern setup"}
+		return checkResult{name: name, ok: false, message: display + " is out of date", fix: "Run: glab minder setup"}
 	case opencodeplugin.Foreign:
-		return checkResult{name: name, ok: false, message: display + " was not installed by glab", fix: "Remove or rename it, then run: glab govern setup --agents opencode"}
+		return checkResult{name: name, ok: false, message: display + " was not installed by glab", fix: "Remove or rename it, then run: glab minder setup --agents opencode"}
 	}
-	return checkResult{name: name, ok: false, message: "not installed, so OpenCode sessions are not synced", fix: "Run: glab govern setup"}
+	return checkResult{name: name, ok: false, message: "not installed, so OpenCode sessions are not synced", fix: "Run: glab minder setup"}
 }
 
 func checkAPIConnectivity(ctx context.Context, opts *options) checkResult {
@@ -355,7 +364,8 @@ func checkFallbackSync(ctx context.Context, executor cmdutils.Executor, goos str
 		return checkResult{name: name, ok: false, message: fmt.Sprintf("could not determine home directory: %v", err)}
 	}
 
-	glabPath, err := fallbacksync.InstalledBinary(goos, home)
+	job, err := fallbacksync.ReadInstalled(goos, home)
+	glabPath := job.GlabPath
 	switch {
 	case errors.Is(err, fallbacksync.ErrUnsupportedOS):
 		return checkResult{
@@ -367,14 +377,14 @@ func checkFallbackSync(ctx context.Context, executor cmdutils.Executor, goos str
 		return checkResult{
 			name:    name,
 			ok:      true,
-			message: "not installed; sessions sync only through the hooks. Run 'glab govern setup' to install it",
+			message: "not installed; sessions sync only through the hooks. Run 'glab minder setup' to install it",
 		}
 	case err != nil:
 		return checkResult{
 			name:    name,
 			ok:      false,
 			message: fmt.Sprintf("could not read the installed job: %v", err),
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
 		}
 	}
 
@@ -383,8 +393,15 @@ func checkFallbackSync(ctx context.Context, executor cmdutils.Executor, goos str
 			name:    name,
 			ok:      false,
 			message: fmt.Sprintf("the job runs %s, which no longer exists", glabPath),
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
 		}
+	}
+
+	// A job installed before the rename to glab minder runs the hidden glab
+	// govern command, which a glab from before the rename also has.
+	jobCommand, legacyNote := "minder", ""
+	if job.Legacy {
+		jobCommand, legacyNote = "govern", "; it runs 'glab govern', run 'glab minder setup' to update it"
 	}
 
 	state, err := fallbacksync.State(ctx, executor, goos, os.Getuid())
@@ -394,21 +411,21 @@ func checkFallbackSync(ctx context.Context, executor cmdutils.Executor, goos str
 			name:    name,
 			ok:      false,
 			message: fmt.Sprintf("could not check whether the job is loaded: %v", err),
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
 		}
 	case !state.Loaded:
 		return checkResult{
 			name:    name,
 			ok:      false,
 			message: "the job is installed but not loaded, so it never runs",
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
 		}
 	case state.Ran && state.ExitCode != 0:
 		return checkResult{
 			name:    name,
 			ok:      false,
 			message: fmt.Sprintf("the job's last run exited with code %d", state.ExitCode),
-			fix:     fmt.Sprintf("Run '%s govern audit sync --all' to see the error, then 'glab govern setup' to reinstall the job", glabPath),
+			fix:     fmt.Sprintf("Run '%s %s audit sync --all' to see the error, then 'glab minder setup' to reinstall the job", glabPath, jobCommand),
 		}
 	}
 
@@ -422,23 +439,23 @@ func checkFallbackSync(ctx context.Context, executor cmdutils.Executor, goos str
 			name:    name,
 			ok:      false,
 			message: fmt.Sprintf("could not run %s version: %v", glabPath, err),
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
 		}
 	case got != want:
 		return checkResult{
 			name:    name,
 			ok:      false,
 			message: fmt.Sprintf("the job runs %s, which reports %q, not %q like this glab", glabPath, got, want),
-			fix:     "Run: glab govern setup",
+			fix:     "Run: glab minder setup",
 		}
 	}
 
 	status, err := fallbacksync.ReadStatus()
 	switch {
 	case errors.Is(err, fallbacksync.ErrNoStatus):
-		return checkResult{name: name, ok: true, message: fmt.Sprintf("installed (%s); no run recorded yet", glabPath)}
+		return checkResult{name: name, ok: true, message: fmt.Sprintf("installed (%s); no run recorded yet%s", glabPath, legacyNote)}
 	case err != nil:
-		return checkResult{name: name, ok: true, message: fmt.Sprintf("installed (%s); could not read last run: %v", glabPath, err)}
+		return checkResult{name: name, ok: true, message: fmt.Sprintf("installed (%s); could not read last run: %v%s", glabPath, err, legacyNote)}
 	}
 
 	// The job may run without the token of the shell that runs doctor, so a
@@ -457,14 +474,14 @@ func checkFallbackSync(ctx context.Context, executor cmdutils.Executor, goos str
 			name:    name,
 			ok:      false,
 			message: fmt.Sprintf("installed (%s), but the last run synced nothing; %s", glabPath, describeLastRun(status, now)),
-			fix:     fmt.Sprintf("Run '%s govern audit sync --all' to see the errors", glabPath),
+			fix:     fmt.Sprintf("Run '%s %s audit sync --all' to see the errors", glabPath, jobCommand),
 		}
 	}
 
 	return checkResult{
 		name:    name,
 		ok:      true,
-		message: fmt.Sprintf("installed (%s); %s%s", glabPath, describeLastRun(status, now), describeDiscoveredAgents()),
+		message: fmt.Sprintf("installed (%s); %s%s%s", glabPath, describeLastRun(status, now), describeDiscoveredAgents(), legacyNote),
 	}
 }
 

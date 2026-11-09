@@ -1,5 +1,5 @@
 ---
-title: '`glab govern audit sync`'
+title: '`glab minder audit sync`'
 stage: AI Clients
 group: Developer Clients
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see <https://handbook.gitlab.com/handbook/marketing/product-and-technical-marketing/technical-writing/#assignments>
@@ -34,9 +34,9 @@ Called by the Stop hook after every agent turn. Also used by the SessionEnd hook
 
 Project is resolved from the Git remote of the current directory, or overridden with `-R/--repo`.
 
-With `--all`, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them. The fallback periodic sync installed by `glab govern setup` runs this, and `glab govern doctor` shows the result of its last run.
+With `--all`, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them. The fallback periodic sync installed by `glab minder setup` runs this, and `glab minder doctor` shows the result of its last run.
 
-Supports Claude Code, OpenCode, Codex, and Cursor sessions. OpenCode sessions are read with `opencode session export`, or `opencode export` before OpenCode 2. With `--all`, it also finds and syncs the sessions of Codex and Cursor, when they are enabled with `glab govern setup --agents`, by scanning their transcripts, for repositories on GitLab hosts glab is logged in to.
+Supports Claude Code, OpenCode, Codex, and Cursor sessions. OpenCode sessions are read with `opencode session export`, or `opencode export` before OpenCode 2. With `--all`, it also finds and syncs the sessions of Codex and Cursor, when they are enabled with `glab minder setup --agents`, by scanning their transcripts, for repositories on GitLab hosts glab is logged in to.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
@@ -44,23 +44,23 @@ For more information, see
 <https://docs.gitlab.com/policy/development_stages_support/>.
 
 ```plaintext
-glab govern audit sync [flags]
+glab minder audit sync [flags]
 ```
 
 ## Examples
 
 ```console
 # Sync the current agent session to GitLab
-$ glab govern audit sync
+$ glab minder audit sync
 
 # Sync and mark the session as completed
-$ glab govern audit sync --complete
+$ glab minder audit sync --complete
 
 # Sync against a specific project
-$ glab govern audit sync -R my-group/my-project
+$ glab minder audit sync -R my-group/my-project
 
 # Sync every recorded session that has unsynced activity
-$ glab govern audit sync --all
+$ glab minder audit sync --all
 
 ```
 

@@ -52,7 +52,7 @@ func TestDetected(t *testing.T) {
 }
 
 func TestSourceStartsWithMarker(t *testing.T) {
-	assert.True(t, bytes.HasPrefix(Source, marker), "Check and Remove recognise the plugin by its first line")
+	assert.True(t, bytes.HasPrefix(Source, markers[0]), "Check and Remove recognise the plugin by its first line")
 }
 
 func TestInstall(t *testing.T) {
@@ -67,12 +67,14 @@ func TestInstall(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, changed, "installing the same version again changes nothing")
 
-	require.NoError(t, os.WriteFile(path, append(bytes.Clone(marker), "\n// an older version\n"...), 0o644))
-	assert.Equal(t, Outdated, check(t, path))
-	changed, err = Install(path)
-	require.NoError(t, err)
-	assert.True(t, changed, "an older version is replaced")
-	assert.Equal(t, Current, check(t, path))
+	for _, marker := range markers {
+		require.NoError(t, os.WriteFile(path, append(bytes.Clone(marker), "\n// an older version\n"...), 0o644))
+		assert.Equal(t, Outdated, check(t, path))
+		changed, err = Install(path)
+		require.NoError(t, err)
+		assert.True(t, changed, "an older version is replaced")
+		assert.Equal(t, Current, check(t, path))
+	}
 }
 
 func TestInstall_RefusesForeignFile(t *testing.T) {
@@ -102,6 +104,12 @@ func TestRemove(t *testing.T) {
 	removed, err = Remove(path)
 	require.NoError(t, err)
 	assert.True(t, removed)
+	assert.NoFileExists(t, path)
+
+	require.NoError(t, os.WriteFile(path, append(bytes.Clone(markers[1]), "\n// an older version\n"...), 0o644))
+	removed, err = Remove(path)
+	require.NoError(t, err)
+	assert.True(t, removed, "a plugin installed before the rename to glab minder is removed")
 	assert.NoFileExists(t, path)
 
 	require.NoError(t, os.WriteFile(path, []byte("// the user's own plugin\n"), 0o644))

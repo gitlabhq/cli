@@ -406,5 +406,5 @@ func discoveryPausedReason(agent string) (string, error) {
 	if slices.Contains(enabled, agent) {
 		return "", nil
 	}
-	return fmt.Sprintf("%s is not enabled; run 'glab govern setup --agents %s' to enable it", agent, agent), nil
+	return fmt.Sprintf("%s is not enabled; run 'glab minder setup --agents %s' to enable it", agent, agent), nil
 }
