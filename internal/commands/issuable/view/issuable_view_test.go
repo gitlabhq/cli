@@ -4,8 +4,11 @@ package view
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"testing"
@@ -16,8 +19,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
@@ -150,7 +155,7 @@ func TestNewCmdView(t *testing.T) {
 			testIssuable := testIssuables[tt.issueID]
 			oldListIssueNotes := listIssueNotes
 			timer, _ := time.Parse(time.RFC3339, "2014-11-12T11:45:26.371Z")
-			listIssueNotes = func(client *gitlab.Client, projectID any, issueID int64, opts *gitlab.ListIssueNotesOptions) ([]*gitlab.Note, error) {
+			listIssueNotes = func(_ context.Context, client *gitlab.Client, projectID any, issueID int64, opts *gitlab.ListIssueNotesOptions) ([]*gitlab.Note, error) {
 				if projectID == "PROJECT_MR_WITH_EMPTY_NOTE" {
 					return []*gitlab.Note{}, nil
 				}
@@ -243,6 +248,59 @@ func TestNewCmdView(t *testing.T) {
 			listIssueNotes = oldListIssueNotes
 		})
 	}
+}
+
+func Test_listIssueNotes(t *testing.T) {
+	t.Parallel()
+
+	lastPageResponse := &gitlab.Response{
+		Response: &http.Response{StatusCode: http.StatusOK},
+	}
+	nextPageResponse := &gitlab.Response{
+		Response: &http.Response{StatusCode: http.StatusOK},
+		NextPage: 2,
+	}
+
+	t.Run("collects notes from all pages", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+
+		gomock.InOrder(
+			testClient.MockNotes.EXPECT().
+				ListIssueNotes("OWNER/REPO", int64(14), gomock.Any(), gomock.Any()).
+				Return([]*gitlab.Note{{ID: 1}, {ID: 2}}, nextPageResponse, nil),
+			testClient.MockNotes.EXPECT().
+				ListIssueNotes("OWNER/REPO", int64(14), gomock.Any(), gomock.Any()).
+				Return([]*gitlab.Note{{ID: 3}}, lastPageResponse, nil),
+		)
+
+		notes, err := listIssueNotes(t.Context(), testClient.Client, "OWNER/REPO", 14, &gitlab.ListIssueNotesOptions{})
+		require.NoError(t, err)
+		require.Len(t, notes, 3)
+		assert.Equal(t, int64(1), notes[0].ID)
+		assert.Equal(t, int64(3), notes[2].ID)
+	})
+
+	t.Run("returns an error from a later page", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		wantErr := errors.New("api unavailable")
+
+		gomock.InOrder(
+			testClient.MockNotes.EXPECT().
+				ListIssueNotes("OWNER/REPO", int64(14), gomock.Any(), gomock.Any()).
+				Return([]*gitlab.Note{{ID: 1}}, nextPageResponse, nil),
+			testClient.MockNotes.EXPECT().
+				ListIssueNotes("OWNER/REPO", int64(14), gomock.Any(), gomock.Any()).
+				Return(nil, nil, wantErr),
+		)
+
+		notes, err := listIssueNotes(t.Context(), testClient.Client, "OWNER/REPO", 14, &gitlab.ListIssueNotesOptions{})
+		require.ErrorIs(t, err, wantErr)
+		assert.Nil(t, notes)
+	})
 }
 
 func Test_rawIssuePreview(t *testing.T) {
