@@ -20,6 +20,8 @@ If no tag is specified, downloads assets from the latest release.
 To specify a file name to download from the release assets, use `--asset-name`.
 `--asset-name` flag accepts glob patterns.
 
+If a file already exists in the download directory, the command stops with an error. Use `--clobber` to overwrite it, or `--skip-existing` to keep it and continue with the other assets.
+
 ```plaintext
 glab release download [<tag>] [flags]
 ```
@@ -35,13 +37,21 @@ glab release download v1.1.0
 
 # Download assets with names matching the glob pattern
 glab release download v1.10.1 --asset-name="*.tar.gz"
+
+# Replace files that were downloaded before
+glab release download v1.1.0 --clobber
+
+# Download only the assets that are missing
+glab release download v1.1.0 --skip-existing
 ```
 
 ## Options
 
 ```plaintext
   -n, --asset-name stringArray   Download only assets that match the name or a glob pattern.
+      --clobber                  Overwrite files that already exist in the download directory.
   -D, --dir string               Directory to download the release assets to. (default ".")
+      --skip-existing            Keep files that already exist in the download directory, and download only the missing assets.
 ```
 
 ## Options inherited from parent commands

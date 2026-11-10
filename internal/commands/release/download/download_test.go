@@ -136,7 +136,7 @@ func TestDownloadAsset_InvalidURL(t *testing.T) {
 	require.NoError(t, err)
 
 	destinationPath := filepath.Join(t.TempDir(), "asset")
-	err = downloadAsset(t.Context(), client, "%", destinationPath)
+	err = downloadAsset(t.Context(), client, "%", destinationPath, failOnExisting)
 
 	require.EqualError(t, err, `parsing release asset URL: parse "%": invalid URL escape "%"`)
 	assert.NoFileExists(t, destinationPath)
@@ -200,7 +200,7 @@ func Test_downloadAssets(t *testing.T) {
 
 			filePathWanted := filepath.Join(tempPath, tt.want)
 
-			err := downloadAssets(t.Context(), gitlabClient, io, releases, tempPath)
+			err := downloadAssets(t.Context(), gitlabClient, io, releases, tempPath, failOnExisting)
 
 			if tt.wantErr {
 				assert.Error(t, err, "Should error out if a path doesn't exist")
@@ -228,7 +228,7 @@ func Test_downloadAsset_SameHost_UsesContextCancellation(t *testing.T) {
 	cancel()
 
 	destPath := filepath.Join(t.TempDir(), "asset.bin")
-	err = downloadAsset(ctx, gitlabClient, testServer.URL+"/asset.bin", destPath)
+	err = downloadAsset(ctx, gitlabClient, testServer.URL+"/asset.bin", destPath, failOnExisting)
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.False(t, doesFileExist(destPath), "partial asset file should be removed on failure")
@@ -270,7 +270,7 @@ func Test_downloadAsset_RemovesPartialFileOnErrorStatus(t *testing.T) {
 			require.NoError(t, err)
 
 			destPath := filepath.Join(t.TempDir(), "asset.bin")
-			err = downloadAsset(t.Context(), gitlabClient, testServer.URL+tc.assetPath, destPath)
+			err = downloadAsset(t.Context(), gitlabClient, testServer.URL+tc.assetPath, destPath, failOnExisting)
 
 			require.Error(t, err)
 			assert.False(t, doesFileExist(destPath), "partial asset file should be removed on an error status")
@@ -450,7 +450,7 @@ func Test_downloadAsset_MarkdownUpload_UsesUploadsAPI(t *testing.T) {
 	require.NoError(t, err)
 
 	destPath := filepath.Join(t.TempDir(), "file.tar.gz")
-	err = downloadAsset(t.Context(), gitlabClient, testServer.URL+webPath, destPath)
+	err = downloadAsset(t.Context(), gitlabClient, testServer.URL+webPath, destPath, failOnExisting)
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(destPath)
@@ -500,7 +500,7 @@ func Test_downloadAsset_SameHost_NonUploadLinkIsUnchanged(t *testing.T) {
 			require.NoError(t, err)
 
 			destPath := filepath.Join(t.TempDir(), "asset")
-			err = downloadAsset(t.Context(), gitlabClient, testServer.URL+tt.assetPath, destPath)
+			err = downloadAsset(t.Context(), gitlabClient, testServer.URL+tt.assetPath, destPath, failOnExisting)
 			require.NoError(t, err)
 
 			content, err := os.ReadFile(destPath)
