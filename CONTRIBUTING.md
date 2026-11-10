@@ -158,7 +158,7 @@ This project supports [Lefthook](https://github.com/evilmartians/lefthook) for m
 
 - **pre-commit**: Formats and lints Go code (golangci-lint with gofumpt/goimports), lints shell scripts (shellcheck), auto-fixes Markdown formatting (markdownlint), checks and regenerates documentation if command files changed (blocks commit until docs are staged)
 - **commit-msg**: Validates commit messages follow [conventional commits](https://www.conventionalcommits.org/) format
-- **pre-push**: Runs documentation validation (markdownlint, vale, lychee) on changed files
+- **pre-push**: Runs documentation validation (markdownlint, rumdl, vale, lychee) on changed files
 
 #### Graceful degradation
 

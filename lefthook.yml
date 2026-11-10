@@ -215,6 +215,18 @@ pre-push:
         fi
         markdownlint-cli2 {push_files}
 
+    # Lint markdown tables and other rules that rumdl enforces
+    rumdl:
+      tags: docs lint
+      glob: "*.md"
+      run: |
+        if ! command -v rumdl > /dev/null 2>&1; then
+          echo "⚠️  rumdl not found. Run 'make bootstrap' to install tools."
+          echo "   Skipping rumdl linting..."
+          exit 0
+        fi
+        rumdl check --config docs/.rumdl/rumdl.toml {push_files}
+
     # Check prose style
     vale:
       tags: docs prose

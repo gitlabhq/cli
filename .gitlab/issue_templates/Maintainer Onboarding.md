@@ -6,10 +6,10 @@
 
 - [ ] Create a merge request updating [your team member entry](https://gitlab.com/gitlab-com/www-gitlab-com/blob/master/doc/team_database.md) adding yourself as a [`reviewer` or `trainee_maintainer`](https://handbook.gitlab.com/handbook/engineering/workflow/code-review/#learning-to-be-a-maintainer) of the `gitlab-cli` project.
 - [ ] Join the `#f_cli` Slack channel.
-- [ ] Read and understand the [maintainer responsibilities](/docs/maintainer.md) for this project.
+- [ ] Read and understand the [maintainer responsibilities](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/maintainer.md) for this project.
   - [ ] Get the required access mentioned in the above document.
-- [ ] Browse through the [development resources](/docs/development_process.md) to get an idea of how the CLI works.
-- [ ] Open a merge request to improve the [documentation](/docs) or [Maintainer Onboarding template](/.gitlab/issue_templates/Maintainer%20Onboarding.md).
+- [ ] Browse through the [development resources](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/development_process.md) to get an idea of how the CLI works.
+- [ ] Open a merge request to improve the [documentation](https://gitlab.com/gitlab-org/cli/-/tree/main/docs) or [Maintainer Onboarding template](https://gitlab.com/gitlab-org/cli/-/blob/main/.gitlab/issue_templates/Maintainer%20Onboarding.md).
 - [ ] _Optional_: [Pair](#code-review-pairing) with a maintainer to review a merge request or implement a small change.
 - [ ] _Optional_: Read the [code review page in the handbook](https://handbook.gitlab.com/handbook/engineering/workflow/code-review/) and the [code review guidelines](https://docs.gitlab.com/development/code_review/).
 - [ ] _Optional_: Read and understand [how to become a maintainer](https://handbook.gitlab.com/handbook/engineering/workflow/code-review/#how-to-become-a-project-maintainer).
