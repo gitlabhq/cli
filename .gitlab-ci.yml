@@ -154,7 +154,6 @@ include:
   rules:
     - *skip-on-release-schedule
     - changes: *code-patterns
-      when: always
   # None of these jobs consume another job's output, so none should wait for a
   # stage boundary. Without this they queued behind the documentation stage.
   needs: []
