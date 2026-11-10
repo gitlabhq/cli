@@ -230,6 +230,115 @@ func TestFindByUsername(t *testing.T) {
 	})
 }
 
+func TestResolveID(t *testing.T) {
+	t.Parallel()
+
+	// No expectation is set, so any API call fails the test.
+	t.Run("numeric ID makes no request", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+
+		id, err := ResolveID(t.Context(), tc.Client, Scope{Project: "OWNER/REPO"}, "52")
+		require.NoError(t, err)
+		assert.Equal(t, int64(52), id)
+	})
+
+	t.Run("username found in a group", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockGroups.EXPECT().
+			ListServiceAccounts("my-group", gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.GroupServiceAccount{
+				{ID: 41, UserName: "service_account_group_1_aaa"},
+				{ID: 42, UserName: "service_account_group_1_bbb"},
+			}, noMorePages(), nil)
+
+		id, err := ResolveID(t.Context(), tc.Client, Scope{Group: "my-group"}, "service_account_group_1_bbb")
+		require.NoError(t, err)
+		assert.Equal(t, int64(42), id)
+	})
+
+	t.Run("username found in a project", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockProjects.EXPECT().
+			ListProjectServiceAccounts("OWNER/REPO", gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.ProjectServiceAccount{
+				{ID: 51, Username: "service_account_project_2_aaa"},
+			}, noMorePages(), nil)
+
+		id, err := ResolveID(t.Context(), tc.Client, Scope{Project: "OWNER/REPO"}, "service_account_project_2_aaa")
+		require.NoError(t, err)
+		assert.Equal(t, int64(51), id)
+	})
+
+	t.Run("username not found", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockProjects.EXPECT().
+			ListProjectServiceAccounts("OWNER/REPO", gomock.Any(), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.ProjectServiceAccount{}, noMorePages(), nil)
+
+		id, err := ResolveID(t.Context(), tc.Client, Scope{Project: "OWNER/REPO"}, "missing")
+		require.EqualError(t, err, `no service account with username "missing" in project OWNER/REPO`)
+		assert.Zero(t, id)
+	})
+
+	t.Run("invalid ID", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+
+		_, err := ResolveID(t.Context(), tc.Client, Scope{Project: "OWNER/REPO"}, "0")
+		require.EqualError(t, err, `invalid service account ID "0"`)
+	})
+}
+
+func TestPrintDetails(t *testing.T) {
+	t.Parallel()
+
+	t.Run("without a pending email", func(t *testing.T) {
+		t.Parallel()
+
+		io, _, stdout, _ := cmdtest.TestIOStreams()
+		PrintDetails(io, Account{ID: 41, Username: "service_account_group_1_aaa"})
+
+		assert.Equal(t, "ID\t41\nUsername\tservice_account_group_1_aaa\nName\t-\nEmail\t-\n", stdout.String())
+	})
+
+	t.Run("with a pending email", func(t *testing.T) {
+		t.Parallel()
+
+		io, _, stdout, _ := cmdtest.TestIOStreams()
+		PrintDetails(io, Account{
+			ID:               41,
+			Username:         "release-bot",
+			Name:             "Release bot",
+			Email:            "service_account_group_1_aaa@noreply.gitlab.example.com",
+			UnconfirmedEmail: "release-bot@example.com",
+		})
+
+		assert.Equal(t, "ID\t41\nUsername\trelease-bot\nName\tRelease bot\nEmail\tservice_account_group_1_aaa@noreply.gitlab.example.com\nUnconfirmed Email\trelease-bot@example.com\n", stdout.String())
+	})
+}
+
+func TestFromGroupAndFromProject(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t,
+		Account{ID: 41, Username: "release-bot", Name: "Release bot", Email: "a@example.com", UnconfirmedEmail: "b@example.com"},
+		FromGroup(&gitlab.GroupServiceAccount{ID: 41, UserName: "release-bot", Name: "Release bot", Email: "a@example.com", UnconfirmedEmail: "b@example.com"}),
+	)
+	assert.Equal(t,
+		Account{ID: 51, Username: "release-bot", Name: "Release bot", Email: "a@example.com", UnconfirmedEmail: "b@example.com"},
+		FromProject(&gitlab.ProjectServiceAccount{ID: 51, Username: "release-bot", Name: "Release bot", Email: "a@example.com", UnconfirmedEmail: "b@example.com"}),
+	)
+}
+
 func TestOrDash(t *testing.T) {
 	t.Parallel()
 

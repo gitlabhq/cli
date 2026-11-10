@@ -582,10 +582,16 @@
 - title: glab service-account
   url: 'cli/service-account/'
   submenu:
+    - title: glab service-account create
+      url: 'cli/service-account/create/'
+    - title: glab service-account delete
+      url: 'cli/service-account/delete/'
     - title: glab service-account get
       url: 'cli/service-account/get/'
     - title: glab service-account list
       url: 'cli/service-account/list/'
+    - title: glab service-account update
+      url: 'cli/service-account/update/'
 - title: glab skills
   url: 'cli/skills/'
   submenu:

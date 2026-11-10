@@ -86,6 +86,32 @@ func TestGet_Group(t *testing.T) {
 	assert.Equal(t, expected, out.OutBuf.String())
 }
 
+func TestGet_UnconfirmedEmail(t *testing.T) {
+	t.Parallel()
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockGroups.EXPECT().
+		GetServiceAccount("my-group", int64(41), gomock.Any()).
+		Return(&gitlab.GroupServiceAccount{
+			ID:               41,
+			UserName:         "service_account_group_1_aaa",
+			Email:            "service_account_group_1_aaa@noreply.gitlab.example.com",
+			UnconfirmedEmail: "deployer@example.com",
+		}, nil, nil)
+
+	out, err := setupExec(t, tc)("41 --group my-group")
+	require.NoError(t, err)
+
+	expected := heredoc.Doc(`
+		ID	41
+		Username	service_account_group_1_aaa
+		Name	-
+		Email	service_account_group_1_aaa@noreply.gitlab.example.com
+		Unconfirmed Email	deployer@example.com
+	`)
+	assert.Equal(t, expected, out.OutBuf.String())
+}
+
 // No GetProjectServiceAccount expectation is set: a username is answered from
 // the list, so the command also works before GitLab 19.4.
 func TestGet_ByUsername(t *testing.T) {
