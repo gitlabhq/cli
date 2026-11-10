@@ -49,7 +49,7 @@ require (
 	github.com/tidwall/pretty v1.2.2
 	github.com/yuin/goldmark/v2 v2.1.13
 	github.com/zalando/go-keyring v0.2.8
-	gitlab.com/gitlab-org/api/client-go/v3 v3.43.0
+	gitlab.com/gitlab-org/api/client-go/v3 v3.46.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.6.0
 	go.yaml.in/yaml/v3 v3.0.6
