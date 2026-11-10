@@ -62,7 +62,7 @@ glab mr list --not-draft
       --jq string              Filter JSON output with a jq expression.
   -l, --label strings          Filter merge request by label <name>. Multiple labels can be comma-separated or specified by repeating the flag.
   -M, --merged                 Get only merged merge requests.
-  -m, --milestone string       Filter merge request by milestone <id>.
+  -m, --milestone string       Filter merge request by milestone <title>.
       --not-draft              Filter by non-draft merge requests.
       --not-label strings      Filter merge requests by not having label <name>. Multiple labels can be comma-separated or specified by repeating the flag.
   -o, --order string           Order merge requests by <field>. Order options: created_at, updated_at, merged_at, title, priority, label_priority, milestone_due, and popularity.

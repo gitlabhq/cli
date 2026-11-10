@@ -169,7 +169,7 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *ListOptions) error, issueTyp
 	issueListCmd.Flags().StringVar(&opts.In, "in", "title,description", "Search in: title, description.")
 	issueListCmd.Flags().StringSliceVarP(&opts.Labels, "label", "l", []string{}, fmt.Sprintf("Filter %s by label <name>. Multiple labels can be comma-separated or specified by repeating the flag.", issueType))
 	issueListCmd.Flags().StringSliceVar(&opts.NotLabels, "not-label", []string{}, fmt.Sprintf("Filter %s by lack of label <name>. Multiple labels can be comma-separated or specified by repeating the flag.", issueType))
-	issueListCmd.Flags().StringVarP(&opts.Milestone, "milestone", "m", "", fmt.Sprintf("Filter %s by milestone <id>.", issueType))
+	issueListCmd.Flags().StringVarP(&opts.Milestone, "milestone", "m", "", fmt.Sprintf("Filter %s by milestone <title>.", issueType))
 	issueListCmd.Flags().BoolVarP(&opts.All, "all", "A", false, fmt.Sprintf("Get all %ss.", issueType))
 	issueListCmd.Flags().BoolVarP(&opts.Closed, "closed", "c", false, fmt.Sprintf("Get only closed %ss.", issueType))
 	issueListCmd.Flags().BoolVarP(&opts.Confidential, "confidential", "C", false, fmt.Sprintf("Filter by confidential %ss.", issueType))

@@ -126,7 +126,7 @@ func NewCmdList(f cmdutils.Factory, runE func(opts *options) error) *cobra.Comma
 	mrListCmd.Flags().StringSliceVarP(&opts.labels, "label", "l", []string{}, "Filter merge request by label <name>. Multiple labels can be comma-separated or specified by repeating the flag.")
 	mrListCmd.Flags().StringSliceVar(&opts.notLabels, "not-label", []string{}, "Filter merge requests by not having label <name>. Multiple labels can be comma-separated or specified by repeating the flag.")
 	mrListCmd.Flags().StringVar(&opts.author, "author", "", "Filter merge request by author <username>.")
-	mrListCmd.Flags().StringVarP(&opts.milestone, "milestone", "m", "", "Filter merge request by milestone <id>.")
+	mrListCmd.Flags().StringVarP(&opts.milestone, "milestone", "m", "", "Filter merge request by milestone <title>.")
 	mrListCmd.Flags().StringVarP(&opts.sourceBranch, "source-branch", "s", "", "Filter by source branch <name>.")
 	mrListCmd.Flags().StringVarP(&opts.targetBranch, "target-branch", "t", "", "Filter by target branch <name>.")
 	mrListCmd.Flags().StringVar(&opts.search, "search", "", "Filter by <string> in title and description.")
