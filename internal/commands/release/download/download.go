@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,9 +28,11 @@ import (
 )
 
 type options struct {
-	tagName    string
-	assetNames []string
-	dir        string
+	tagName      string
+	assetNames   []string
+	dir          string
+	clobber      bool
+	skipExisting bool
 
 	io           *iostreams.IOStreams
 	apiClient    func(repoHost string) (*api.Client, error)
@@ -53,6 +56,8 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 			If no tag is specified, downloads assets from the latest release.
 			To specify a file name to download from the release assets, use %[1]s--asset-name%[1]s.
 			%[1]s--asset-name%[1]s flag accepts glob patterns.
+
+			If a file already exists in the download directory, the command stops with an error. Use %[1]s--clobber%[1]s to overwrite it, or %[1]s--skip-existing%[1]s to keep it and continue with the other assets.
 		`, "`"),
 		Args: cobra.MaximumNArgs(1),
 		Example: heredoc.Doc(`
@@ -63,7 +68,13 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 			glab release download v1.1.0
 
 			# Download assets with names matching the glob pattern
-			glab release download v1.10.1 --asset-name="*.tar.gz"`),
+			glab release download v1.10.1 --asset-name="*.tar.gz"
+
+			# Replace files that were downloaded before
+			glab release download v1.1.0 --clobber
+
+			# Download only the assets that are missing
+			glab release download v1.1.0 --skip-existing`),
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
 		},
@@ -76,6 +87,10 @@ func NewCmdDownload(f cmdutils.Factory) *cobra.Command {
 
 	cmd.Flags().StringArrayVarP(&opts.assetNames, "asset-name", "n", []string{}, "Download only assets that match the name or a glob pattern.")
 	cmd.Flags().StringVarP(&opts.dir, "dir", "D", ".", "Directory to download the release assets to.")
+	cmd.Flags().BoolVar(&opts.clobber, "clobber", false, "Overwrite files that already exist in the download directory.")
+	cmd.Flags().BoolVar(&opts.skipExisting, "skip-existing", false, "Keep files that already exist in the download directory, and download only the missing assets.")
+
+	cmd.MarkFlagsMutuallyExclusive("clobber", "skip-existing")
 
 	return cmd
 }
@@ -160,7 +175,7 @@ func (o *options) run(ctx context.Context) error {
 		color.Blue("repo"), repo.FullName(),
 		color.Blue("tag"), o.tagName)
 
-	err = downloadAssets(ctx, client, o.io, downloadableAssets, o.dir)
+	err = downloadAssets(ctx, client, o.io, downloadableAssets, o.dir, o.existingFileAction())
 	if err != nil {
 		return cmdutils.WrapError(err, "failed to download release.")
 	}
@@ -180,14 +195,32 @@ func matchAny(patterns []string, name string) bool {
 	return false
 }
 
-func downloadAssets(ctx context.Context, client *gitlab.Client, io *iostreams.IOStreams, toDownload []*upload.ReleaseAsset, destDir string) error {
+// existingFileAction says what to do with a download target that is already
+// on disk.
+type existingFileAction int
+
+const (
+	// failOnExisting keeps the original behavior: an existing file stops the
+	// command, so a download never destroys a local file by accident.
+	failOnExisting existingFileAction = iota
+	overwriteExisting
+	keepExisting
+)
+
+func (o *options) existingFileAction() existingFileAction {
+	switch {
+	case o.clobber:
+		return overwriteExisting
+	case o.skipExisting:
+		return keepExisting
+	default:
+		return failOnExisting
+	}
+}
+
+func downloadAssets(ctx context.Context, client *gitlab.Client, io *iostreams.IOStreams, toDownload []*upload.ReleaseAsset, destDir string, onExisting existingFileAction) error {
 	color := io.Color()
 	for _, asset := range toDownload {
-		io.LogInfof("%s downloading file %s=%s %s=%s.\n",
-			color.ProgressIcon(),
-			color.Blue("name"), *asset.Name,
-			color.Blue("url"), *asset.URL)
-
 		var sanitizedAssetName string
 		if asset.Name != nil {
 			sanitizedAssetName = sanitizeAssetName(*asset.Name)
@@ -202,12 +235,51 @@ func downloadAssets(ctx context.Context, client *gitlab.Client, io *iostreams.IO
 			return fmt.Errorf("invalid file path name")
 		}
 
-		err = downloadAsset(ctx, client, *asset.URL, destPath)
+		if onExisting == keepExisting {
+			exists, err := pathExists(destPath)
+			if err != nil {
+				return err
+			}
+			if exists {
+				io.LogInfof("%s skipping file, it exists already %s=%s\n",
+					color.DotWarnIcon(),
+					color.Blue("name"), sanitizedAssetName)
+				continue
+			}
+		}
+
+		io.LogInfof("%s downloading file %s=%s %s=%s.\n",
+			color.ProgressIcon(),
+			color.Blue("name"), *asset.Name,
+			color.Blue("url"), *asset.URL)
+
+		err = downloadAsset(ctx, client, *asset.URL, destPath, onExisting)
 		if err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+// pathExists uses Lstat, so a symlink counts as existing even when its target
+// is missing.
+func pathExists(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func errIfExists(path string) error {
+	exists, err := pathExists(path)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return fmt.Errorf("file %q already exists. Use '--clobber' to overwrite it, or '--skip-existing' to keep it: %w", path, fs.ErrExist)
+	}
 	return nil
 }
 
@@ -220,24 +292,55 @@ func sanitizeAssetName(asset string) string {
 	return filepath.Clean(asset)
 }
 
-func downloadAsset(ctx context.Context, client *gitlab.Client, assetURL, destinationPath string) (err error) {
+// downloadAsset writes to a temporary file in the destination directory and
+// renames it into place after the whole body arrives. A failed download then
+// keeps an existing file intact and leaves no partial one, and the rename
+// replaces a symlink at the destination instead of writing through it.
+func downloadAsset(ctx context.Context, client *gitlab.Client, assetURL, destinationPath string, onExisting existingFileAction) (err error) {
 	baseURL, err := url.Parse(assetURL)
 	if err != nil {
 		return fmt.Errorf("parsing release asset URL: %w", err)
 	}
 
-	f, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if onExisting != overwriteExisting {
+		if err := errIfExists(destinationPath); err != nil {
+			return err
+		}
+	}
+
+	// A fixed prefix keeps the name short. An asset name near the 255-byte
+	// limit would otherwise make the temporary name too long.
+	tmp, err := os.CreateTemp(filepath.Dir(destinationPath), ".glab-download-*.tmp")
 	if err != nil {
 		return err
 	}
-	// Close can report a failed buffered write, and a leftover file makes the O_EXCL retry fail with "file exists".
 	defer func() {
-		err = errors.Join(err, f.Close())
 		if err != nil {
-			err = errors.Join(err, os.Remove(destinationPath))
+			err = errors.Join(err, os.Remove(tmp.Name()))
 		}
 	}()
 
+	if err := errors.Join(fetchAsset(ctx, client, baseURL, tmp), tmp.Close()); err != nil {
+		return err
+	}
+
+	// os.CreateTemp uses mode 0600, which would make the asset readable only
+	// by its owner.
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+
+	// Another process can create the file while the download runs.
+	if onExisting != overwriteExisting {
+		if err := errIfExists(destinationPath); err != nil {
+			return err
+		}
+	}
+
+	return os.Rename(tmp.Name(), destinationPath)
+}
+
+func fetchAsset(ctx context.Context, client *gitlab.Client, baseURL *url.URL, f io.Writer) error {
 	// check if authenticated GitLab client should be used or not.
 	gitlabBaseURL := client.BaseURL()
 	if gitlabBaseURL.Scheme == baseURL.Scheme && gitlabBaseURL.Host == baseURL.Host {
