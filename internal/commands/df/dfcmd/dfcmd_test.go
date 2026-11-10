@@ -79,8 +79,36 @@ func TestEnvironmentHelp(t *testing.T) {
 	t.Parallel()
 	t.Run("when the spec sets no environment help", func(t *testing.T) {
 		t.Parallel()
-		cmd := newTestCmd(cmdtest.NewTestFactory(nil))
+		spec := testSpec()
+		spec.Manager, spec.Use = pm.Pip, "pip <pip args>"
+		cmd := NewProxyCmd(cmdtest.NewTestFactory(nil), spec)
 		assert.Contains(t, cmd.Annotations["help:environment"], "HTTP_PROXY: outbound proxy for plain-HTTP registries. When it's unset, glab uses HTTPS_PROXY.")
+	})
+	t.Run("when the manager sends plain HTTP through HTTPS_PROXY", func(t *testing.T) {
+		t.Parallel()
+		help := newTestCmd(cmdtest.NewTestFactory(nil)).Annotations["help:environment"]
+		assert.Contains(t, help, "HTTP_PROXY: outbound proxy for plain-HTTP registries when HTTPS_PROXY is unset.")
+		assert.NotContains(t, help, "When it's unset, glab uses HTTPS_PROXY.")
+	})
+	t.Run("when the manager reads several proxy variables of its own", func(t *testing.T) {
+		t.Parallel()
+		cmd := newTestCmd(cmdtest.NewTestFactory(nil))
+		assert.Contains(t, cmd.Annotations["help:environment"], "npm_config_https_proxy, npm_config_proxy: proxy settings for npm. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n")
+	})
+	t.Run("when the manager reads one proxy variable of its own", func(t *testing.T) {
+		t.Parallel()
+		spec := testSpec()
+		spec.Manager, spec.Use = pm.Pip, "pip <pip args>"
+		cmd := NewProxyCmd(cmdtest.NewTestFactory(nil), spec)
+		assert.Contains(t, cmd.Annotations["help:environment"], "PIP_PROXY: proxy setting for pip. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n")
+	})
+	t.Run("when the manager reads no proxy variable of its own", func(t *testing.T) {
+		t.Parallel()
+		spec := testSpec()
+		spec.Manager, spec.Use = pm.Poetry, "poetry <poetry args>"
+		cmd := NewProxyCmd(cmdtest.NewTestFactory(nil), spec)
+		assert.NotContains(t, cmd.Annotations["help:environment"], "reads it first")
+		assert.NotContains(t, cmd.Annotations["help:environment"], "reads them first")
 	})
 	t.Run("when the spec sets its own environment help", func(t *testing.T) {
 		t.Parallel()

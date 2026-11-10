@@ -45,6 +45,7 @@ glab dependency-firewall pipenv install requests
 HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
 HTTP_PROXY: outbound proxy for plain-HTTP registries. When it's unset, glab uses HTTPS_PROXY.
 NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.
+PIP_PROXY: proxy setting for pipenv. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.
 ```
 
 ## Options inherited from parent commands
