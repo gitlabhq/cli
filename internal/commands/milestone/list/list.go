@@ -1,6 +1,10 @@
 package list
 
 import (
+	"fmt"
+	"net/url"
+	"strings"
+
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
 
@@ -22,10 +26,11 @@ type options struct {
 	page    int
 	perPage int
 
-	title            string
-	search           string
-	state            string
-	includeAncestors bool
+	title              string
+	search             string
+	state              string
+	includeAncestors   bool
+	includeDescendants bool
 
 	groupID      string
 	projectID    string
@@ -44,7 +49,8 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Docf(`
 		Filter by state with %[1]s--state%[1]s (%[1]sactive%[1]s or %[1]sclosed%[1]s), by title with %[1]s--title%[1]s,
 		or by free-text search with %[1]s--search%[1]s. For group milestones, use
-		%[1]s--include-ancestors%[1]s to also include milestones from ancestor groups.
+		%[1]s--include-ancestors%[1]s to also include milestones from ancestor groups, and
+		%[1]s--include-descendants%[1]s to also include milestones from subgroups and descendant projects.
 
 		By default, milestones are listed for the current project. Use
 		%[1]s--project%[1]s to target a different project, or %[1]s--group%[1]s to list
@@ -66,6 +72,9 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 			# List group milestones, including those from ancestor groups
 			glab milestone list --group example-group --include-ancestors
 
+			# List group milestones, including those from subgroups and descendant projects
+			glab milestone list --group example-group --include-descendants
+
 			# List milestones as JSON
 			glab milestone list --project owner/project --output json
 		`),
@@ -86,6 +95,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&opts.search, "search", "", "Return only milestones with a title or description matching the provided string.")
 	cmd.Flags().StringVar(&opts.state, "state", "", "Return only 'active' or 'closed' milestones.")
 	cmd.Flags().BoolVar(&opts.includeAncestors, "include-ancestors", false, "Include milestones from all parent groups.")
+	cmd.Flags().BoolVar(&opts.includeDescendants, "include-descendants", false, "Include milestones from all subgroups and descendant projects.")
 
 	cmd.Flags().IntVarP(&opts.page, "page", "p", 1, "Page number.")
 	cmd.Flags().IntVarP(&opts.perPage, "per-page", "P", 20, "Number of items to list per page.")
@@ -93,6 +103,7 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat)
 
 	cmd.MarkFlagsOneRequired("project", "group")
+	cmd.MarkFlagsMutuallyExclusive("project", "include-descendants")
 
 	return cmd
 }
@@ -103,12 +114,6 @@ func (o *options) run(cmd *cobra.Command) error {
 		return err
 	}
 	client := c.Lab()
-	table := tableprinter.NewTablePrinter()
-	if o.showIDs {
-		table.AddRow("ID", "Title", "Description", "State", "Due Date")
-	} else {
-		table.AddRow("Title", "Description", "State", "Due Date")
-	}
 
 	if o.projectID != "" { // list project milestones
 		listMilestonesOptions := &gitlab.ListMilestonesOptions{
@@ -145,11 +150,14 @@ func (o *options) run(cmd *cobra.Command) error {
 			return nil
 		}
 
+		table := tableprinter.NewTablePrinter()
 		if o.showIDs {
+			table.AddRow("ID", "Title", "Description", "State", "Due Date")
 			for _, m := range milestones {
 				table.AddRow(m.ID, m.Title, m.Description, m.State, utils.FormatDueDate(m.DueDate))
 			}
 		} else {
+			table.AddRow("Title", "Description", "State", "Due Date")
 			for _, m := range milestones {
 				table.AddRow(m.Title, m.Description, m.State, utils.FormatDueDate(m.DueDate))
 			}
@@ -177,6 +185,9 @@ func (o *options) run(cmd *cobra.Command) error {
 		if cmd.Flags().Changed("include-ancestors") {
 			listMilestonesOptions.IncludeAncestors = &o.includeAncestors
 		}
+		if cmd.Flags().Changed("include-descendants") {
+			listMilestonesOptions.IncludeDescendents = &o.includeDescendants
+		}
 
 		milestones, _, err := client.GroupMilestones.ListGroupMilestones(o.groupID, listMilestonesOptions)
 		if err != nil {
@@ -192,14 +203,31 @@ func (o *options) run(cmd *cobra.Command) error {
 			return nil
 		}
 
+		table := tableprinter.NewTablePrinter()
+		var header []any
 		if o.showIDs {
-			for _, m := range milestones {
-				table.AddRow(m.ID, m.Title, m.Description, m.State, utils.FormatDueDate(m.DueDate))
+			header = append(header, "ID")
+		}
+		header = append(header, "Title")
+		if o.includeDescendants {
+			header = append(header, "Owner")
+		}
+		header = append(header, "Description", "State", "Due Date")
+		table.AddRow(header...)
+
+		basePath := instanceBasePath(client)
+
+		for _, m := range milestones {
+			var row []any
+			if o.showIDs {
+				row = append(row, m.ID)
 			}
-		} else {
-			for _, m := range milestones {
-				table.AddRow(m.Title, m.Description, m.State, utils.FormatDueDate(m.DueDate))
+			row = append(row, m.Title)
+			if o.includeDescendants {
+				row = append(row, milestoneOwner(m, basePath))
 			}
+			row = append(row, m.Description, m.State, utils.FormatDueDate(m.DueDate))
+			table.AddRow(row...)
 		}
 
 		o.io.LogInfo(table.String())
@@ -207,4 +235,51 @@ func (o *options) run(cmd *cobra.Command) error {
 	}
 
 	return nil
+}
+
+func instanceBasePath(client *gitlab.Client) string {
+	p := strings.TrimSuffix(client.BaseURL().Path, "/")
+	return strings.TrimSuffix(p, "/api/v4")
+}
+
+func milestoneOwner(m *gitlab.GroupMilestone, basePath string) string {
+	if m == nil {
+		return ""
+	}
+	if m.WebURL != "" {
+		if u, err := url.Parse(m.WebURL); err == nil && u.Path != "" {
+			p := u.Path
+			if basePath != "" {
+				basePath = "/" + strings.Trim(basePath, "/")
+				if after, ok := strings.CutPrefix(p, basePath+"/"); ok {
+					p = "/" + after
+				} else if p == basePath {
+					p = ""
+				}
+			}
+			if idx := strings.Index(p, "/-/milestones/"); idx != -1 {
+				p = p[:idx]
+			} else if idx := strings.Index(p, "/milestones/"); idx != -1 {
+				p = p[:idx]
+			} else {
+				p = ""
+			}
+			if after, ok := strings.CutPrefix(p, "/groups/"); ok {
+				p = after
+			} else if p == "/groups" {
+				p = ""
+			}
+			p = strings.Trim(p, "/")
+			if p != "" {
+				return p
+			}
+		}
+	}
+	if m.ProjectID != 0 {
+		return fmt.Sprintf("project/%d", m.ProjectID)
+	}
+	if m.GroupID != 0 {
+		return fmt.Sprintf("group/%d", m.GroupID)
+	}
+	return ""
 }

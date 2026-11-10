@@ -16,7 +16,8 @@ List milestones in a project or group.
 
 Filter by state with `--state` (`active` or `closed`), by title with `--title`,
 or by free-text search with `--search`. For group milestones, use
-`--include-ancestors` to also include milestones from ancestor groups.
+`--include-ancestors` to also include milestones from ancestor groups, and
+`--include-descendants` to also include milestones from subgroups and descendant projects.
 
 By default, milestones are listed for the current project. Use
 `--project` to target a different project, or `--group` to list
@@ -44,6 +45,9 @@ glab milestone list --group example-group --state active
 # List group milestones, including those from ancestor groups
 glab milestone list --group example-group --include-ancestors
 
+# List group milestones, including those from subgroups and descendant projects
+glab milestone list --group example-group --include-descendants
+
 # List milestones as JSON
 glab milestone list --project owner/project --output json
 
@@ -52,17 +56,18 @@ glab milestone list --project owner/project --output json
 ## Options
 
 ```plaintext
-      --group string        The ID or URL-encoded path of the group.
-      --include-ancestors   Include milestones from all parent groups.
-      --jq string           Filter JSON output with a jq expression.
-  -F, --output string       Format output as: text, json. (default "text")
-  -p, --page int            Page number. (default 1)
-  -P, --per-page int        Number of items to list per page. (default 20)
-      --project string      The ID or URL-encoded path of the project.
-      --search string       Return only milestones with a title or description matching the provided string.
-      --show-id             Show IDs in table output.
-      --state string        Return only 'active' or 'closed' milestones.
-      --title string        Return only the milestones having the given title.
+      --group string          The ID or URL-encoded path of the group.
+      --include-ancestors     Include milestones from all parent groups.
+      --include-descendants   Include milestones from all subgroups and descendant projects.
+      --jq string             Filter JSON output with a jq expression.
+  -F, --output string         Format output as: text, json. (default "text")
+  -p, --page int              Page number. (default 1)
+  -P, --per-page int          Number of items to list per page. (default 20)
+      --project string        The ID or URL-encoded path of the project.
+      --search string         Return only milestones with a title or description matching the provided string.
+      --show-id               Show IDs in table output.
+      --state string          Return only 'active' or 'closed' milestones.
+      --title string          Return only the milestones having the given title.
 ```
 
 ## Options inherited from parent commands
