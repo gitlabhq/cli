@@ -317,9 +317,10 @@ func TestStart_RelayErrorNamesBindingSource(t *testing.T) {
 	})
 }
 
+// The failed handshake is Unavailable, so the command saves the generated
+// binding to TMPDIR, which the test sets and so cannot run in parallel.
 func TestStart_UntrustedCertificate(t *testing.T) {
-	t.Parallel()
-
+	t.Setenv("TMPDIR", t.TempDir())
 	relay := autoflowtest.NewRelay(t)
 	var gotBody tokenexchangetest.WireRequest
 	srv, _, _ := autoflowtest.NewTokenServer(t, &gotBody)
