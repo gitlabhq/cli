@@ -225,6 +225,14 @@ func TestRedactSecrets(t *testing.T) {
 		{"value from a call", "token = getToken(ctx, user1)", "token = getToken(ctx, user1)"},
 		{"pagination token", "page_token=" + fake("", 16), "page_token=" + fake("", 16)},
 		{"name that isn't a credential", "max_tokens: 4096000", "max_tokens: 4096000"},
+		{"prefixed API key in a command", "export OPENAI_API_KEY=" + fake("", 24), "export OPENAI_API_KEY=[REDACTED:credential]"},
+		{"password variable without a separator", "PGPASSWORD=" + fake("", 12) + " psql", "PGPASSWORD=[REDACTED:credential] psql"},
+		{"MySQL password variable", "MYSQL_PWD=" + fake("", 12), "MYSQL_PWD=[REDACTED:credential]"},
+		{"prefixed secret key in a .env file", "STRIPE_SECRET_KEY=" + fake("", 20) + "\n", "STRIPE_SECRET_KEY=[REDACTED:credential]\n"},
+		{"name ending in a credential word plus more", "api_key_id: k1abcdefgh secret_key_name: main12345", "api_key_id: k1abcdefgh secret_key_name: main12345"},
+		{"file named after a password", "password_file: pass1.txt", "password_file: pass1.txt"},
+		{"password that starts with a slash", "password=/" + fake("", 15), "password=[REDACTED:credential]"},
+		{"password in an ODBC connection string", "Driver=x;UID=bob;PWD=" + fake("", 12) + ";", "Driver=x;UID=bob;PWD=[REDACTED:credential];"},
 		{"working directory", "PWD=/home/u1/app OLDPWD=~/src2", "PWD=/home/u1/app OLDPWD=~/src2"},
 		{"plain text", "fix the flaky test in sync_test.go", "fix the flaky test in sync_test.go"},
 	}
@@ -266,6 +274,28 @@ func TestRedactJSON(t *testing.T) {
 		in := json.RawMessage(`{"headers":{"Authorization":"Bearer ` + fake("", 30) + `","X-Auth-Token":"t0k3n"},"env":{"AWS_SECRET_ACCESS_KEY":"` + fake("", 40) + `","HOME":"/home/me","TOKEN":"$CI_JOB_TOKEN"},"next_page_token":"c2"}`)
 		assert.JSONEq(t,
 			`{"headers":{"Authorization":"[REDACTED:credential]","X-Auth-Token":"[REDACTED:credential]"},"env":{"AWS_SECRET_ACCESS_KEY":"[REDACTED:credential]","HOME":"/home/me","TOKEN":"$CI_JOB_TOKEN"},"next_page_token":"c2"}`,
+			string(redactJSON(in)))
+	})
+
+	t.Run("redacts values under prefixed credential names", func(t *testing.T) {
+		t.Parallel()
+		in := json.RawMessage(`{"env":{"OPENAI_API_KEY":"` + fake("", 20) + `","STRIPE_SECRET_KEY":"` + fake("", 20) + `","PGPASSWORD":"` + fake("", 12) + `","MYSQL_PWD":"` + fake("", 12) + `","SSH_PRIVATE_KEY":"` + fake("", 20) + `"}}`)
+		assert.JSONEq(t,
+			`{"env":{"OPENAI_API_KEY":"[REDACTED:credential]","STRIPE_SECRET_KEY":"[REDACTED:credential]","PGPASSWORD":"[REDACTED:credential]","MYSQL_PWD":"[REDACTED:credential]","SSH_PRIVATE_KEY":"[REDACTED:credential]"}}`,
+			string(redactJSON(in)))
+	})
+
+	t.Run("keeps names that only contain a credential word, and the working directory", func(t *testing.T) {
+		t.Parallel()
+		in := json.RawMessage(`{"password_file":"pass1.txt","api_key_id":"k1abcdefgh","secret_key_name":"main1","PWD":"/home/me/src1","OLDPWD":"/tmp/x1"}`)
+		assert.JSONEq(t, string(in), string(redactJSON(in)))
+	})
+
+	t.Run("redacts credentials that start with a slash or tilde", func(t *testing.T) {
+		t.Parallel()
+		in := json.RawMessage(`{"AWS_SECRET_ACCESS_KEY":"/` + fake("", 39) + `","password":"~` + fake("", 15) + `","PWD":"` + fake("", 12) + `"}`)
+		assert.JSONEq(t,
+			`{"AWS_SECRET_ACCESS_KEY":"[REDACTED:credential]","password":"[REDACTED:credential]","PWD":"[REDACTED:credential]"}`,
 			string(redactJSON(in)))
 	})
 
