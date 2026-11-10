@@ -5,8 +5,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	cmdCreate "gitlab.com/gitlab-org/cli/internal/commands/service-account/create"
+	cmdDelete "gitlab.com/gitlab-org/cli/internal/commands/service-account/delete"
 	cmdGet "gitlab.com/gitlab-org/cli/internal/commands/service-account/get"
 	cmdList "gitlab.com/gitlab-org/cli/internal/commands/service-account/list"
+	cmdUpdate "gitlab.com/gitlab-org/cli/internal/commands/service-account/update"
 )
 
 func NewCmd(f cmdutils.Factory) *cobra.Command {
@@ -28,8 +31,11 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	cmdutils.EnableRepoOverride(cmd, f)
 
+	cmd.AddCommand(cmdCreate.NewCmd(f))
+	cmd.AddCommand(cmdDelete.NewCmd(f))
 	cmd.AddCommand(cmdGet.NewCmd(f))
 	cmd.AddCommand(cmdList.NewCmd(f))
+	cmd.AddCommand(cmdUpdate.NewCmd(f))
 
 	return cmd
 }

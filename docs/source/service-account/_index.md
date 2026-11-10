@@ -38,5 +38,8 @@ Project service accounts require the Maintainer or Owner role for the project, o
 
 ## Subcommands
 
+- [`create`](create.md)
+- [`delete`](delete.md)
 - [`get`](get.md)
 - [`list`](list.md)
+- [`update`](update.md)

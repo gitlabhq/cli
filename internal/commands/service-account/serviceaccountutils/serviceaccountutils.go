@@ -14,6 +14,8 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
+	"gitlab.com/gitlab-org/cli/internal/iostreams"
+	"gitlab.com/gitlab-org/cli/internal/tableprinter"
 )
 
 // Scope is the group or the project whose service accounts a command acts on.
@@ -65,20 +67,21 @@ func NewClient(
 // Account is the part of a service account common to the group and the project
 // API types, used for text output.
 type Account struct {
-	ID       int64
-	Username string
-	Name     string
-	Email    string
+	ID               int64
+	Username         string
+	Name             string
+	Email            string
+	UnconfirmedEmail string
 }
 
 // FromGroup converts a group service account to an Account.
 func FromGroup(a *gitlab.GroupServiceAccount) Account {
-	return Account{ID: a.ID, Username: a.UserName, Name: a.Name, Email: a.Email}
+	return Account{ID: a.ID, Username: a.UserName, Name: a.Name, Email: a.Email, UnconfirmedEmail: a.UnconfirmedEmail}
 }
 
 // FromProject converts a project service account to an Account.
 func FromProject(a *gitlab.ProjectServiceAccount) Account {
-	return Account{ID: a.ID, Username: a.Username, Name: a.Name, Email: a.Email}
+	return Account{ID: a.ID, Username: a.Username, Name: a.Name, Email: a.Email, UnconfirmedEmail: a.UnconfirmedEmail}
 }
 
 // OrDash renders an empty field as "-", matching the other token and
@@ -88,6 +91,21 @@ func OrDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// PrintDetails prints a service account as a two-column table. The unconfirmed
+// email row appears only while a custom email address awaits confirmation.
+func PrintDetails(io *iostreams.IOStreams, a Account) {
+	c := io.Color()
+	table := tableprinter.NewTablePrinter()
+	table.AddRow(c.Bold("ID"), a.ID)
+	table.AddRow(c.Bold("Username"), a.Username)
+	table.AddRow(c.Bold("Name"), OrDash(a.Name))
+	table.AddRow(c.Bold("Email"), OrDash(a.Email))
+	if a.UnconfirmedEmail != "" {
+		table.AddRow(c.Bold("Unconfirmed Email"), a.UnconfirmedEmail)
+	}
+	io.LogInfof("%s", table.Render())
 }
 
 const perPage = 100
@@ -144,6 +162,21 @@ func ParseID(ref string) (int64, bool, error) {
 		return 0, false, fmt.Errorf("invalid service account ID %q", ref)
 	}
 	return 0, false, nil
+}
+
+// ResolveID returns the ID of the service account an <id|username> argument
+// names. Only a username costs a request.
+func ResolveID(ctx context.Context, client *gitlab.Client, scope Scope, ref string) (int64, error) {
+	id, isID, err := ParseID(ref)
+	if err != nil || isID {
+		return id, err
+	}
+
+	_, account, err := FindByUsername(ctx, client, scope, ref)
+	if err != nil {
+		return 0, err
+	}
+	return account.ID, nil
 }
 
 // FindByUsername returns the service account with the given username, both as

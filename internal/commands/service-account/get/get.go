@@ -14,7 +14,6 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
-	"gitlab.com/gitlab-org/cli/internal/tableprinter"
 )
 
 type options struct {
@@ -135,18 +134,7 @@ func (o *options) run(ctx context.Context) error {
 	case "json":
 		return o.io.PrintJSON(raw)
 	default:
-		return o.printDetails(account)
+		serviceaccountutils.PrintDetails(o.io, account)
+		return nil
 	}
-}
-
-func (o *options) printDetails(a serviceaccountutils.Account) error {
-	c := o.io.Color()
-	table := tableprinter.NewTablePrinter()
-	table.AddRow(c.Bold("ID"), a.ID)
-	table.AddRow(c.Bold("Username"), a.Username)
-	table.AddRow(c.Bold("Name"), serviceaccountutils.OrDash(a.Name))
-	table.AddRow(c.Bold("Email"), serviceaccountutils.OrDash(a.Email))
-	o.io.LogInfof("%s", table.Render())
-
-	return nil
 }
