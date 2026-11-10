@@ -3,6 +3,7 @@ package cmdutils
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"net/url"
 	"sort"
 	"strings"
@@ -163,10 +164,48 @@ func (rr *remoteResolver) Resolver(hostOverride string) func() (glrepo.Remotes, 
 		}
 
 		if len(cachedRemotes) == 0 {
-			remotesError = errors.New("none of the git remotes configured for this repository point to a known GitLab host. Please use `glab auth login` to authenticate and configure a new host for glab.\n\n" +
-				"Configured remotes: " + resolvedRemotes.UniqueHosts())
+			var advice string
+			if hints := sshHostHints(resolvedRemotes, configuredHosts); hints != "" {
+				advice = "\n\n" + hints
+			} else {
+				advice = " Please use `glab auth login` to authenticate and configure a new host for glab.\n\n"
+			}
+			remotesError = errors.New("none of the git remotes configured for this repository point to a known GitLab host." +
+				advice + "Configured remotes: " + resolvedRemotes.UniqueHosts())
 			return nil, remotesError
 		}
 		return cachedRemotes, nil
 	}
+}
+
+// sshHostHints suggests setting ssh_host for each SSH remote host that is a
+// subdomain of a configured host, such as ssh.gitlab.example.com for
+// gitlab.example.com. glab never makes that mapping itself, because the
+// subdomain may be a separate instance.
+func sshHostHints(remotes glrepo.Remotes, configuredHosts map[string]struct{}) string {
+	var hints strings.Builder
+	seen := map[string]struct{}{}
+	for _, r := range remotes {
+		if r.FetchURL == nil || r.FetchURL.Scheme != "ssh" {
+			continue
+		}
+		remoteHost := r.RepoHost()
+		if _, ok := seen[remoteHost]; ok {
+			continue
+		}
+		seen[remoteHost] = struct{}{}
+
+		var parent string
+		for h := range configuredHosts {
+			if strings.HasSuffix(remoteHost, "."+glinstance.NormalizeHostname(h)) && len(h) > len(parent) {
+				parent = h
+			}
+		}
+		if parent == "" {
+			continue
+		}
+		fmt.Fprintf(&hints, "If %s is the SSH host of %s, run:\n\n  glab config set ssh_host %s --host %s\n\n",
+			remoteHost, parent, remoteHost, parent)
+	}
+	return hints.String()
 }
