@@ -25,8 +25,8 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api/artifactregistry"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glinstance"
-	"gitlab.com/gitlab-org/cli/internal/testing/artifactregistrytest"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
+	"gitlab.com/gitlab-org/cli/internal/testing/tokenexchangetest"
 )
 
 // apiHost returns srv's host:port, since the api_host config key takes a bare
@@ -103,19 +103,19 @@ func newTestExec(t *testing.T, cfg config.Config) cmdtest.CmdExecFunc {
 func newWriterTestExec(t *testing.T, srv *httptest.Server) cmdtest.CmdExecFunc {
 	t.Helper()
 
-	return artifactregistrytest.NewTestExec(t, srv, NewCmd)
+	return tokenexchangetest.NewTestExec(t, srv, NewCmd)
 }
 
 // wireRequest mirrors the JSON body `glab artifact-registry login` sends to
 // POST /api/v4/token_exchange for the non-docker writers.
-type wireRequest = artifactregistrytest.WireRequest
+type wireRequest = tokenexchangetest.WireRequest
 
 // tokenServer starts a fake token_exchange endpoint that always returns
 // wantToken, decoding each request body into gotBody.
 func tokenServer(t *testing.T, wantToken string, gotBody *wireRequest) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 
-	return artifactregistrytest.NewTokenExchangeServer(t, wantToken, gotBody)
+	return tokenexchangetest.NewTokenExchangeServer(t, wantToken, gotBody)
 }
 
 // supportedOS stands in for dockercredhelper.Supported in tests that build
@@ -128,13 +128,13 @@ func supportedOS() error { return nil }
 func dockerTokenServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
-	token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
 	})
 
-	srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"token":"` + token + `"}`))
@@ -284,7 +284,7 @@ func TestLogin_ConfigFileMustNotBeDirectory(t *testing.T) {
 
 		t.Run(tool+" trailing separator on a missing directory", func(t *testing.T) {
 			setHome(t, t.TempDir())
-			srv, count := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			srv, count := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 				t.Errorf("unexpected request to fake server: %s %s", r.Method, r.URL.Path)
 				w.WriteHeader(http.StatusInternalServerError)
 			})
@@ -305,7 +305,7 @@ func TestLogin_ConfigFileMustNotBeDirectory(t *testing.T) {
 // before the token exchange and without touching the file.
 func TestLogin_Sbt_ConfigFileMustBeSbtFile(t *testing.T) {
 	setHome(t, t.TempDir())
-	srv, count := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, count := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("unexpected request to fake server: %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusInternalServerError)
 	})
@@ -350,7 +350,7 @@ func TestLogin_Gradle_RegistryMustHaveSchemeAndHost(t *testing.T) {
 func TestLogin_Maven_RegistryNeedsNoURLShape(t *testing.T) {
 	setHome(t, t.TempDir())
 
-	wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	wantToken := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -388,7 +388,7 @@ func TestLogin_Sbt_SuccessMessageNamesEachFileAndItsVersion(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
 
-	token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -411,7 +411,7 @@ func TestLogin_Sbt_SuccessMessageNamesEachFileAndItsVersion(t *testing.T) {
 func TestLogin_Sbt_SuccessMessageSaysARunningSbtKeepsItsCredentials(t *testing.T) {
 	setHome(t, t.TempDir())
 
-	token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -432,7 +432,7 @@ func TestLogin_Sbt_WarnsAboutASkippedVariable(t *testing.T) {
 	setHome(t, t.TempDir())
 	t.Setenv("SBT_CONFIG_HOME", "relative")
 
-	token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -452,7 +452,7 @@ func TestLogin_Sbt_WarnsAboutASkippedVariable(t *testing.T) {
 func TestLogin_Yarn_SuccessMessageClaimsOnlyTheToken(t *testing.T) {
 	setHome(t, t.TempDir())
 
-	token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -477,7 +477,7 @@ func TestLogin_Yarn_WarnsAboutAScopeWithItsOwnToken(t *testing.T) {
 	fixture := "npmScopes:\n  acme:\n    npmRegistryServer: \"https://ar.example.com\"\n    npmAuthToken: old\n"
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".yarnrc.yml"), []byte(fixture), 0o600))
 
-	token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -546,7 +546,7 @@ func TestLogin_RegistryHostAcceptsAnIPAddress(t *testing.T) {
 		t.Run(registry, func(t *testing.T) {
 			setHome(t, t.TempDir())
 
-			token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+			token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 				Issuer:    "https://gitlab.example.com",
 				Subject:   "gid://gitlab/User/1",
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -572,7 +572,7 @@ func TestLogin_UnresolvableHomeDirectoryIsReported(t *testing.T) {
 		t.Run(flag, func(t *testing.T) {
 			setHome(t, "")
 
-			token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+			token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 				Issuer:    "https://gitlab.example.com",
 				Subject:   "gid://gitlab/User/1",
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -612,7 +612,7 @@ func TestLogin_DispatchesToTheSelectedWriter(t *testing.T) {
 			home := t.TempDir()
 			setHome(t, home)
 
-			wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+			wantToken := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 				Issuer:    "https://gitlab.example.com",
 				Subject:   "gid://gitlab/User/1",
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -674,7 +674,7 @@ func TestLogin_TokenWithALineBreakReachesNoWriter(t *testing.T) {
 			home := t.TempDir()
 			setHome(t, home)
 
-			valid := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+			valid := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 				Issuer:    "https://gitlab.example.com",
 				Subject:   "gid://gitlab/User/1",
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -701,7 +701,7 @@ func TestLogin_TokenWithALineBreakReachesNoWriter(t *testing.T) {
 }
 
 func TestLogin_Maven_DurationOutOfRange(t *testing.T) {
-	srv, count := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, count := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("unexpected request to fake server: %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusInternalServerError)
 	})
@@ -716,7 +716,7 @@ func TestLogin_Maven_DispatchesToWriterAfterExchangingToken(t *testing.T) {
 	setHome(t, t.TempDir())
 
 	exp := time.Now().Add(time.Hour).Truncate(time.Second)
-	wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	wantToken := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(exp),
@@ -743,7 +743,7 @@ func TestLogin_ConfigFile_WritesNamedFileOnly(t *testing.T) {
 			setHome(t, home)
 			configFile := filepath.Join(t.TempDir(), tc.file)
 
-			wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+			wantToken := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 				Issuer:    "https://gitlab.example.com",
 				Subject:   "gid://gitlab/User/1",
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
@@ -793,7 +793,7 @@ func TestLogin_Maven_ForwardsDurationToExchange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			setHome(t, t.TempDir())
 
-			wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+			wantToken := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 				Issuer:    "https://gitlab.example.com",
 				Subject:   "gid://gitlab/User/1",
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(tc.wantExpiresIn).Truncate(time.Second)),
@@ -822,7 +822,7 @@ func TestLogin_Maven_DefaultRegistryAliasIsDerivedFromRegistry(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
 
-	wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	wantToken := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -907,7 +907,7 @@ func TestLogin_Docker_ExchangeFailureWritesNothing(t *testing.T) {
 	setPath(t, binDir)
 	setHome(t, home)
 
-	srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"message":"artifact registry is disabled for this project"}`))
@@ -963,7 +963,7 @@ func TestLogin_Docker_VerificationTokenUsesMinDuration(t *testing.T) {
 	setPath(t, binDir)
 	setHome(t, t.TempDir())
 
-	token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -973,7 +973,7 @@ func TestLogin_Docker_VerificationTokenUsesMinDuration(t *testing.T) {
 		ExpiresIn *int `json:"expires_in"`
 	}
 	var decodeErr error
-	srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		// Recorded rather than asserted: a failed assertion inside a handler
 		// runs on the server's goroutine, where it cannot fail the test.
 		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
@@ -1004,7 +1004,7 @@ func TestLogin_Docker_VerificationUsesTheStoredCredential(t *testing.T) {
 	clearAmbientTokens(t)
 	t.Setenv("GITLAB_TOKEN", "environment-token")
 
-	token := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+	token := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 		Issuer:    "https://gitlab.example.com",
 		Subject:   "gid://gitlab/User/1",
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour).Truncate(time.Second)),
@@ -1013,7 +1013,7 @@ func TestLogin_Docker_VerificationUsesTheStoredCredential(t *testing.T) {
 	// Recorded rather than asserted: a failed assertion inside a handler runs on
 	// the server's goroutine, where it cannot fail the test.
 	var gotToken string
-	srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		gotToken = r.Header.Get(gitlab.AccessTokenHeaderName)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -1042,7 +1042,7 @@ func TestLogin_Docker_VerificationFailsWhenOnlyTheEnvironmentHasAToken(t *testin
 	clearAmbientTokens(t)
 	t.Setenv("GITLAB_TOKEN", "environment-token")
 
-	srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get(gitlab.AccessTokenHeaderName) == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -1081,7 +1081,7 @@ func TestLogin_Docker_ExchangeFailureHintsAtTheMissingToken(t *testing.T) {
 	setHome(t, t.TempDir())
 	clearAmbientTokens(t)
 
-	srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"message":"401 Unauthorized"}`))
@@ -1110,7 +1110,7 @@ func TestLogin_Docker_ExchangeFailureWithAJobTokenAddsNoHint(t *testing.T) {
 	setHome(t, t.TempDir())
 	clearAmbientTokens(t)
 
-	srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"message":"403 Forbidden"}`))
@@ -1139,7 +1139,7 @@ func TestLogin_Docker_ExchangeFailureWithAStoredTokenAddsNoHint(t *testing.T) {
 	setPath(t, binDir)
 	setHome(t, t.TempDir())
 
-	srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"message":"artifact registry is disabled for this project"}`))
@@ -1310,7 +1310,7 @@ func TestLogin_Docker_GlabNotOnPathFailsBeforeTheExchange(t *testing.T) {
 	setPath(t, t.TempDir())
 	setHome(t, t.TempDir())
 
-	srv, requests := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+	srv, requests := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	exec := newTestExec(t, newServerConfig(t, srv, glinstance.DefaultHostname))

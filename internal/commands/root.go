@@ -13,6 +13,7 @@ import (
 	artifactRegistryCmd "gitlab.com/gitlab-org/cli/internal/commands/artifactregistry"
 	attestationCmd "gitlab.com/gitlab-org/cli/internal/commands/attestation"
 	authCmd "gitlab.com/gitlab-org/cli/internal/commands/auth"
+	autoflowCmd "gitlab.com/gitlab-org/cli/internal/commands/autoflow"
 	changelogCmd "gitlab.com/gitlab-org/cli/internal/commands/changelog"
 	pipelineCmd "gitlab.com/gitlab-org/cli/internal/commands/ci"
 	clusterCmd "gitlab.com/gitlab-org/cli/internal/commands/cluster"
@@ -120,6 +121,7 @@ func NewCmdRoot(f cmdutils.Factory) *cobra.Command {
 
 	rootCmd.AddCommand(apiCmd.NewCmdApi(f, nil))
 	rootCmd.AddCommand(artifactRegistryCmd.NewCmd(f))
+	rootCmd.AddCommand(autoflowCmd.NewCmd(f))
 	rootCmd.AddCommand(changelogCmd.NewCmdChangelog(f))
 	rootCmd.AddCommand(clusterCmd.NewCmdCluster(f))
 	rootCmd.AddCommand(containerRegistryCmd.NewCmd(f))

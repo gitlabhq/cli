@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/config"
-	"gitlab.com/gitlab-org/cli/internal/testing/artifactregistrytest"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
+	"gitlab.com/gitlab-org/cli/internal/testing/tokenexchangetest"
 )
 
 func TestHelper(t *testing.T) {
@@ -308,12 +308,12 @@ func TestHelper_Get_Precedence(t *testing.T) {
 	futureDate := time.Now().Add(24 * time.Hour).Format(time.RFC822)
 
 	t.Run("dual-listed domain, artifact registry exchange succeeds", func(t *testing.T) {
-		wantToken := artifactregistrytest.MakeJWT(t, jwt.RegisteredClaims{
+		wantToken := tokenexchangetest.MakeJWT(t, jwt.RegisteredClaims{
 			Issuer:    "https://gitlab.example.com",
 			Subject:   "gid://gitlab/User/1",
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		})
-		srv, count := artifactregistrytest.NewTokenExchangeServer(t, wantToken, &artifactregistrytest.WireRequest{})
+		srv, count := tokenexchangetest.NewTokenExchangeServer(t, wantToken, &tokenexchangetest.WireRequest{})
 		host := apiHost(t, srv)
 
 		cfg := config.NewFromString(`
@@ -340,7 +340,7 @@ hosts:
 	})
 
 	t.Run("dual-listed domain, artifact registry exchange fails, container registry used", func(t *testing.T) {
-		srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusForbidden)
 		})
 		host := apiHost(t, srv)
@@ -372,7 +372,7 @@ hosts:
 	})
 
 	t.Run("artifact-registry-only domain, exchange fails, hard error", func(t *testing.T) {
-		srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"message":"artifact registry is disabled for this project"}`))
@@ -404,7 +404,7 @@ hosts:
 	// names a real failure (an empty stored token), not just an unassociated
 	// domain, so it must not be swallowed by the artifact-registry error alone.
 	t.Run("dual-listed domain, both exchanges fail, container registry error is not swallowed", func(t *testing.T) {
-		srv, _ := artifactregistrytest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		srv, _ := tokenexchangetest.NewTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"message":"artifact registry is disabled for this project"}`))
