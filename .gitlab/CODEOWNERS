@@ -34,4 +34,8 @@
 /docs/source/minder/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @nrosandich @jeanvdw @andrew.jung
 /internal/commands/orbit/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/orbit/team
 /docs/source/orbit/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @gitlab-org/orbit/team
+/docs/source/autoflow/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gl-docsteam @gitlab-org/maintainers/gitlab-relay
+/internal/api/autoflow/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/maintainers/gitlab-relay
+/internal/commands/autoflow/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/maintainers/gitlab-relay
+/internal/testing/autoflowtest/ @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers @gitlab-org/maintainers/gitlab-relay
 /docs-locale/ @gitlab-com/localization/maintainers/tech-docs @gitlab-com/ai-engineering/ai-coding/teams/gitlab-cli-maintainers
