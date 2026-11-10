@@ -26,6 +26,13 @@ type secretPattern struct {
 	// mixedCase, with tokenLike, also keeps a match without both upper and
 	// lower case letters, such as a kebab-case name.
 	mixedCase bool
+	// digit, when set, leaves a value without a digit as it is, so a type name
+	// such as ApiKeyType isn't redacted.
+	digit bool
+	// named means re matches a name and the separator after it, and the value
+	// that follows is read by assignedValue. The value is only replaced when
+	// the name is a credentialKey.
+	named bool
 	// extend, when set, returns where a match ending at end really ends.
 	extend func(s string, end int) int
 }
@@ -159,15 +166,31 @@ var secretPatterns = []secretPattern{
 		hints: []string{"://"},
 		re:    regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.\-]*://[^\s/:@"']*:([^\s/@"'$<{\[][^\s/"']*)@`),
 	},
+	// A value assigned to a credential-like name in text, such as
+	// MY_API_TOKEN=... in a command or password: ... in a YAML file. The value
+	// must have a digit, so Optional[str] or getToken(ctx) aren't taken for
+	// one, though a call whose name has a digit, such as sha256(x), is. A path
+	// is never a value, so PWD=/home/u1 is kept.
+	{
+		kind:  "credential",
+		hints: []string{"token", "secret", "passw", "passphrase", "pwd", "key", "authorization"},
+		re:    regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_\-]*)(?:\\?["'])?[ \t]*(?::=|[:=])[ \t]*`),
+		digit: true,
+		named: true,
+	},
 }
 
-// sensitiveKey matches JSON keys whose string value is a credential, such as
-// headers or environment variables in tool arguments. Pagination tokens are
-// cursors, not credentials, so they are kept.
+// sensitiveKey matches names whose value is a credential, such as headers or
+// environment variables in tool arguments, or variables assigned in text.
+// Pagination tokens are cursors, not credentials, so they are kept.
 var (
 	sensitiveKey  = regexp.MustCompile(`(?i)^(?:(?:proxy[-_])?authorization|x[-_]api[-_]key|api[-_]?key|token|secret|secret[-_]key|private[-_]key|client[-_]secret|password|passwd|pwd|passphrase|.*[-_]secret|.*[-_]secret[-_]access[-_]key|.*[-_]password|.*[-_]token)$`)
 	paginationKey = regexp.MustCompile(`(?i)^(?:next[-_])?page[-_]token$`)
 )
+
+func credentialKey(name string) bool {
+	return sensitiveKey.MatchString(name) && !paginationKey.MatchString(name)
+}
 
 func redactedMarker(kind string) string {
 	return "[REDACTED:" + kind + "]"
@@ -197,9 +220,9 @@ func containsAny(s string, subs []string) bool {
 }
 
 // replaceSecret replaces each match of p in s, or only its first capturing
-// group when it has one.
+// group when it has one, or its second when p is named.
 func replaceSecret(s string, p secretPattern) string {
-	matches := p.re.FindAllStringSubmatchIndex(s, -1)
+	matches := secretMatches(s, p)
 	if matches == nil {
 		return s
 	}
@@ -207,10 +230,13 @@ func replaceSecret(s string, p secretPattern) string {
 	last := 0
 	for _, m := range matches {
 		start, end := m[0], m[1]
-		if p.re.NumSubexp() > 0 {
+		switch {
+		case p.named:
+			start, end = m[4], m[5]
+		case p.re.NumSubexp() > 0:
 			start, end = m[2], m[3]
 		}
-		// A match inside a key that extend already took is part of it.
+		// A match inside a secret that was already replaced is part of it.
 		if start < last {
 			continue
 		}
@@ -220,12 +246,105 @@ func replaceSecret(s string, p secretPattern) string {
 		if start < 0 || (p.tokenLike && !looksLikeToken(s[start:end], p.mixedCase)) {
 			continue
 		}
+		if p.digit && !strings.ContainsAny(s[start:end], "0123456789") {
+			continue
+		}
 		b.WriteString(s[last:start])
 		b.WriteString(redactedMarker(p.kind))
 		last = end
 	}
 	b.WriteString(s[last:])
 	return b.String()
+}
+
+// secretMatches returns the matches of p in s. A named pattern's matches are
+// a name, then the value, as a group each. re only matches names, so a name
+// inside another value, as in args: --token=..., is still found.
+func secretMatches(s string, p secretPattern) [][]int {
+	if !p.named {
+		return p.re.FindAllStringSubmatchIndex(s, -1)
+	}
+	var matches [][]int
+	for _, m := range p.re.FindAllStringSubmatchIndex(s, -1) {
+		name := m[2]
+		// In escaped text such as user=bob\npassword=..., the name starts
+		// after the letter of the escape.
+		if name > 0 && s[name-1] == '\\' && strings.IndexByte("nrt", s[name]) >= 0 &&
+			(!credentialKey(s[name:m[3]]) || paginationKey.MatchString(s[name+1:m[3]])) {
+			name++
+		}
+		if !credentialKey(s[name:m[3]]) {
+			continue
+		}
+		if start, end, ok := assignedValue(s, m[1]); ok {
+			matches = append(matches, []int{name, end, name, m[3], start, end})
+		}
+	}
+	return matches
+}
+
+// maxCredentialLength bounds the value read after a credential-like name, so
+// long text without spaces can't make redaction slow. Only the start of a
+// longer value is replaced.
+const maxCredentialLength = 256
+
+// assignedValue returns where the value at i in s starts and ends. A quoted
+// value, also one whose quotes are escaped as in \"...\", runs to its closing
+// quote, and any other value to a space, quote, backslash, bracket or
+// separator. It reports false when the value starts with $, <, {, [, &, (, =,
+// / or ~, or has fewer than 8 characters.
+func assignedValue(s string, i int) (int, int, bool) {
+	var quote byte
+	escaped := false
+	switch {
+	case i < len(s) && (s[i] == '"' || s[i] == '\''):
+		quote = s[i]
+		i++
+	case i+1 < len(s) && s[i] == '\\' && (s[i+1] == '"' || s[i+1] == '\''):
+		quote, escaped = s[i+1], true
+		i += 2
+	}
+	start := i
+	if i >= len(s) || strings.IndexByte(" \t\r\n\\\"'$<{[&(=/~", s[i]) >= 0 {
+		return 0, 0, false
+	}
+	if quote != 0 {
+		return quotedValue(s, start, quote, escaped)
+	}
+	for i < len(s) && strings.IndexByte(" \t\r\n\\\"'&,;|()[]{}<>", s[i]) < 0 {
+		if i-start == maxCredentialLength {
+			return start, i, true
+		}
+		i++
+	}
+	if i-start < 8 {
+		return 0, 0, false
+	}
+	return start, i, true
+}
+
+// quotedValue returns where the value that starts at start in s ends, at its
+// closing quote, stepping over escaped characters. A value cut off by the end
+// of s or a line break ends there.
+func quotedValue(s string, start int, quote byte, escaped bool) (int, int, bool) {
+	i := start
+	for i < len(s) && s[i] != '\r' && s[i] != '\n' && i-start < maxCredentialLength {
+		if s[i] == quote && !escaped {
+			break
+		}
+		if s[i] == '\\' && i+1 < len(s) {
+			if s[i+1] == '\r' || s[i+1] == '\n' || (escaped && s[i+1] == quote) {
+				break
+			}
+			i += 2
+			continue
+		}
+		i++
+	}
+	if i-start < 8 {
+		return 0, 0, false
+	}
+	return start, min(i, len(s)), true
 }
 
 // looksLikeToken reports whether s mixes cases or has a digit, as generated
@@ -285,7 +404,7 @@ func redactJSON(input json.RawMessage) json.RawMessage {
 func redactValue(v any, key string) (any, bool) {
 	switch v := v.(type) {
 	case string:
-		if v != "" && !strings.HasPrefix(v, "$") && sensitiveKey.MatchString(key) && !paginationKey.MatchString(key) {
+		if v != "" && !strings.HasPrefix(v, "$") && credentialKey(key) {
 			return redactedMarker("credential"), true
 		}
 		r := redactSecrets(v)
