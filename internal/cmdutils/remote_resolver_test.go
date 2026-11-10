@@ -3,6 +3,7 @@
 package cmdutils
 
 import (
+	"cmp"
 	"testing"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -479,6 +480,7 @@ func Test_remoteResolverErrors(t *testing.T) {
 		remotes            git.RemoteSet
 		hostOverride       string
 		hostOverrideEnvVar string
+		config             string
 		expectedError      string
 		expectedErrorIs    error
 	}{
@@ -523,6 +525,46 @@ func Test_remoteResolverErrors(t *testing.T) {
 				"Please use `glab auth login` to authenticate and configure a new host for glab.\n\n" +
 				"Configured remotes: example.org, example3.org, example2.org",
 		},
+		{
+			name: "Remote on a subdomain of a configured host suggests ssh_host",
+			remotes: git.RemoteSet{
+				git.NewRemote("origin", "ssh://git@ssh.my-gitlab.org/owner/repo.git"),
+				git.NewRemote("fork", "ssh://git@ssh.my-gitlab.org/me/repo.git"),
+			},
+			expectedError: "none of the git remotes configured for this repository point to a known GitLab host.\n\n" +
+				"If ssh.my-gitlab.org is the SSH host of my-gitlab.org, run:\n\n" +
+				"  glab config set ssh_host ssh.my-gitlab.org --host my-gitlab.org\n\n" +
+				"Configured remotes: ssh.my-gitlab.org",
+		},
+		{
+			name:    "SSH remote whose host only ends with a configured host gets no ssh_host hint",
+			remotes: git.RemoteSet{git.NewRemote("origin", "ssh://git@notmy-gitlab.org/owner/repo.git")},
+			expectedError: "none of the git remotes configured for this repository point to a known GitLab host. " +
+				"Please use `glab auth login` to authenticate and configure a new host for glab.\n\n" +
+				"Configured remotes: notmy-gitlab.org",
+		},
+		{
+			name:    "HTTPS remote on a subdomain of a configured host gets no ssh_host hint",
+			remotes: git.RemoteSet{git.NewRemote("origin", "https://dev.my-gitlab.org/owner/repo.git")},
+			expectedError: "none of the git remotes configured for this repository point to a known GitLab host. " +
+				"Please use `glab auth login` to authenticate and configure a new host for glab.\n\n" +
+				"Configured remotes: dev.my-gitlab.org",
+		},
+		{
+			name:    "ssh_host hint names the most specific configured host",
+			remotes: git.RemoteSet{git.NewRemote("origin", "ssh://git@ssh.gitlab.my-gitlab.org/owner/repo.git")},
+			config: heredoc.Doc(`
+				hosts:
+				  my-gitlab.org:
+				    oauth_token: OTOKEN
+				  gitlab.my-gitlab.org:
+				    oauth_token: OTOKEN
+			`),
+			expectedError: "none of the git remotes configured for this repository point to a known GitLab host.\n\n" +
+				"If ssh.gitlab.my-gitlab.org is the SSH host of gitlab.my-gitlab.org, run:\n\n" +
+				"  glab config set ssh_host ssh.gitlab.my-gitlab.org --host gitlab.my-gitlab.org\n\n" +
+				"Configured remotes: ssh.gitlab.my-gitlab.org",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -531,11 +573,11 @@ func Test_remoteResolverErrors(t *testing.T) {
 					return test.remotes, nil
 				},
 				getConfig: func() config.Config {
-					return config.NewFromString(heredoc.Doc(`
+					return config.NewFromString(cmp.Or(test.config, heredoc.Doc(`
 				hosts:
 				  my-gitlab.org:
 				    oauth_token: OTOKEN
-			`))
+			`)))
 				},
 				parseSSHConfig:     noSSHAliases,
 				hostOverrideEnvVar: test.hostOverrideEnvVar,
