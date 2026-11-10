@@ -82,7 +82,7 @@ Lefthook runs automatically on `git push`. Install it once with
 `mise` and `.tool-versions`.
 
 ```shell
-lefthook run pre-push  # build, lint against origin/main, test-changed, generated-doc/code check, markdown/vale/lychee
+lefthook run pre-push  # build, lint against origin/main, test-changed, generated-doc/code check, markdown/rumdl/vale/lychee
 make check             # test + lint
 ```
 
