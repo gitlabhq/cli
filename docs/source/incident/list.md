@@ -52,7 +52,7 @@ glab incident list --updated-after 2026-10-01T00:00:00Z
       --in string              Search in: title, description. (default "title,description")
       --jq string              Filter JSON output with a jq expression.
   -l, --label strings          Filter incident by label <name>. Multiple labels can be comma-separated or specified by repeating the flag.
-  -m, --milestone string       Filter incident by milestone <id>.
+  -m, --milestone string       Filter incident by milestone <title>.
       --not-assignee string    Filter incident by not being assigned to <username>.
       --not-author string      Filter incident by not being by author(s) <username>.
       --not-label strings      Filter incident by lack of label <name>. Multiple labels can be comma-separated or specified by repeating the flag.

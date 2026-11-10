@@ -75,6 +75,33 @@ func TestNewCmdListHelpExamples(t *testing.T) {
 	}
 }
 
+func TestMilestoneFlagHelpUsesTitle(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		issueType issuable.IssueType
+	}{
+		{name: "issue", issueType: issuable.TypeIssue},
+		{name: "incident", issueType: issuable.TypeIncident},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ios, _, stdout, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+			cmd := NewCmdList(cmdtest.NewTestFactory(ios), nil, tc.issueType)
+			cmd.SetOut(stdout)
+
+			cmd.SetArgs([]string{"--help"})
+			err := cmd.Execute()
+			require.NoError(t, err)
+			assert.Contains(t, stdout.String(), fmt.Sprintf("Filter %s by milestone <title>.", tc.name))
+		})
+	}
+}
+
 func TestIssueList_tty(t *testing.T) {
 	// NOTE: we need to force disable colors, otherwise we'd need ANSI sequences in our test output assertions.
 	t.Setenv("NO_COLOR", "true")
