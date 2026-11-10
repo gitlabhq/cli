@@ -302,7 +302,13 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	}
 	checker := policy.NewCachingChecker(baseChecker, opts.IO.LogErrorf)
 
-	proxyOpts := []proxy.Option{proxy.WithUpstreamFailureWarning(opts.IO.LogErrorf)}
+	// Read the manager's own outbound proxy before its environment is pointed
+	// at the inspection proxy below.
+	proxyOpts, err := upstreamProxyOptions(manager, os.Environ())
+	if err != nil {
+		return err
+	}
+	proxyOpts = append(proxyOpts, proxy.WithUpstreamFailureWarning(opts.IO.LogErrorf))
 	roots, err := upstreamRootCAs(os.Environ(), opts.CACertPath)
 	if err != nil {
 		return fmt.Errorf("failed to load registry CA certificates: %w", err)

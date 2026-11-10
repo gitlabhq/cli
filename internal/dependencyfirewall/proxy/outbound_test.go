@@ -421,3 +421,23 @@ func TestProxyReadsUppercaseProxyVariablesFirst(t *testing.T) {
 		assert.Equal(t, "http://upper-http.example:3128", proxyFor(t, p, "http://registry.example/pkg"))
 	})
 }
+
+func TestWithUpstreamProxyForOverridesOnlyItsScheme(t *testing.T) {
+	t.Parallel()
+	fixed := func(raw string) func(*http.Request) (*url.URL, error) {
+		return func(*http.Request) (*url.URL, error) { return url.Parse(raw) }
+	}
+	p, err := New(stubMatcher{}, stubChecker{}, "group/proj",
+		WithUpstreamProxy(fixed("http://default.example:3128")),
+		WithUpstreamProxyFor("http", fixed("http://plain.example:3128")),
+	)
+	require.NoError(t, err)
+
+	plain, err := p.upstream.Proxy(httptest.NewRequest(http.MethodGet, "http://registry.example/pkg", http.NoBody))
+	require.NoError(t, err)
+	assert.Equal(t, "http://plain.example:3128", plain.String())
+
+	secure, err := p.upstream.Proxy(httptest.NewRequest(http.MethodGet, "https://registry.example/pkg", http.NoBody))
+	require.NoError(t, err)
+	assert.Equal(t, "http://default.example:3128", secure.String())
+}

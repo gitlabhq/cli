@@ -41,6 +41,28 @@ var proxyEnvironmentHelp = heredoc.Doc(`
 	NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.
 `)
 
+var httpsFirstProxyEnvironmentHelp = heredoc.Doc(`
+	HTTPS_PROXY: outbound proxy glab uses to reach package registries, plain-HTTP registries included. Credentials in the URL are sent to the proxy.
+	HTTP_PROXY: outbound proxy for plain-HTTP registries when HTTPS_PROXY is unset.
+	NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.
+`)
+
+func environmentHelp(name string, manager pm.PackageManager) string {
+	help := proxyEnvironmentHelp
+	if pm.PlainHTTPUsesHTTPSProxy(manager) {
+		help = httpsFirstProxyEnvironmentHelp
+	}
+	vars := pm.OwnProxyVariables(manager)
+	switch len(vars) {
+	case 0:
+		return help
+	case 1:
+		return help + fmt.Sprintf("%s: proxy setting for %s. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n", vars[0], name)
+	default:
+		return help + fmt.Sprintf("%s: proxy settings for %s. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n", strings.Join(vars, ", "), name)
+	}
+}
+
 type options struct {
 	io           *iostreams.IOStreams
 	executor     cmdutils.Executor
@@ -77,7 +99,7 @@ func NewProxyCmd(f cmdutils.Factory, spec ProxySpec) *cobra.Command {
 		Short: spec.Short + " (BETA)",
 		Annotations: map[string]string{
 			mcpannotations.Exclude: "true",
-			"help:environment":     cmp.Or(spec.Environment, proxyEnvironmentHelp),
+			"help:environment":     cmp.Or(spec.Environment, environmentHelp(opts.name, spec.Manager())),
 		},
 		DisableFlagParsing: true,
 		Long:               spec.Long + text.BetaString,

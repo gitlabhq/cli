@@ -177,6 +177,21 @@ func WithUpstreamProxy(proxyFunc func(*http.Request) (*url.URL, error)) Option {
 	}
 }
 
+// WithUpstreamProxyFor overrides the outbound proxy for upstream registry
+// requests whose URL has the given scheme, such as a package manager's own
+// proxy setting. Requests with any other scheme keep the proxy picked before.
+func WithUpstreamProxyFor(scheme string, proxyFunc func(*http.Request) (*url.URL, error)) Option {
+	return func(p *Proxy) {
+		next := p.upstream.Proxy
+		p.upstream.Proxy = func(r *http.Request) (*url.URL, error) {
+			if r.URL.Scheme == scheme {
+				return proxyFunc(r)
+			}
+			return next(r)
+		}
+	}
+}
+
 // upstreamProxyFromEnvironment reads glab's environment like
 // http.ProxyFromEnvironment, but a plain-HTTP request falls back to
 // HTTPS_PROXY, the outbound proxy glab documents, when HTTP_PROXY is unset.
