@@ -169,8 +169,7 @@ var secretPatterns = []secretPattern{
 	// A value assigned to a credential-like name in text, such as
 	// MY_API_TOKEN=... in a command or password: ... in a YAML file. The value
 	// must have a digit, so Optional[str] or getToken(ctx) aren't taken for
-	// one, though a call whose name has a digit, such as sha256(x), is. A path
-	// is never a value, so PWD=/home/u1 is kept.
+	// one, though a call whose name has a digit, such as sha256(x), is.
 	{
 		kind:  "credential",
 		hints: []string{"token", "secret", "passw", "passphrase", "pwd", "key", "authorization"},
@@ -181,12 +180,20 @@ var secretPatterns = []secretPattern{
 }
 
 // sensitiveKey matches names whose value is a credential, such as headers or
-// environment variables in tool arguments, or variables assigned in text.
-// Pagination tokens are cursors, not credentials, so they are kept.
+// environment variables in tool arguments, or variables assigned in text,
+// including prefixed ones such as OPENAI_API_KEY, STRIPE_SECRET_KEY,
+// PGPASSWORD and MYSQL_PWD. Pagination tokens are cursors, not credentials,
+// so they are kept.
 var (
-	sensitiveKey  = regexp.MustCompile(`(?i)^(?:(?:proxy[-_])?authorization|x[-_]api[-_]key|api[-_]?key|token|secret|secret[-_]key|private[-_]key|client[-_]secret|password|passwd|pwd|passphrase|.*[-_]secret|.*[-_]secret[-_]access[-_]key|.*[-_]password|.*[-_]token)$`)
+	sensitiveKey  = regexp.MustCompile(`(?i)^(?:(?:proxy[-_])?authorization|token|secret|passphrase|.*(?:password|passwd)|(?:.*[-_])?(?:api[-_]?key|secret[-_]key|private[-_]key|pwd)|.*[-_]secret|.*[-_]secret[-_]access[-_]key|.*[-_]token)$`)
 	paginationKey = regexp.MustCompile(`(?i)^(?:next[-_])?page[-_]token$`)
 )
+
+// workingDirectory reports whether name is PWD holding a path, the shell's
+// working directory, rather than a password as in an ODBC connection string.
+func workingDirectory(name, value string) bool {
+	return strings.EqualFold(name, "pwd") && (strings.HasPrefix(value, "/") || strings.HasPrefix(value, "~"))
+}
 
 func credentialKey(name string) bool {
 	return sensitiveKey.MatchString(name) && !paginationKey.MatchString(name)
@@ -276,7 +283,7 @@ func secretMatches(s string, p secretPattern) [][]int {
 		if !credentialKey(s[name:m[3]]) {
 			continue
 		}
-		if start, end, ok := assignedValue(s, m[1]); ok {
+		if start, end, ok := assignedValue(s, m[1]); ok && !workingDirectory(s[name:m[3]], s[start:end]) {
 			matches = append(matches, []int{name, end, name, m[3], start, end})
 		}
 	}
@@ -291,8 +298,8 @@ const maxCredentialLength = 256
 // assignedValue returns where the value at i in s starts and ends. A quoted
 // value, also one whose quotes are escaped as in \"...\", runs to its closing
 // quote, and any other value to a space, quote, backslash, bracket or
-// separator. It reports false when the value starts with $, <, {, [, &, (, =,
-// / or ~, or has fewer than 8 characters.
+// separator. It reports false when the value starts with $, <, {, [, &, ( or
+// =, or has fewer than 8 characters.
 func assignedValue(s string, i int) (int, int, bool) {
 	var quote byte
 	escaped := false
@@ -305,7 +312,7 @@ func assignedValue(s string, i int) (int, int, bool) {
 		i += 2
 	}
 	start := i
-	if i >= len(s) || strings.IndexByte(" \t\r\n\\\"'$<{[&(=/~", s[i]) >= 0 {
+	if i >= len(s) || strings.IndexByte(" \t\r\n\\\"'$<{[&(=", s[i]) >= 0 {
 		return 0, 0, false
 	}
 	if quote != 0 {
@@ -404,7 +411,7 @@ func redactJSON(input json.RawMessage) json.RawMessage {
 func redactValue(v any, key string) (any, bool) {
 	switch v := v.(type) {
 	case string:
-		if v != "" && !strings.HasPrefix(v, "$") && credentialKey(key) {
+		if v != "" && !strings.HasPrefix(v, "$") && credentialKey(key) && !workingDirectory(key, v) {
 			return redactedMarker("credential"), true
 		}
 		r := redactSecrets(v)
