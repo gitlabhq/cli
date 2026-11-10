@@ -109,7 +109,7 @@ func oauthLoginExec(t *testing.T, srv *httptest.Server) (cmdtest.CmdExecFunc, st
 		AnyTimes()
 
 	cfg := config.NewBlankConfigInDir(t.TempDir())
-	require.NoError(t, cfg.Set(hostname, "client_id", "test-client-id"))
+	require.NoError(t, cfg.Set(hostname, "client_id", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
 	require.NoError(t, cfg.Set(hostname, "skip_tls_verify", "true"))
 
 	return loginExec(t, false,

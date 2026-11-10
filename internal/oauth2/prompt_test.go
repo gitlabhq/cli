@@ -40,12 +40,54 @@ func TestResolveClientID_NonInteractiveSelfManagedFallsBackToError(t *testing.T)
 	assert.ErrorContains(t, err, "set 'client_id' first")
 }
 
+func TestResolveClientID_WhitespaceOnlyConfigNonInteractiveFallsBackToError(t *testing.T) {
+	cfg := stubConfig{
+		hosts: map[string]map[string]string{
+			"salsa.debian.org": {
+				"client_id": "   \t \n ",
+			},
+		},
+	}
+
+	clientID, persist, err := resolveClientID(t.Context(), cfg, newNonInteractiveIOStreams(), "salsa.debian.org")
+	require.Error(t, err)
+	assert.Empty(t, clientID)
+	assert.Nil(t, persist)
+	assert.ErrorContains(t, err, "set 'client_id' first")
+}
+
+const validTestClientID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func TestResolveClientID_WhitespaceOnlyConfigFallsThroughToPrompt(t *testing.T) {
+	console := ugh.New(t)
+	console.Expect(ugh.Select("How do you want to continue?")).
+		Do(ugh.SelectIndex(0)) // clientIDChoicePaste
+	console.Expect(ugh.Input("Paste the Application ID here:")).
+		Do(ugh.Type(validTestClientID))
+
+	io, cleanup := consoletest.IOStreamsWithConsole(t, console)
+	t.Cleanup(cleanup)
+
+	cfg := stubConfig{
+		hosts: map[string]map[string]string{
+			"salsa.debian.org": {
+				"client_id": "   \t \n ",
+			},
+		},
+	}
+
+	clientID, persist, err := resolveClientID(t.Context(), cfg, io, "salsa.debian.org")
+	require.NoError(t, err)
+	assert.Equal(t, validTestClientID, clientID)
+	assert.NotNil(t, persist)
+}
+
 func TestResolveClientID_InteractivePasteChoiceDefersPersistUntilCalled(t *testing.T) {
 	console := ugh.New(t)
 	console.Expect(ugh.Select("How do you want to continue?")).
 		Do(ugh.SelectIndex(0)) // clientIDChoicePaste
 	console.Expect(ugh.Input("Paste the Application ID here:")).
-		Do(ugh.Type("42"))
+		Do(ugh.Type(validTestClientID))
 
 	io, cleanup := consoletest.IOStreamsWithConsole(t, console)
 	t.Cleanup(cleanup)
@@ -60,7 +102,7 @@ func TestResolveClientID_InteractivePasteChoiceDefersPersistUntilCalled(t *testi
 
 	clientID, persist, err := resolveClientID(t.Context(), cfg, io, "salsa.debian.org")
 	require.NoError(t, err)
-	assert.Equal(t, "42", clientID)
+	assert.Equal(t, validTestClientID, clientID)
 
 	// A pasted value must not be written until the caller proves it works
 	// (a completed OAuth round trip) by calling persist.
@@ -73,7 +115,7 @@ func TestResolveClientID_InteractivePasteChoiceDefersPersistUntilCalled(t *testi
 
 	persisted, err = cfg.Get("salsa.debian.org", "client_id")
 	require.NoError(t, err)
-	assert.Equal(t, "42", persisted)
+	assert.Equal(t, validTestClientID, persisted)
 	assert.Equal(t, 1, writes, "expected persist() to flush the pasted client_id to disk")
 }
 

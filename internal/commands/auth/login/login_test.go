@@ -1059,7 +1059,7 @@ func Test_deviceLoginWithKeyringAndNoStoredToken(t *testing.T) {
 	d := t.TempDir()
 	t.Setenv("GLAB_CONFIG_DIR", d)
 	cfg := config.NewBlankConfigInDir(d)
-	require.NoError(t, cfg.Set(hostname, "client_id", "test-client-id"))
+	require.NoError(t, cfg.Set(hostname, "client_id", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
 	require.NoError(t, cfg.Set(hostname, "skip_tls_verify", "true"))
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmdLogin, false,

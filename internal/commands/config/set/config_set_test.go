@@ -218,3 +218,97 @@ func TestConfigSet_GlobalOnlyKeyWritesGloballyWithoutTheFlag(t *testing.T) {
 		"the value must land in the global config, which is the one glab reads")
 	assert.Equal(t, "true", cfg["_written"])
 }
+
+func TestConfigSet_ClientIDValidation(t *testing.T) {
+	t.Parallel()
+
+	validID := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	t.Run("accepts valid 64 hex characters", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := configStub{}
+		exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+		out, err := exec("client_id " + validID + " --host salsa.debian.org -g")
+		require.NoError(t, err)
+		assert.Empty(t, out.String())
+		assert.Equal(t, validID, cfg["salsa.debian.org:client_id"])
+		assert.Equal(t, "true", cfg["_written"])
+	})
+
+	t.Run("allows clearing client_id with empty string", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := configStub{"salsa.debian.org:client_id": validID}
+		exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+		out, err := exec(`client_id "" --host salsa.debian.org -g`)
+		require.NoError(t, err)
+		assert.Empty(t, out.String())
+		assert.Empty(t, cfg["salsa.debian.org:client_id"])
+		assert.Equal(t, "true", cfg["_written"])
+	})
+
+	t.Run("allows clearing client_id with whitespace string", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := configStub{"salsa.debian.org:client_id": validID}
+		exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+		out, err := exec(`client_id "   " --host salsa.debian.org -g`)
+		require.NoError(t, err)
+		assert.Empty(t, out.String())
+		assert.Empty(t, cfg["salsa.debian.org:client_id"])
+		assert.Equal(t, "true", cfg["_written"])
+	})
+
+	t.Run("trims surrounding whitespace before storing", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := configStub{}
+		exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+		out, err := exec("client_id '  " + validID + "  ' --host salsa.debian.org -g")
+		require.NoError(t, err)
+		assert.Empty(t, out.String())
+		assert.Equal(t, validID, cfg["salsa.debian.org:client_id"])
+		assert.Equal(t, "true", cfg["_written"])
+	})
+
+	t.Run("rejects personal access token", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := configStub{}
+		exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+		_, err := exec("client_id glpat-1234567890abcdef1234567890abcdef1234567890abcdef1234567890 --host salsa.debian.org -g")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `invalid value for "client_id": value is a personal access token (glpat-)`)
+		assert.NotEqual(t, "true", cfg["_written"])
+	})
+
+	t.Run("rejects application secret", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := configStub{}
+		exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+		_, err := exec("client_id gloas-1234567890abcdef1234567890abcdef1234567890abcdef1234567890 --host salsa.debian.org -g")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `invalid value for "client_id": value is an OAuth application secret (gloas-)`)
+		assert.NotEqual(t, "true", cfg["_written"])
+	})
+
+	t.Run("rejects short client_id", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := configStub{}
+		exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+		_, err := exec("client_id 12345 --host salsa.debian.org -g")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `invalid value for "client_id": OAuth application ID must be 64 hexadecimal characters`)
+		assert.NotEqual(t, "true", cfg["_written"])
+	})
+}
