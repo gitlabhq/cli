@@ -2,6 +2,7 @@ package set
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -13,6 +14,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
+	"gitlab.com/gitlab-org/cli/internal/oauth2"
 )
 
 type options struct {
@@ -75,11 +77,19 @@ glab config set check_update false --global`),
 func (o *options) complete(args []string) {
 	o.key = args[0]
 	o.value = args[1]
+	if config.ConfigKeyEquivalence(o.key) == "client_id" {
+		o.value = strings.TrimSpace(o.value)
+	}
 }
 
 func (o *options) validate() error {
 	if !config.IsKnownKey(o.key) {
 		return fmt.Errorf("%q is not a recognized glab config key, run `glab config` to see the supported keys", o.key)
+	}
+	if config.ConfigKeyEquivalence(o.key) == "client_id" && o.value != "" {
+		if err := oauth2.ValidateClientID(o.value); err != nil {
+			return fmt.Errorf("invalid value for %q: %w", o.key, err)
+		}
 	}
 	return nil
 }

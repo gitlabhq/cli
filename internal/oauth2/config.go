@@ -62,7 +62,11 @@ func resolveClientID(ctx context.Context, cfg config.Config, io *iostreams.IOStr
 	if err != nil {
 		return "", nil, err
 	}
+	clientID = strings.TrimSpace(clientID)
 	if clientID != "" {
+		if err := ValidateClientID(clientID); err != nil {
+			return "", nil, fmt.Errorf("invalid 'client_id' for %s: %w; update it with `glab config set client_id <client_id> -g --host %s`, or update or unset GITLAB_CLIENT_ID", hostname, err, hostname)
+		}
 		return clientID, func() error { return nil }, nil
 	}
 
@@ -123,12 +127,7 @@ func printClientIDRegistrationInstructions(io *iostreams.IOStreams) {
 // caller has proven the value by completing an OAuth round trip with it.
 func promptClientID(ctx context.Context, cfg config.Config, io *iostreams.IOStreams, hostname string) (string, func() error, error) {
 	var clientID string
-	err := io.Input(ctx, &clientID, "Paste the Application ID here:", "", func(s string) error {
-		if strings.TrimSpace(s) == "" {
-			return fmt.Errorf("required")
-		}
-		return nil
-	})
+	err := io.Input(ctx, &clientID, "Paste the Application ID here:", "", ValidateClientID)
 	if err != nil {
 		if errors.Is(err, iostreams.ErrUserCancelled) {
 			return "", nil, nonInteractiveClientIDErr(hostname)
