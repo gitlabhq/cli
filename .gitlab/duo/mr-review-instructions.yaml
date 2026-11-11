@@ -323,6 +323,35 @@ instructions:
          across two files without a corresponding readability win.
          `make check-embed` enforces this.
 
+  - name: Bundled skills
+    fileFilters:
+      - 'internal/commands/**/*.go'
+      - 'internal/commands/skills/bundled/assets/**/SKILL.md'
+      - '!**/*_test.go'
+    instructions: |
+      Bundled agent skills live in `internal/commands/skills/bundled/assets/`:
+      - `glab-stack/SKILL.md` covers `internal/commands/stack/**`.
+      - `glab/SKILL.md` covers general command usage across `glab`.
+
+      When an MR changes a command's user-visible contract, check whether
+      the matching `SKILL.md` still describes it correctly. A contract
+      change is any of: the command's `Use` or arguments, a flag that
+      is added, renamed, or removed, a new or removed TTY requirement,
+      prompt, or editor, or new required follow-up steps.
+
+      If the skill now gives instructions that would fail, hang, or
+      leave work unfinished, and the MR does not update that `SKILL.md`,
+      ask for the skill to be updated in the same MR. If the MR does
+      update the skill, check that each command it shows doesn't reach a
+      prompt, editor, or TTY check with the flags shown. Do not flag
+      internal refactors, test-only changes, or help-text wording changes.
+
+      When an MR edits a `SKILL.md`, with or without code changes, check
+      for what `TestBundledSkillsUseRealCommandsAndFlags` can't see: flags
+      that become required under certain conditions, and follow-up steps
+      the command needs before the work is finished. That test already
+      checks that every command and flag the skill mentions exists.
+
   - name: Flag handling
     fileFilters:
       - 'internal/commands/**/*.go'
