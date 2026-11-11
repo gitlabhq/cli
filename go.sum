@@ -331,8 +331,8 @@ github.com/yuin/goldmark/v2 v2.1.13 h1:NCbQv+/Vv6UKjWFT9OORfOkMdUbayQz8lK3L18IsO
 github.com/yuin/goldmark/v2 v2.1.13/go.mod h1:G6M4/qOFtfn01/o14BU1UR2Lo5N3S9Qo7xCuz/sHjGQ=
 github.com/zalando/go-keyring v0.2.8 h1:6sD/Ucpl7jNq10rM2pgqTs0sZ9V3qMrqfIIy5YPccHs=
 github.com/zalando/go-keyring v0.2.8/go.mod h1:tsMo+VpRq5NGyKfxoBVjCuMrG47yj8cmakZDO5QGii0=
-gitlab.com/gitlab-org/api/client-go/v3 v3.46.1 h1:EJTFaQkwgAehXH1+EkeO7uJChoomFGSobj0JBHL3vCY=
-gitlab.com/gitlab-org/api/client-go/v3 v3.46.1/go.mod h1:8cuzgeUJzkVvaRvw57iZ8foGmL5q8GZXi4lHTiF5edY=
+gitlab.com/gitlab-org/api/client-go/v3 v3.48.0 h1:GfPiKgh3hLwL6zavXILmdiBMJ89FcJVJFcdHnoeWGEk=
+gitlab.com/gitlab-org/api/client-go/v3 v3.48.0/go.mod h1:8cuzgeUJzkVvaRvw57iZ8foGmL5q8GZXi4lHTiF5edY=
 gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.15 h1:Zp5QwXVVLtdt+iFVSi3LNedVbBE5gsQhJl5udc4GIGQ=
 gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.15/go.mod h1:xPvL1xgmRH7iDJ+DDs9aPWkUu/MFNBi9S2aXi/4CuX8=
 gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow/rpc v0.1.10 h1:SDil0T/cwXNyImiYpwiH++6YAinmM/HQTLkFAbloxNM=
