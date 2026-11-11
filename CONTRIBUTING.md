@@ -40,12 +40,8 @@ We want to create a welcoming environment for everyone who is interested in cont
 
 ## Maintainership
 
-If you are a GitLab team member that is interested in becoming a maintainer of the CLI, we follow these basic steps [described in the handbook](https://handbook.gitlab.com/handbook/engineering/workflow/code-review/#accelerated-maintainer-onboarding-for-smaller-projects):
-
-- Familiarize yourself with the codebase and past reviews.
-- When you're ready, add yourself as a reviewer in your [team page](https://gitlab.com/gitlab-com/www-gitlab-com/-/blob/master/data/team_members/person/).
-- After the current maintainers feel confident you're ready to be a maintainer, you're added
-  to the project, and can update your team page again.
+GitLab team members who want to review or maintain the CLI can follow the
+[reviewer and maintainer guide](docs/maintainer.md).
 
 ## Getting Started
 
@@ -185,8 +181,8 @@ Run tests with: `go test ./...` or `make test`.
 
 There are some integration tests that perform real API requests to `https://gitlab.com`.
 If the environment variables `GITLAB_TEST_HOST` and `GITLAB_TOKEN_TEST` are not set, the integration tests will fail in CI if
-being run in the `gitlab-org/cli` project. They will be skipped locally or in forks if `GITLAB_TEST_HOST` and `GITLAB_TOKEN_TEST`
-are both omitted.
+being run in the `gitlab-org/cli` project. They will be skipped locally or in forks if either `GITLAB_TEST_HOST` or `GITLAB_TOKEN_TEST`
+is unset.
 Integration tests use the `_Integration` test suffix and use the `_integration_test.go` file suffix.
 
 `GITLAB_TEST_HOST` is set to `https://gitlab.com` in CI.
