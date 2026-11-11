@@ -25,24 +25,6 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
-func TestMain(m *testing.M) {
-	os.Exit(runIsolated(m))
-}
-
-// runIsolated runs the tests with the OpenCode plugin under the HOME each test
-// sets, and glab's state in a new directory, rather than in the configuration
-// of whoever runs the tests.
-func runIsolated(m *testing.M) int {
-	_ = os.Unsetenv("XDG_CONFIG_HOME")
-	dir, err := os.MkdirTemp("", "glab-setup-test-*")
-	if err != nil {
-		panic(err)
-	}
-	defer os.RemoveAll(dir)
-	_ = os.Setenv("GLAB_CONFIG_DIR", dir)
-	return m.Run()
-}
-
 func TestNewCmd(t *testing.T) {
 	t.Parallel()
 	ios, _, _, _ := cmdtest.TestIOStreams()
