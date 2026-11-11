@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -427,6 +428,27 @@ func TestAuditEventBatches(t *testing.T) {
 	}
 	assert.Equal(t, len(events), total)
 	assert.Contains(t, batches, []auditEventRequest{large}, "an event over the budget is posted on its own")
+}
+
+func TestAuditEventBatchesBytes(t *testing.T) {
+	// GitLab accepts up to 32 KB of details per event, and the element budget
+	// alone would put about 400 of these in one request.
+	event := auditEventRequest{
+		EventName: eventToolInvoked,
+		Details:   map[string]any{"content": strings.Repeat("a", 30*1024)},
+	}
+	events := slices.Repeat([]auditEventRequest{event}, 300)
+
+	batches := auditEventBatches(events)
+
+	require.Len(t, batches, 3, "about 130 of these fit in the byte budget")
+	total := 0
+	for _, batch := range batches {
+		total += len(batch)
+		body := auditEventsRequest{SessionID: math.MaxInt, Events: batch}
+		assert.LessOrEqual(t, encodedLen(body), maxBytesPerRequest)
+	}
+	assert.Equal(t, len(events), total)
 }
 
 func TestRateLimitWait(t *testing.T) {
