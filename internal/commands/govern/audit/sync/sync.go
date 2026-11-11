@@ -775,6 +775,9 @@ const (
 	// maxElementsPerRequest keeps a request under the 5,000 JSON elements that
 	// older GitLab versions accept for audit events, with some margin.
 	maxElementsPerRequest = 4500
+	// maxBytesPerRequest keeps a request under the 5 MB body that GitLab
+	// accepts for audit events, with some margin.
+	maxBytesPerRequest = 4 * 1024 * 1024
 )
 
 // jsonLimitErrors are the errors GitLab's JSON validation returns for a
@@ -811,19 +814,23 @@ func (p auditEventPoster) post(ctx context.Context, events []auditEventRequest) 
 }
 
 // auditEventBatches splits events into batches of at most maxEventsPerRequest
-// events and maxElementsPerRequest JSON elements.
+// events, maxElementsPerRequest JSON elements and maxBytesPerRequest bytes.
 func auditEventBatches(events []auditEventRequest) [][]auditEventRequest {
 	var batches [][]auditEventRequest
 	var batch []auditEventRequest
-	elements := auditEventsRequestElements
+	elements, size := auditEventsRequestElements, auditEventsRequestBytes
 	for _, event := range events {
 		n := auditEventElements(event)
-		if len(batch) == maxEventsPerRequest || (len(batch) > 0 && elements+n > maxElementsPerRequest) {
+		// Counts a comma for every event, one more than the request has.
+		b := encodedLen(event) + 1
+		full := elements+n > maxElementsPerRequest || size+b > maxBytesPerRequest
+		if len(batch) == maxEventsPerRequest || (len(batch) > 0 && full) {
 			batches = append(batches, batch)
-			batch, elements = nil, auditEventsRequestElements
+			batch, elements, size = nil, auditEventsRequestElements, auditEventsRequestBytes
 		}
 		batch = append(batch, event)
 		elements += n
+		size += b
 	}
 	if len(batch) > 0 {
 		batches = append(batches, batch)

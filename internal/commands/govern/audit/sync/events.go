@@ -156,7 +156,8 @@ func cappedArguments(input json.RawMessage) any {
 func encodedLen(v any) int {
 	encoded, err := json.Marshal(v) //nolint:forbidigo // measuring, not output
 	if err != nil {
-		return math.MaxInt
+		// Over any limit, with room for callers to add to it without overflowing.
+		return math.MaxInt / 2
 	}
 	return len(encoded)
 }
@@ -165,6 +166,10 @@ func encodedLen(v any) int {
 // auditEventsRequest has before its events: the request object and its two
 // members.
 const auditEventsRequestElements = 5
+
+// auditEventsRequestBytes is the most bytes an auditEventsRequest takes
+// without its events: {"session_id":N,"events":[]} with the largest N.
+const auditEventsRequestBytes = 64
 
 // auditEventElements returns the number of JSON elements event adds to a
 // request, or a number over every limit if it cannot be encoded.
