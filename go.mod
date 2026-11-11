@@ -50,7 +50,7 @@ require (
 	github.com/yuin/goldmark/v2 v2.1.13
 	github.com/zalando/go-keyring v0.2.8
 	gitlab.com/gitlab-org/api/client-go/v3 v3.46.1
-	gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.13
+	gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.15
 	gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow/rpc v0.1.10
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.6.0

@@ -333,8 +333,8 @@ github.com/zalando/go-keyring v0.2.8 h1:6sD/Ucpl7jNq10rM2pgqTs0sZ9V3qMrqfIIy5YPc
 github.com/zalando/go-keyring v0.2.8/go.mod h1:tsMo+VpRq5NGyKfxoBVjCuMrG47yj8cmakZDO5QGii0=
 gitlab.com/gitlab-org/api/client-go/v3 v3.46.1 h1:EJTFaQkwgAehXH1+EkeO7uJChoomFGSobj0JBHL3vCY=
 gitlab.com/gitlab-org/api/client-go/v3 v3.46.1/go.mod h1:8cuzgeUJzkVvaRvw57iZ8foGmL5q8GZXi4lHTiF5edY=
-gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.13 h1:68pJ/Y6qOrgsFWg7u3RClNj0DOuBiszU9GFsapvfueI=
-gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.13/go.mod h1:+NNdbCfVi6SO/Ks7hMHGV6jQ7BsnT8o+4DgcuadUPNg=
+gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.15 h1:Zp5QwXVVLtdt+iFVSi3LNedVbBE5gsQhJl5udc4GIGQ=
+gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.15/go.mod h1:xPvL1xgmRH7iDJ+DDs9aPWkUu/MFNBi9S2aXi/4CuX8=
 gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow/rpc v0.1.10 h1:SDil0T/cwXNyImiYpwiH++6YAinmM/HQTLkFAbloxNM=
 gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow/rpc v0.1.10/go.mod h1:IKVxLt8pBrnGWewrzlyEpsr8764TKtGD0H6Gx3pjlWQ=
 gitlab.com/gitlab-org/protos/gen/go/gitlab/constraint v0.1.1 h1:6xUCP0wsgo3SOFLywXVPh6PCHp5ZEtD2p9ih1YQeSeM=
