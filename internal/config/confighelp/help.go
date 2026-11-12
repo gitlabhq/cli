@@ -30,11 +30,11 @@ func KeyCompletions(setting bool) []cobra.Completion {
 	completions := make([]cobra.Completion, 0, len(config.KeySchema)*2)
 	for _, kd := range config.KeySchema {
 		if kd.UserSettable && !kd.HelpHidden {
-			completions = append(completions, fmt.Sprintf("%s\t%s", kd.Name, flatten(kd.Description)))
+			completions = append(completions, cobra.CompletionWithDesc(kd.Name, flatten(kd.Description)))
 		}
 		if !setting {
 			for _, alias := range kd.Aliases {
-				completions = append(completions, fmt.Sprintf("%s\tAlias for '%s'.", alias, kd.Name))
+				completions = append(completions, cobra.CompletionWithDesc(alias, fmt.Sprintf("Alias for '%s'.", kd.Name)))
 			}
 		}
 	}

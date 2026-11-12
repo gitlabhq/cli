@@ -2,7 +2,7 @@ package sshkeyutils
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -30,7 +30,7 @@ func SSHKeyIDCompletions(ctx context.Context, f cmdutils.Factory) ([]cobra.Compl
 
 	completions := make([]cobra.Completion, 0, len(keys))
 	for _, key := range keys {
-		completions = append(completions, fmt.Sprintf("%d\t%s", key.ID, key.Title))
+		completions = append(completions, cobra.CompletionWithDesc(strconv.FormatInt(key.ID, 10), key.Title))
 	}
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
