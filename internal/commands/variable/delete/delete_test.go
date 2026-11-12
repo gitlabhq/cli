@@ -4,6 +4,8 @@ package delete
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/shlex"
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
@@ -44,7 +47,7 @@ func Test_NewCmdDelete(t *testing.T) {
 		{
 			name:     "delete scoped group var",
 			cli:      "cool_secret -g mygroup --scope prod",
-			wantsErr: true,
+			wantsErr: false,
 		},
 		{
 			name:     "no name",
@@ -65,8 +68,8 @@ func Test_NewCmdDelete(t *testing.T) {
 				func(f *cmdtest.Factory) {
 					f.ApiClientStub = func(repoHost string) (*api.Client, error) {
 						tc := gitlabtesting.NewTestClient(t)
-						tc.MockProjectVariables.EXPECT().RemoveVariable(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-						tc.MockGroupVariables.EXPECT().RemoveVariable(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+						tc.MockProjectVariables.EXPECT().RemoveVariable(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+						tc.MockGroupVariables.EXPECT().RemoveVariable(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 						return cmdtest.NewTestApiClient(t, nil, "", repoHost, api.WithGitLabClient(tc.Client)), nil
 					}
 				},
@@ -112,7 +115,7 @@ func Test_deleteRun(t *testing.T) {
 			wantsOutput: "✓ Deleted variable TEST_VAR with scope * for owner/repo.\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockProjectVariables.EXPECT().
-					RemoveVariable("owner/repo", "TEST_VAR", gomock.Any()).
+					RemoveVariable("owner/repo", "TEST_VAR", gomock.Any(), gomock.Any()).
 					Return(nil, nil)
 			},
 		},
@@ -124,20 +127,20 @@ func Test_deleteRun(t *testing.T) {
 			wantsOutput: "✓ Deleted variable TEST_VAR with scope stage for owner/repo.\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockProjectVariables.EXPECT().
-					RemoveVariable("owner/repo", "TEST_VAR", gomock.Any()).
+					RemoveVariable("owner/repo", "TEST_VAR", gomock.Any(), gomock.Any()).
 					Return(nil, nil)
 			},
 		},
 		{
 			name:        "delete group variable",
 			key:         "TEST_VAR",
-			scope:       "",
+			scope:       "*",
 			group:       "testGroup",
 			wantsErr:    false,
-			wantsOutput: "✓ Deleted variable TEST_VAR for group testGroup.\n",
+			wantsOutput: "✓ Deleted variable TEST_VAR for group testGroup with scope *.\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockGroupVariables.EXPECT().
-					RemoveVariable("testGroup", "TEST_VAR", gomock.Any()).
+					RemoveVariable("testGroup", "TEST_VAR", gomock.Any(), gomock.Any()).
 					Return(nil, nil)
 			},
 		},
@@ -165,7 +168,7 @@ func Test_deleteRun(t *testing.T) {
 			}
 
 			// WHEN
-			err := opts.run()
+			err := opts.run(t.Context())
 
 			// THEN
 			if tt.wantsErr {
@@ -174,6 +177,44 @@ func Test_deleteRun(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantsOutput, stdout.String())
+		})
+	}
+}
+
+func Test_deleteGroupScope(t *testing.T) {
+	t.Parallel()
+
+	apiErr := errors.New("group variable delete failed")
+	for _, tt := range []struct {
+		name   string
+		cli    string
+		scope  string
+		apiErr error
+	}{
+		{name: "default scope", cli: "TEST_VARIABLE -g mygroup", scope: "*"},
+		{name: "explicit wildcard", cli: "TEST_VARIABLE -g mygroup -s '*'", scope: "*"},
+		{name: "stage scope", cli: "TEST_VARIABLE --group mygroup --scope stage", scope: "stage"},
+		{name: "wildcard environment", cli: "TEST_VARIABLE -g mygroup -s 'review/*'", scope: "review/*"},
+		{name: "API error", cli: "TEST_VARIABLE -g mygroup -s stage", scope: "stage", apiErr: apiErr},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tc := gitlabtesting.NewTestClient(t)
+			tc.MockGroupVariables.EXPECT().RemoveVariable("mygroup", "TEST_VARIABLE", &gitlab.RemoveGroupVariableOptions{
+				Filter: &gitlab.VariableFilter{EnvironmentScope: tt.scope},
+			}, gomock.Any()).Return(nil, tt.apiErr)
+			exec := cmdtest.SetupCmdForTest(t, NewCmdDelete, false,
+				cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "gitlab.com", api.WithGitLabClient(tc.Client))))
+
+			out, err := exec(tt.cli)
+			if tt.apiErr != nil {
+				require.ErrorIs(t, err, tt.apiErr)
+				assert.Empty(t, out.String())
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, fmt.Sprintf("✓ Deleted variable TEST_VARIABLE for group mygroup with scope %s.\n", tt.scope), out.String())
+			assert.Empty(t, out.Stderr())
 		})
 	}
 }

@@ -4,9 +4,12 @@ package update
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/shlex"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -15,6 +18,7 @@ import (
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
+	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -183,7 +187,7 @@ func Test_updateRun_project(t *testing.T) {
 	// GIVEN
 	testClient := gitlabtesting.NewTestClient(t)
 	testClient.MockProjectVariables.EXPECT().
-		UpdateVariable("owner/repo", "TEST_VARIABLE", gomock.Any()).
+		UpdateVariable("owner/repo", "TEST_VARIABLE", gomock.Any(), gomock.Any()).
 		Return(&gitlab.ProjectVariable{
 			Key:          "TEST_VARIABLE",
 			Value:        "foo",
@@ -208,7 +212,7 @@ func Test_updateRun_project(t *testing.T) {
 	}
 
 	// WHEN
-	err := opts.run()
+	err := opts.run(t.Context())
 
 	// THEN
 	require.NoError(t, err)
@@ -219,7 +223,12 @@ func Test_updateRun_group(t *testing.T) {
 	// GIVEN
 	testClient := gitlabtesting.NewTestClient(t)
 	testClient.MockGroupVariables.EXPECT().
-		UpdateVariable("mygroup", "TEST_VARIABLE", gomock.Any()).
+		GetVariable("mygroup", "TEST_VARIABLE", &gitlab.GetGroupVariableOptions{
+			Filter: &gitlab.VariableFilter{EnvironmentScope: "*"},
+		}, gomock.Any()).
+		Return(&gitlab.GroupVariable{Key: "TEST_VARIABLE", EnvironmentScope: "*"}, nil, nil)
+	testClient.MockGroupVariables.EXPECT().
+		UpdateVariable("mygroup", "TEST_VARIABLE", gomock.Any(), gomock.Any()).
 		Return(&gitlab.GroupVariable{
 			Key:          "TEST_VARIABLE",
 			Value:        "blargh",
@@ -241,14 +250,133 @@ func Test_updateRun_group(t *testing.T) {
 		key:   "TEST_VARIABLE",
 		value: "blargh",
 		group: "mygroup",
+		scope: "*",
 	}
 
 	// WHEN
-	err := opts.run()
+	err := opts.run(t.Context())
 
 	// THEN
 	require.NoError(t, err)
-	assert.Equal(t, "✓ Updated variable TEST_VARIABLE for group mygroup.\n", stdout.String())
+	assert.Equal(t, "✓ Updated variable TEST_VARIABLE for group mygroup with scope *.\n", stdout.String())
+}
+
+func Test_updateGroupScope(t *testing.T) {
+	t.Parallel()
+
+	apiErr := errors.New("group variable update failed")
+	for _, tt := range []struct {
+		name        string
+		cli         string
+		scope       string
+		stdin       string
+		typ         *gitlab.VariableTypeValue
+		protected   *bool
+		masked      *bool
+		raw         *bool
+		description *string
+		apiErr      error
+	}{
+		{name: "default scope", cli: "TEST_VARIABLE -g mygroup -v value", scope: "*"},
+		{name: "explicit wildcard", cli: "TEST_VARIABLE -g mygroup -s '*' -v value", scope: "*"},
+		{name: "production scope", cli: "TEST_VARIABLE --group mygroup --scope prod -v value", scope: "prod"},
+		{name: "wildcard environment", cli: "TEST_VARIABLE -g mygroup -s 'review/*' -v value", scope: "review/*"},
+		{name: "protected file from stdin", cli: "TEST_VARIABLE -p --scope prod -g mygroup -t file", scope: "prod", stdin: "value", typ: new(gitlab.FileVariableType), protected: new(true)},
+		{name: "explicit false attributes", cli: "TEST_VARIABLE -g mygroup -s prod -v value --protected=false --masked=false --raw=false", scope: "prod", protected: new(false), masked: new(false), raw: new(false)},
+		{name: "explicit true attributes", cli: "TEST_VARIABLE -g mygroup -s prod -v value -p -m -r", scope: "prod", protected: new(true), masked: new(true), raw: new(true)},
+		{name: "explicit empty description", cli: `TEST_VARIABLE -g mygroup -s prod -v value -d ""`, scope: "prod", description: new("")},
+		{name: "description only", cli: `TEST_VARIABLE -g mygroup -s prod -v value -d "new description"`, scope: "prod", description: new("new description")},
+		{name: "explicit default type", cli: "TEST_VARIABLE -g mygroup -s prod -v value -t env_var", scope: "prod", typ: new(gitlab.EnvVariableType)},
+		{name: "API error", cli: "TEST_VARIABLE -g mygroup -s prod -v value", scope: "prod", apiErr: apiErr},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tc := gitlabtesting.NewTestClient(t)
+			tc.MockGroupVariables.EXPECT().GetVariable("mygroup", "TEST_VARIABLE", &gitlab.GetGroupVariableOptions{
+				Filter: &gitlab.VariableFilter{EnvironmentScope: tt.scope},
+			}, gomock.Any()).Return(&gitlab.GroupVariable{Key: "TEST_VARIABLE", EnvironmentScope: tt.scope}, nil, nil)
+			tc.MockGroupVariables.EXPECT().UpdateVariable("mygroup", "TEST_VARIABLE", &gitlab.UpdateGroupVariableOptions{
+				Value:            new("value"),
+				VariableType:     tt.typ,
+				Masked:           tt.masked,
+				Protected:        tt.protected,
+				Raw:              tt.raw,
+				EnvironmentScope: new(tt.scope),
+				Filter:           &gitlab.VariableFilter{EnvironmentScope: tt.scope},
+				Description:      tt.description,
+			}, gomock.Any()).Return(nil, nil, tt.apiErr)
+			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				return NewCmdUpdate(f, nil)
+			}, false, cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "gitlab.com", api.WithGitLabClient(tc.Client))), cmdtest.WithStdin(tt.stdin))
+
+			out, err := exec(tt.cli)
+			if tt.apiErr != nil {
+				require.ErrorIs(t, err, tt.apiErr)
+				assert.Empty(t, out.String())
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, fmt.Sprintf("✓ Updated variable TEST_VARIABLE for group mygroup with scope %s.\n", tt.scope), out.String())
+			assert.Empty(t, out.Stderr())
+		})
+	}
+}
+
+func Test_updateGroupScopePreflight(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name      string
+		scope     string
+		variable  *gitlab.GroupVariable
+		lookupErr error
+		wantErr   string
+	}{
+		{
+			name:      "mistyped scope returns 404",
+			scope:     "prdo",
+			lookupErr: errors.New("404 group variable not found"),
+			wantErr:   "404 group variable not found",
+		},
+		{
+			name:  "API returns a different scope",
+			scope: "prdo",
+			variable: &gitlab.GroupVariable{
+				Key: "TEST_VARIABLE", EnvironmentScope: "*",
+			},
+			wantErr: `group variable "TEST_VARIABLE" does not exist in scope "prdo"`,
+		},
+		{
+			name:    "nil lookup response",
+			scope:   "prod",
+			wantErr: `group variable "TEST_VARIABLE" does not exist in scope "prod"`,
+		},
+		{
+			name:      "read access denied",
+			scope:     "prod",
+			lookupErr: errors.New("403 forbidden"),
+			wantErr:   "403 forbidden",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tc := gitlabtesting.NewTestClient(t)
+			tc.MockGroupVariables.EXPECT().GetVariable("mygroup", "TEST_VARIABLE", &gitlab.GetGroupVariableOptions{
+				Filter: &gitlab.VariableFilter{EnvironmentScope: tt.scope},
+			}, gomock.Any()).Return(tt.variable, nil, tt.lookupErr)
+			// No UpdateVariable expectation: attempting a write must fail this test.
+
+			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				return NewCmdUpdate(f, nil)
+			}, false, cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "gitlab.com", api.WithGitLabClient(tc.Client))))
+
+			out, err := exec(fmt.Sprintf("TEST_VARIABLE -g mygroup -s %s -v changed", tt.scope))
+			require.ErrorContains(t, err, tt.wantErr)
+			assert.Empty(t, out.String())
+			assert.Empty(t, out.Stderr())
+		})
+	}
 }
 
 func Test_NewCmdUpdate_changedFlags(t *testing.T) {
@@ -373,7 +501,7 @@ func Test_updateRun_project_onlySendsChangedAttributes(t *testing.T) {
 			var got *gitlab.UpdateProjectVariableOptions
 			testClient := gitlabtesting.NewTestClient(t)
 			testClient.MockProjectVariables.EXPECT().
-				UpdateVariable("owner/repo", "TEST_VARIABLE", gomock.Any()).
+				UpdateVariable("owner/repo", "TEST_VARIABLE", gomock.Any(), gomock.Any()).
 				DoAndReturn(func(_ any, _ string, opt *gitlab.UpdateProjectVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.ProjectVariable, *gitlab.Response, error) {
 					got = opt
 					return &gitlab.ProjectVariable{Key: "TEST_VARIABLE"}, nil, nil
@@ -406,7 +534,12 @@ func Test_updateRun_group_onlySendsChangedAttributes(t *testing.T) {
 	var got *gitlab.UpdateGroupVariableOptions
 	testClient := gitlabtesting.NewTestClient(t)
 	testClient.MockGroupVariables.EXPECT().
-		UpdateVariable("mygroup", "TEST_VARIABLE", gomock.Any()).
+		GetVariable("mygroup", "TEST_VARIABLE", &gitlab.GetGroupVariableOptions{
+			Filter: &gitlab.VariableFilter{EnvironmentScope: "*"},
+		}, gomock.Any()).
+		Return(&gitlab.GroupVariable{Key: "TEST_VARIABLE", EnvironmentScope: "*"}, nil, nil)
+	testClient.MockGroupVariables.EXPECT().
+		UpdateVariable("mygroup", "TEST_VARIABLE", gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ any, _ string, opt *gitlab.UpdateGroupVariableOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.GroupVariable, *gitlab.Response, error) {
 			got = opt
 			return &gitlab.GroupVariable{Key: "TEST_VARIABLE"}, nil, nil
