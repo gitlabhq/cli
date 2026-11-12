@@ -286,7 +286,7 @@ func (o *options) run(x cmdutils.Factory, cmd *cobra.Command, args []string) err
 	if o.setAutoMerge {
 		switch {
 		case mr.Pipeline == nil:
-			o.io.LogInfo(c.WarnIcon(), "No pipeline running on", mr.SourceBranch)
+			o.io.LogInfo(c.WarnIcon(), "No pipeline has been run on", mr.SourceBranch)
 		case mr.Pipeline.Status == "success":
 			o.io.LogInfo(c.GreenCheck(), "Pipeline succeeded.")
 		default:
