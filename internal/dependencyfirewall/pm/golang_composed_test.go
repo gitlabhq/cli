@@ -6,12 +6,15 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -175,6 +178,70 @@ func TestRunComposedGolangAllowedModule(t *testing.T) {
 	assert.Equal(t, 1, r.m.checkedZips())
 	assert.Zero(t, r.exec.proxied.Load(), "no request may reach the MITM proxy")
 	assert.NotContains(t, r.stderr, goNothingCheckedNotice, "a run that checked a zip must not claim it checked nothing")
+}
+
+// TestRunComposedGolangTrustsConfiguredCAsUpstream proves the go subprocess
+// that fetches modules verifies an HTTPS module proxy against glab's ca_cert
+// and the package-manager CA variables, not only the system roots.
+func TestRunComposedGolangTrustsConfiguredCAsUpstream(t *testing.T) {
+	root, _ := writeModuleFixture(t)
+	var reached atomic.Int64
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached.Add(1)
+		http.FileServer(http.Dir(root)).ServeHTTP(w, r)
+	}))
+	upstream.Config.ErrorLog = log.New(io.Discard, "", 0)
+	upstream.StartTLS()
+	t.Cleanup(upstream.Close)
+	upstreamCA := filepath.Join(t.TempDir(), "upstream-ca.pem")
+	require.NoError(t, os.WriteFile(upstreamCA, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: upstream.Certificate().Raw}), 0o600))
+
+	cases := []struct {
+		name       string
+		caCertPath string
+		requestsCA string
+		wantOK     bool
+	}{
+		{name: "ca_cert", caCertPath: upstreamCA, wantOK: true},
+		{name: "REQUESTS_CA_BUNDLE", requestsCA: upstreamCA, wantOK: true},
+		{name: "neither", wantOK: false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.wantOK && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+				t.Skip("glab leaves the go subprocess on the platform store on " + runtime.GOOS)
+			}
+			isolateGo(t, "")
+			t.Setenv("GOSUMDB", "off")
+			t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+			for _, v := range upstreamCAVars {
+				t.Setenv(v, "")
+			}
+			t.Setenv("REQUESTS_CA_BUNDLE", c.requestsCA)
+			reached.Store(0)
+
+			m := &golangManager{newBackend: func(goBin string, proxiedSumDBs []string, overrides map[string]string, upstreamCAs []byte) (http.Handler, func(), error) {
+				overrides["GOPROXY"] = upstream.URL
+				return newGoBackend(goBin, proxiedSumDBs, overrides, upstreamCAs)
+			}}
+			ios, _, _, errOut := cmdtest.TestIOStreams()
+			exec := newRealGoExecutor(t)
+			err := Run(t.Context(), m, RunOptions{
+				IO: ios, Executor: exec, BaseDir: t.TempDir(), ProjectID: "group/proj",
+				Args:       []string{"mod", "download", "-json", fixtureModule + "@" + fixtureVersion},
+				CACertPath: c.caCertPath,
+			})
+			if c.wantOK {
+				require.NoError(t, err, errOut.String())
+				assert.Equal(t, 1, m.checkedZips())
+				assert.Positive(t, reached.Load())
+				return
+			}
+			require.Error(t, err)
+			assert.Zero(t, m.checkedZips())
+			assert.Zero(t, reached.Load(), "an untrusted module proxy must not be fetched")
+		})
+	}
 }
 
 func TestRunComposedGolangNoDownloadPrintsNotice(t *testing.T) {

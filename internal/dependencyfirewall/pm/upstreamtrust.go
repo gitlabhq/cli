@@ -2,6 +2,7 @@ package pm
 
 import (
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 
@@ -22,12 +23,13 @@ var upstreamCAVars = []string{
 }
 
 // upstreamRootCAs returns the system roots extended with every certificate in
-// caCertPath and in the files named by upstreamCAVars in env. It returns a nil
-// pool when no file yields a certificate, so the transport default applies.
+// caCertPath and in the files named by upstreamCAVars in env, and those extra
+// certificates PEM-encoded. It returns a nil pool and PEM when no file yields
+// a certificate, so the transport default applies.
 // Unusable files are logged only under GLAB_DEBUG: writeCABundle already warns
 // about the running manager's variables, and the API client fails on a bad
 // ca_cert.
-func upstreamRootCAs(env []string, caCertPath string) (*x509.CertPool, error) {
+func upstreamRootCAs(env []string, caCertPath string) (*x509.CertPool, []byte, error) {
 	paths := make([]string, 0, len(upstreamCAVars)+1)
 	paths = append(paths, caCertPath)
 	for _, v := range upstreamCAVars {
@@ -57,15 +59,17 @@ func upstreamRootCAs(env []string, caCertPath string) (*x509.CertPool, error) {
 		certs = append(certs, parsed...)
 	}
 	if len(certs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	pool, err := x509.SystemCertPool()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load system certificate pool: %w", err)
+		return nil, nil, fmt.Errorf("failed to load system certificate pool: %w", err)
 	}
+	var caPEM []byte
 	for _, c := range certs {
 		pool.AddCert(c)
+		caPEM = append(caPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw})...)
 	}
-	return pool, nil
+	return pool, caPEM, nil
 }

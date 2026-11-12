@@ -21,7 +21,7 @@ var goSettings = append([]string{"GOPROXY"}, goFetcherSettings...)
 const goNothingCheckedNotice = "No Go module downloads were checked in this run. Modules already in the module cache, vendored code, and local replace targets are not checked."
 
 type golangManager struct {
-	newBackend func(goBin string, proxiedSumDBs []string, envOverrides map[string]string) (http.Handler, func(), error)
+	newBackend func(goBin string, proxiedSumDBs []string, envOverrides map[string]string, upstreamCAs []byte) (http.Handler, func(), error)
 	server     *gomodproxy.Server
 }
 
@@ -30,8 +30,8 @@ type golangManager struct {
 // trust only the system store, so they reject the MITM CA.
 func Golang() PackageManager { return &golangManager{newBackend: newGoBackend} }
 
-func newGoBackend(goBin string, proxiedSumDBs []string, envOverrides map[string]string) (http.Handler, func(), error) {
-	b, err := gomodproxy.NewBackend(goBin, proxiedSumDBs, envOverrides)
+func newGoBackend(goBin string, proxiedSumDBs []string, envOverrides map[string]string, upstreamCAs []byte) (http.Handler, func(), error) {
+	b, err := gomodproxy.NewBackend(goBin, proxiedSumDBs, envOverrides, upstreamCAs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -76,7 +76,7 @@ func (m *golangManager) Setup(ctx context.Context, in setupInput) (setupResult, 
 		overrides[k] = v
 	}
 	childSumDB, proxied := checksumDB(settings["GOSUMDB"])
-	handler, closeBackend, err := m.newBackend(in.bin, proxied, overrides)
+	handler, closeBackend, err := m.newBackend(in.bin, proxied, overrides, in.upstreamCAs)
 	if err != nil {
 		return setupResult{}, fmt.Errorf("failed to create the Go module proxy: %w", err)
 	}

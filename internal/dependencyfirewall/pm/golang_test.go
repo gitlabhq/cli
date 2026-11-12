@@ -72,7 +72,7 @@ type fixtureGoBackend struct {
 	onClose       func()
 }
 
-func (b *fixtureGoBackend) newBackend(goBin string, proxiedSumDBs []string, overrides map[string]string) (http.Handler, func(), error) {
+func (b *fixtureGoBackend) newBackend(goBin string, proxiedSumDBs []string, overrides map[string]string, _ []byte) (http.Handler, func(), error) {
 	b.built++
 	b.goBin, b.proxiedSumDBs, b.overrides = goBin, proxiedSumDBs, overrides
 	h := b.handler
@@ -292,7 +292,7 @@ func TestGolangSetupPassesCustomGOPROXYToFetcherOnly(t *testing.T) {
 
 func TestGolangSetupFailsWhenBackendFails(t *testing.T) {
 	t.Parallel()
-	m := &golangManager{newBackend: func(string, []string, map[string]string) (http.Handler, func(), error) {
+	m := &golangManager{newBackend: func(string, []string, map[string]string, []byte) (http.Handler, func(), error) {
 		return nil, nil, errors.New("no temp dir")
 	}}
 	_, err := setupGolang(t, m, &fakeGoExecutor{settings: defaultGoSettings()})

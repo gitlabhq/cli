@@ -118,7 +118,7 @@ func countFetcherEgress(t *testing.T, addr string) {
 	t.Setenv("HTTP_PROXY", addr)
 }
 
-func runUpstreamGo(t *testing.T, newBackend func(string, []string, map[string]string) (http.Handler, func(), error), args ...string) goRun {
+func runUpstreamGo(t *testing.T, newBackend func(string, []string, map[string]string, []byte) (http.Handler, func(), error), args ...string) goRun {
 	t.Helper()
 	ios, _, out, errOut := cmdtest.TestIOStreams()
 	r := goRun{dir: t.TempDir(), exec: newRealGoExecutor(t), m: &golangManager{newBackend: newBackend}}
@@ -333,8 +333,8 @@ type recordingBackend struct {
 	paths []string
 }
 
-func (b *recordingBackend) newBackend(goBin string, proxiedSumDBs []string, overrides map[string]string) (http.Handler, func(), error) {
-	h, closeBackend, err := newGoBackend(goBin, proxiedSumDBs, overrides)
+func (b *recordingBackend) newBackend(goBin string, proxiedSumDBs []string, overrides map[string]string, upstreamCAs []byte) (http.Handler, func(), error) {
+	h, closeBackend, err := newGoBackend(goBin, proxiedSumDBs, overrides, upstreamCAs)
 	if err != nil {
 		return nil, nil, err
 	}
