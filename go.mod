@@ -40,7 +40,7 @@ require (
 	github.com/muesli/termenv v0.16.0
 	github.com/otiai10/copy v1.14.1
 	github.com/package-url/packageurl-go v0.1.7
-	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/rivo/tview v0.0.0-20230621164836-6cc0565babaf
 	github.com/spf13/cobra v1.10.2
