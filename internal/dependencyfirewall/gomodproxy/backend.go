@@ -19,28 +19,15 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
-// Backend serves allowed module proxy requests through goproxy and owns the
-// temp tree goproxy fetches into.
 type Backend struct {
 	handler http.Handler
 	tempDir string
 }
 
-// NewBackend builds a goproxy handler that fetches through goBin.
-// proxiedSumDBs lists the checksum databases served under /sumdb/, as
-// goproxy's "name" or "name URL" entries. envOverrides replaces the fetcher
-// environment's value for each key it sets, GOPROXY included, except the
-// isolation pins, which always win. upstreamCAs, PEM certificates trusted on
-// top of the system roots, covers goproxy's own requests and, where
-// newBackend allows it, the go subprocess.
 func NewBackend(goBin string, proxiedSumDBs []string, envOverrides map[string]string, upstreamCAs []byte) (*Backend, error) {
 	return newBackend(runtime.GOOS, goBin, proxiedSumDBs, envOverrides, upstreamCAs)
 }
 
-// newBackend skips the fetcher's SSL_CERT_FILE where it would drop the system
-// roots: on macOS and Windows, where since Go 1.27 it replaces the platform
-// store, and when only SSL_CERT_DIR is set, because go then reads neither its
-// default CA directories nor, with our file, its default CA file.
 func newBackend(goos, goBin string, proxiedSumDBs []string, envOverrides map[string]string, upstreamCAs []byte) (*Backend, error) {
 	tempDir, err := os.MkdirTemp("", "glab-df-gomodproxy-*")
 	if err != nil {
@@ -89,17 +76,11 @@ func newBackend(goos, goBin string, proxiedSumDBs []string, envOverrides map[str
 	}, nil
 }
 
-// writeUpstreamCAs writes the bundle the go subprocess reads through
-// SSL_CERT_FILE. That replaces go's default CA file, but go still reads the
-// default CA directories or the user's SSL_CERT_DIR, so the roots go trusted
-// before stay trusted.
 func writeUpstreamCAs(tempDir string, upstreamCAs []byte) (string, error) {
 	path := filepath.Join(tempDir, "upstream-ca.pem")
 	return path, os.WriteFile(path, upstreamCAs, 0o600)
 }
 
-// upstreamTransport clones http.DefaultTransport so the custom pool keeps
-// http.ProxyFromEnvironment.
 func upstreamTransport(upstreamCAs []byte) (http.RoundTripper, error) {
 	pool, err := x509.SystemCertPool()
 	if err != nil {
@@ -117,8 +98,6 @@ func (b *Backend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b.handler.ServeHTTP(&failureWriter{ResponseWriter: w, failure: failure}, r)
 }
 
-// failureWriter turns goproxy's bare 500 for a failed fetch into a 502 that
-// carries go's error, which the child prints as the server response.
 type failureWriter struct {
 	http.ResponseWriter
 	failure  *fetchFailure
@@ -149,25 +128,12 @@ func (w *failureWriter) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(w.ResponseWriter, r)
 }
 
-// Close removes the temp tree, including modules fetched while resolving a
-// request that was later blocked.
 func (b *Backend) Close() {
 	if err := os.RemoveAll(b.tempDir); err != nil {
 		dbg.Debugf("gomodproxy: removing %s: %v\n", b.tempDir, err)
 	}
 }
 
-// fetcherEnv starts from os.Environ because the fetcher's go needs PATH for
-// git and HOME for SSH keys, .netrc, gitconfig, and the go env file.
-// Settings are appended last because exec uses the last value per key. The
-// isolation pins are applied after the overrides:
-//   - a private GOMODCACHE, because sharing the child's deadlocks on the
-//     module-cache lock and would let the child skip the zip request;
-//   - -modcacherw, so Close can delete what go extracts read-only;
-//   - GOTOOLCHAIN=local, so the fetcher never downloads a toolchain;
-//   - GOWORK=off, so an absolute GOWORK cannot apply workspace replaces;
-//   - GO111MODULE=on, because go list -m and go mod download refuse to run
-//     with modules off.
 func fetcherEnv(tempDir string, overrides map[string]string) []string {
 	settings := map[string]string{}
 	maps.Copy(settings, overrides)
@@ -186,8 +152,6 @@ func fetcherEnv(tempDir string, overrides map[string]string) []string {
 	return env
 }
 
-// debugHandler routes goproxy's slog output to glab's debug log; on stderr
-// it would corrupt the firewall summary.
 type debugHandler struct{}
 
 func (debugHandler) Enabled(context.Context, slog.Level) bool { return true }
