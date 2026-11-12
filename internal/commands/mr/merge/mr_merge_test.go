@@ -55,10 +55,10 @@ func TestMrMerge(t *testing.T) {
 			name: "Merge MR by ID without pipeline",
 			cli:  "123",
 			// Note: The test verifies the merge flow works correctly
-			// The "No pipeline running" warning appears when Pipeline is nil
+			// The "No pipeline has been run on" warning appears when Pipeline is nil
 			// Note: SourceBranch and Pipeline appear empty when using mock client
 			// This test verifies the merge flow works; other tests cover pipeline scenarios
-			expectedOut: "! No pipeline running on \n✓ Merged!\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			expectedOut: "! No pipeline has been run on \n✓ Merged!\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				getMR := &gitlab.MergeRequest{
 					BasicMergeRequest: gitlab.BasicMergeRequest{
@@ -162,7 +162,7 @@ func TestMrMerge(t *testing.T) {
 			// AcceptMergeRequest returned an open MR that is not armed for
 			// auto-merge, so the merge did not complete synchronously. Report
 			// the API's merge status verbatim rather than claiming "Merged!".
-			expectedOut: "! No pipeline running on 1-issue-20\n! Merge status: mergeable\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			expectedOut: "! No pipeline has been run on 1-issue-20\n! Merge status: mergeable\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				getMR := &gitlab.MergeRequest{
 					BasicMergeRequest: gitlab.BasicMergeRequest{
@@ -333,7 +333,7 @@ func TestMrMerge(t *testing.T) {
 			// neither merged nor armed for auto-merge, and DetailedMergeStatus
 			// reports an outstanding approval. We surface that status verbatim
 			// instead of claiming "Merged!".
-			expectedOut: "! No pipeline running on 1-issue-20\n! Merge status: not_approved\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			expectedOut: "! No pipeline has been run on 1-issue-20\n! Merge status: not_approved\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				getMR := &gitlab.MergeRequest{
 					BasicMergeRequest: gitlab.BasicMergeRequest{
