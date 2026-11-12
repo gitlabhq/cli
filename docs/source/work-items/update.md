@@ -55,6 +55,9 @@ glab work-items update 42 --iteration 123
 # Move a work item under work item 40
 glab work-items update 42 --parent 40
 
+# Set the status of a work item
+glab work-items update 42 --status in-progress
+
 # Move a work item under a work item in another project
 glab work-items update 42 --parent https://gitlab.com/my-group/my-project/-/work_items/40
 
@@ -76,6 +79,7 @@ glab work-items update 42 --parent https://gitlab.com/my-group/my-project/-/work
       --parent string             Set the parent work item by <id>, reference, or URL.
   -R, --repo string               Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
       --startdate string          Update the start date for the work item.
+      --status string             Set the work item status: todo, in-progress, done, wont-do, or duplicate. Needs the status widget, which is Premium and Ultimate only.
   -t, --title string              Update the title for the work item.
   -w, --weight int                Update the weight value for the work item.
 ```

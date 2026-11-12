@@ -327,3 +327,105 @@ func TestWorkItemsUpdate_ParentErrors(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to find parent work item OWNER/REPO#42")
 	})
 }
+
+func TestWorkItemsUpdate_Status(t *testing.T) {
+	tests := []struct {
+		name string
+		args string
+		want gitlab.WorkItemStatusID
+	}{
+		{name: "todo", args: `1 --status todo`, want: gitlab.WorkItemStatusToDo},
+		{name: "in-progress", args: `1 --status in-progress`, want: gitlab.WorkItemStatusInProgress},
+		{name: "done", args: `1 --status done`, want: gitlab.WorkItemStatusDone},
+		{name: "wont-do", args: `1 --status wont-do`, want: gitlab.WorkItemStatusWontDo},
+		{name: "duplicate", args: `1 --status duplicate`, want: gitlab.WorkItemStatusDuplicate},
+		{name: "in a group", args: `2 --group my-group --status done`, want: gitlab.WorkItemStatusDone},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tc := gitlabtesting.NewTestClient(t)
+
+			var got *gitlab.WorkItemStatusID
+			tc.MockWorkItems.EXPECT().
+				UpdateWorkItem(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ string, _ int64, opts *gitlab.UpdateWorkItemOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.WorkItem, *gitlab.Response, error) {
+					got = opts.Status
+					return &gitlab.WorkItem{IID: 1, WebURL: "https://gitlab.com/OWNER/REPO/-/work_items/1"}, &gitlab.Response{}, nil
+				})
+
+			exec := cmdtest.SetupCmdForTest(
+				t,
+				NewCmd,
+				false,
+				cmdtest.WithGitLabClient(tc.Client),
+				cmdtest.WithBaseRepo("OWNER", "REPO", glinstance.DefaultHostname),
+			)
+
+			_, err := exec(tt.args)
+			require.NoError(t, err)
+
+			require.NotNil(t, got)
+			assert.Equal(t, tt.want, *got)
+		})
+	}
+}
+
+func TestWorkItemsUpdate_StatusUnsetByDefault(t *testing.T) {
+	tc := gitlabtesting.NewTestClient(t)
+
+	var got *gitlab.UpdateWorkItemOptions
+	tc.MockWorkItems.EXPECT().
+		UpdateWorkItem(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ string, _ int64, opts *gitlab.UpdateWorkItemOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.WorkItem, *gitlab.Response, error) {
+			got = opts
+			return &gitlab.WorkItem{IID: 1, WebURL: "https://gitlab.com/OWNER/REPO/-/work_items/1"}, &gitlab.Response{}, nil
+		})
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithBaseRepo("OWNER", "REPO", glinstance.DefaultHostname),
+	)
+
+	_, err := exec(`1 --title "New title"`)
+	require.NoError(t, err)
+
+	require.NotNil(t, got)
+	assert.Nil(t, got.Status, "a title-only update must not touch the status")
+}
+
+func TestWorkItemsUpdate_StatusRejectsUnknownName(t *testing.T) {
+	for _, arg := range []string{`"blocked"`, `""`, `"In progress"`, `Done`} {
+		t.Run(arg, func(t *testing.T) {
+			// No UpdateWorkItem call is expected: the flag is rejected before any request.
+			tc := gitlabtesting.NewTestClient(t)
+
+			exec := cmdtest.SetupCmdForTest(
+				t,
+				NewCmd,
+				false,
+				cmdtest.WithGitLabClient(tc.Client),
+				cmdtest.WithBaseRepo("OWNER", "REPO", glinstance.DefaultHostname),
+			)
+
+			_, err := exec("1 --status " + arg)
+			require.Error(t, err)
+			for _, name := range []string{"todo", "in-progress", "done", "wont-do", "duplicate"} {
+				assert.Contains(t, err.Error(), name)
+			}
+		})
+	}
+}
+
+func TestWorkItemsUpdate_StatusAdvertisesAllowedValues(t *testing.T) {
+	cmd := NewCmd(cmdtest.NewTestFactory(nil))
+	flag := cmd.Flags().Lookup("status")
+	require.NotNil(t, flag)
+
+	valuer, ok := flag.Value.(cmdutils.AllowedValuer)
+	require.True(t, ok, "the status flag must expose its allowed values to MCP schema generation")
+	assert.ElementsMatch(t, []string{"todo", "in-progress", "done", "wont-do", "duplicate"}, valuer.AllowedValues())
+}
