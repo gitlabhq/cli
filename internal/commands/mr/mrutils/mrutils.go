@@ -53,6 +53,8 @@ type MrOptions struct {
 	Branch        string
 	State         string
 	PromptEnabled bool
+	// SourceProjectID keeps only merge requests from this project. Zero keeps all.
+	SourceProjectID int64
 }
 
 var multipleMRSelectQuestion = "Multiple merge requests exist for this branch. Select one:"
@@ -160,6 +162,14 @@ type mrTarget struct {
 	baseRepo glrepo.Interface
 	mrID     int
 	branch   string
+	// trackedFork is set only when branch is the current local branch.
+	trackedFork func() (*forkBranch, error)
+}
+
+// forkBranch is a branch in a project other than the base repository.
+type forkBranch struct {
+	repo   glrepo.Interface
+	branch string
 }
 
 // resolveMRTarget interprets the command-line arguments without calling the API.
@@ -178,6 +188,7 @@ func resolveMRTarget(f cmdutils.Factory, args []string) (*mrTarget, error) {
 	}
 
 	var branch string
+	var trackedFork func() (*forkBranch, error)
 
 	if len(args) > 0 {
 		// First, try to parse as a GitLab MR URL
@@ -208,9 +219,60 @@ func resolveMRTarget(f cmdutils.Factory, args []string) (*mrTarget, error) {
 		if err != nil {
 			return nil, err
 		}
+		trackedFork = func() (*forkBranch, error) { return trackedForkBranch(f, branch, baseRepo) }
 	}
 
-	return &mrTarget{client: client, baseRepo: baseRepo, mrID: mrID, branch: branch}, nil
+	return &mrTarget{client: client, baseRepo: baseRepo, mrID: mrID, branch: branch, trackedFork: trackedFork}, nil
+}
+
+// trackedForkBranch returns the branch that the local branch tracks when it
+// lives in a project other than baseRepo. It returns nil when the local branch
+// tracks nothing, tracks a branch of baseRepo (as after
+// `git switch -c feat origin/main`), or tracks a remote that does not resolve to
+// a GitLab project on the host of baseRepo.
+func trackedForkBranch(f cmdutils.Factory, branch string, baseRepo glrepo.Interface) (*forkBranch, error) {
+	tracked, err := f.UpstreamBranch(branch)
+	if err != nil {
+		return nil, err
+	}
+	if tracked.Branch == "" {
+		return nil, nil
+	}
+	repo := remoteRepo(f, tracked.Remote)
+	if repo == nil || !strings.EqualFold(repo.RepoHost(), baseRepo.RepoHost()) || glrepo.IsSame(repo, baseRepo) {
+		return nil, nil
+	}
+	return &forkBranch{repo: repo, branch: tracked.Branch}, nil
+}
+
+// remoteRepo resolves `branch.<name>.remote`, which holds either a remote name
+// or, after `glab mr checkout` of a fork without a matching remote, a URL.
+func remoteRepo(f cmdutils.Factory, remote string) glrepo.Interface {
+	if strings.Contains(remote, ":") {
+		u, err := git.ParseURL(remote)
+		if err != nil {
+			dbg.Debugf("could not parse tracked remote URL %q: %v", remote, err)
+			return nil
+		}
+		repo, err := glrepo.FromURL(u, f.DefaultHostname(), f.Config())
+		if err != nil {
+			dbg.Debugf("tracked remote URL %q is not a GitLab project: %v", remote, err)
+			return nil
+		}
+		return repo
+	}
+	remotes, err := f.Remotes()
+	if err != nil {
+		dbg.Debugf("could not read git remotes: %v", err)
+		return nil
+	}
+	for _, r := range remotes {
+		if r.Name == remote {
+			return r.Repo
+		}
+	}
+	dbg.Debugf("tracked remote %q is not a GitLab remote", remote)
+	return nil
 }
 
 // MRFromArgsWithOpts gets MR with custom request options passed down to it
@@ -266,8 +328,52 @@ func MRWebURLFromArgs(ctx context.Context, f cmdutils.Factory, args []string, st
 	return mr.WebURL, target.baseRepo, nil
 }
 
+// mrForBranch looks the merge request up by the local branch name. Only when
+// that finds none, and the local branch tracks a branch of another project
+// (a fork MR checked out under a different local name), does it retry with the
+// tracked branch, accepting only MRs whose source project is that fork. A
+// branch of the base project, or the default branch of the fork, is never used,
+// because git also tracks the branch a local branch was created from
+// (`git switch -c feat origin/main`).
 func (t *mrTarget) mrForBranch(ctx context.Context, io *iostreams.IOStreams, state string) (*gitlab.BasicMergeRequest, error) {
-	return GetMRForBranch(ctx, io, t.client, MrOptions{t.baseRepo, t.branch, state, io.PromptEnabled()})
+	mr, err := GetMRForBranch(ctx, io, t.client, MrOptions{BaseRepo: t.baseRepo, Branch: t.branch, State: state, PromptEnabled: io.PromptEnabled()})
+	if !errors.Is(err, ErrNoMergeRequest) || t.trackedFork == nil {
+		return mr, err
+	}
+
+	fork, forkErr := t.trackedFork()
+	if forkErr != nil {
+		return nil, forkErr
+	}
+	if fork == nil {
+		return nil, err
+	}
+	project, forkErr := fork.repo.Project(t.client)
+	if api.Is404(forkErr) {
+		dbg.Debugf("tracked fork %s not found: %v", fork.repo.FullName(), forkErr)
+		return nil, err
+	}
+	if forkErr != nil {
+		return nil, fmt.Errorf("branch %q tracks %q in %s: %w", t.branch, fork.branch, fork.repo.FullName(), forkErr)
+	}
+	if fork.branch == project.DefaultBranch {
+		dbg.Debugf("tracked branch %q is the default branch of %s", fork.branch, fork.repo.FullName())
+		return nil, err
+	}
+	mr, forkErr = GetMRForBranch(ctx, io, t.client, MrOptions{
+		BaseRepo:        t.baseRepo,
+		Branch:          fork.branch,
+		State:           state,
+		PromptEnabled:   io.PromptEnabled(),
+		SourceProjectID: project.ID,
+	})
+	if errors.Is(forkErr, ErrNoMergeRequest) {
+		return nil, err
+	}
+	if forkErr != nil {
+		return nil, fmt.Errorf("branch %q tracks %q in %s: %w", t.branch, fork.branch, fork.repo.FullName(), forkErr)
+	}
+	return mr, nil
 }
 
 func MRsFromArgs(ctx context.Context, f cmdutils.Factory, args []string, state string) ([]*gitlab.MergeRequest, glrepo.Interface, error) {
@@ -324,6 +430,9 @@ func resolveOwnerAndBranch(potentialBranch string) (string, string) {
 	return owner, branch
 }
 
+// ErrNoMergeRequest is returned by GetMRForBranch when no merge request has the branch as its source.
+var ErrNoMergeRequest = errors.New("no open merge request available")
+
 var GetMRForBranch = func(ctx context.Context, ios *iostreams.IOStreams, apiClient *gitlab.Client, mrOpts MrOptions) (*gitlab.BasicMergeRequest, error) {
 	owner, currentBranch := resolveOwnerAndBranch(mrOpts.Branch)
 
@@ -341,8 +450,14 @@ var GetMRForBranch = func(ctx context.Context, ios *iostreams.IOStreams, apiClie
 		return nil, fmt.Errorf("failed to get open merge request for %q: %w", currentBranch, err)
 	}
 
+	if mrOpts.SourceProjectID != 0 {
+		mrs = slices.DeleteFunc(mrs, func(mr *gitlab.BasicMergeRequest) bool {
+			return mr.SourceProjectID != mrOpts.SourceProjectID
+		})
+	}
+
 	if len(mrs) == 0 {
-		return nil, fmt.Errorf("no open merge request available for %q", currentBranch)
+		return nil, fmt.Errorf("%w for %q", ErrNoMergeRequest, currentBranch)
 	}
 
 	userAskedForSpecificOwner := owner != ""

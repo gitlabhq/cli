@@ -191,6 +191,70 @@ func Test_CurrentBranch_unexpected_error(t *testing.T) {
 	}
 }
 
+func TestUpstreamBranch(t *testing.T) {
+	tests := []struct {
+		name   string
+		config map[string]string
+		want   TrackedBranch
+	}{
+		{
+			name: "tracking branch configured",
+			config: map[string]string{
+				"branch.foo.remote": "origin",
+				"branch.foo.merge":  "refs/heads/foo",
+			},
+			want: TrackedBranch{Remote: "origin", Branch: "foo"},
+		},
+		{
+			name: "merge ref differs from the local branch name",
+			config: map[string]string{
+				"branch.foo.remote": "git@gitlab.com:fork-owner/project.git",
+				"branch.foo.merge":  "refs/heads/renovate/linting",
+			},
+			want: TrackedBranch{Remote: "git@gitlab.com:fork-owner/project.git", Branch: "renovate/linting"},
+		},
+		{
+			name: "merge ref outside refs/heads",
+			config: map[string]string{
+				"branch.foo.remote": "origin",
+				"branch.foo.merge":  "refs/merge-requests/123/head",
+			},
+			want: TrackedBranch{},
+		},
+		{
+			name: "tracking a local branch",
+			config: map[string]string{
+				"branch.foo.remote": ".",
+				"branch.foo.merge":  "refs/heads/main",
+			},
+			want: TrackedBranch{},
+		},
+		{
+			name:   "merge ref without a remote",
+			config: map[string]string{"branch.foo.merge": "refs/heads/main"},
+			want:   TrackedBranch{},
+		},
+		{
+			name:   "no tracking branch configured",
+			config: map[string]string{"branch.other.merge": "refs/heads/other"},
+			want:   TrackedBranch{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			InitGitRepo(t)
+			for key, value := range tt.config {
+				_, err := run.PrepareCmd(GitCommand("config", "--local", key, value)).Output()
+				require.NoError(t, err)
+			}
+
+			got, err := UpstreamBranch("foo")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestReadBranchConfig(t *testing.T) {
 	cs, teardown := test.InitCmdStubber()
 	defer teardown()
