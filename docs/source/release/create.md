@@ -131,7 +131,7 @@ glab release create v1.0.1 --publish-to-catalog
       --no-close-milestone     Prevent closing milestones after creating the release.
       --no-update              Prevent updating the existing release.
   -N, --notes string           The release notes or description. Accepts Markdown.
-  -F, --notes-file string      Read release notes 'file'. To read from stdin, use '-'.
+  -F, --notes-file string      Read release notes 'file'. To read from stdin, use '-'. If both --notes and --notes-file are set, --notes takes precedence.
       --package-name string    The package name, when uploading assets to the generic package release with --use-package-registry. (default "release-assets")
       --publish-to-catalog     (EXPERIMENTAL) Publish the release to the GitLab CI/CD catalog.
   -r, --ref string             If the specified tag doesn't exist, create a release from the ref and tag it with the specified tag name. Accepts a commit SHA, tag name, or branch name.

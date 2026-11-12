@@ -1052,6 +1052,76 @@ func TestReleaseCreate_UsePackageRegistryEnvVar(t *testing.T) {
 	})
 }
 
+func TestReleaseCreate_NotesAndNotesFile(t *testing.T) {
+	t.Setenv("CI_DEFAULT_BRANCH", "main")
+
+	tests := []struct {
+		name            string
+		cli             string
+		fileContent     string
+		wantDescription string
+		wantWarning     bool
+	}{
+		{
+			name:            "both flags warn and use inline notes without reading file",
+			cli:             `0.0.1 --notes "inline release notes" --notes-file missing.md`,
+			wantDescription: "inline release notes",
+			wantWarning:     true,
+		},
+		{
+			name:            "inline notes alone do not warn",
+			cli:             `0.0.1 --notes "inline release notes"`,
+			wantDescription: "inline release notes",
+		},
+		{
+			name:            "notes file alone does not warn",
+			cli:             `0.0.1 --notes-file notes.md`,
+			fileContent:     "release notes from file",
+			wantDescription: "release notes from file",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			if tt.fileContent != "" {
+				require.NoError(t, os.WriteFile("notes.md", []byte(tt.fileContent), 0o600))
+			}
+
+			testClient := gitlabtesting.NewTestClient(t)
+			notFoundResponse := &gitlab.Response{Response: &http.Response{StatusCode: http.StatusNotFound}}
+			testClient.MockTags.EXPECT().GetTag("OWNER/REPO", "0.0.1", gomock.Any()).
+				Return(&gitlab.Tag{Name: "0.0.1"}, nil, nil)
+			testClient.MockReleases.EXPECT().GetRelease("OWNER/REPO", "0.0.1", gomock.Any()).
+				Return(nil, notFoundResponse, errors.New("not found"))
+			testClient.MockReleases.EXPECT().CreateRelease("OWNER/REPO", gomock.Any()).
+				DoAndReturn(func(pid any, opts *gitlab.CreateReleaseOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Release, *gitlab.Response, error) {
+					require.NotNil(t, opts.Description)
+					assert.Equal(t, tt.wantDescription, *opts.Description)
+					return &gitlab.Release{
+						Name:    "test_release",
+						TagName: "0.0.1",
+						Links:   gitlab.ReleaseLinks{Self: "https://gitlab.com/OWNER/REPO/-/releases/0.0.1"},
+					}, nil, nil
+				})
+
+			exec := cmdtest.SetupCmdForTest(t, NewCmdCreate, false,
+				cmdtest.WithGitLabClient(testClient.Client),
+				cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+			)
+			output, err := exec(tt.cli)
+			require.NoError(t, err)
+			assert.Contains(t, output.String(), "Release created:")
+			if tt.wantWarning {
+				assert.Contains(t, output.Stderr(), "--notes and --notes-file were both given")
+				assert.Contains(t, output.Stderr(), "using --notes and ignoring --notes-file")
+			} else {
+				assert.Empty(t, output.Stderr())
+			}
+		})
+	}
+}
+
 func TestReleaseCreate_ExperimentalNotes(t *testing.T) {
 	t.Setenv("CI_DEFAULT_BRANCH", "main")
 
