@@ -4,17 +4,20 @@ package rotate
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
+	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -445,7 +448,7 @@ func TestRotatePersonalAccessTokenSelf(t *testing.T) {
 				t,
 				NewCmdRotate,
 				true,
-				cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
+				cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "gitlab.example.com", api.WithGitLabClient(testClient.Client))),
 			)
 
 			// WHEN
@@ -467,6 +470,179 @@ func TestRotatePersonalAccessTokenSelf(t *testing.T) {
 				assert.Equal(t, tc.expectedOut, out.OutBuf.String())
 			}
 			assert.Empty(t, out.ErrBuf.String())
+		})
+	}
+}
+
+// failingSetConfig makes the credential write fail, to prove the new token is
+// printed before glab tries to store it.
+type failingSetConfig struct{ config.Config }
+
+func (failingSetConfig) Set(string, string, string) error { return errors.New("disk full") }
+
+func TestRotateSelf_StoredToken(t *testing.T) {
+	const host = "gitlab.example.com"
+
+	rotated := &gitlab.PersonalAccessToken{ID: 1, Name: "my-pat", Active: true, Token: "newtoken"}
+
+	tests := []struct {
+		name       string
+		hostsYAML  string
+		seedToken  bool
+		seedLegacy bool
+		envToken   string
+		apiHost    string
+		noBaseRepo bool
+		wrap       func(config.Config) config.Config
+		cli        string
+		wantErr    string
+		wantStored string
+		wantStderr []string
+		notStderr  []string
+		noStderr   bool
+	}{
+		{
+			name:       "config file token is replaced",
+			hostsYAML:  "hosts:\n  gitlab.example.com:\n    token: oldtoken\n    use_keyring: \"false\"\n",
+			cli:        "--self",
+			wantStored: "newtoken",
+			wantStderr: []string{"Updated the stored token for gitlab.example.com", "config file"},
+		},
+		{
+			name:       "keyring token is replaced",
+			hostsYAML:  "hosts:\n  gitlab.example.com:\n    use_keyring: \"true\"\n",
+			seedToken:  true,
+			cli:        "--self",
+			wantStored: "newtoken",
+			wantStderr: []string{"Updated the stored token for gitlab.example.com", "keyring"},
+		},
+		{
+			name:       "stdout stays clean JSON while stderr reports the update",
+			hostsYAML:  "hosts:\n  gitlab.example.com:\n    token: oldtoken\n    use_keyring: \"false\"\n",
+			cli:        "--self --output json",
+			wantStored: "newtoken",
+			wantStderr: []string{"Updated the stored token for gitlab.example.com"},
+		},
+		{
+			name:       "environment token cannot be updated, so glab warns",
+			hostsYAML:  "hosts:\n  gitlab.example.com:\n    use_keyring: \"false\"\n",
+			envToken:   "envtoken",
+			cli:        "--self",
+			wantStored: "",
+			wantStderr: []string{"GITLAB_TOKEN", "gitlab.example.com", "can't update"},
+		},
+		{
+			name:      "no stored token means nothing to update and nothing printed",
+			hostsYAML: "hosts:\n  gitlab.example.com:\n    use_keyring: \"false\"\n",
+			cli:       "--self",
+			noStderr:  true,
+		},
+		{
+			name:       "an api_host is not the key the token is stored under",
+			hostsYAML:  "hosts:\n  gitlab.example.com:\n    token: oldtoken\n    api_host: api.example.com\n    use_keyring: \"false\"\n",
+			apiHost:    "api.example.com",
+			cli:        "--self",
+			wantStored: "newtoken",
+			wantStderr: []string{"Updated the stored token for gitlab.example.com", "config file"},
+		},
+		{
+			name:       "outside a repository the default host is the key",
+			hostsYAML:  "hosts:\n  gitlab.example.com:\n    token: oldtoken\n    use_keyring: \"false\"\n",
+			noBaseRepo: true,
+			cli:        "--self",
+			wantStored: "newtoken",
+			wantStderr: []string{"Updated the stored token for gitlab.example.com", "config file"},
+		},
+		{
+			name:       "a legacy keyring token moves to the config file and the message says so",
+			hostsYAML:  "hosts:\n  gitlab.example.com:\n    api_protocol: https\n",
+			seedLegacy: true,
+			cli:        "--self",
+			wantStored: "newtoken",
+			wantStderr: []string{"Updated the stored token for gitlab.example.com", "config file"},
+			notStderr:  []string{"keyring"},
+		},
+		{
+			name:       "a failed write still prints the token and reports the failure",
+			hostsYAML:  "hosts:\n  gitlab.example.com:\n    token: oldtoken\n    use_keyring: \"false\"\n",
+			wrap:       func(c config.Config) config.Config { return failingSetConfig{c} },
+			cli:        "--self",
+			wantErr:    "could not store the new token for gitlab.example.com",
+			wantStderr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keyring.MockInit()
+			for _, k := range []string{"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN", "GITLAB_CI"} {
+				t.Setenv(k, "")
+			}
+			if tt.envToken != "" {
+				t.Setenv("GITLAB_TOKEN", tt.envToken)
+			}
+
+			cfg := config.NewFromStringInDir(tt.hostsYAML, t.TempDir())
+			if tt.seedToken {
+				require.NoError(t, cfg.Set(host, "token", "oldtoken"))
+			}
+			if tt.seedLegacy {
+				require.NoError(t, keyring.Set("glab:"+host+":token", "", "oldtoken"))
+			}
+			factoryCfg := cfg
+			if tt.wrap != nil {
+				factoryCfg = tt.wrap(cfg)
+			}
+
+			testClient := gitlabtesting.NewTestClient(t)
+			testClient.MockPersonalAccessTokens.EXPECT().
+				RotatePersonalAccessTokenSelf(gomock.Any(), gomock.Any()).
+				Return(rotated, nil, nil)
+			apiHost := host
+			if tt.apiHost != "" {
+				apiHost = tt.apiHost
+			}
+			repoOption := cmdtest.WithBaseRepo("OWNER", "REPO", host)
+			if tt.noBaseRepo {
+				repoOption = cmdtest.WithBaseRepoError(errors.New("no repository"))
+			}
+			exec := cmdtest.SetupCmdForTest(
+				t,
+				NewCmdRotate,
+				true,
+				cmdtest.WithConfig(factoryCfg),
+				cmdtest.WithDefaultHostname(host),
+				repoOption,
+				cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", apiHost, api.WithGitLabClient(testClient.Client))),
+			)
+
+			out, err := exec(tt.cli)
+
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				assert.Equal(t, "newtoken\n", out.OutBuf.String(), "the token must be printed before the store is attempted")
+				return
+			}
+			require.NoError(t, err)
+			if tt.cli == "--self" {
+				assert.Equal(t, "newtoken\n", out.OutBuf.String(), "stdout carries only the token")
+			} else {
+				var parsed map[string]any
+				require.NoError(t, json.Unmarshal(out.OutBuf.Bytes(), &parsed), "stdout must stay valid JSON")
+			}
+			if tt.noStderr {
+				assert.Empty(t, out.ErrBuf.String())
+			}
+			for _, want := range tt.wantStderr {
+				assert.Contains(t, out.ErrBuf.String(), want)
+			}
+			for _, unwanted := range tt.notStderr {
+				assert.NotContains(t, out.ErrBuf.String(), unwanted)
+			}
+			got, _, getErr := cfg.GetWithSource(host, "token", false)
+			require.NoError(t, getErr)
+			assert.Equal(t, tt.wantStored, got)
 		})
 	}
 }

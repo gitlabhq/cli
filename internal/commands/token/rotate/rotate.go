@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -17,15 +18,18 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/token/expirationdate"
 	"gitlab.com/gitlab-org/cli/internal/commands/token/filter"
 	"gitlab.com/gitlab-org/cli/internal/commands/token/tokenduration"
+	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
 
 type options struct {
-	apiClient func(repoHost string) (*api.Client, error)
-	io        *iostreams.IOStreams
-	baseRepo  func() (glrepo.Interface, error)
+	apiClient       func(repoHost string) (*api.Client, error)
+	config          func() config.Config
+	io              *iostreams.IOStreams
+	baseRepo        func() (glrepo.Interface, error)
+	defaultHostname func() string
 
 	user         string
 	group        string
@@ -38,10 +42,12 @@ type options struct {
 
 func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 	opts := &options{
-		io:        f.IO(),
-		apiClient: f.ApiClient,
-		baseRepo:  f.BaseRepo,
-		duration:  tokenduration.TokenDuration(30 * 24 * time.Hour), // Default: 30 days
+		io:              f.IO(),
+		apiClient:       f.ApiClient,
+		config:          f.Config,
+		baseRepo:        f.BaseRepo,
+		defaultHostname: f.DefaultHostname,
+		duration:        tokenduration.TokenDuration(30 * 24 * time.Hour), // Default: 30 days
 	}
 
 	cmd := &cobra.Command{
@@ -65,6 +71,7 @@ func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 			Administrators can rotate personal access tokens that belong to other users.
 
 			Use %[1]s--self%[1]s to rotate the token currently used for authentication. This command requires GitLab 17.9 or later.
+			glab replaces the stored copy of that token for the host, in the keyring or the config file, so your next command keeps working. A token from an environment variable can't be updated, so glab warns on stderr and you must export the new value.
 		`, "`"),
 		Example: heredoc.Doc(`
 		# Rotate project access token of current project (default 30 days)
@@ -166,6 +173,10 @@ func (o *options) run(ctx context.Context) error {
 	var repoHost string
 	if baseRepo, err := o.baseRepo(); err == nil {
 		repoHost = baseRepo.RepoHost()
+	}
+	configHost := repoHost
+	if configHost == "" {
+		configHost = o.defaultHostname()
 	}
 	apiClient, err := o.apiClient(repoHost)
 	if err != nil {
@@ -300,5 +311,42 @@ func (o *options) run(ctx context.Context) error {
 		return err
 	}
 
+	if o.self {
+		return o.storeRotatedToken(configHost, outputTokenValue)
+	}
+
+	return nil
+}
+
+// storeRotatedToken replaces the stored copy of the token that --self just
+// revoked, so the next command doesn't authenticate with it. It runs after the
+// new token is printed: a failed write must not lose the only copy.
+func (o *options) storeRotatedToken(host, newToken string) error {
+	cfg := o.config()
+	stored, source, err := cfg.GetWithSource(host, "token", true)
+	if err != nil {
+		return fmt.Errorf("could not store the new token for %s: %w; it was printed above", host, err)
+	}
+	if stored == "" {
+		return nil
+	}
+
+	if slices.Contains(config.EnvKeyEquivalence("token"), source) {
+		o.io.LogErrorf("%s The token for %s came from %s, so glab can't update it. Export the new token before the next command.\n", o.io.Color().WarnIcon(), host, source)
+		return nil
+	}
+
+	if err := cfg.Set(host, "token", newToken); err != nil {
+		return fmt.Errorf("could not store the new token for %s: %w; it was printed above", host, err)
+	}
+	if err := cfg.Write(); err != nil {
+		return fmt.Errorf("could not store the new token for %s: %w; it was printed above", host, err)
+	}
+
+	where := "config file"
+	if useKeyring, _ := cfg.Get(host, "use_keyring"); useKeyring == "true" {
+		where = "keyring"
+	}
+	o.io.LogErrorf("%s Updated the stored token for %s (%s).\n", o.io.Color().GreenCheck(), host, where)
 	return nil
 }

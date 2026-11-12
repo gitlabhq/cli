@@ -29,6 +29,7 @@ The `--duration` and `--expires-at` flags are mutually exclusive.
 Administrators can rotate personal access tokens that belong to other users.
 
 Use `--self` to rotate the token currently used for authentication. This command requires GitLab 17.9 or later.
+glab replaces the stored copy of that token for the host, in the keyring or the config file, so your next command keeps working. A token from an environment variable can't be updated, so glab warns on stderr and you must export the new value.
 
 ```plaintext
 glab token rotate [<token-name|token-id>] [flags]
