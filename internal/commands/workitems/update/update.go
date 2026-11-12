@@ -3,6 +3,8 @@ package update
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -41,9 +43,11 @@ type options struct {
 	weight      int64
 	iteration   int64
 	parent      string
+	status      string
 
 	// internal state
-	scope *api.ScopeInfo
+	scope    *api.ScopeInfo
+	statusID *gitlab.WorkItemStatusID
 
 	// Output
 	outputFormat string
@@ -91,6 +95,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 					# Move a work item under work item 40
 					glab work-items update 42 --parent 40
 
+					# Set the status of a work item
+					glab work-items update 42 --status in-progress
+
 					# Move a work item under a work item in another project
 					glab work-items update 42 --parent https://gitlab.com/my-group/my-project/-/work_items/40
 		`),
@@ -124,6 +131,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl.StringVar(&opts.dueDate, "duedate", "", "Update the due date for the work item.")
 	fl.Int64Var(&opts.iteration, "iteration", 0, "Move the work item to the iteration with this ID.")
 	fl.StringVar(&opts.parent, "parent", "", "Set the parent work item by <id>, reference, or URL.")
+	fl.Var(cmdutils.NewEnumValue(statusSlugs(), "", &opts.status), "status", "Set the work item status: todo, in-progress, done, wont-do, or duplicate. Needs the status widget, which is Premium and Ultimate only.")
 	cmdutils.AddDescriptionFileFlag(cmd, "work item")
 	cmdutils.AddAttachFlag(cmd, &opts.attach, "description")
 
@@ -155,6 +163,11 @@ func (opts *options) complete(ctx context.Context, cmd *cobra.Command, args []st
 		return err
 	}
 
+	if cmd.Flags().Changed("status") {
+		id := systemStatuses[opts.status]
+		opts.statusID = &id
+	}
+
 	scope, err := utils.DetectScope(opts.group, opts.baseRepo)
 	if err != nil {
 		return err
@@ -162,6 +175,20 @@ func (opts *options) complete(ctx context.Context, cmd *cobra.Command, args []st
 	opts.scope = scope
 
 	return nil
+}
+
+// systemStatuses maps the --status values to GitLab's system-defined work
+// item statuses. Custom statuses are not supported.
+var systemStatuses = map[string]gitlab.WorkItemStatusID{
+	"todo":        gitlab.WorkItemStatusToDo,
+	"in-progress": gitlab.WorkItemStatusInProgress,
+	"done":        gitlab.WorkItemStatusDone,
+	"wont-do":     gitlab.WorkItemStatusWontDo,
+	"duplicate":   gitlab.WorkItemStatusDuplicate,
+}
+
+func statusSlugs() []string {
+	return slices.Collect(maps.Keys(systemStatuses))
 }
 
 func (opts *options) run(cmd *cobra.Command) error {
@@ -268,6 +295,8 @@ func (opts *options) run(cmd *cobra.Command) error {
 	if cmd.Flags().Changed("iteration") {
 		updateOpts.IterationID = new(opts.iteration)
 	}
+
+	updateOpts.Status = opts.statusID
 
 	wi, _, err := client.WorkItems.UpdateWorkItem(opts.scope.Path, opts.iid, &updateOpts, gitlab.WithContext(cmd.Context()))
 	if err != nil {
