@@ -219,7 +219,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	fl.StringVarP(&opts.ref, "ref", "r", "", "If the specified tag doesn't exist, create a release from the ref and tag it with the specified tag name. Accepts a commit SHA, tag name, or branch name.")
 	fl.StringVarP(&opts.tagMessage, "tag-message", "T", "", "Message to use if creating a new annotated tag.")
 	fl.StringVarP(&opts.notes, "notes", "N", "", "The release notes or description. Accepts Markdown.")
-	fl.StringVarP(&opts.notesFile, "notes-file", "F", "", "Read release notes 'file'. To read from stdin, use '-'.")
+	fl.StringVarP(&opts.notesFile, "notes-file", "F", "", "Read release notes 'file'. To read from stdin, use '-'. If both --notes and --notes-file are set, --notes takes precedence.")
 	fl.StringVarP(&opts.releasedAt, "released-at", "D", "", "ISO 8601 datetime when the release was ready. Defaults to the current datetime.")
 	fl.StringSliceVarP(&opts.milestone, "milestone", "m", []string{}, "The title of each milestone the release is associated with. Multiple milestones can be comma-separated or specified by repeating the flag.")
 	fl.StringVarP(&opts.assetLinksAsJSON, "assets-links", "a", "", "JSON string representation of assets links. See Examples for usage.")
@@ -276,6 +276,9 @@ func (o *options) complete(flags *pflag.FlagSet, args []string) error {
 
 func resolveNotes(flags *pflag.FlagSet, opts *options) (string, error) {
 	if flags.Changed("notes") {
+		if flags.Changed("notes-file") {
+			opts.io.LogErrorf("%s --notes and --notes-file were both given: using --notes and ignoring --notes-file. Passing both will be an error in a future major release.\n", opts.io.Color().WarnIcon())
+		}
 		return opts.notes, nil
 	}
 
