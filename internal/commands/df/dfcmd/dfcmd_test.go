@@ -93,14 +93,28 @@ func TestEnvironmentHelp(t *testing.T) {
 	t.Run("when the manager reads several proxy variables of its own", func(t *testing.T) {
 		t.Parallel()
 		cmd := newTestCmd(cmdtest.NewTestFactory(nil))
-		assert.Contains(t, cmd.Annotations["help:environment"], "npm_config_https_proxy, npm_config_proxy: proxy settings for npm. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n")
+		assert.Contains(t, cmd.Annotations["help:environment"], "npm_config_https_proxy, npm_config_proxy: proxy settings for npm. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY. glab also reads the same settings from your user and global config files (~/.npmrc, $PREFIX/etc/npmrc). glab doesn't read proxy settings from files inside the project.\n")
 	})
 	t.Run("when the manager reads one proxy variable of its own", func(t *testing.T) {
 		t.Parallel()
 		spec := testSpec()
 		spec.Manager, spec.Use = pm.Pip, "pip <pip args>"
 		cmd := NewProxyCmd(cmdtest.NewTestFactory(nil), spec)
-		assert.Contains(t, cmd.Annotations["help:environment"], "PIP_PROXY: proxy setting for pip. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n")
+		assert.Contains(t, cmd.Annotations["help:environment"], "PIP_PROXY: proxy setting for pip. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY. glab also reads the same settings from your user and global config files (pip.conf, $PIP_CONFIG_FILE). glab doesn't read proxy settings from files inside the project.\n")
+	})
+	t.Run("when only some versions of the manager read a setting", func(t *testing.T) {
+		t.Parallel()
+		spec := testSpec()
+		spec.Manager, spec.Use = pm.Yarn, "yarn <yarn args>"
+		cmd := NewProxyCmd(cmdtest.NewTestFactory(nil), spec)
+		assert.Contains(t, cmd.Annotations["help:environment"], "glab doesn't read proxy settings from files inside the project. For Yarn 2 and later, glab reads only YARN_HTTPS_PROXY and ~/.yarnrc.yml.\n")
+	})
+	t.Run("when the manager reads no config file of its own", func(t *testing.T) {
+		t.Parallel()
+		spec := testSpec()
+		spec.Manager, spec.Use = pm.Pnpm, "pnpm <pnpm args>"
+		cmd := NewProxyCmd(cmdtest.NewTestFactory(nil), spec)
+		assert.Contains(t, cmd.Annotations["help:environment"], "npm_config_https_proxy, npm_config_proxy: proxy settings for pnpm. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n")
 	})
 	t.Run("when the manager reads no proxy variable of its own", func(t *testing.T) {
 		t.Parallel()

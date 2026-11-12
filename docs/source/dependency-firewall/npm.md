@@ -52,7 +52,7 @@ glab dependency-firewall npm publish
 HTTPS_PROXY: outbound proxy glab uses to reach package registries, plain-HTTP registries included. Credentials in the URL are sent to the proxy.
 HTTP_PROXY: outbound proxy for plain-HTTP registries when HTTPS_PROXY is unset.
 NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.
-npm_config_https_proxy, npm_config_proxy: proxy settings for npm. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.
+npm_config_https_proxy, npm_config_proxy: proxy settings for npm. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY. glab also reads the same settings from your user and global config files (~/.npmrc, $PREFIX/etc/npmrc). glab doesn't read proxy settings from files inside the project.
 ```
 
 ## Options inherited from parent commands
