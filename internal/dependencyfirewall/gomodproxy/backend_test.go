@@ -111,9 +111,53 @@ func fetcherOf(t *testing.T, b *Backend) *goFetcher {
 	return fetcher
 }
 
+func TestNewBackendUpstreamCAs(t *testing.T) {
+	caPEM := []byte("-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n")
+	cases := []struct {
+		name        string
+		goos        string
+		certFile    string
+		certDir     string
+		upstreamCAs []byte
+		wantOwnFile bool
+	}{
+		{name: "no extra CAs", goos: "linux", certFile: "/user/bundle.pem"},
+		{name: "extra CAs", goos: "linux", upstreamCAs: caPEM, wantOwnFile: true},
+		{name: "extra CAs over the user's SSL_CERT_FILE", goos: "linux", certFile: "/user/bundle.pem", upstreamCAs: caPEM, wantOwnFile: true},
+		{name: "extra CAs with SSL_CERT_FILE and SSL_CERT_DIR", goos: "linux", certFile: "/user/bundle.pem", certDir: "/user/certs", upstreamCAs: caPEM, wantOwnFile: true},
+		{name: "extra CAs with only SSL_CERT_DIR", goos: "linux", certDir: "/user/certs", upstreamCAs: caPEM},
+		{name: "extra CAs on macOS", goos: "darwin", certFile: "/user/bundle.pem", upstreamCAs: caPEM},
+		{name: "extra CAs on Windows", goos: "windows", upstreamCAs: caPEM},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("SSL_CERT_FILE", c.certFile)
+			t.Setenv("SSL_CERT_DIR", c.certDir)
+			b, err := newBackend(c.goos, "go", nil, map[string]string{"GOSUMDB": "off"}, c.upstreamCAs)
+			require.NoError(t, err)
+			t.Cleanup(b.Close)
+
+			certFile, _ := envValue(fetcherOf(t, b).env, "SSL_CERT_FILE")
+			ownFile := filepath.Join(b.tempDir, "upstream-ca.pem")
+			if c.wantOwnFile {
+				assert.Equal(t, ownFile, certFile)
+				got, err := os.ReadFile(ownFile)
+				require.NoError(t, err)
+				assert.Equal(t, caPEM, got)
+			} else {
+				assert.Equal(t, c.certFile, certFile)
+				assert.NoFileExists(t, ownFile)
+			}
+			gp, ok := b.handler.(*goproxy.Goproxy)
+			require.True(t, ok)
+			assert.Equal(t, c.upstreamCAs != nil, gp.Transport != nil)
+		})
+	}
+}
+
 func TestNewBackendConfiguresSumDBAndLogger(t *testing.T) {
 	t.Parallel()
-	b, err := NewBackend("/usr/bin/go", []string{"sum.golang.org"}, map[string]string{"GOSUMDB": "sum.golang.org"})
+	b, err := NewBackend("/usr/bin/go", []string{"sum.golang.org"}, map[string]string{"GOSUMDB": "sum.golang.org"}, nil)
 	require.NoError(t, err)
 	t.Cleanup(b.Close)
 
@@ -158,7 +202,7 @@ func TestBackendCloseRemovesPopulatedModuleCache(t *testing.T) {
 	b, err := NewBackend("go", nil, map[string]string{
 		"GOPROXY": "file://" + filepath.ToSlash(writeFileProxy(t)),
 		"GOSUMDB": "off",
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	cmd := exec.Command("go", "mod", "download", "-json", "example.com/m@v1.0.0")
@@ -179,7 +223,7 @@ func serveBackend(t *testing.T, goproxy, target string) *httptest.ResponseRecord
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not on PATH")
 	}
-	b, err := NewBackend("go", nil, map[string]string{"GOPROXY": goproxy, "GOSUMDB": "off"})
+	b, err := NewBackend("go", nil, map[string]string{"GOPROXY": goproxy, "GOSUMDB": "off"}, nil)
 	require.NoError(t, err)
 	t.Cleanup(b.Close)
 	rec := httptest.NewRecorder()
@@ -252,7 +296,7 @@ func TestBackendServesCachedZipIntact(t *testing.T) {
 	root := writeFileProxy(t)
 	want, err := os.ReadFile(filepath.Join(root, "example.com", "m", "@v", "v1.0.0.zip"))
 	require.NoError(t, err)
-	b, err := NewBackend("go", nil, map[string]string{"GOPROXY": "file://" + filepath.ToSlash(root), "GOSUMDB": "off"})
+	b, err := NewBackend("go", nil, map[string]string{"GOPROXY": "file://" + filepath.ToSlash(root), "GOSUMDB": "off"}, nil)
 	require.NoError(t, err)
 	t.Cleanup(b.Close)
 	srv := httptest.NewServer(b)

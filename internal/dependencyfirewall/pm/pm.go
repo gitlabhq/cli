@@ -87,12 +87,13 @@ type argsManager interface {
 }
 
 type setupInput struct {
-	parent    []string // the environment the child would otherwise inherit
-	bin       string   // the manager binary's path from LookPath
-	exec      Executor
-	checker   policy.Checker
-	projectID string
-	io        *iostreams.IOStreams
+	parent      []string // the environment the child would otherwise inherit
+	bin         string   // the manager binary's path from LookPath
+	exec        Executor
+	checker     policy.Checker
+	projectID   string
+	io          *iostreams.IOStreams
+	upstreamCAs []byte // PEM of the extra registry CAs from upstreamRootCAs; nil means none
 }
 
 type setupResult struct {
@@ -309,7 +310,7 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 		return err
 	}
 	proxyOpts = append(proxyOpts, proxy.WithUpstreamFailureWarning(opts.IO.LogErrorf))
-	roots, err := upstreamRootCAs(os.Environ(), opts.CACertPath)
+	roots, upstreamCAs, err := upstreamRootCAs(os.Environ(), opts.CACertPath)
 	if err != nil {
 		return fmt.Errorf("failed to load registry CA certificates: %w", err)
 	}
@@ -373,12 +374,13 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	stopSetup := func() {}
 	if s, ok := manager.(setupManager); ok {
 		setup, err = s.Setup(ctx, setupInput{
-			parent:    os.Environ(),
-			bin:       binPath,
-			exec:      opts.Executor,
-			checker:   checker,
-			projectID: opts.ProjectID,
-			io:        opts.IO,
+			parent:      os.Environ(),
+			bin:         binPath,
+			exec:        opts.Executor,
+			checker:     checker,
+			projectID:   opts.ProjectID,
+			io:          opts.IO,
+			upstreamCAs: upstreamCAs,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to set up %s for the Dependency Firewall: %w", manager.Name(), err)
