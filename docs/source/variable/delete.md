@@ -14,9 +14,12 @@ Delete a variable for a project or group.
 
 ## Synopsis
 
-Deletes a variable by key. Use `--scope` to target a
-variable in a specific environment, or `--group` to delete a group
-variable instead.
+Deletes a variable by key. Use `--group` to delete a group
+variable instead of a project variable.
+
+Use `--scope` to select the environment scope of the project or
+group variable. The default scope is `*`. Environment scopes for
+group variables require GitLab Premium or Ultimate.
 
 ```plaintext
 glab variable delete <key> [flags]
@@ -34,6 +37,9 @@ remove
 glab variable delete VAR_NAME
 glab variable delete VAR_NAME --scope=prod
 glab variable delete VARNAME -g mygroup
+
+# Delete a group variable in the production environment.
+glab variable delete VARNAME -g mygroup --scope=prod
 ```
 
 ## Options

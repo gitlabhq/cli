@@ -16,7 +16,10 @@ Update an existing variable for a project or group.
 
 You can pass the variable value from standard input. Use `--group`
 to update a variable for a group instead of the current project.
-The `--scope` flag does not apply to group variables.
+
+Use `--scope` to select the environment scope of the project or
+group variable. The default scope is `*`. Environment scopes for
+group variables require GitLab Premium or Ultimate.
 
 Only the attributes you pass are changed. For example, `--protected`,
 `--masked`, `--raw`, `--type` and `--description` keep their
@@ -37,6 +40,9 @@ glab variable update FROM_ENV_WITH_FLAG -v"${ENV_VAR}"
 glab variable update FROM_FILE < secret.txt
 cat file.txt | glab variable update SERVER_TOKEN
 cat token.txt | glab variable update GROUP_TOKEN -g mygroup
+
+# Update a group variable in the production environment.
+glab variable update GROUP_TOKEN -g mygroup --scope prod --value "some value"
 ```
 
 ## Options

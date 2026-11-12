@@ -1,6 +1,7 @@
 package update
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -54,7 +55,10 @@ func NewCmdUpdate(f cmdutils.Factory, runE func(opts *options) error) *cobra.Com
 		Long: heredoc.Docf(`
 			You can pass the variable value from standard input. Use %[1]s--group%[1]s
 			to update a variable for a group instead of the current project.
-			The %[1]s--scope%[1]s flag does not apply to group variables.
+
+			Use %[1]s--scope%[1]s to select the environment scope of the project or
+			group variable. The default scope is %[1]s*%[1]s. Environment scopes for
+			group variables require GitLab Premium or Ultimate.
 
 			Only the attributes you pass are changed. For example, %[1]s--protected%[1]s,
 			%[1]s--masked%[1]s, %[1]s--raw%[1]s, %[1]s--type%[1]s and %[1]s--description%[1]s keep their
@@ -69,7 +73,10 @@ func NewCmdUpdate(f cmdutils.Factory, runE func(opts *options) error) *cobra.Com
 			glab variable update FROM_ENV_WITH_FLAG -v"${ENV_VAR}"
 			glab variable update FROM_FILE < secret.txt
 			cat file.txt | glab variable update SERVER_TOKEN
-			cat token.txt | glab variable update GROUP_TOKEN -g mygroup`),
+			cat token.txt | glab variable update GROUP_TOKEN -g mygroup
+
+			# Update a group variable in the production environment.
+			glab variable update GROUP_TOKEN -g mygroup --scope prod --value "some value"`),
 		Annotations: map[string]string{
 			mcpannotations.Destructive: "true",
 		},
@@ -84,7 +91,7 @@ func NewCmdUpdate(f cmdutils.Factory, runE func(opts *options) error) *cobra.Com
 				return runE(opts)
 			}
 
-			return opts.run()
+			return opts.run(cmd.Context())
 		},
 	}
 
@@ -118,10 +125,6 @@ func (o *options) validate(cmd *cobra.Command, args []string) error {
 		return cmdutils.FlagError{Err: errors.New("specify value either by the second positional argument or the --value flag")}
 	}
 
-	if cmd.Flags().Changed("scope") && o.group != "" {
-		return cmdutils.FlagError{Err: errors.New("scope is not required for group variables")}
-	}
-
 	value, err := variableutils.GetValue(o.value, o.io, args)
 	if err != nil {
 		return err
@@ -137,7 +140,7 @@ func (o *options) validate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func (o *options) run() error {
+func (o *options) run(ctx context.Context) error {
 	c := o.io.Color()
 
 	// NOTE: this command can not only be used for projects,
@@ -154,13 +157,25 @@ func (o *options) run() error {
 	client := apiClient.Lab()
 
 	if o.group != "" {
+		// GitLab can update another scope when the requested group variable is absent.
+		// Confirm the variable belongs to the exact scope before changing it.
+		variable, _, err := client.GroupVariables.GetVariable(o.group, o.key, &gitlab.GetGroupVariableOptions{
+			Filter: &gitlab.VariableFilter{EnvironmentScope: o.scope},
+		}, gitlab.WithContext(ctx))
+		if err != nil {
+			return err
+		}
+		if variable == nil || variable.EnvironmentScope != o.scope {
+			return fmt.Errorf("group variable %q does not exist in scope %q", o.key, o.scope)
+		}
+
 		// update group-level variable
-		_, _, err = client.GroupVariables.UpdateVariable(o.group, o.key, o.groupUpdateOptions())
+		_, _, err = client.GroupVariables.UpdateVariable(o.group, o.key, o.groupUpdateOptions(), gitlab.WithContext(ctx))
 		if err != nil {
 			return err
 		}
 
-		o.io.LogInfof("%s Updated variable %s for group %s.\n", c.GreenCheck(), o.key, o.group)
+		o.io.LogInfof("%s Updated variable %s for group %s with scope %s.\n", c.GreenCheck(), o.key, o.group, o.scope)
 		return nil
 	}
 
@@ -170,7 +185,7 @@ func (o *options) run() error {
 		return err
 	}
 
-	_, _, err = client.ProjectVariables.UpdateVariable(baseRepo.FullName(), o.key, o.projectUpdateOptions())
+	_, _, err = client.ProjectVariables.UpdateVariable(baseRepo.FullName(), o.key, o.projectUpdateOptions(), gitlab.WithContext(ctx))
 	if err != nil {
 		return err
 	}
@@ -183,6 +198,7 @@ func (o *options) groupUpdateOptions() *gitlab.UpdateGroupVariableOptions {
 	opts := &gitlab.UpdateGroupVariableOptions{
 		Value:            new(o.value),
 		EnvironmentScope: new(o.scope),
+		Filter:           &gitlab.VariableFilter{EnvironmentScope: o.scope},
 	}
 	if o.typeChanged {
 		opts.VariableType = new(gitlab.VariableTypeValue(o.typ))
