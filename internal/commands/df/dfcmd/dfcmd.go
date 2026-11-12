@@ -53,14 +53,22 @@ func environmentHelp(name string, manager pm.PackageManager) string {
 		help = httpsFirstProxyEnvironmentHelp
 	}
 	vars := pm.OwnProxyVariables(manager)
+	var own string
 	switch len(vars) {
 	case 0:
 		return help
 	case 1:
-		return help + fmt.Sprintf("%s: proxy setting for %s. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n", vars[0], name)
+		own = fmt.Sprintf("%s: proxy setting for %s. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.", vars[0], name)
 	default:
-		return help + fmt.Sprintf("%s: proxy settings for %s. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n", strings.Join(vars, ", "), name)
+		own = fmt.Sprintf("%s: proxy settings for %s. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.", strings.Join(vars, ", "), name)
 	}
+	if files := pm.OwnProxyConfigFiles(manager); len(files) > 0 {
+		own += fmt.Sprintf(" glab also reads the same settings from your user and global config files (%s). glab doesn't read proxy settings from files inside the project.", strings.Join(files, ", "))
+	}
+	if note := pm.OwnProxyHelpNote(manager); note != "" {
+		own += " " + note
+	}
+	return help + own + "\n"
 }
 
 type options struct {

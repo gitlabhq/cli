@@ -305,7 +305,7 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 
 	// Read the manager's own outbound proxy before its environment is pointed
 	// at the inspection proxy below.
-	proxyOpts, err := upstreamProxyOptions(manager, os.Environ())
+	proxyOpts, err := upstreamProxyOptions(manager, os.Environ(), opts.BaseDir, opts.Args)
 	if err != nil {
 		return err
 	}

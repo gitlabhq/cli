@@ -43,7 +43,7 @@ glab dependency-firewall cargo fetch
 HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
 HTTP_PROXY: outbound proxy for plain-HTTP registries. When it's unset, glab uses HTTPS_PROXY.
 NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.
-CARGO_HTTP_PROXY: proxy setting for cargo. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.
+CARGO_HTTP_PROXY: proxy setting for cargo. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY. glab also reads the same settings from your user and global config files ($CARGO_HOME/config.toml, ~/.gitconfig). glab doesn't read proxy settings from files inside the project.
 ```
 
 ## Options inherited from parent commands
