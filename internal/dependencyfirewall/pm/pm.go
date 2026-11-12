@@ -1,7 +1,7 @@
 // Package pm runs a supported package manager (npm, pip, gem, ...) behind the
 // Dependency Firewall's local MITM proxy. The shared Run flow starts the
 // proxy, routes the manager's HTTPS traffic through it, makes the manager
-// trust the proxy CA, forwards the command's args verbatim, records the
+// trust the proxy CA, passes through the command's args, records the
 // firewall's per-coordinate verdicts to the CI log, renders a summary, and
 // propagates the child's exit code. Each supported manager is a small
 // implementation of PackageManager describing only what varies by ecosystem.
