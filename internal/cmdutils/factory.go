@@ -32,6 +32,9 @@ type Factory interface {
 	Remotes() (glrepo.Remotes, error)
 	Config() config.Config
 	Branch() (string, error)
+	// UpstreamBranch returns the remote branch that the local branch tracks,
+	// or the zero value when no tracking branch is configured.
+	UpstreamBranch(branch string) (git.TrackedBranch, error)
 	IO() *iostreams.IOStreams
 	DefaultHostname() string
 	BuildInfo() api.BuildInfo
@@ -252,6 +255,14 @@ func (f *DefaultFactory) Branch() (string, error) {
 		return "", fmt.Errorf("could not determine current branch: %w", err)
 	}
 	return currentBranch, nil
+}
+
+func (f *DefaultFactory) UpstreamBranch(branch string) (git.TrackedBranch, error) {
+	upstream, err := git.UpstreamBranch(branch)
+	if err != nil {
+		return git.TrackedBranch{}, fmt.Errorf("could not determine upstream branch of %q: %w", branch, err)
+	}
+	return upstream, nil
 }
 
 func (f *DefaultFactory) IO() *iostreams.IOStreams {

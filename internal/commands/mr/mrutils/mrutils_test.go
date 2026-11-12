@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -21,6 +22,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/git"
+	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -404,7 +406,7 @@ func Test_getMRForBranchFails(t *testing.T) {
 			return nil, errors.New("API call failed")
 		}
 
-		got, err := GetMRForBranch(t.Context(), nil, &gitlab.Client{}, MrOptions{baseRepo, "foo", "opened", true})
+		got, err := GetMRForBranch(t.Context(), nil, &gitlab.Client{}, MrOptions{BaseRepo: baseRepo, Branch: "foo", State: "opened", PromptEnabled: true})
 		assert.Nil(t, got)
 		assert.EqualError(t, err, `failed to get open merge request for "foo": API call failed`)
 	})
@@ -414,7 +416,7 @@ func Test_getMRForBranchFails(t *testing.T) {
 			return []*gitlab.BasicMergeRequest{}, nil
 		}
 
-		got, err := GetMRForBranch(t.Context(), nil, &gitlab.Client{}, MrOptions{baseRepo, "foo", "opened", true})
+		got, err := GetMRForBranch(t.Context(), nil, &gitlab.Client{}, MrOptions{BaseRepo: baseRepo, Branch: "foo", State: "opened", PromptEnabled: true})
 		assert.Nil(t, got)
 		assert.EqualError(t, err, `no open merge request available for "foo"`)
 	})
@@ -437,9 +439,19 @@ func Test_getMRForBranchFails(t *testing.T) {
 			}, nil
 		}
 
-		got, err := GetMRForBranch(t.Context(), nil, &gitlab.Client{}, MrOptions{baseRepo, "zemzale:foo", "opened", true})
+		got, err := GetMRForBranch(t.Context(), nil, &gitlab.Client{}, MrOptions{BaseRepo: baseRepo, Branch: "zemzale:foo", State: "opened", PromptEnabled: true})
 		assert.Nil(t, got)
 		assert.EqualError(t, err, `no open merge request available for "foo" owned by @zemzale`)
+	})
+
+	t.Run("source-project-no-match", func(t *testing.T) {
+		api.ListMRs = func(client *gitlab.Client, projectID any, opts *gitlab.ListProjectMergeRequestsOptions, listOpts ...api.CliListMROption) ([]*gitlab.BasicMergeRequest, error) {
+			return []*gitlab.BasicMergeRequest{{IID: 1, SourceProjectID: 10}}, nil
+		}
+
+		got, err := GetMRForBranch(t.Context(), nil, &gitlab.Client{}, MrOptions{BaseRepo: baseRepo, Branch: "foo", State: "opened", PromptEnabled: true, SourceProjectID: 20})
+		assert.Nil(t, got)
+		assert.ErrorIs(t, err, ErrNoMergeRequest)
 	})
 }
 
@@ -447,11 +459,23 @@ func Test_getMRForBranch(t *testing.T) {
 	baseRepo := glrepo.NewWithHost("foo", "bar", "gitlab.com")
 
 	testCases := []struct {
-		name   string
-		input  string
-		mrs    []*gitlab.BasicMergeRequest
-		expect *gitlab.MergeRequest
+		name            string
+		input           string
+		sourceProjectID int64
+		mrs             []*gitlab.BasicMergeRequest
+		expect          *gitlab.MergeRequest
 	}{
+		{
+			name:            "source-project-match-skips-prompt",
+			sourceProjectID: 20,
+			mrs: []*gitlab.BasicMergeRequest{
+				{IID: 1, SourceProjectID: 10, Author: &gitlab.BasicUser{Username: "profclems"}},
+				{IID: 2, SourceProjectID: 20, Author: &gitlab.BasicUser{Username: "maxice8"}},
+			},
+			expect: &gitlab.MergeRequest{
+				BasicMergeRequest: gitlab.BasicMergeRequest{IID: 2, Author: &gitlab.BasicUser{Username: "maxice8"}},
+			},
+		},
 		{
 			name: "one-match",
 			mrs: []*gitlab.BasicMergeRequest{
@@ -504,7 +528,7 @@ func Test_getMRForBranch(t *testing.T) {
 				return tC.mrs, nil
 			}
 
-			got, err := GetMRForBranch(t.Context(), nil, &gitlab.Client{}, MrOptions{baseRepo, tC.input, "opened", true})
+			got, err := GetMRForBranch(t.Context(), nil, &gitlab.Client{}, MrOptions{BaseRepo: baseRepo, Branch: tC.input, State: "opened", PromptEnabled: true, SourceProjectID: tC.sourceProjectID})
 			require.NoError(t, err)
 
 			assert.Equal(t, tC.expect.IID, got.IID)
@@ -540,11 +564,42 @@ func Test_getMRForBranchPrompt(t *testing.T) {
 	ios, cleanup := cmdtest.TestIOStreamsWithConsole(t, c)
 	t.Cleanup(cleanup)
 
-	got, err := GetMRForBranch(t.Context(), ios, &gitlab.Client{}, MrOptions{baseRepo, "foo", "opened", true})
+	got, err := GetMRForBranch(t.Context(), ios, &gitlab.Client{}, MrOptions{BaseRepo: baseRepo, Branch: "foo", State: "opened", PromptEnabled: true})
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(1), got.IID)
 	assert.Equal(t, "profclems", got.Author.Username)
+}
+
+// withForkRemotes configures an origin remote for the foo/bar base repository
+// and a fork-owner remote for its fork.
+func withForkRemotes() cmdtest.FactoryOption {
+	return func(f *cmdtest.Factory) {
+		f.RemotesStub = func() (glrepo.Remotes, error) {
+			return glrepo.Remotes{
+				{Remote: &git.Remote{Name: "origin"}, Repo: glrepo.New("foo", "bar", glinstance.DefaultHostname)},
+				{Remote: &git.Remote{Name: "fork-owner"}, Repo: glrepo.New("fork-owner", "bar", glinstance.DefaultHostname)},
+			}, nil
+		}
+	}
+}
+
+// stubForkProject makes the fork-owner/bar fork resolve to project ID 20 with
+// default branch main, and deleted-owner/bar not exist.
+func stubForkProject(t *testing.T) {
+	t.Helper()
+	original := api.GetProject
+	t.Cleanup(func() { api.GetProject = original })
+	api.GetProject = func(_ *gitlab.Client, projectID any) (*gitlab.Project, error) {
+		switch projectID {
+		case "fork-owner/bar":
+			return &gitlab.Project{ID: 20, DefaultBranch: "main"}, nil
+		case "deleted-owner/bar":
+			return nil, errors.New("404 Not Found")
+		default:
+			return nil, fmt.Errorf("unexpected project %v", projectID)
+		}
+	}
 }
 
 func Test_MRFromArgsWithOpts(t *testing.T) {
@@ -615,6 +670,156 @@ func Test_MRFromArgsWithOpts(t *testing.T) {
 			assert.Equal(t, int64(2), gotMR.IID)
 			assert.Equal(t, "test mr", gotMR.Title)
 			assert.Equal(t, "main", gotMR.SourceBranch)
+		})
+		t.Run("current-branch", func(t *testing.T) {
+			stubForkProject(t)
+			tests := []struct {
+				name           string
+				branch         string
+				remote         string
+				upstream       string
+				branchesWithMR []string
+				wantLookups    []string
+				wantErr        string
+			}{
+				{
+					name:           "local branch with an MR wins over its tracked branch",
+					branch:         "feat",
+					remote:         "fork-owner",
+					upstream:       "fix",
+					branchesWithMR: []string{"feat", "fix"},
+					wantLookups:    []string{"feat"},
+				},
+				{
+					name:           "fork branch tracked through a named remote is used when the local branch has no MR",
+					branch:         "fork/fork-owner/renovate/linting",
+					remote:         "fork-owner",
+					upstream:       "renovate/linting",
+					branchesWithMR: []string{"renovate/linting"},
+					wantLookups:    []string{"fork/fork-owner/renovate/linting", "renovate/linting from project 20"},
+				},
+				{
+					name:           "fork branch tracked through a URL is used when the local branch has no MR",
+					branch:         "local-name",
+					remote:         "git@gitlab.com:fork-owner/bar.git",
+					upstream:       "renovate/linting",
+					branchesWithMR: []string{"renovate/linting"},
+					wantLookups:    []string{"local-name", "renovate/linting from project 20"},
+				},
+				{
+					name:           "branch of the base project is never used",
+					branch:         "feat",
+					remote:         "origin",
+					upstream:       "main",
+					branchesWithMR: []string{"main"},
+					wantLookups:    []string{"feat"},
+					wantErr:        `no open merge request available for "feat"`,
+				},
+				{
+					name:           "URL of the base project is never used",
+					branch:         "feat",
+					remote:         "git@gitlab.com:foo/bar.git",
+					upstream:       "main",
+					branchesWithMR: []string{"main"},
+					wantLookups:    []string{"feat"},
+					wantErr:        `no open merge request available for "feat"`,
+				},
+				{
+					name:           "URL on another host is never used",
+					branch:         "feat",
+					remote:         "git@github.com:fork-owner/bar.git",
+					upstream:       "main",
+					branchesWithMR: []string{"main"},
+					wantLookups:    []string{"feat"},
+					wantErr:        `no open merge request available for "feat"`,
+				},
+				{
+					name:           "URL that is not a GitLab project is never used",
+					branch:         "feat",
+					remote:         "file:///tmp/repo",
+					upstream:       "main",
+					branchesWithMR: []string{"main"},
+					wantLookups:    []string{"feat"},
+					wantErr:        `no open merge request available for "feat"`,
+				},
+				{
+					name:           "fork that no longer exists keeps the local branch error",
+					branch:         "feat",
+					remote:         "git@gitlab.com:deleted-owner/bar.git",
+					upstream:       "main",
+					branchesWithMR: []string{"main"},
+					wantLookups:    []string{"feat"},
+					wantErr:        `no open merge request available for "feat"`,
+				},
+				{
+					name:           "default branch of the fork is never used",
+					branch:         "second-fix",
+					remote:         "fork-owner",
+					upstream:       "main",
+					branchesWithMR: []string{"main"},
+					wantLookups:    []string{"second-fix"},
+					wantErr:        `no open merge request available for "second-fix"`,
+				},
+				{
+					name:           "remote that is not configured is never used",
+					branch:         "feat",
+					remote:         "unknown",
+					upstream:       "main",
+					branchesWithMR: []string{"main"},
+					wantLookups:    []string{"feat"},
+					wantErr:        `no open merge request available for "feat"`,
+				},
+				{
+					name:        "no tracked branch keeps the local branch error",
+					branch:      "local-branch",
+					wantLookups: []string{"local-branch"},
+					wantErr:     `no open merge request available for "local-branch"`,
+				},
+				{
+					name:        "neither branch has an MR reports the local branch",
+					branch:      "local-branch",
+					remote:      "fork-owner",
+					upstream:    "other",
+					wantLookups: []string{"local-branch", "other from project 20"},
+					wantErr:     `no open merge request available for "local-branch"`,
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					var gotLookups []string
+					GetMRForBranch = func(_ context.Context, _ *iostreams.IOStreams, _ *gitlab.Client, mrOpts MrOptions) (*gitlab.BasicMergeRequest, error) {
+						lookup := mrOpts.Branch
+						if mrOpts.SourceProjectID != 0 {
+							lookup = fmt.Sprintf("%s from project %d", mrOpts.Branch, mrOpts.SourceProjectID)
+						}
+						gotLookups = append(gotLookups, lookup)
+						if !slices.Contains(tt.branchesWithMR, mrOpts.Branch) {
+							return nil, fmt.Errorf("%w for %q", ErrNoMergeRequest, mrOpts.Branch)
+						}
+						return &gitlab.BasicMergeRequest{IID: 2}, nil
+					}
+					api.GetMR = func(_ *gitlab.Client, _ any, mrID int64, _ *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error) {
+						return &gitlab.MergeRequest{BasicMergeRequest: gitlab.BasicMergeRequest{IID: mrID}}, nil
+					}
+
+					f := cmdtest.NewTestFactory(ios,
+						cmdtest.WithBaseRepo("foo", "bar", ""),
+						cmdtest.WithBranch(tt.branch),
+						cmdtest.WithUpstreamBranch(tt.remote, tt.upstream),
+						withForkRemotes(),
+					)
+
+					gotMR, _, err := MRFromArgs(t.Context(), f, []string{}, "")
+
+					assert.Equal(t, tt.wantLookups, gotLookups)
+					if tt.wantErr != "" {
+						assert.EqualError(t, err, tt.wantErr)
+						return
+					}
+					require.NoError(t, err)
+					assert.Equal(t, int64(2), gotMR.IID)
+				})
+			}
 		})
 		t.Run("via-URL", func(t *testing.T) {
 			api.GetMR = func(client *gitlab.Client, projectID any, mrID int64, opts *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error) {
@@ -771,6 +976,41 @@ func Test_MRFromArgsWithOpts(t *testing.T) {
 			assert.Nil(t, gotMR)
 			assert.Nil(t, gotRepo)
 			assert.EqualError(t, err, "failed to get branch")
+		})
+		t.Run("UpstreamBranch", func(t *testing.T) {
+			GetMRForBranch = func(_ context.Context, _ *iostreams.IOStreams, _ *gitlab.Client, mrOpts MrOptions) (*gitlab.BasicMergeRequest, error) {
+				return nil, fmt.Errorf("%w for %q", ErrNoMergeRequest, mrOpts.Branch)
+			}
+			f := cmdtest.NewTestFactory(ios,
+				cmdtest.WithBaseRepo("foo", "bar", ""),
+				cmdtest.WithBranch("main"),
+				cmdtest.WithUpstreamBranchError(errors.New("failed to read git config")),
+			)
+
+			gotMR, gotRepo, err := MRFromArgs(t.Context(), f, []string{}, "")
+			assert.Nil(t, gotMR)
+			assert.Nil(t, gotRepo)
+			assert.EqualError(t, err, "failed to read git config")
+		})
+		t.Run("tracked branch lookup error names the tracking relation", func(t *testing.T) {
+			stubForkProject(t)
+			GetMRForBranch = func(_ context.Context, _ *iostreams.IOStreams, _ *gitlab.Client, mrOpts MrOptions) (*gitlab.BasicMergeRequest, error) {
+				if mrOpts.Branch == "feat" {
+					return nil, fmt.Errorf("%w for %q", ErrNoMergeRequest, mrOpts.Branch)
+				}
+				return nil, fmt.Errorf("failed to get open merge request for %q: api down", mrOpts.Branch)
+			}
+			f := cmdtest.NewTestFactory(ios,
+				cmdtest.WithBaseRepo("foo", "bar", ""),
+				cmdtest.WithBranch("feat"),
+				cmdtest.WithUpstreamBranch("fork-owner", "fix"),
+				withForkRemotes(),
+			)
+
+			gotMR, gotRepo, err := MRFromArgs(t.Context(), f, []string{}, "")
+			assert.Nil(t, gotMR)
+			assert.Nil(t, gotRepo)
+			assert.EqualError(t, err, `branch "feat" tracks "fix" in fork-owner/bar: failed to get open merge request for "fix": api down`)
 		})
 		t.Run("Invalid-MR-ID", func(t *testing.T) {
 			gotMR, gotRepo, err := MRFromArgs(t.Context(), baseFactory, []string{"0"}, "")

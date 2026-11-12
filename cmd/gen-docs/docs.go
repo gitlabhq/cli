@@ -539,6 +539,10 @@ func (f *factory) Branch() (string, error) {
 	return "", errors.New("not implemented")
 }
 
+func (f *factory) UpstreamBranch(string) (git.TrackedBranch, error) {
+	return git.TrackedBranch{}, errors.New("not implemented")
+}
+
 func (f *factory) IO() *iostreams.IOStreams {
 	return f.io
 }
