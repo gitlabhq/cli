@@ -244,41 +244,6 @@ func ReadBranchConfig(branch string) BranchConfig {
 	return cfg
 }
 
-// TrackedBranch is the remote branch that a local branch tracks.
-type TrackedBranch struct {
-	// Remote is the remote name or URL from `branch.<branch>.remote`.
-	Remote string
-	// Branch is the branch name from `branch.<branch>.merge`, without refs/heads/.
-	Branch string
-}
-
-// UpstreamBranch returns the remote branch that branch tracks, read from
-// `branch.<branch>.remote` and `branch.<branch>.merge`. It reads the config keys
-// rather than `@{upstream}` because remote names may contain `/`, making
-// `remote/branch` ambiguous. It returns the zero value when branch tracks
-// nothing, tracks a local branch (`remote` is "."), or tracks a ref outside
-// refs/heads/, such as the refs/merge-requests/<iid>/head that
-// `glab mr checkout` can configure.
-func UpstreamBranch(branch string) (TrackedBranch, error) {
-	remote, err := GetAllConfig(fmt.Sprintf("branch.%s.remote", branch))
-	if err != nil {
-		return TrackedBranch{}, err
-	}
-	remoteName := firstLine(remote)
-	if remoteName == "" || remoteName == "." {
-		return TrackedBranch{}, nil
-	}
-	merge, err := GetAllConfig(fmt.Sprintf("branch.%s.merge", branch))
-	if err != nil {
-		return TrackedBranch{}, err
-	}
-	upstream, ok := strings.CutPrefix(firstLine(merge), "refs/heads/")
-	if !ok {
-		return TrackedBranch{}, nil
-	}
-	return TrackedBranch{Remote: remoteName, Branch: upstream}, nil
-}
-
 func DeleteLocalBranch(branch string, gr GitRunner) error {
 	_, err := gr.Git("branch", "-D", branch)
 	if err != nil {

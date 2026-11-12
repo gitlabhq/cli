@@ -61,10 +61,6 @@ func (f *dummyFactory) Config() config.Config { return config.NewBlankConfig() }
 
 func (f *dummyFactory) Branch() (string, error) { return "", nil }
 
-func (f *dummyFactory) UpstreamBranch(string) (git.TrackedBranch, error) {
-	return git.TrackedBranch{}, nil
-}
-
 func (f *dummyFactory) IO() *iostreams.IOStreams { return nil }
 
 func (f *dummyFactory) DefaultHostname() string { return "" }

@@ -37,13 +37,10 @@ type Factory struct {
 	RemotesStub      func() (glrepo.Remotes, error)
 	ConfigStub       func() config.Config
 	BranchStub       func() (string, error)
-	// UpstreamBranchStub defaults to reporting no tracking branch so tests
-	// never read the git config of the repository they run in.
-	UpstreamBranchStub func(branch string) (git.TrackedBranch, error)
-	IOStub             *iostreams.IOStreams
-	BuildInfoStub      api.BuildInfo
-	ExecutorStub       cmdutils.Executor
-	GitRunnerStub      git.GitRunner
+	IOStub           *iostreams.IOStreams
+	BuildInfoStub    api.BuildInfo
+	ExecutorStub     cmdutils.Executor
+	GitRunnerStub    git.GitRunner
 
 	// DefaultHostnameStub is what the real factory resolves from GITLAB_HOST
 	// and the config before any command runs.
@@ -78,9 +75,6 @@ func NewTestFactory(ios *iostreams.IOStreams, opts ...FactoryOption) *Factory {
 		},
 		BranchStub: func() (string, error) {
 			return "main", nil
-		},
-		UpstreamBranchStub: func(string) (git.TrackedBranch, error) {
-			return git.TrackedBranch{}, nil
 		},
 		BuildInfoStub:       api.BuildInfo{Version: "test", Commit: "test", Platform: runtime.GOOS, Architecture: runtime.GOARCH},
 		DefaultHostnameStub: glinstance.DefaultHostname,
@@ -180,10 +174,6 @@ func (f *Factory) Config() config.Config {
 
 func (f *Factory) Branch() (string, error) {
 	return f.BranchStub()
-}
-
-func (f *Factory) UpstreamBranch(branch string) (git.TrackedBranch, error) {
-	return f.UpstreamBranchStub(branch)
 }
 
 func (f *Factory) IO() *iostreams.IOStreams {
@@ -292,26 +282,6 @@ func WithBranch(branch string) FactoryOption {
 	return func(f *Factory) {
 		f.BranchStub = func() (string, error) {
 			return branch, nil
-		}
-	}
-}
-
-// WithUpstreamBranch configures the Factory with the remote and the remote
-// branch that the current branch tracks.
-func WithUpstreamBranch(remote, branch string) FactoryOption {
-	return func(f *Factory) {
-		f.UpstreamBranchStub = func(string) (git.TrackedBranch, error) {
-			return git.TrackedBranch{Remote: remote, Branch: branch}, nil
-		}
-	}
-}
-
-// WithUpstreamBranchError configures the Factory to return an error when
-// getting the upstream branch.
-func WithUpstreamBranchError(err error) FactoryOption {
-	return func(f *Factory) {
-		f.UpstreamBranchStub = func(string) (git.TrackedBranch, error) {
-			return git.TrackedBranch{}, err
 		}
 	}
 }
