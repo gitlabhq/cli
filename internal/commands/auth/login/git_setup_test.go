@@ -22,6 +22,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/oauth2"
 	"gitlab.com/gitlab-org/cli/internal/run"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 	"gitlab.com/gitlab-org/cli/test"
@@ -262,6 +263,39 @@ func Test_webLogin_setupGitCredentialHelper(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotNil(t, findCall(*calls, "config", "--global", "--add", "credential.https://"+hostname+".helper"))
+}
+
+func Test_webLogin_selfManagedPrintsClientIDHint(t *testing.T) {
+	keyring.MockInit()
+	recordGitCommands(t, nil)
+
+	execLogin, hostname := oauthLoginExec(t, newOAuthServer(t))
+	out, err := execLogin("--hostname " + hostname + " --web")
+	require.NoError(t, err)
+
+	assert.Contains(t, out.ErrBuf.String(), "press Ctrl+C and check that the OAuth application on "+hostname+" has redirect URI http://localhost:7171/auth/redirect")
+}
+
+func Test_webLogin_rejectedClientIDStopsBeforeBrowser(t *testing.T) {
+	keyring.MockInit()
+	calls := recordGitCommands(t, nil)
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth/token" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"error":"invalid_client"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	execLogin, hostname := oauthLoginExec(t, srv)
+	_, err := execLogin("--hostname " + hostname + " --web")
+
+	require.ErrorIs(t, err, oauth2.ErrClientIDRejected)
+	assert.Nil(t, findCall(*calls, "/oauth/authorize?"), "the browser must not open for a rejected client ID")
 }
 
 func Test_deviceLogin_setupGitCredentialHelper(t *testing.T) {

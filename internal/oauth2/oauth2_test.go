@@ -213,83 +213,99 @@ func TestResolveClientID_RejectsNonHexConfigClientID(t *testing.T) {
 func TestPreflightCheckClientID(t *testing.T) {
 	validClientID := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-	t.Run("fails fast on 400 Bad Request with invalid_client", func(t *testing.T) {
+	newTokenServer := func(t *testing.T, status int, contentType, body string) *httptest.Server {
+		t.Helper()
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"Client authentication failed"}`))
-		}))
-		defer server.Close()
+			assert.Equal(t, http.MethodPost, r.Method)
+			assert.Equal(t, "/oauth/token", r.URL.Path)
+			assert.NoError(t, r.ParseForm())
+			assert.Equal(t, "authorization_code", r.PostForm.Get("grant_type"))
+			assert.Equal(t, validClientID, r.PostForm.Get("client_id"))
+			assert.Equal(t, redirectURL, r.PostForm.Get("redirect_uri"))
+			assert.False(t, hasIAMPrefix(r.PostForm.Get("code")), "the code must not route the request to IAM")
 
-		host := strings.TrimPrefix(server.URL, "http://")
-		err := preflightCheckClientID(t.Context(), server.Client(), server.URL, validClientID, host)
+			w.Header().Set("Content-Type", contentType)
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(body))
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+
+	assertRejected := func(t *testing.T, err error, host string) {
+		t.Helper()
 		require.ErrorIs(t, err, ErrClientIDRejected)
 		assert.Contains(t, err.Error(), host)
+		assert.Contains(t, err.Error(), "the application is confidential")
 		assert.Contains(t, err.Error(), "glab config set client_id")
 		assert.Contains(t, err.Error(), "GITLAB_CLIENT_ID")
+	}
+
+	t.Run("fails fast on 401 invalid_client", func(t *testing.T) {
+		server := newTokenServer(t, http.StatusUnauthorized, "application/json", `{"error":"invalid_client","error_description":"Client authentication failed"}`)
+		host := strings.TrimPrefix(server.URL, "http://")
+
+		err := preflightCheckClientID(t.Context(), server.Client(), server.URL, validClientID, host)
+		assertRejected(t, err, host)
 	})
 
-	t.Run("falls back to browser flow on 400 Bad Request without invalid_client", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`<html><body>400 Bad Request</body></html>`))
-		}))
-		defer server.Close()
-
+	t.Run("fails fast on 400 invalid_client", func(t *testing.T) {
+		server := newTokenServer(t, http.StatusBadRequest, "application/json", `{"error":"invalid_client"}`)
 		host := strings.TrimPrefix(server.URL, "http://")
+
+		err := preflightCheckClientID(t.Context(), server.Client(), server.URL, validClientID, host)
+		assertRejected(t, err, host)
+	})
+
+	t.Run("continues on 400 invalid_grant from a known client", func(t *testing.T) {
+		server := newTokenServer(t, http.StatusBadRequest, "application/json", `{"error":"invalid_grant","error_description":"The provided authorization grant is invalid"}`)
+		host := strings.TrimPrefix(server.URL, "http://")
+
 		err := preflightCheckClientID(t.Context(), server.Client(), server.URL, validClientID, host)
 		require.NoError(t, err)
 	})
 
-	t.Run("fails fast on 401 Unauthorized with invalid_client", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"Client authentication failed"}`))
-		}))
-		defer server.Close()
-
+	t.Run("continues when invalid_client appears only in the description", func(t *testing.T) {
+		server := newTokenServer(t, http.StatusBadRequest, "application/json", `{"error":"invalid_request","error_description":"not an invalid_client"}`)
 		host := strings.TrimPrefix(server.URL, "http://")
-		err := preflightCheckClientID(t.Context(), server.Client(), server.URL, validClientID, host)
-		require.ErrorIs(t, err, ErrClientIDRejected)
-		assert.Contains(t, err.Error(), host)
-		assert.Contains(t, err.Error(), "glab config set client_id")
-		assert.Contains(t, err.Error(), "GITLAB_CLIENT_ID")
-	})
 
-	t.Run("falls back to browser flow on 401 Unauthorized without invalid_client", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`<html><body>401 Authorization Required</body></html>`))
-		}))
-		defer server.Close()
-
-		host := strings.TrimPrefix(server.URL, "http://")
 		err := preflightCheckClientID(t.Context(), server.Client(), server.URL, validClientID, host)
 		require.NoError(t, err)
 	})
 
-	t.Run("succeeds on 302 redirect", func(t *testing.T) {
+	t.Run("continues on a 401 proxy page", func(t *testing.T) {
+		server := newTokenServer(t, http.StatusUnauthorized, "text/html", `<html><body>invalid_client</body></html>`)
+		host := strings.TrimPrefix(server.URL, "http://")
+
+		err := preflightCheckClientID(t.Context(), server.Client(), server.URL, validClientID, host)
+		require.NoError(t, err)
+	})
+
+	t.Run("continues on a redirect", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/users/sign_in", http.StatusFound)
 		}))
-		defer server.Close()
-
+		t.Cleanup(server.Close)
 		host := strings.TrimPrefix(server.URL, "http://")
+
 		err := preflightCheckClientID(t.Context(), server.Client(), server.URL, validClientID, host)
 		require.NoError(t, err)
 	})
 
-	t.Run("succeeds on 200 OK", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
+	t.Run("continues on a server error", func(t *testing.T) {
+		server := newTokenServer(t, http.StatusInternalServerError, "text/plain", "boom")
 		host := strings.TrimPrefix(server.URL, "http://")
+
 		err := preflightCheckClientID(t.Context(), server.Client(), server.URL, validClientID, host)
 		require.NoError(t, err)
 	})
+}
+
+func hasIAMPrefix(code string) bool {
+	for _, prefix := range []string{"gliamac-", "gliamat-", "gliamrt-"} {
+		if strings.HasPrefix(code, prefix) {
+			return true
+		}
+	}
+	return false
 }
