@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -221,6 +222,8 @@ func NewCmdApi(f cmdutils.Factory, runF func(*options) error) *cobra.Command {
 
 		- The original query must accept an %[1]s$endCursor: String%[1]s variable.
 		- The query must fetch the %[1]spageInfo{ hasNextPage, endCursor }%[1]s set of fields from a collection.
+
+		%[1]sglab api%[1]s does not retry a failed request. When GitLab answers with HTTP 429, %[1]sglab api%[1]s exits with an error that says how long to wait before you retry, taken from the %[1]sRetry-After%[1]s or %[1]sRateLimit-Reset%[1]s response header.
 
 		The %[1]s--output%[1]s flag controls the output format:
 
@@ -592,11 +595,15 @@ func processResponse(resp *http.Response, opts *options, headersOutputStream io.
 		return "", err
 	}
 
-	if serverError != "" {
-		opts.io.LogErrorf("glab: %s\n", serverError)
-		return "", cmdutils.SilentError
-	} else if resp.StatusCode > 299 {
-		opts.io.LogErrorf("glab: HTTP %d\n", resp.StatusCode)
+	if serverError != "" || resp.StatusCode > 299 {
+		if serverError != "" {
+			opts.io.LogErrorf("glab: %s\n", serverError)
+		} else {
+			opts.io.LogErrorf("glab: HTTP %d\n", resp.StatusCode)
+		}
+		if hint := api.RateLimitHint(resp, time.Now()); hint != "" {
+			opts.io.LogErrorf("glab: %s\n", hint)
+		}
 		return "", cmdutils.SilentError
 	}
 

@@ -127,6 +127,8 @@ no more pages of results remain. For GraphQL requests:
 - The original query must accept an `$endCursor: String` variable.
 - The query must fetch the `pageInfo{ hasNextPage, endCursor }` set of fields from a collection.
 
+`glab api` does not retry a failed request. When GitLab answers with HTTP 429, `glab api` exits with an error that says how long to wait before you retry, taken from the `Retry-After` or `RateLimit-Reset` response header.
+
 The `--output` flag controls the output format:
 
 - `json` (default): Pretty-printed JSON. Arrays are output as a single JSON array.
