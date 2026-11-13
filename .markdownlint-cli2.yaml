@@ -3,9 +3,12 @@
 
 # Issue and merge request templates are rendered into GitLab forms, not as
 # standalone documents, so rules like MD041 (first-line H1) don't apply.
+# Fixtures under testdata are test inputs, not documentation. Fixing their lint
+# errors could change what the tests read.
 ignores:
   - ".gitlab/issue_templates/**"
   - ".gitlab/merge_request_templates/**"
+  - "**/testdata/**"
 
 config:
   # First, set the default
