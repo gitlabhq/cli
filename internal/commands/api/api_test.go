@@ -574,6 +574,46 @@ func Test_apiRun(t *testing.T) {
 			stderr: "glab: HTTP 502\n",
 		},
 		{
+			name: "endpoint rate limit",
+			httpResponse: &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Body:       io.NopCloser(bytes.NewBufferString(`{"message": "This endpoint has been requested too many times. Try again later."}`)),
+				Header: http.Header{
+					"Content-Type":   []string{"application/json"},
+					"Retry-After":    []string{"60"},
+					"Ratelimit-Name": []string{"search_rate_limit"},
+				},
+			},
+			err:    cmdutils.SilentError,
+			stdout: `{"message": "This endpoint has been requested too many times. Try again later."}`,
+			stderr: "glab: This endpoint has been requested too many times. Try again later. (HTTP 429)\nglab: rate limited by search_rate_limit, retry after 1m0s\n",
+		},
+		{
+			name: "Rack::Attack rate limit",
+			httpResponse: &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Body:       io.NopCloser(bytes.NewBufferString("Retry later\n")),
+				Header: http.Header{
+					"Content-Type":   []string{"text/plain"},
+					"Retry-After":    []string{"17"},
+					"Ratelimit-Name": []string{"throttle_authenticated_api"},
+				},
+			},
+			err:    cmdutils.SilentError,
+			stdout: "Retry later\n",
+			stderr: "glab: HTTP 429\nglab: rate limited by throttle_authenticated_api, retry after 17s\n",
+		},
+		{
+			name: "rate limit without a wait",
+			httpResponse: &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Body:       io.NopCloser(bytes.NewBufferString("Retry later\n")),
+			},
+			err:    cmdutils.SilentError,
+			stdout: "Retry later\n",
+			stderr: "glab: HTTP 429\n",
+		},
+		{
 			name: "silent",
 			options: options{
 				silent: true,
@@ -728,6 +768,52 @@ func Test_apiRun_paginationREST(t *testing.T) {
 	assert.Equal(t, "https://gitlab.com/api/v4/issues?per_page=100", responses[0].Request.URL.String())
 	assert.Equal(t, "https://gitlab.com/api/v4/projects/1227/issues?page=2", responses[1].Request.URL.String())
 	assert.Equal(t, "https://gitlab.com/api/v4/projects/1227/issues?page=3", responses[2].Request.URL.String())
+}
+
+func Test_apiRun_paginationREST_rateLimitedPage(t *testing.T) {
+	ios, _, stdout, stderr := cmdtest.TestIOStreams()
+
+	responses := []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewBufferString(`{"page":1}`)),
+			Header: http.Header{
+				"Link": []string{`<https://gitlab.com/api/v4/projects/1227/issues?page=2>; rel="next"`},
+			},
+		},
+		{
+			StatusCode: http.StatusTooManyRequests,
+			Body:       io.NopCloser(bytes.NewBufferString("Retry later\n")),
+			Header:     http.Header{"Retry-After": []string{"42"}},
+		},
+	}
+
+	requestCount := 0
+	var tr roundTripFunc = func(req *http.Request) (*http.Response, error) {
+		resp := responses[requestCount]
+		resp.Request = req
+		requestCount++
+		return resp, nil
+	}
+	a := cmdtest.NewTestApiClient(t, &http.Client{Transport: tr}, "OTOKEN", "gitlab.com")
+	options := options{
+		io: ios,
+		baseRepo: func() (glrepo.Interface, error) {
+			return nil, fmt.Errorf("not supposed to be called")
+		},
+		apiClient: func(repoHost string) (*api.Client, error) {
+			return a, nil
+		},
+		requestPath: "issues",
+		paginate:    true,
+	}
+
+	err := options.run(t.Context())
+	require.ErrorIs(t, err, cmdutils.SilentError)
+
+	assert.Equal(t, 2, requestCount)
+	assert.Equal(t, "{\"page\":1}Retry later\n", stdout.String())
+	assert.Equal(t, "glab: HTTP 429\nglab: rate limited, retry after 42s\n", stderr.String())
 }
 
 // Test_apiRun_paginationREST_followsLinkURLVerbatim pins the Link header
