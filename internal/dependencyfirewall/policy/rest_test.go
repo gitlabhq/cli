@@ -116,6 +116,7 @@ func TestEcosystemValueMapsSupported(t *testing.T) {
 		{"pypi", gitlab.DependencyFirewallEcosystemPyPI},
 		{"maven", gitlab.DependencyFirewallEcosystemMaven},
 		{"gem", gitlab.DependencyFirewallEcosystemGem},
+		{"nuget", gitlab.DependencyFirewallEcosystemNuGet},
 		{"cargo", gitlab.DependencyFirewallEcosystemCargo},
 		{"golang", gitlab.DependencyFirewallEcosystemGolang},
 	}

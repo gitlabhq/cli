@@ -1,7 +1,7 @@
 // Package purl parses Package URL (PURL) strings into the subset the
-// Dependency Firewall check command supports: npm, pypi, maven, gem, cargo,
-// and golang. It wraps github.com/package-url/packageurl-go and normalises
-// each PURL type's name to its registry form.
+// Dependency Firewall check command supports: npm, pypi, maven, gem, nuget,
+// cargo, and golang. It wraps github.com/package-url/packageurl-go and
+// normalises each PURL type's name to its registry form.
 package purl
 
 import (
@@ -33,6 +33,7 @@ var (
 	TypePypi   = packageurl.TypePyPi
 	TypeMaven  = packageurl.TypeMaven
 	TypeGem    = packageurl.TypeGem
+	TypeNuget  = packageurl.TypeNuget
 	TypeCargo  = packageurl.TypeCargo
 	TypeGolang = packageurl.TypeGolang
 )
@@ -40,7 +41,7 @@ var (
 // supportedTypes lists every PURL type this command handles. It drives the
 // user-facing error message when an unsupported PURL is passed. It is
 // unexported so importers cannot mutate the backing array.
-var supportedTypes = []string{TypeNpm, TypePypi, TypeMaven, TypeGem, TypeCargo, TypeGolang}
+var supportedTypes = []string{TypeNpm, TypePypi, TypeMaven, TypeGem, TypeNuget, TypeCargo, TypeGolang}
 
 // Parse converts a PURL string into a supported Package. It returns an error
 // on parse failures, unsupported types, or type-specific validation failures

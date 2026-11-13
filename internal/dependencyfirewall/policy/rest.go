@@ -93,6 +93,8 @@ func ecosystemValue(ecosystem string) (gitlab.DependencyFirewallEcosystemValue, 
 		return gitlab.DependencyFirewallEcosystemMaven, nil
 	case purl.TypeGem:
 		return gitlab.DependencyFirewallEcosystemGem, nil
+	case purl.TypeNuget:
+		return gitlab.DependencyFirewallEcosystemNuGet, nil
 	case purl.TypeCargo:
 		return gitlab.DependencyFirewallEcosystemCargo, nil
 	case purl.TypeGolang:

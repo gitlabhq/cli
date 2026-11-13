@@ -27,6 +27,7 @@ func TestParse(t *testing.T) {
 		{"maven", "pkg:maven/org.slf4j/slf4j-api@2.0.13", TypeMaven, "org.slf4j:slf4j-api", "2.0.13"},
 		{"maven deep group", "pkg:maven/org.apache.commons/commons-lang3@3.14.0", TypeMaven, "org.apache.commons:commons-lang3", "3.14.0"},
 		{"gem", "pkg:gem/rails@7.1.3", TypeGem, "rails", "7.1.3"},
+		{"nuget", "pkg:nuget/Newtonsoft.Json@13.0.1", TypeNuget, "Newtonsoft.Json", "13.0.1"},
 		{"cargo", "pkg:cargo/serde@1.0.197", TypeCargo, "serde", "1.0.197"},
 		{"golang", "pkg:golang/github.com/pkg/errors@v0.9.1", TypeGolang, "github.com/pkg/errors", "v0.9.1"},
 		{"golang mixed case keeps case", "pkg:golang/github.com/BurntSushi/toml@v1.4.0", TypeGolang, "github.com/BurntSushi/toml", "v1.4.0"},
@@ -59,7 +60,7 @@ func TestParseInvalid(t *testing.T) {
 		{"empty", "", "invalid"},
 		{"not a purl", "left-pad@1.3.0", "invalid"},
 		{"missing type", "pkg:/foo@1.0", "invalid"},
-		{"unsupported type", "pkg:nuget/Newtonsoft.Json@13.0.1", "not supported"},
+		{"unsupported type", "pkg:cocoapods/Alamofire@5.9.0", "not supported"},
 		{"maven missing group", "pkg:maven/slf4j-api@2.0.13", "namespace"},
 	}
 	for _, tc := range cases {

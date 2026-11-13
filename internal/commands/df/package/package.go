@@ -50,7 +50,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Docf(`
 			Check a single package coordinate against the GitLab Dependency Firewall policy for the current project and report the outcome (allow, warning, blocked). No package manager binary is required.
 
-			Supported package URL (PURL) types are %[1]snpm%[1]s, %[1]spypi%[1]s, %[1]smaven%[1]s, %[1]sgem%[1]s, %[1]scargo%[1]s, and %[1]sgolang%[1]s. The PURL must include a version, for example %[1]spkg:npm/left-pad@1.3.0%[1]s. For %[1]sgolang%[1]s, the module path keeps its case, for example %[1]spkg:golang/github.com/BurntSushi/toml@v1.4.0%[1]s.
+			Supported package URL (PURL) types are %[1]snpm%[1]s, %[1]spypi%[1]s, %[1]smaven%[1]s, %[1]sgem%[1]s, %[1]snuget%[1]s, %[1]scargo%[1]s, and %[1]sgolang%[1]s. The PURL must include a version, for example %[1]spkg:npm/left-pad@1.3.0%[1]s. For %[1]sgolang%[1]s, the module path keeps its case, for example %[1]spkg:golang/github.com/BurntSushi/toml@v1.4.0%[1]s.
 
 			An allowed package prints one line, for example, %[1]sleft-pad@1.3.0: allowed by the Dependency Firewall.%[1]s A warned or blocked package prints the same summary as the package manager commands.
 
@@ -80,6 +80,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Check a RubyGems package version
 			glab dependency-firewall package pkg:gem/rails@7.1.3
+
+			# Check a NuGet package version
+			glab dependency-firewall package pkg:nuget/Newtonsoft.Json@13.0.1
 
 			# Check a Cargo package version
 			glab dependency-firewall package pkg:cargo/serde@1.0.197
