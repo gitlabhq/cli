@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
@@ -17,7 +16,6 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
 	"gitlab.com/gitlab-org/cli/internal/binarymgr/binaries"
-	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -172,19 +170,16 @@ func TestValidate_InstallWithCommandErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot be combined with a command")
 }
 
-func TestNewCmd_HelpShowsGlabTextUntilBinaryIsInstalled(t *testing.T) {
-	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", filepath.Join(t.TempDir(), "missing-orbit"))
-	exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
-		cmd := NewCmd(f)
-		cmd.SetOut(f.IO().StdOut)
-		return cmd
-	}, false, cmdtest.WithConfig(config.NewBlankConfig()))
+func TestNewCmd_HelpShowsInstallHintWhenBinaryIsMissing(t *testing.T) {
+	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", "")
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false, cmdtest.WithConfig(config.NewBlankConfig()))
 
 	for _, args := range []string{"", "--help", "-h status"} {
 		out, err := exec(args)
 		require.NoError(t, err, args)
-		assert.Contains(t, out.String(), "Run the GitLab Orbit CLI", args)
-		assert.Contains(t, out.String(), "glab orbit --yes skills get orbit", args)
+		assert.Contains(t, out.String(), "The GitLab Orbit CLI is not installed.", args)
+		assert.Contains(t, out.String(), "glab orbit --install --yes", args)
 	}
 }
 
@@ -205,7 +200,6 @@ func TestRun_HelpExecsTheInstalledBinaryWithoutRunLifecycle(t *testing.T) {
 			cfg:     f.Config(),
 			factory: f,
 			flags:   splitGlabFlags(args),
-			help:    func() error { return errors.New("glab help must not render") },
 			execute: func(_ context.Context, _ *iostreams.IOStreams, path string, execArgs, env []string) error {
 				assert.Equal(t, binary, path, "%v", args)
 				assert.Contains(t, env, "ORBIT_AUTH_HEADER_VALUE=glpat-remote", "%v", args)
@@ -220,25 +214,17 @@ func TestRun_HelpExecsTheInstalledBinaryWithoutRunLifecycle(t *testing.T) {
 	assert.Empty(t, stdout.String())
 }
 
-func TestRun_HelpFallsBackToGlabTextWhenBinaryIsMissing(t *testing.T) {
-	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", filepath.Join(t.TempDir(), "missing-orbit"))
-	ios, _, _, _ := cmdtest.TestIOStreams()
-	f := cmdtest.NewTestFactory(ios, cmdtest.WithConfig(config.NewBlankConfig()))
+func TestNewCmd_HelpNamesBrokenCustomBinaryPath(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing-orbit")
+	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", missing)
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false, cmdtest.WithConfig(config.NewBlankConfig()))
 
-	helpRendered := false
-	opts := &options{
-		io:      ios,
-		cfg:     f.Config(),
-		factory: f,
-		flags:   splitGlabFlags([]string{"--help"}),
-		help:    func() error { helpRendered = true; return nil },
-		execute: func(context.Context, *iostreams.IOStreams, string, []string, []string) error {
-			return errors.New("must not exec a missing binary")
-		},
-	}
-
-	require.NoError(t, opts.run(t.Context()))
-	assert.True(t, helpRendered)
+	out, err := exec("")
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), missing)
+	assert.Contains(t, out.String(), "GLAB_ORBIT_CLI_BINARY_PATH")
+	assert.Contains(t, out.String(), "orbit_cli_binary_path")
+	assert.NotContains(t, out.String(), "is not installed")
 }
 
 func TestOrbitCredentialEnv_InjectsResolvedCredential(t *testing.T) {

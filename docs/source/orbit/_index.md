@@ -18,7 +18,7 @@ Run the GitLab Orbit CLI through glab.
 
 Coding agents: run `glab orbit --yes skills get orbit` to load the Orbit skill. `--yes` installs the binary without a prompt on first use.
 
-Every command and flag, including `--help`, is forwarded verbatim to the managed Orbit binary. glab downloads, verifies, and updates that binary for you on first use. Until the binary is installed, `--help` shows this text instead. glab passes your resolved GitLab credential to the binary on every invocation, so remote commands such as `glab orbit query` need no separate login.
+Every command and flag, including `--help`, is forwarded verbatim to the managed Orbit binary. glab downloads, verifies, and updates that binary for you on first use. Until the binary is installed, `glab orbit` and `--help` print install instructions instead. glab passes your resolved GitLab credential to the binary on every invocation, so remote commands such as `glab orbit query` need no separate login.
 
 glab handles only the `update` command and the `--install`, `--update`, and `--yes` flags itself. Run `glab help orbit` to see them.
 
@@ -46,26 +46,15 @@ glab orbit [<command>] [flags]
 ## Examples
 
 ```console
-# Connect Orbit to the coding agents on this machine, or undo it
-$ glab orbit setup
-$ glab orbit uninstall
-
-# Query the remote Orbit graph (authenticates automatically)
-$ glab orbit status
-$ glab orbit query ./query.json
-$ glab orbit graph-status --full-path gitlab-org/gitlab
-
-# Index and search a local copy of the code graph
-$ glab orbit index .
-$ glab orbit grep "parse config"
-
-# Show the Orbit binary's own help and version
-$ glab orbit --help
-$ glab orbit version
-
-# Install or update the managed binary without running it
-$ glab orbit --install
+# Install the managed binary without running it, or update it
+$ glab orbit --install --yes
 $ glab orbit update
+
+# Install on first use without a prompt, then load the Orbit skill
+$ glab orbit --yes skills get orbit
+
+# Show the Orbit binary's own help
+$ glab orbit --help
 ```
 
 ## Environment variables
@@ -83,7 +72,7 @@ $ glab orbit update
 ## Options
 
 ```plaintext
-  -h, --help      Show the Orbit binary's help, or this text until the binary is installed.
+  -h, --help      Show the Orbit binary's help, or install instructions until the binary is installed.
       --install   Install the Orbit binary without running it.
       --update    Check for and install updates to the binary. Same as the update command.
   -y, --yes       Skip confirmation prompts.
