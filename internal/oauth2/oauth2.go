@@ -2,10 +2,12 @@ package oauth2
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -24,7 +26,7 @@ import (
 var ErrClientIDRejected = errors.New("OAuth client ID was rejected by the GitLab instance")
 
 func preflightRejectedClientIDErr(hostname string) error {
-	return fmt.Errorf("%w on %s: check the Application ID, update it with `glab config set client_id <client_id> -g --host %s`, or clear it with `glab config set client_id \"\" -g --host %s`, or update or unset GITLAB_CLIENT_ID", ErrClientIDRejected, hostname, hostname, hostname)
+	return fmt.Errorf("%w on %s: the Application ID is unknown, or the application is confidential (glab needs a non-confidential application); update it with `glab config set client_id <client_id> -g --host %s`, clear it with `glab config set client_id \"\" -g --host %s`, or update or unset GITLAB_CLIENT_ID", ErrClientIDRejected, hostname, hostname, hostname)
 }
 
 // StartFlow performs the OAuth 2.0 Authorization Code flow: it opens a
@@ -42,8 +44,11 @@ func StartFlow(ctx context.Context, cfg config.Config, io *iostreams.IOStreams, 
 		return "", err
 	}
 
-	if err := preflightCheckClientID(ctx, httpClient, baseURL, clientID, hostname); err != nil {
-		return "", err
+	// GitLab.com always uses the built-in ID, so there is nothing to check.
+	if glinstance.IsSelfHosted(hostname) {
+		if err := preflightCheckClientID(ctx, httpClient, baseURL, clientID, hostname); err != nil {
+			return "", err
+		}
 	}
 
 	token, err := gitlaboauth2.AuthorizationFlow(ctx, baseURL, clientID, redirectURL, scopes, callbackServerListenAddr, func(url string) error {
@@ -52,6 +57,10 @@ func StartFlow(ctx context.Context, cfg config.Config, io *iostreams.IOStreams, 
 			io.LogErrorf("Failed opening a browser at %s\n", url)
 			io.LogErrorf("Encountered error: %s\n", err)
 			io.LogError("Try entering the URL in your browser manually.")
+		}
+		// A wrong redirect URI or missing scope only shows up in the browser.
+		if glinstance.IsSelfHosted(hostname) {
+			io.LogErrorf("If the browser shows an error instead of returning here, press Ctrl+C and check that the OAuth application on %s has redirect URI %s and the scopes %s.\n", hostname, redirectURL, strings.Join(scopes, " "))
 		}
 
 		return nil
@@ -74,20 +83,30 @@ func StartFlow(ctx context.Context, cfg config.Config, io *iostreams.IOStreams, 
 	return token.AccessToken, nil
 }
 
-// preflightCheckClientID verifies that the OAuth application ID is recognized
-// by the instance before starting the local server and launching the browser.
-// If the instance rejects the client ID with HTTP 400 Bad Request or HTTP 401
-// Unauthorized with invalid_client, it fails fast instead of leaving the OAuth
-// callback server hanging indefinitely.
-func preflightCheckClientID(ctx context.Context, httpClient *http.Client, baseURL, clientID, hostname string) error {
-	oauthCfg := gitlaboauth2.NewOAuth2Config(baseURL, clientID, redirectURL, scopes)
-	authURL := oauthCfg.AuthCodeURL("preflight")
+// preflightCode is a deliberately invalid authorization code. Workhorse sends
+// /oauth/token to the IAM Auth service only for codes with a gliam prefix, so
+// this one always reaches Rails, which knows every application glab can use.
+const preflightCode = "glab-preflight"
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authURL, http.NoBody)
+// preflightCheckClientID fails fast on a client ID the instance doesn't know,
+// before the browser opens and the callback wait can hang. It uses the token
+// endpoint because, without the IAM Auth service, /oauth/authorize redirects
+// to sign-in before it checks the client.
+func preflightCheckClientID(ctx context.Context, httpClient *http.Client, baseURL, clientID, hostname string) error {
+	tokenURL := gitlaboauth2.NewOAuth2Config(baseURL, clientID, redirectURL, scopes).Endpoint.TokenURL
+	form := url.Values{
+		"grant_type":   {"authorization_code"},
+		"client_id":    {clientID},
+		"code":         {preflightCode},
+		"redirect_uri": {redirectURL},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		dbg.Debugf("oauth2: preflight request build failed for %s: %v", hostname, err)
 		return nil
 	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	checkClient := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -106,23 +125,24 @@ func preflightCheckClientID(ctx context.Context, httpClient *http.Client, baseUR
 	}
 	defer resp.Body.Close()
 
-	// Note: Doorkeeper returns 400 for a malformed client_id, while
-	// GitLab returns 401 for an unrecognized client_id. Proxies or SSO
-	// layers returning 400 or 401 without invalid_client defer to the
-	// browser flow.
-	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		if err != nil {
-			dbg.Debugf("oauth2: preflight body read error: %v", err)
-			return nil
-		}
-		if strings.Contains(string(body), "invalid_client") {
-			return preflightRejectedClientIDErr(hostname)
-		}
-		dbg.Debugf("oauth2: preflight check received %d without invalid_client on %s, falling back to browser flow", resp.StatusCode, hostname)
+	// RFC 6749 section 5.2 allows invalid_client as 400 or 401.
+	if resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusUnauthorized {
+		dbg.Debugf("oauth2: preflight check received %d on %s, continuing to browser flow", resp.StatusCode, hostname)
 		return nil
 	}
 
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&body); err != nil {
+		dbg.Debugf("oauth2: preflight check could not decode %d response on %s: %v", resp.StatusCode, hostname, err)
+		return nil
+	}
+	if body.Error == "invalid_client" {
+		return preflightRejectedClientIDErr(hostname)
+	}
+
+	dbg.Debugf("oauth2: preflight check received %q on %s, continuing to browser flow", body.Error, hostname)
 	return nil
 }
 
