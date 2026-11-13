@@ -147,6 +147,21 @@ func TestPackageSendsMappedRequest(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestPackageSendsMappedNuGetRequest(t *testing.T) {
+	client := mockClient(t, func(tc *gitlabtesting.TestClient) {
+		tc.MockSecurityDependencyFirewall.EXPECT().
+			EvaluatePackage("g/p", &gitlab.EvaluatePackageOptions{
+				Ecosystem: gitlab.DependencyFirewallEcosystemNuGet,
+				Name:      "Newtonsoft.Json",
+				Version:   "13.0.1",
+			}, gomock.Any()).
+			Return(&gitlab.PackageEvaluation{Outcome: gitlab.DependencyFirewallOutcomeAllowed}, nil, nil)
+	})
+
+	_, _, err := runPackage(t, client, "pkg:nuget/Newtonsoft.Json@13.0.1")
+	require.NoError(t, err)
+}
+
 func TestPackageSendsMappedCargoRequest(t *testing.T) {
 	client := mockClient(t, func(tc *gitlabtesting.TestClient) {
 		tc.MockSecurityDependencyFirewall.EXPECT().
