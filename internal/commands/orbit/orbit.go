@@ -23,7 +23,6 @@ type options struct {
 	cfg     config.Config
 	factory cmdutils.Factory
 	execute func(ctx context.Context, io *iostreams.IOStreams, binaryPath string, args, extraEnv []string) error
-	help    func() error
 	flags   glabFlags
 }
 
@@ -37,7 +36,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Coding agents: run %[1]sglab orbit --yes skills get orbit%[1]s to load the Orbit skill. %[1]s--yes%[1]s installs the binary without a prompt on first use.
 
-			Every command and flag, including %[1]s--help%[1]s, is forwarded verbatim to the managed Orbit binary. glab downloads, verifies, and updates that binary for you on first use. Until the binary is installed, %[1]s--help%[1]s shows this text instead. glab passes your resolved GitLab credential to the binary on every invocation, so remote commands such as %[1]sglab orbit query%[1]s need no separate login.
+			Every command and flag, including %[1]s--help%[1]s, is forwarded verbatim to the managed Orbit binary. glab downloads, verifies, and updates that binary for you on first use. Until the binary is installed, %[1]sglab orbit%[1]s and %[1]s--help%[1]s print install instructions instead. glab passes your resolved GitLab credential to the binary on every invocation, so remote commands such as %[1]sglab orbit query%[1]s need no separate login.
 
 			glab handles only the %[1]supdate%[1]s command and the %[1]s--install%[1]s, %[1]s--update%[1]s, and %[1]s--yes%[1]s flags itself. Run %[1]sglab help orbit%[1]s to see them.
 
@@ -66,30 +65,19 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 				`, "`"),
 		},
 		Example: heredoc.Doc(`
-			# Connect Orbit to the coding agents on this machine, or undo it
-			$ glab orbit setup
-			$ glab orbit uninstall
+			# Install the managed binary without running it, or update it
+			$ glab orbit --install --yes
+			$ glab orbit update
 
-			# Query the remote Orbit graph (authenticates automatically)
-			$ glab orbit status
-			$ glab orbit query ./query.json
-			$ glab orbit graph-status --full-path gitlab-org/gitlab
+			# Install on first use without a prompt, then load the Orbit skill
+			$ glab orbit --yes skills get orbit
 
-			# Index and search a local copy of the code graph
-			$ glab orbit index .
-			$ glab orbit grep "parse config"
-
-			# Show the Orbit binary's own help and version
-			$ glab orbit --help
-			$ glab orbit version
-
-			# Install or update the managed binary without running it
-			$ glab orbit --install
-			$ glab orbit update`),
+			# Show the Orbit binary's own help
+			$ glab orbit --help`),
 		DisableFlagParsing: true,
 		Args:               cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.complete(cmd, args)
+			opts.complete(args)
 			if err := opts.validate(); err != nil {
 				return err
 			}
@@ -99,7 +87,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 	// Registered for `glab help orbit` and the docs; DisableFlagParsing routes real parsing through splitGlabFlags.
 	fl := cmd.Flags()
-	fl.BoolP("help", "h", false, "Show the Orbit binary's help, or this text until the binary is installed.")
+	fl.BoolP("help", "h", false, "Show the Orbit binary's help, or install instructions until the binary is installed.")
 	fl.BoolP("yes", "y", false, "Skip confirmation prompts.")
 	fl.Bool("install", false, "Install the Orbit binary without running it.")
 	fl.Bool("update", false, "Check for and install updates to the binary. Same as the update command.")
@@ -109,9 +97,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	return cmd
 }
 
-func (o *options) complete(cmd *cobra.Command, args []string) {
+func (o *options) complete(args []string) {
 	o.flags = splitGlabFlags(args)
-	o.help = cmd.Help
 }
 
 func (o *options) validate() error {
@@ -141,14 +128,29 @@ func (o *options) run(ctx context.Context) error {
 }
 
 func (o *options) runHelp(ctx context.Context) error {
-	status, err := binarymgr.InstalledBinary(o.cfg, binaries.Orbit())
+	spec := binaries.Orbit()
+	status, err := binarymgr.InstalledBinary(o.cfg, spec)
 	if err != nil {
 		dbg.Debugf("orbit help: %v", err)
 	}
-	if !status.Installed {
-		return o.help()
+	if status.Installed {
+		return o.exec(ctx, status.Path, o.flags.forwarded)
 	}
-	return o.exec(ctx, status.Path, o.flags.forwarded)
+	managedPath, _ := binarymgr.ManagedBinaryPath(spec)
+	if status.Path != "" && status.Path != managedPath {
+		o.io.LogInfof("The configured %s path %q was not found or is not executable. Fix or unset %s or the %s configuration key.\n", spec.DisplayName, status.Path, "GLAB_ORBIT_CLI_BINARY_PATH", "orbit_cli_binary_path")
+		return nil
+	}
+	o.io.LogInfof(heredoc.Doc(`
+		The %[1]s is not installed.
+
+		Install it with one of:
+		  glab orbit --install --yes    Install the binary without running it.
+		  glab orbit --yes <command>    Install it on first use, then run the command.
+
+		Run 'glab help orbit' for the flags glab handles itself.
+	`), spec.DisplayName)
+	return nil
 }
 
 func (o *options) exec(ctx context.Context, binaryPath string, args []string) error {
