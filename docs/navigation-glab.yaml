@@ -166,6 +166,13 @@
       url: 'cli/dependency-firewall/go/'
     - title: glab dependency-firewall gradle
       url: 'cli/dependency-firewall/gradle/'
+    - title: glab dependency-firewall job-proxy
+      url: 'cli/dependency-firewall/job-proxy/'
+      submenu:
+        - title: glab dependency-firewall job-proxy start
+          url: 'cli/dependency-firewall/job-proxy/start/'
+        - title: glab dependency-firewall job-proxy stop
+          url: 'cli/dependency-firewall/job-proxy/stop/'
     - title: glab dependency-firewall maven
       url: 'cli/dependency-firewall/maven/'
     - title: glab dependency-firewall npm

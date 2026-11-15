@@ -11,6 +11,7 @@ import (
 	cmdGem "gitlab.com/gitlab-org/cli/internal/commands/df/gem"
 	cmdGolang "gitlab.com/gitlab-org/cli/internal/commands/df/golang"
 	cmdGradle "gitlab.com/gitlab-org/cli/internal/commands/df/gradle"
+	cmdJobProxy "gitlab.com/gitlab-org/cli/internal/commands/df/jobproxy"
 	cmdMaven "gitlab.com/gitlab-org/cli/internal/commands/df/maven"
 	cmdNpm "gitlab.com/gitlab-org/cli/internal/commands/df/npm"
 	cmdPackage "gitlab.com/gitlab-org/cli/internal/commands/df/package"
@@ -95,6 +96,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmd.AddCommand(cmdCargo.NewCmd(f))
 	cmd.AddCommand(cmdGolang.NewCmd(f))
 	cmd.AddCommand(cmdPackage.NewCmd(f))
+	cmd.AddCommand(cmdJobProxy.NewCmd(f))
 	cmd.AddCommand(cmdCISummary.NewCmd(f))
 
 	return cmd

@@ -143,6 +143,8 @@ type Proxy struct {
 	warnUpstreamFailure policy.Logf
 	warnMu              sync.Mutex
 	warnedAuthorities   map[string]struct{}
+
+	onVerdict func(verdict.Entry)
 }
 
 // tunnelDrainTimeout bounds each of Stop's waits after the proxy context is
@@ -219,6 +221,16 @@ func WithUpstreamFailureWarning(warn policy.Logf) Option {
 	return func(p *Proxy) {
 		p.warnUpstreamFailure = warn
 	}
+}
+
+// WithVerdictHook registers fn to be called once per newly recorded verdict, as
+// it is recorded and before any blocked response is written to the client. The
+// job-level proxy uses it to append each verdict to the CI log synchronously, so
+// a `ci-summary` that runs immediately after a blocked install still sees the
+// block. fn runs on a tunnel goroutine, must be safe for concurrent use, and
+// must not call back into the proxy.
+func WithVerdictHook(fn func(verdict.Entry)) Option {
+	return func(p *Proxy) { p.onVerdict = fn }
 }
 
 func New(matcher Matcher, checker policy.Checker, projectID string, opts ...Option) (*Proxy, error) {
@@ -326,12 +338,20 @@ func (p *Proxy) Verdicts() []verdict.Entry {
 
 func (p *Proxy) record(e verdict.Entry) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if _, ok := p.seen[e.Key()]; ok {
+		p.mu.Unlock()
 		return
 	}
 	p.seen[e.Key()] = struct{}{}
 	p.verdicts = append(p.verdicts, e)
+	hook := p.onVerdict
+	p.mu.Unlock()
+	// Called outside the lock: the hook may do I/O — the job-level proxy writes
+	// the CI log here so a verdict is durable before the blocked response reaches
+	// the client — and must not re-enter record while the lock is held.
+	if hook != nil {
+		hook(e)
+	}
 }
 
 func (p *Proxy) warnUpstreamFailureOnce(authority string, err error) {

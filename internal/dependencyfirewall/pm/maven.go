@@ -80,7 +80,7 @@ func (m *mavenManager) CATrustEnviron(caPath string) []string {
 	}
 
 	// CA trust: a PKCS#12 truststore folded into MAVEN_OPTS.
-	if opts := jvmTrustOpts(caPath); opts != "" {
+	if opts := JVMTrustOpts(caPath); opts != "" {
 		env = append(env, "MAVEN_OPTS="+opts)
 	}
 
@@ -173,6 +173,91 @@ func mavenArgsEnv(extra string) string {
 		return "MAVEN_ARGS=" + extra + " " + existing
 	}
 	return "MAVEN_ARGS=" + extra
+}
+
+// MavenJobArgsEnv returns the MAVEN_ARGS entry that routes every mvn in a job
+// through the proxy at proxyURL. It writes, at path, the install's global
+// settings with the proxy entries merged in and passes them as -gs, so the
+// image's global mirrors still apply and a job's own -s still layers on top.
+// When the global settings can't be resolved or merged, the file holds only
+// the proxy entries and warnf says why, because the install's mirrors,
+// proxies and credentials then stop applying. No mvn on PATH is not reported:
+// it is the normal case for a job that doesn't use Maven.
+func MavenJobArgsEnv(path, proxyURL string, warnf func(format string, args ...any)) (string, error) {
+	global, err := mavenJobGlobalSettings()
+	if err != nil {
+		warnf("dependency firewall: could not resolve the maven global settings (%v); mvn will not use the install's conf/settings.xml\n", err)
+	}
+	settings, merged, ok := writeMavenProxySettings(path, proxyURL, global, os.Environ())
+	if !ok {
+		return "", fmt.Errorf("could not write maven proxy settings at %s", path)
+	}
+	if global != "" && merged == nil {
+		warnf("dependency firewall: could not merge the proxy into %s; mvn will not use it\n", global)
+	}
+	// The firewall proxy goes into the global (-gs) settings so a job's own -s
+	// still layers on top, but Maven merges user settings over global ones and
+	// uses the first active <proxy> per protocol, with user proxies winning. A
+	// <proxy> already in the user settings therefore routes mvn around the
+	// firewall. We cannot merge ours in first without seeing a job's future -s,
+	// so warn rather than silently leave mvn unproxied.
+	dir, _ := os.Getwd()
+	if mavenUserSettingsHasActiveProxy(mavenUserSettingsFile(os.Environ(), dir, nil)) {
+		warnf("dependency firewall: your Maven user settings define a <proxy> that Maven prefers over the firewall's global (-gs) settings; mvn may bypass the firewall\n")
+	}
+	return mavenArgsEnv("-gs " + settings), nil
+}
+
+// mavenUserSettingsHasActiveProxy reports whether the user settings file at
+// settingsPath defines a <proxy> that is not explicitly inactive. An omitted
+// <active> counts as active, so the check never misses one. Parse errors and a
+// missing file report false: this only drives an advisory warning.
+func mavenUserSettingsHasActiveProxy(settingsPath string) bool {
+	if settingsPath == "" {
+		return false
+	}
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return false
+	}
+	var parsed struct {
+		Proxies []struct {
+			Active string `xml:"active"`
+		} `xml:"proxies>proxy"`
+	}
+	if err := xml.Unmarshal(raw, &parsed); err != nil {
+		return false
+	}
+	for _, p := range parsed.Proxies {
+		if !strings.EqualFold(strings.TrimSpace(p.Active), "false") {
+			return true
+		}
+	}
+	return false
+}
+
+// mavenJobGlobalSettings returns the global settings file the mvn on PATH
+// reads, or "" when there is no mvn on PATH or the install has none.
+func mavenJobGlobalSettings() (string, error) {
+	mvn, err := exec.LookPath("mvn")
+	if err != nil {
+		return "", nil //nolint:nilerr // no mvn on PATH: nothing to preserve
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	path, err := mavenGlobalSettingsFile(os.Environ(), dir, nil, mvn)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return path, nil
 }
 
 // writeMavenProxySettings writes the settings.xml that routes mvn through the

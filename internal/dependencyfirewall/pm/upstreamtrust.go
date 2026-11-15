@@ -22,6 +22,14 @@ var upstreamCAVars = []string{
 	"CARGO_HTTP_CAINFO",
 }
 
+// UpstreamRootCAs is upstreamRootCAs for the job-level proxy, which has no
+// single manager but must trust the same registry CAs as a per-command run. The
+// job-level proxy needs only the pool, so the PEM return is dropped here.
+func UpstreamRootCAs(env []string, caCertPath string) (*x509.CertPool, error) {
+	pool, _, err := upstreamRootCAs(env, caCertPath)
+	return pool, err
+}
+
 // upstreamRootCAs returns the system roots extended with every certificate in
 // caCertPath and in the files named by upstreamCAVars in env, and those extra
 // certificates PEM-encoded. It returns a nil pool and PEM when no file yields
