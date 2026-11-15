@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/cilog"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -58,4 +59,25 @@ func TestCISummaryRendersWarningWithoutError(t *testing.T) {
 	// Warnings alone must not fail the command.
 	require.NoError(t, err)
 	assert.Contains(t, out.OutBuf.String(), "foo")
+}
+
+// Not parallel: it changes directory and sets the CI log directory variable.
+func TestCISummaryReadsTheJobProxyLogFromAnotherDirectory(t *testing.T) {
+	project := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(project, ".gitlab", "df"), 0o755))
+	log := `{"schemaVersion":1,"session":{"command":"dependency-firewall job-proxy"},"entries":[` +
+		`{"package":"left-pad","version":"1.3.0","verdict":"blocked","reason":"malicious","status":403}]}`
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".gitlab", "df", "ci-log.json"), []byte(log), 0o644))
+	sub := filepath.Join(project, "sub")
+	require.NoError(t, os.Mkdir(sub, 0o755))
+	t.Chdir(sub)
+	t.Setenv(cilog.DirEnv, project)
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+	out, err := exec("")
+
+	var withCode *cmdutils.ExitError
+	require.ErrorAs(t, err, &withCode)
+	assert.Equal(t, verdict.BlockedExitCode, withCode.Code)
+	assert.Contains(t, out.ErrBuf.String(), "left-pad")
 }

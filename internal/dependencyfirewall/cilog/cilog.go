@@ -23,6 +23,11 @@ type Log struct {
 	seen map[string]struct{}
 }
 
+// DirEnv names a directory whose CI log ci-summary reads in addition to the
+// working directory's. `job-proxy start` sets it to where the job-level proxy
+// writes, so a job that changes directory before ci-summary still sees blocks.
+const DirEnv = "GLAB_DF_CI_LOG_DIR"
+
 func Path(baseDir string) string {
 	return filepath.Join(baseDir, ".gitlab", "df", "ci-log.json")
 }

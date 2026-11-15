@@ -16,8 +16,8 @@ import (
 )
 
 type options struct {
-	io      *iostreams.IOStreams
-	baseDir string
+	io       *iostreams.IOStreams
+	baseDirs []string
 }
 
 func NewCmd(f cmdutils.Factory) *cobra.Command {
@@ -30,9 +30,11 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			Read %[1]s.gitlab/df/ci-log.json%[1]s and print blocked and flagged packages
 			recorded during a %[1]sglab dependency-firewall%[1]s run.
 
-			The log is read from the current working directory. Run this command from
-			the same directory as the %[1]sglab dependency-firewall%[1]s run that wrote the
-			log, otherwise no activity is reported.
+			The log is read from the current working directory and, when set, from the
+			directory in %[1]sGLAB_DF_CI_LOG_DIR%[1]s. Run this command from the same directory
+			as the %[1]sglab dependency-firewall%[1]s run that wrote the log, otherwise no
+			activity is reported. The job-level proxy sets %[1]sGLAB_DF_CI_LOG_DIR%[1]s, so jobs
+			that use it can run this command from any directory.
 
 			To fail a CI/CD job when any package was blocked, run this command as the
 			last command in %[1]sscript%[1]s. This catches a block even when a package
@@ -68,6 +70,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		ValidArgsFunction: cobra.NoFileCompletions,
 		Annotations: map[string]string{
 			mcpannotations.Safe: "true",
+			"help:environment":  cilog.DirEnv + ": a directory whose .gitlab/df/ci-log.json is read in addition to the working directory's. The job-level proxy sets it.\n",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.complete(); err != nil {
@@ -81,21 +84,31 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) complete() error {
-	// baseDir anchors the .gitlab/df/ci-log.json lookup. A firewall run writes its
+	// baseDirs anchor the .gitlab/df/ci-log.json lookup. A firewall run writes its
 	// log relative to the directory the package manager ran in, so read it back
 	// relative to the current working directory rather than the repository root.
+	// The job-level proxy writes under the directory in cilog.DirEnv instead.
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	o.baseDir = wd
+	o.baseDirs = []string{wd}
+	if dir := os.Getenv(cilog.DirEnv); dir != "" && dir != wd {
+		o.baseDirs = append(o.baseDirs, dir)
+	}
 	return nil
 }
 
 func (o *options) run() error {
-	log, err := cilog.Load(o.baseDir)
-	if err != nil {
-		return cmdutils.WrapError(err, "failed to read Dependency Firewall CI log.")
+	log := cilog.New("")
+	for _, dir := range o.baseDirs {
+		l, err := cilog.Load(dir)
+		if err != nil {
+			return cmdutils.WrapError(err, "failed to read Dependency Firewall CI log.")
+		}
+		for _, e := range l.Entries {
+			log.Append(e)
+		}
 	}
 	summary.Render(o.io, log.Entries)
 

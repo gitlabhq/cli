@@ -87,6 +87,7 @@ df
 - [`gem`](gem.md)
 - [`go`](go.md)
 - [`gradle`](gradle.md)
+- [`job-proxy`](job-proxy/_index.md)
 - [`maven`](maven.md)
 - [`npm`](npm.md)
 - [`package`](package.md)

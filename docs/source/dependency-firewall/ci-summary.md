@@ -17,9 +17,11 @@ Summarize Dependency Firewall activity from the CI log. (BETA)
 Read `.gitlab/df/ci-log.json` and print blocked and flagged packages
 recorded during a `glab dependency-firewall` run.
 
-The log is read from the current working directory. Run this command from
-the same directory as the `glab dependency-firewall` run that wrote the
-log, otherwise no activity is reported.
+The log is read from the current working directory and, when set, from the
+directory in `GLAB_DF_CI_LOG_DIR`. Run this command from the same directory
+as the `glab dependency-firewall` run that wrote the log, otherwise no
+activity is reported. The job-level proxy sets `GLAB_DF_CI_LOG_DIR`, so jobs
+that use it can run this command from any directory.
 
 To fail a CI/CD job when any package was blocked, run this command as the
 last command in `script`. This catches a block even when a package
@@ -62,6 +64,12 @@ glab dependency-firewall ci-summary [flags]
 # Show blocked and flagged packages from the last firewall run
 glab dependency-firewall ci-summary
 
+```
+
+## Environment variables
+
+```plaintext
+GLAB_DF_CI_LOG_DIR: a directory whose .gitlab/df/ci-log.json is read in addition to the working directory's. The job-level proxy sets it.
 ```
 
 ## Options inherited from parent commands
