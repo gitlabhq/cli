@@ -158,7 +158,7 @@ For more information, see
 | `ORBIT_CLI_AUTO_RUN` | `orbit_cli_auto_run` | - | Alternative name for `GLAB_ORBIT_CLI_AUTO_RUN`, checked after it. |
 | `GLAB_PAGER` | `glab_pager` | - | Your desired pager command to use, such as `less -R`. Takes precedence over the PAGER environment variable. GLAB_PAGER takes precedence over both. |
 | `GLAB_SEND_TELEMETRY` | `telemetry` | `true` | Set to false (0) to disable sending usage data to your GitLab instance or true (1) to enable. See <https://docs.gitlab.com/administration/settings/usage_statistics/> for more information. |
-| `GLAB_SHOW_WHATS_NEW` | `show_whats_new` | `true` | Show a one-time post-upgrade banner pointing at `glab whatsnew` when a new version is detected. |
+| `GLAB_SHOW_WHATS_NEW` | `show_whats_new` | `true` | Show a one-time post-upgrade banner pointing at `glab whatsnew` when a new version is detected. Not shown when standard error is not a terminal, or when `CI` or `GITLAB_CI` is true. Set `GLAB_SHOW_WHATS_NEW=false` to turn it off. |
 | `NO_COLOR` | - | - | Set to any value to avoid printing ANSI escape sequences for color output. |
 
 ### Other variables

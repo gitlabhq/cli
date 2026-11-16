@@ -171,7 +171,7 @@ var KeySchema = []KeyDef{
 		Name: "show_whats_new", Scope: ScopeGlobal, Type: TypeBool,
 		Default: "true", UserSettable: true,
 		EnvVars:     []string{"GLAB_SHOW_WHATS_NEW"},
-		Description: "Show a one-time post-upgrade banner pointing at 'glab whatsnew' when a new version is detected.",
+		Description: "Show a one-time post-upgrade banner pointing at 'glab whatsnew' when a new version is detected. Not shown when standard error is not a terminal, or when 'CI' or 'GITLAB_CI' is true. Set 'GLAB_SHOW_WHATS_NEW=false' to turn it off.",
 	},
 	{
 		Name: "last_seen_version", Scope: ScopeGlobal, Type: TypeString,

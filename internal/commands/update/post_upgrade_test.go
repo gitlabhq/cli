@@ -24,7 +24,7 @@ func newBannerTest(t *testing.T, currentVersion, lastSeen, showWhatsNew, codingA
 	if showWhatsNew != "" {
 		require.NoError(t, cfg.Set("", "show_whats_new", showWhatsNew))
 	}
-	ios, _, _, stderr := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	ios, _, _, stderr := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(true))
 	return ios, cfg, api.BuildInfo{Version: currentVersion, CodingAgent: codingAgent}, stderr
 }
 
@@ -38,6 +38,7 @@ func TestMaybeShowPostUpgradeBanner(t *testing.T) {
 		lastSeen       string
 		showWhatsNew   string
 		codingAgent    string
+		stderrNotTTY   bool
 		wantBanner     bool
 		wantLastSeen   string
 	}{
@@ -93,6 +94,14 @@ func TestMaybeShowPostUpgradeBanner(t *testing.T) {
 			wantLastSeen:   "1.84.0",
 		},
 		{
+			name:           "stderr not a terminal is silent",
+			currentVersion: "1.85.0",
+			lastSeen:       "1.84.0",
+			stderrNotTTY:   true,
+			wantBanner:     false,
+			wantLastSeen:   "1.84.0",
+		},
+		{
 			name:           "unparseable current version is silent",
 			currentVersion: "DEV",
 			lastSeen:       "1.84.0",
@@ -112,7 +121,8 @@ func TestMaybeShowPostUpgradeBanner(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ios, cfg, buildInfo, stderr := newBannerTest(t, tc.currentVersion, tc.lastSeen, tc.showWhatsNew, tc.codingAgent)
-			MaybeShowPostUpgradeBanner(ios, cfg, buildInfo)
+			ios.IsErrTTY = !tc.stderrNotTTY
+			maybeShowPostUpgradeBanner(ios, cfg, buildInfo, false)
 
 			if tc.wantBanner {
 				assert.Contains(t, stderr.String(), "What's new in glab")
@@ -135,9 +145,43 @@ func TestMaybeShowPostUpgradeBanner_envOverride(t *testing.T) {
 	t.Setenv("GLAB_SHOW_WHATS_NEW", "false")
 
 	ios, cfg, buildInfo, stderr := newBannerTest(t, "1.85.0", "1.84.0", "", "")
-	MaybeShowPostUpgradeBanner(ios, cfg, buildInfo)
+	maybeShowPostUpgradeBanner(ios, cfg, buildInfo, false)
 
 	assert.Empty(t, stderr.String())
 	got, _ := cfg.Get("", LastSeenVersionKey)
 	assert.Equal(t, "1.84.0", got)
+}
+
+func TestMaybeShowPostUpgradeBanner_ci(t *testing.T) {
+	stubNoInstalledSkills(t)
+
+	tests := []struct {
+		name         string
+		ci           string
+		gitlabCI     string
+		wantBanner   bool
+		wantLastSeen string
+	}{
+		{name: "CI set is silent", ci: "true", wantLastSeen: "1.84.0"},
+		{name: "GITLAB_CI set is silent", gitlabCI: "true", wantLastSeen: "1.84.0"},
+		{name: "outside CI fires banner", wantBanner: true, wantLastSeen: "1.85.0"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CI", tc.ci)
+			t.Setenv("GITLAB_CI", tc.gitlabCI)
+
+			ios, cfg, buildInfo, stderr := newBannerTest(t, "1.85.0", "1.84.0", "", "")
+			MaybeShowPostUpgradeBanner(ios, cfg, buildInfo)
+
+			if tc.wantBanner {
+				assert.Contains(t, stderr.String(), "What's new in glab 1.85.0")
+			} else {
+				assert.Empty(t, stderr.String())
+			}
+			got, _ := cfg.Get("", LastSeenVersionKey)
+			assert.Equal(t, tc.wantLastSeen, got)
+		})
+	}
 }
