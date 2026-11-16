@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -15,7 +17,6 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
-	"gitlab.com/gitlab-org/cli/internal/glinstance"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/text"
@@ -28,10 +29,9 @@ const (
 )
 
 type options struct {
-	gitlabClient    func() (*gitlab.Client, error)
-	defaultHostname string
-	io              *iostreams.IOStreams
-	exec            cmdutils.Executor
+	gitlabClient func() (*gitlab.Client, error)
+	io           *iostreams.IOStreams
+	exec         cmdutils.Executor
 
 	project  string
 	filename string
@@ -39,16 +39,15 @@ type options struct {
 
 func NewCmd(f cmdutils.Factory) *cobra.Command {
 	opts := &options{
-		gitlabClient:    f.GitLabClient,
-		defaultHostname: glinstance.DefaultHostname,
-		io:              f.IO(),
-		exec:            f.Executor(),
+		gitlabClient: f.GitLabClient,
+		io:           f.IO(),
+		exec:         f.Executor(),
 	}
 
 	attestationVerifyCmd := &cobra.Command{
 		Use:   "verify <project-id> <artifact-path>",
 		Short: `Verify the provenance of a specific artifact or file. (EXPERIMENTAL)`,
-		Long: heredoc.Doc(`
+		Long: heredoc.Docf(`
 		Verify the provenance of an artifact built by a GitLab CI/CD pipeline.
 		This command checks the artifact's signed attestation against the expected
 		GitLab project and pipeline.
@@ -56,14 +55,16 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		This command requires the cosign binary. To install it, see
 		[Cosign installation](https://docs.sigstore.dev/cosign/system_config/installation/).
 
-		This command works only on GitLab.com.
+		This command works with any GitLab instance. It finds the project and its attestations on the instance from your current context: the %[1]sGITLAB_HOST%[1]s variable, your Git remote, or your glab configuration.
+
+		This command verifies only attestations signed with Sigstore (%[1]sSIGSTORE%[1]s). It does not yet support attestations signed with the project's certificate authority (%[1]sLOCAL_CA%[1]s).
 
 		For more information about attestations, see:
 
 		- [Attestations API](https://docs.gitlab.com/api/attestations/)
 		- [SLSA provenance specification](https://docs.gitlab.com/ci/pipeline_security/slsa/provenance_v1/)
 		- [SLSA software attestations](https://slsa.dev/spec/v1.2/attestation-model)
-		`) + text.ExperimentalString,
+		`, "`") + text.ExperimentalString,
 		Args: cobra.ExactArgs(2),
 		Example: heredoc.Doc(`
 			# Verify attestation for filename.txt in the gitlab-org/gitlab project
@@ -96,6 +97,11 @@ func (o *options) run(ctx context.Context) error {
 		return err
 	}
 
+	issuer, ok := strings.CutSuffix(project.WebURL, "/"+project.PathWithNamespace)
+	if !ok {
+		return fmt.Errorf("unexpected web URL %q for project %s", project.WebURL, project.PathWithNamespace)
+	}
+
 	subjectDigest, err := o.sha256(o.filename)
 	if err != nil {
 		return err
@@ -111,7 +117,7 @@ func (o *options) run(ctx context.Context) error {
 		return err
 	}
 
-	err = o.verify(ctx, o.filename, project.PathWithNamespace, bundle)
+	err = o.verify(ctx, o.filename, project.WebURL, issuer, bundle)
 	if err != nil {
 		return err
 	}
@@ -179,7 +185,7 @@ func (o *options) bundleTempFile(bundleBytes []byte) (filename string, err error
 	return
 }
 
-func (o *options) verify(ctx context.Context, filename string, repoPath string, bundleBytes []byte) (err error) {
+func (o *options) verify(ctx context.Context, filename, projectURL, issuer string, bundleBytes []byte) (err error) {
 	cosignPath, err := o.exec.LookPath(cosign)
 	if err != nil {
 		return fmt.Errorf("unable to locate the `%s` binary; please install following these instructions: %s", cosign, installationUrl)
@@ -197,8 +203,6 @@ func (o *options) verify(ctx context.Context, filename string, repoPath string, 
 		return
 	}
 
-	expectedIssuer := fmt.Sprintf("https://%s", o.defaultHostname)
-	expectedSanRegex := fmt.Sprintf("^https://%s/%s/", o.defaultHostname, repoPath)
 	args := []string{
 		"verify-blob-attestation",
 		"--new-bundle-format",
@@ -208,9 +212,9 @@ func (o *options) verify(ctx context.Context, filename string, repoPath string, 
 		"slsaprovenance1",
 		filename,
 		"--certificate-identity-regexp",
-		expectedSanRegex,
+		"^" + regexp.QuoteMeta(projectURL) + "/",
 		"--certificate-oidc-issuer",
-		expectedIssuer,
+		issuer,
 	}
 
 	out, err := o.exec.ExecWithCombinedOutput(ctx, cosignPath, args, nil)
