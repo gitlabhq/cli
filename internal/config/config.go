@@ -676,7 +676,7 @@ func (c *fileConfig) Write() error {
 	// write itself atomic, but not the merge that precedes it. If the lock cannot
 	// be taken (wedged peer), withLock degrades to writing unlocked.
 	return withLock(c.dir, func() error {
-		// A long-lived process (for example, `glab mcp serve`) writing its whole
+		// A long-lived process writing its whole
 		// in-memory document for an unrelated reason (an update-check timestamp
 		// bump) could otherwise roll back OAuth credentials another process just
 		// rotated. Adopt any fresher on-disk credentials before serializing.

@@ -16,11 +16,9 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
-// TestEveryRunnableCommandHasMCPAnnotation fails when any command the
-// MCP server would consider for registration lacks an MCP annotation.
-// Missing annotations silently drop the command from the MCP tool
-// surface; this catches that drift. It checks presence, not
-// correctness of choice.
+// TestEveryRunnableCommandHasMCPAnnotation fails when a runnable command
+// lacks an MCP annotation, so every command keeps a read/write
+// classification. It checks presence, not correctness of choice.
 func TestEveryRunnableCommandHasMCPAnnotation(t *testing.T) {
 	ios, _, _, _ := cmdtest.TestIOStreams()
 	factory := cmdutils.NewFactory(
@@ -33,8 +31,7 @@ func TestEveryRunnableCommandHasMCPAnnotation(t *testing.T) {
 
 	var missing []string
 	walkCommandTree(root, []string{}, func(cmd *cobra.Command, path []string) {
-		// Mirrors registerToolsFromCommands: parents with a RunE (for
-		// example, `mr note`) are registered too, and Run-only commands never are.
+		// Parents with a RunE (for example, `mr note`) count too.
 		if cmd.RunE == nil {
 			return
 		}

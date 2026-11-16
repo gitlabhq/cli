@@ -17,16 +17,10 @@ import (
 )
 
 // notMCPTools are commands that manage the local CLI rather than act on
-// GitLab. An agent has no use for them, and "mcp serve" in particular would
-// offer an MCP server a tool for starting an MCP server.
-//
-// The MCP server lives under this package, so its own tests cannot build the
-// real command tree without an import cycle. This asserts on the annotations
-// that drive registration instead.
+// GitLab, so an agent has no use for them.
 var notMCPTools = []string{
 	"check-update",
 	"completion",
-	"mcp serve",
 	"version",
 	"whatsnew",
 }

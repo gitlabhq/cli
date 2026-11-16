@@ -29,23 +29,6 @@ func (e *enumValue[T]) Set(v string) error {
 	return nil
 }
 
-// AllowedValuer can be implemented by flag.Value types that have a constrained
-// set of valid values, so callers (e.g. MCP schema generation) can surface them.
-type AllowedValuer interface {
-	AllowedValues() []string
-}
-
-// AllowedValues returns the sorted list of valid values for this flag.
-func (e *enumValue[T]) AllowedValues() []string {
-	keys := slices.Collect(maps.Keys(e.allowed))
-	result := make([]string, len(keys))
-	for i, k := range keys {
-		result[i] = string(k)
-	}
-	slices.Sort(result)
-	return result
-}
-
 func NewEnumValue[T ~string](allowed []T, d T, v *T) *enumValue[T] {
 	if v == nil {
 		panic("the given enum flag value cannot be nil")

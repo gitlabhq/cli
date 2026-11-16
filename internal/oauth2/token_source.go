@@ -164,7 +164,7 @@ func (c *configTokenSource) refreshLocked() (*oauth2.Token, string, error) {
 	defer c.mu.Unlock()
 
 	// Read the freshest view of the credentials. GitLab OAuth refresh tokens are
-	// single-use, so a long-lived process (for example, `glab mcp serve`) that
+	// single-use, so a long-lived process that
 	// acted on its startup-time in-memory copy could present a token another
 	// process has already rotated, or launch a redundant refresh. Re-reading from
 	// disk and the keyring keeps concurrent processes from racing on a stale
