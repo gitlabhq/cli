@@ -96,16 +96,6 @@ func TestEnableJSONOutput_CustomDescription(t *testing.T) {
 	assert.Equal(t, "Custom help text for this command's --output flag.", other.Flag("output").Usage)
 }
 
-func TestEnableJSONOutput_FlagExposesAllowedValues(t *testing.T) {
-	// The MCP server type-asserts flag values to AllowedValuer to publish an
-	// enum in the generated tool schema, so the wrapper must keep satisfying it.
-	cmd, _, _ := outputCmdHarness(t)
-
-	allowedValuer, ok := cmd.Flag("output").Value.(AllowedValuer)
-	require.True(t, ok, "--output value must implement AllowedValuer")
-	assert.Equal(t, []string{"json", "text"}, allowedValuer.AllowedValues())
-}
-
 func TestEnableJSONOutput_RegistersJQFlag(t *testing.T) {
 	cmd, _, _ := outputCmdHarness(t)
 	assert.NotNil(t, cmd.Flag("jq"), "EnableJSONOutput must also register --jq")

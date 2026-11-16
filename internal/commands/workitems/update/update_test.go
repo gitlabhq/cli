@@ -419,13 +419,3 @@ func TestWorkItemsUpdate_StatusRejectsUnknownName(t *testing.T) {
 		})
 	}
 }
-
-func TestWorkItemsUpdate_StatusAdvertisesAllowedValues(t *testing.T) {
-	cmd := NewCmd(cmdtest.NewTestFactory(nil))
-	flag := cmd.Flags().Lookup("status")
-	require.NotNil(t, flag)
-
-	valuer, ok := flag.Value.(cmdutils.AllowedValuer)
-	require.True(t, ok, "the status flag must expose its allowed values to MCP schema generation")
-	assert.ElementsMatch(t, []string{"todo", "in-progress", "done", "wont-do", "duplicate"}, valuer.AllowedValues())
-}

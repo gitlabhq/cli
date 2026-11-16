@@ -56,8 +56,8 @@ infer from reading the tree.
   also prunes pages for removed, deprecated, and hidden commands (and
   deletes any emptied directories), so never hand-delete pages under
   `docs/source/`. Instead regenerate the docs and commit the deletions.
-- **Reviewing MR feedback** — use the `glab` CLI (or `glab` MCP tools)
-  end-to-end, not raw `glab api`:
+- **Reviewing MR feedback** — use the `glab` CLI end-to-end, not raw
+  `glab api`:
   - Fetch: `glab mr view <id> --output json`.
   - Reply: `glab mr note create --reply <discussion-id> --message "..."`.
   - Resolve: `glab mr note resolve <discussion-id>`. Pass **only** the
