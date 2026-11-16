@@ -411,6 +411,132 @@ func TestProxyBlockMatchFailsClosedWithoutChecker(t *testing.T) {
 	assert.Equal(t, verdict.Blocked, verdicts[0].Verdict)
 }
 
+func startNoticeProxy(t *testing.T, checker policy.Checker) (*http.Client, *warningRecorder, string) {
+	t.Helper()
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(upstream.Close)
+	pool := x509.NewCertPool()
+	pool.AddCert(upstream.Certificate())
+	notices := &warningRecorder{}
+	p, err := New(stubMatcher{}, checker, "group/proj", WithUpstreamRootCAs(pool), WithBlockNotice(notices.Logf))
+	require.NoError(t, err)
+	require.NoError(t, p.Start())
+	t.Cleanup(p.Stop)
+	return newClient(t, p), notices, upstream.URL + "/left-pad/-/left-pad-1.3.0.tgz"
+}
+
+func TestProxyBlockNoticeNamesPackageOncePerBlock(t *testing.T) {
+	t.Parallel()
+	reason := "Package 'left-pad' violates 'No pads' policy"
+	client, notices, target := startNoticeProxy(t, stubChecker{result: policy.Result{Verdict: verdict.Blocked, Reason: reason}})
+
+	for range 2 {
+		resp, err := client.Get(target)
+		require.NoError(t, err)
+		resp.Body.Close()
+		assert.Equal(t, "403 Blocked by GitLab Dependency Firewall: "+reason, resp.Status)
+	}
+
+	lines := notices.Lines()
+	require.Len(t, lines, 1, "a package blocked twice is reported once")
+	assert.Equal(t, "dependency firewall blocked left-pad 1.3.0: "+reason+
+		". The summary at the end of this command lists every blocked package.\n", lines[0])
+}
+
+func TestProxyBlockNoticeWithoutReason(t *testing.T) {
+	t.Parallel()
+	client, notices, target := startNoticeProxy(t, stubChecker{result: policy.Result{Verdict: verdict.Blocked}})
+
+	resp, err := client.Get(target)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	lines := notices.Lines()
+	require.Len(t, lines, 1)
+	assert.Equal(t, "dependency firewall blocked left-pad 1.3.0. "+
+		"The summary at the end of this command lists every blocked package.\n", lines[0])
+}
+
+func TestProxyBlockNoticeStaysOnOneLine(t *testing.T) {
+	t.Parallel()
+	reason := "nope\r\nfake: line\x1b[31m red."
+	client, notices, target := startNoticeProxy(t, stubChecker{result: policy.Result{Verdict: verdict.Blocked, Reason: reason}})
+
+	resp, err := client.Get(target)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	lines := notices.Lines()
+	require.Len(t, lines, 1)
+	assert.Equal(t, "dependency firewall blocked left-pad 1.3.0: nope fake: line red. "+
+		"The summary at the end of this command lists every blocked package.\n", lines[0])
+}
+
+func TestProxyFailedCheckKeepsErrorOutOfResponseAndNotice(t *testing.T) {
+	t.Parallel()
+	const apiErr = "GET https://gitlab.example/api/v4/projects/9/x: 500 {host=10.0.0.5}"
+	tests := []struct {
+		name    string
+		checker stubChecker
+	}{
+		{"cached check failure", stubChecker{result: policy.Result{Verdict: verdict.Blocked, Reason: "policy check failed: " + apiErr, CheckFailed: true}}},
+		{"checker error", stubChecker{err: errors.New(apiErr)}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			client, notices, target := startNoticeProxy(t, tc.checker)
+
+			resp, err := client.Get(target)
+			require.NoError(t, err)
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			resp.Body.Close()
+
+			assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+			assert.Equal(t, "403 Dependency Firewall could not evaluate this package", resp.Status)
+			assert.Contains(t, string(body), "Dependency Firewall could not evaluate this package")
+			assert.NotContains(t, string(body), "gitlab.example")
+			assert.Empty(t, notices.Lines(), "a failed check prints no notice")
+		})
+	}
+}
+
+func TestProxyNoBlockNoticeForWarning(t *testing.T) {
+	t.Parallel()
+	client, notices, target := startNoticeProxy(t, stubChecker{result: policy.Result{Verdict: verdict.Warning, Reason: "old"}})
+
+	resp, err := client.Get(target)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.Empty(t, notices.Lines())
+}
+
+func TestProxyBlockNoticeForUninspectableRequest(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(upstream.Close)
+	pool := x509.NewCertPool()
+	pool.AddCert(upstream.Certificate())
+	notices := &warningRecorder{}
+	p, err := New(blockMatcher{}, stubChecker{err: errors.New("must not be called")}, "group/proj",
+		WithUpstreamRootCAs(pool), WithBlockNotice(notices.Logf))
+	require.NoError(t, err)
+	require.NoError(t, p.Start())
+	t.Cleanup(p.Stop)
+
+	req, err := http.NewRequest(http.MethodPut, upstream.URL+"/left-pad", strings.NewReader("payload"))
+	require.NoError(t, err)
+	resp, err := newClient(t, p).Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.Equal(t, "403 Blocked by GitLab Dependency Firewall: upload body too large to inspect for dependency firewall policy", resp.Status)
+	assert.Equal(t, []string{"dependency firewall blocked: upload body too large to inspect for dependency firewall policy. " +
+		"The summary at the end of this command lists every blocked package.\n"}, notices.Lines())
+}
+
 // deadlineChecker records whether Check received a context with a deadline.
 type deadlineChecker struct{ sawDeadline chan bool }
 

@@ -23,7 +23,7 @@ Each package manager command, like `glab dependency-firewall npm`, runs the pack
 1. Starts a local proxy and routes the package manager's HTTPS traffic through it.
 1. Reads the name and version of each package the package manager downloads or publishes.
 1. Asks GitLab to evaluate the package against the policies for the project in your Git remote.
-1. Refuses blocked packages with a `403 Forbidden` response, and lets allowed and warned packages through.
+1. Refuses blocked packages with a `403` response that gives the block reason, and lets allowed and warned packages through.
 1. Records blocked and warned packages in `.gitlab/df/ci-log.json` and prints a summary.
 
 When the package manager finishes, the command prints a summary of the packages that matched your policies. A `✖` marks a blocked package, and a `▲` marks a package with a warning. If no package matched, the command prints no summary. A run with at least one blocked package prints the summary to standard error. A run with only warnings prints it to standard output.
