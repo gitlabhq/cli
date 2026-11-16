@@ -4,6 +4,7 @@ package pm
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -22,15 +23,16 @@ func TestMain(m *testing.M) {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	systemRoot = dir
+	currentUser = func() (*user.User, error) { return &user.User{HomeDir: dir}, nil }
 	m.Run()
 }
 
 // configCase is one precedence case: files to write under a temp root,
 // symlinks to make there (link to target), the environment, and the directory
 // the manager runs in, relative to the root. HOME is root/home and the
-// default directory is root/proj. "$ROOT" in file contents and env values is
-// replaced with the root. plain resolves the plain-HTTP proxy instead of the
-// HTTPS one.
+// default directory is root/proj. "$ROOT" in file contents, env values and
+// args is replaced with the root. plain resolves the plain-HTTP proxy instead
+// of the HTTPS one.
 type configCase struct {
 	name    string
 	files   map[string]string
@@ -85,6 +87,10 @@ func runConfigCases(t *testing.T, manager PackageManager, cases []configCase) {
 			}
 			require.NoError(t, os.MkdirAll(dir, 0o755))
 
+			var args []string
+			for _, a := range tt.args {
+				args = append(args, expand(a))
+			}
 			var got upstreamProxy
 			var gotOK bool
 			if tt.plain {
@@ -92,7 +98,7 @@ func runConfigCases(t *testing.T, manager PackageManager, cases []configCase) {
 				require.True(t, ok)
 				got, gotOK, err = plain.resolvePlainHTTPProxy(env, dir)
 			} else {
-				got, gotOK, err = resolver.resolveUpstreamProxy(env, dir, tt.args)
+				got, gotOK, err = resolver.resolveUpstreamProxy(env, dir, args)
 			}
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
@@ -100,7 +106,18 @@ func runConfigCases(t *testing.T, manager PackageManager, cases []configCase) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantOK, gotOK)
-			tt.want.Source = expand(filepath.FromSlash(tt.want.Source))
+			expandSource := func(u upstreamProxy) upstreamProxy {
+				u.Source = expand(filepath.FromSlash(u.Source))
+				return u
+			}
+			tt.want = expandSource(tt.want)
+			if tt.want.Fallbacks != nil {
+				fallbacks := make([]upstreamProxy, len(tt.want.Fallbacks))
+				for i, f := range tt.want.Fallbacks {
+					fallbacks[i] = expandSource(f)
+				}
+				tt.want.Fallbacks = fallbacks
+			}
 			assert.Equal(t, tt.want, got)
 		})
 	}

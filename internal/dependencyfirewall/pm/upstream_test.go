@@ -253,7 +253,7 @@ func TestManagersWithoutOwnProxySettingHaveNoResolver(t *testing.T) {
 	t.Parallel()
 	// These read no proxy variable of their own, so the inspection proxy's
 	// default, glab's HTTPS_PROXY and HTTP_PROXY, applies to them.
-	for _, m := range []PackageManager{Poetry(), Uv(), Twine(), Gem(), Bundle(), Maven(), Gradle(), Golang()} {
+	for _, m := range []PackageManager{Poetry(), Uv(), Twine(), Gem(), Bundle(), Golang()} {
 		_, ok := m.(upstreamProxyResolver)
 		assert.False(t, ok, m.Name())
 		assert.Nil(t, OwnProxyVariables(m), m.Name())
@@ -301,22 +301,30 @@ func TestOwnProxyConfigFilesAreRead(t *testing.T) {
 	// for it. root is the temp directory; HOME is root/home and the manager
 	// runs in root/proj.
 	berry := map[string]string{"proj/package.json": `{"packageManager": "yarn@4.9.2"}`}
+	mavenUserHome := "MAVEN_OPTS=-Duser.home=$ROOT/home"
+	mavenSettings := mavenSettingsXML("<proxy><id>own</id><host>own</host><port>1</port></proxy>")
+	gradleUserHome := "GRADLE_USER_HOME=$ROOT/guh"
+	gradleProperties := "systemProp.https.proxyHost=own\nsystemProp.https.proxyPort=1\n"
 	fixtures := map[string]struct {
 		path, content, key string
 		env                []string
 		extra              map[string]string
 	}{
-		"~/.npmrc":                {path: "home/.npmrc", content: "https-proxy=http://own:1\n", key: "https-proxy"},
-		"$PREFIX/etc/npmrc":       {path: "prefix/etc/npmrc", content: "https-proxy=http://own:1\n", key: "https-proxy", env: []string{"PREFIX=$ROOT/prefix"}},
-		"~/.yarnrc":               {path: "home/.yarnrc", content: "https-proxy \"http://own:1\"\n", key: "https-proxy"},
-		"$PREFIX/etc/yarnrc":      {path: "prefix/etc/yarnrc", content: "https-proxy \"http://own:1\"\n", key: "https-proxy", env: []string{"PREFIX=$ROOT/prefix"}},
-		"~/.yarnrc.yml":           {path: "home/.yarnrc.yml", content: "httpsProxy: http://own:1\n", key: "httpsProxy", extra: berry},
-		"pip.conf":                {path: "home/.config/pip/pip.conf", content: "[global]\nproxy = http://own:1\n", key: "global.proxy"},
-		"$PIP_CONFIG_FILE":        {path: "custom/pip.conf", content: "[global]\nproxy = http://own:1\n", key: "global.proxy", env: []string{"PIP_CONFIG_FILE=$ROOT/custom/pip.conf"}},
-		"$CARGO_HOME/config.toml": {path: "cargo/config.toml", content: "[http]\nproxy = \"http://own:1\"\n", key: "http.proxy", env: []string{"CARGO_HOME=$ROOT/cargo"}},
-		"~/.gitconfig":            {path: "home/.gitconfig", content: "[http]\n\tproxy = http://own:1\n", key: "http.proxy"},
+		"~/.npmrc":                            {path: "home/.npmrc", content: "https-proxy=http://own:1\n", key: "https-proxy"},
+		"$PREFIX/etc/npmrc":                   {path: "prefix/etc/npmrc", content: "https-proxy=http://own:1\n", key: "https-proxy", env: []string{"PREFIX=$ROOT/prefix"}},
+		"~/.yarnrc":                           {path: "home/.yarnrc", content: "https-proxy \"http://own:1\"\n", key: "https-proxy"},
+		"$PREFIX/etc/yarnrc":                  {path: "prefix/etc/yarnrc", content: "https-proxy \"http://own:1\"\n", key: "https-proxy", env: []string{"PREFIX=$ROOT/prefix"}},
+		"~/.yarnrc.yml":                       {path: "home/.yarnrc.yml", content: "httpsProxy: http://own:1\n", key: "httpsProxy", extra: berry},
+		"pip.conf":                            {path: "home/.config/pip/pip.conf", content: "[global]\nproxy = http://own:1\n", key: "global.proxy"},
+		"$PIP_CONFIG_FILE":                    {path: "custom/pip.conf", content: "[global]\nproxy = http://own:1\n", key: "global.proxy", env: []string{"PIP_CONFIG_FILE=$ROOT/custom/pip.conf"}},
+		"$CARGO_HOME/config.toml":             {path: "cargo/config.toml", content: "[http]\nproxy = \"http://own:1\"\n", key: "http.proxy", env: []string{"CARGO_HOME=$ROOT/cargo"}},
+		"~/.gitconfig":                        {path: "home/.gitconfig", content: "[http]\n\tproxy = http://own:1\n", key: "http.proxy"},
+		"~/.m2/settings.xml":                  {path: "home/.m2/settings.xml", content: mavenSettings, key: "proxy own", env: []string{mavenUserHome}},
+		"${maven.home}/conf/settings.xml":     {path: "maven/conf/settings.xml", content: mavenSettings, key: "proxy own", env: []string{mavenUserHome, "PATH=$ROOT/maven/bin"}, extra: mavenInstall("maven", map[string]string{})},
+		"$GRADLE_USER_HOME/gradle.properties": {path: "guh/gradle.properties", content: gradleProperties, key: "systemProp.https.proxyHost", env: []string{gradleUserHome}},
+		"the Gradle installation's gradle.properties": {path: "gradle/gradle.properties", content: gradleProperties, key: "systemProp.https.proxyHost", env: []string{gradleUserHome, "PATH=$ROOT/gradle/bin"}, extra: map[string]string{"gradle/bin/gradle": ""}},
 	}
-	managers := []PackageManager{NPM(), Yarn(), Cargo()}
+	managers := []PackageManager{NPM(), Yarn(), Cargo(), Maven(), Gradle()}
 	if runtime.GOOS != "windows" {
 		managers = append(managers, Pip(), Pipenv())
 	}
@@ -431,7 +439,9 @@ func isolateUserConfig(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("PREFIX", t.TempDir())
-	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "CARGO_HOME", "PIP_CONFIG_FILE", "NPM_CONFIG_USERCONFIG", "npm_config_userconfig", "YARN_USERCONFIG", "yarn_userconfig"} {
+	t.Setenv("GRADLE_USER_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_CONFIG_DIRS", "CARGO_HOME", "PIP_CONFIG_FILE", "NPM_CONFIG_USERCONFIG", "npm_config_userconfig", "YARN_USERCONFIG", "yarn_userconfig", "MAVEN_ARGS", "MAVEN_OPTS"} {
 		t.Setenv(k, "")
 	}
 }

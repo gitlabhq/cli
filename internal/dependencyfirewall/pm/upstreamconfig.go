@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -17,6 +18,10 @@ import (
 // systemRoot is the root of the machine-wide files pip and git read, such as
 // /etc/gitconfig. Tests point it at an empty directory.
 var systemRoot = string(filepath.Separator)
+
+// currentUser finds the account whose home directory the JVM uses for
+// user.home. Tests point it at an empty directory.
+var currentUser = user.Current
 
 // configFiles reads the user and global config files glab takes proxy
 // settings from. It skips any file inside the project being installed: the

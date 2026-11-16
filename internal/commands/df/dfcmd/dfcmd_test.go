@@ -116,6 +116,13 @@ func TestEnvironmentHelp(t *testing.T) {
 		cmd := NewProxyCmd(cmdtest.NewTestFactory(nil), spec)
 		assert.Contains(t, cmd.Annotations["help:environment"], "npm_config_https_proxy, npm_config_proxy: proxy settings for pnpm. glab reads them first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY.\n")
 	})
+	t.Run("when the manager reads config files but no proxy variable of its own", func(t *testing.T) {
+		t.Parallel()
+		spec := testSpec()
+		spec.Manager, spec.Use = pm.Maven, "maven <mvn args>"
+		cmd := NewProxyCmd(cmdtest.NewTestFactory(nil), spec)
+		assert.Contains(t, cmd.Annotations["help:environment"], "NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.\nglab reads the proxy settings for maven from your user and global config files first (~/.m2/settings.xml, ${maven.home}/conf/settings.xml), so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY. glab doesn't read proxy settings from files inside the project. glab doesn't support proxy passwords encrypted with settings-security.xml.\n")
+	})
 	t.Run("when the manager reads no proxy variable of its own", func(t *testing.T) {
 		t.Parallel()
 		spec := testSpec()

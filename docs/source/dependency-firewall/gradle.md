@@ -50,6 +50,7 @@ glab dependency-firewall gradle dependencies
 HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
 HTTP_PROXY: outbound proxy for plain-HTTP registries. When it's unset, glab uses HTTPS_PROXY.
 NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.
+glab reads the proxy settings for gradle from your user and global config files first ($GRADLE_USER_HOME/gradle.properties, the Gradle installation's gradle.properties), so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY. glab doesn't read proxy settings from files inside the project. glab also reads them from -D options on the gradle command line.
 ```
 
 ## Options inherited from parent commands
