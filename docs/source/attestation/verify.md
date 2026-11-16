@@ -21,7 +21,9 @@ GitLab project and pipeline.
 This command requires the cosign binary. To install it, see
 [Cosign installation](https://docs.sigstore.dev/cosign/system_config/installation/).
 
-This command works only on GitLab.com.
+This command works with any GitLab instance. It finds the project and its attestations on the instance from your current context: the `GITLAB_HOST` variable, your Git remote, or your glab configuration.
+
+This command verifies only attestations signed with Sigstore (`SIGSTORE`). It does not yet support attestations signed with the project's certificate authority (`LOCAL_CA`).
 
 For more information about attestations, see:
 
