@@ -8,7 +8,6 @@ import (
 	"iter"
 	"net/url"
 	"os"
-	"os/user"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -449,7 +448,7 @@ func javaUserHome(environ []string, props map[string]string) string {
 	if home, ok := props["user.home"]; ok {
 		return home
 	}
-	u, err := user.Current()
+	u, err := currentUser()
 	if err != nil {
 		dbg.Debugf("dependency firewall: could not look up the current user: %v; using HOME for maven's user.home", err)
 	} else if u.HomeDir != "" {

@@ -187,7 +187,7 @@ func writeUserSettings(t *testing.T, body string) string {
 func TestRunMergesSettingsNamedOnTheCommandLine(t *testing.T) {
 	t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
 	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
-	t.Setenv("MAVEN_ARGS", "")
+	isolateUserConfig(t, t.TempDir())
 	userPath := writeUserSettings(t, userSettingsXML)
 	ios, _, _, _ := cmdtest.TestIOStreams()
 	exec := &fakeExecutor{}

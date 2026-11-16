@@ -26,6 +26,13 @@ type upstreamProxy struct {
 	URL string
 	// NoProxy lists the hosts the manager reaches directly, in NO_PROXY syntax.
 	NoProxy string
+	// NonProxyHosts lists more hosts this proxy skips, as JVM-style patterns
+	// in which "*" matches any run of characters, ignoring case.
+	NonProxyHosts []string
+	// Fallbacks are tried in order for a host this proxy skips, as Maven does
+	// with its other proxies. A host that every proxy skips is reached
+	// directly.
+	Fallbacks []upstreamProxy
 }
 
 // upstreamProxyResolver is implemented by managers that read a proxy setting of
@@ -135,8 +142,8 @@ func upstreamProxyOptions(manager PackageManager, environ []string, dir string, 
 }
 
 // proxyFunc returns a proxy selector for the inspection proxy's upstream
-// transport. It validates the URL up front so a typo fails the run with a clear
-// message, instead of every registry request failing later.
+// transport. It validates every URL up front so a typo fails the run with a
+// clear message, instead of every registry request failing later.
 func (u upstreamProxy) proxyFunc() (func(*http.Request) (*url.URL, error), error) {
 	if u.URL == "" {
 		return func(*http.Request) (*url.URL, error) { return nil, nil }, nil
@@ -144,8 +151,63 @@ func (u upstreamProxy) proxyFunc() (func(*http.Request) (*url.URL, error), error
 	if err := validateProxyURL(u.URL); err != nil {
 		return nil, err
 	}
-	pick := (&httpproxy.Config{HTTPProxy: u.URL, HTTPSProxy: u.URL, NoProxy: u.NoProxy}).ProxyFunc()
-	return func(r *http.Request) (*url.URL, error) { return pick(r.URL) }, nil
+	// upstreamProxyOptions names u.Source, so only a fallback names its own.
+	for _, f := range u.Fallbacks {
+		if err := validateProxyURL(f.URL); err != nil {
+			return nil, fmt.Errorf("invalid outbound proxy in %s: %w", f.Source, err)
+		}
+	}
+	candidates := append([]upstreamProxy{u}, u.Fallbacks...)
+	picks := make([]func(*url.URL) (*url.URL, error), 0, len(candidates))
+	for _, c := range candidates {
+		pick := (&httpproxy.Config{HTTPProxy: c.URL, HTTPSProxy: c.URL, NoProxy: c.NoProxy}).ProxyFunc()
+		nonProxyHosts := c.NonProxyHosts
+		picks = append(picks, func(target *url.URL) (*url.URL, error) {
+			if matchesHostPattern(nonProxyHosts, target.Hostname()) {
+				return nil, nil
+			}
+			return pick(target)
+		})
+	}
+	return func(r *http.Request) (*url.URL, error) {
+		for _, pick := range picks {
+			if p, err := pick(r.URL); p != nil || err != nil {
+				return p, err
+			}
+		}
+		return nil, nil
+	}, nil
+}
+
+// matchesHostPattern reports whether host matches one of patterns, where "*"
+// matches any run of characters and case is ignored.
+func matchesHostPattern(patterns []string, host string) bool {
+	host = strings.ToLower(host)
+	for _, p := range patterns {
+		parts := strings.Split(strings.ToLower(p), "*")
+		if len(parts) == 1 {
+			if parts[0] == host {
+				return true
+			}
+			continue
+		}
+		rest, ok := strings.CutPrefix(host, parts[0])
+		if !ok {
+			continue
+		}
+		for _, mid := range parts[1 : len(parts)-1] {
+			i := strings.Index(rest, mid)
+			if i < 0 {
+				ok = false
+				break
+			}
+			rest = rest[i+len(mid):]
+		}
+		if ok && strings.HasSuffix(rest, parts[len(parts)-1]) {
+			return true
+		}
+	}
+	return false
 }
 
 // validateProxyURL checks raw as httpproxy reads it, taking a value without a
@@ -300,4 +362,36 @@ func (cargoManager) proxyConfigFiles() []string {
 // cargo 1.99).
 func (cargoManager) resolveUpstreamProxy(environ []string, dir string, _ []string) (upstreamProxy, bool, error) {
 	return cargoUpstreamProxy(environ, dir)
+}
+
+func (*mavenManager) proxyVariables() []string { return nil }
+
+func (*mavenManager) proxyConfigFiles() []string {
+	return []string{"~/.m2/settings.xml", "${maven.home}/conf/settings.xml"}
+}
+
+func (*mavenManager) proxyHelpNote() string {
+	return "glab doesn't support proxy passwords encrypted with settings-security.xml."
+}
+
+// resolveUpstreamProxy for Maven: the active <proxy> in the user and global
+// settings files.
+func (*mavenManager) resolveUpstreamProxy(environ []string, dir string, args []string) (upstreamProxy, bool, error) {
+	return mavenUpstreamProxy(environ, dir, args)
+}
+
+func (*gradleManager) proxyVariables() []string { return nil }
+
+func (*gradleManager) proxyConfigFiles() []string {
+	return []string{"$GRADLE_USER_HOME/gradle.properties", "the Gradle installation's gradle.properties"}
+}
+
+func (*gradleManager) proxyHelpNote() string {
+	return "glab also reads them from -D options on the gradle command line."
+}
+
+// resolveUpstreamProxy for Gradle: the https.proxyHost system properties from
+// the command line and the user and installation gradle.properties.
+func (*gradleManager) resolveUpstreamProxy(environ []string, dir string, args []string) (upstreamProxy, bool, error) {
+	return gradleUpstreamProxy(environ, dir, args)
 }
