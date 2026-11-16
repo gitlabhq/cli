@@ -1,0 +1,29 @@
+source_language: en-us
+target_languages: [fr-fr, ja-jp, ko-kr]
+argo_request_key: GITTECH
+translation_mr_labels: [gitlab-translation-service]
+translation_mr_branch_name: docs-i18n/
+pipelines:
+  request_template_key: GITTECHC
+components:
+  - name: Technical Documentation
+    create_request: false
+    paths:
+      - source: 'docs/source/**/*.md'
+        target: 'docs-locale/{{language}}/source/'
+    ignored_paths:
+      - 'docs/.*/**'
+      # Redirects: See Redirects component for more info
+      - 'docs/source/mcp/_index.md'
+      - 'docs/source/mcp/serve.md'
+
+  # Redirects list generated 2026-10-15
+  # This list contains all Redirects files. It is auto generated through the monthly maintenance tasks.
+  # See https://gitlab.com/gitlab-com/localization/docs-site-localization/-/blob/main/.gitlab/issue_templates/monthly-docs-tasks-eng.md
+  - name: Redirects
+    create_request: false
+    paths:
+      - source: 'docs/source/mcp/_index.md'
+        target: 'docs-locale/{{language}}/source/mcp/_index.md'
+      - source: 'docs/source/mcp/serve.md'
+        target: 'docs-locale/{{language}}/source/mcp/serve.md'

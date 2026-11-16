@@ -36,6 +36,7 @@
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - "docs/**/*"
+        - "docs-locale/**/*"
       when: manual
       allow_failure: true
 
