@@ -717,6 +717,7 @@ func TestRunComposedBlockThroughProxy(t *testing.T) {
 	assert.Equal(t, verdict.Blocked, got.Entries[0].Verdict)
 
 	assert.Contains(t, errOut.String(), "left-pad", "summary must mention the blocked package")
+	assert.Contains(t, errOut.String(), "dependency firewall blocked left-pad 1.3.0", "the block is reported while the package manager runs")
 }
 
 // curlingExecutor ignores the package-manager binary and instead performs a

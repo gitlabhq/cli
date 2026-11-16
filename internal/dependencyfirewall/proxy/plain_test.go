@@ -129,6 +129,28 @@ func captureStdLog(t *testing.T) *lockedBuffer {
 	return buf
 }
 
+func TestProxyPlainHTTPFailedCheckKeepsErrorOutOfResponse(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(&recordingUpstream{})
+	t.Cleanup(upstream.Close)
+	notices := &warningRecorder{}
+	checker := verdictChecker{"org.slf4j:slf4j-api": {Verdict: verdict.Blocked, Reason: "policy check failed: GET https://gitlab.example/api/v4/projects/9/x: 500 {host=10.0.0.5}", CheckFailed: true}}
+	p, client := startPlainProxy(t, checker, WithBlockNotice(notices.Logf))
+
+	resp, err := client.Get(upstream.URL + plainJarPath)
+	require.NoError(t, err)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.NotContains(t, string(body), "gitlab.example")
+	assert.Empty(t, notices.Lines())
+	verdicts := p.Verdicts()
+	require.Len(t, verdicts, 1)
+	assert.Contains(t, verdicts[0].Reason, "gitlab.example", "the summary keeps the full error")
+}
+
 func TestProxyPlainHTTP(t *testing.T) {
 	t.Run("when a rule names the real package behind an http mirror", func(t *testing.T) {
 		up := &recordingUpstream{}

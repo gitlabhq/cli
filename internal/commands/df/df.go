@@ -40,7 +40,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			1. Starts a local proxy and routes the package manager's HTTPS traffic through it.
 			1. Reads the name and version of each package the package manager downloads or publishes.
 			1. Asks GitLab to evaluate the package against the policies for the project in your Git remote.
-			1. Refuses blocked packages with a %[1]s403 Forbidden%[1]s response, and lets allowed and warned packages through.
+			1. Refuses blocked packages with a %[1]s403%[1]s response that gives the block reason, and lets allowed and warned packages through.
 			1. Records blocked and warned packages in %[1]s.gitlab/df/ci-log.json%[1]s and prints a summary.
 
 			When the package manager finishes, the command prints a summary of the packages that matched your policies. A %[1]s✖%[1]s marks a blocked package, and a %[1]s▲%[1]s marks a package with a warning. If no package matched, the command prints no summary. A run with at least one blocked package prints the summary to standard error. A run with only warnings prints it to standard output.

@@ -8,10 +8,55 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBlockResponseStatusLineCarriesReason(t *testing.T) {
+	t.Parallel()
+	resp := parseBlock(t, blockResponse("maven", "Package 'g/a' violates 'Deny log4j' policy", false))
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, "403 Blocked by GitLab Dependency Firewall: Package 'g/a' violates 'Deny log4j' policy", resp.Status)
+}
+
+func TestBlockResponseStatusLineWithoutReason(t *testing.T) {
+	t.Parallel()
+	resp := parseBlock(t, blockResponse("maven", "", false))
+	defer resp.Body.Close()
+	assert.Equal(t, "403 Blocked by GitLab Dependency Firewall", resp.Status)
+}
+
+func TestBlockResponseStatusLineCannotInjectHeaders(t *testing.T) {
+	t.Parallel()
+	resp := parseBlock(t, blockResponse("maven", "nope\r\nX-Injected: yes\r\n\r\nbody", false))
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Empty(t, resp.Header.Get("X-Injected"))
+	assert.Equal(t, "403 Blocked by GitLab Dependency Firewall: nope X-Injected: yes body", resp.Status)
+}
+
+func TestBlockResponseStatusLineHidesFailedCheckError(t *testing.T) {
+	t.Parallel()
+	resp := parseBlock(t, blockResponse("maven", "policy check failed: GET https://gitlab.example/api/v4/projects/9/x: 500 {host=10.0.0.5}", true))
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, "403 Dependency Firewall could not evaluate this package", resp.Status)
+}
+
+func TestBlockResponseStatusLineIsCapped(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("é", 500)
+	resp := parseBlock(t, blockResponse("gem", long, false))
+	defer resp.Body.Close()
+	assert.LessOrEqual(t, len(resp.Status), len("403 ")+512)
+	assert.True(t, utf8.ValidString(resp.Status), "the cap must not split a rune")
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, long, string(body), "the body keeps the full reason")
+}
 
 func parseBlock(t *testing.T, raw string) *http.Response {
 	t.Helper()
@@ -22,7 +67,7 @@ func parseBlock(t *testing.T, raw string) *http.Response {
 
 func TestBlockResponseNPM(t *testing.T) {
 	t.Parallel()
-	raw := blockResponse("npm", "blocked by policy")
+	raw := blockResponse("npm", "blocked by policy", false)
 	resp := parseBlock(t, raw)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
@@ -35,7 +80,7 @@ func TestBlockResponseNPM(t *testing.T) {
 
 func TestBlockResponsePyPIIsHTML(t *testing.T) {
 	t.Parallel()
-	raw := blockResponse("pypi", "nope")
+	raw := blockResponse("pypi", "nope", false)
 	resp := parseBlock(t, raw)
 	defer resp.Body.Close()
 	assert.Equal(t, "text/html", resp.Header.Get("Content-Type"))
@@ -44,7 +89,7 @@ func TestBlockResponsePyPIIsHTML(t *testing.T) {
 
 func TestBlockResponseGemIsPlainText(t *testing.T) {
 	t.Parallel()
-	raw := blockResponse("gem", "nope")
+	raw := blockResponse("gem", "nope", false)
 	resp := parseBlock(t, raw)
 	defer resp.Body.Close()
 	assert.Equal(t, "text/plain", resp.Header.Get("Content-Type"))
@@ -52,7 +97,7 @@ func TestBlockResponseGemIsPlainText(t *testing.T) {
 
 func TestBlockResponseMavenIsHTML(t *testing.T) {
 	t.Parallel()
-	raw := blockResponse("maven", "nope")
+	raw := blockResponse("maven", "nope", false)
 	resp := parseBlock(t, raw)
 	defer resp.Body.Close()
 	assert.Equal(t, "text/html", resp.Header.Get("Content-Type"))
@@ -60,7 +105,7 @@ func TestBlockResponseMavenIsHTML(t *testing.T) {
 
 func TestBlockResponseNuGetIsJSON(t *testing.T) {
 	t.Parallel()
-	raw := blockResponse("nuget", "blocked by policy")
+	raw := blockResponse("nuget", "blocked by policy", false)
 	resp := parseBlock(t, raw)
 	defer resp.Body.Close()
 	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))

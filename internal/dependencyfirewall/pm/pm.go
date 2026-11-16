@@ -309,7 +309,7 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	if err != nil {
 		return err
 	}
-	proxyOpts = append(proxyOpts, proxy.WithUpstreamFailureWarning(opts.IO.LogErrorf))
+	proxyOpts = append(proxyOpts, proxy.WithUpstreamFailureWarning(opts.IO.LogErrorf), proxy.WithBlockNotice(opts.IO.LogErrorf))
 	roots, upstreamCAs, err := upstreamRootCAs(os.Environ(), opts.CACertPath)
 	if err != nil {
 		return fmt.Errorf("failed to load registry CA certificates: %w", err)

@@ -31,6 +31,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
+	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
 type certAuthority struct {
@@ -141,6 +142,7 @@ type Proxy struct {
 	seen     map[string]struct{}
 
 	warnUpstreamFailure policy.Logf
+	blockNotice         policy.Logf
 	warnMu              sync.Mutex
 	warnedAuthorities   map[string]struct{}
 
@@ -231,6 +233,15 @@ func WithUpstreamFailureWarning(warn policy.Logf) Option {
 // must not call back into the proxy.
 func WithVerdictHook(fn func(verdict.Entry)) Option {
 	return func(p *Proxy) { p.onVerdict = fn }
+}
+
+// WithBlockNotice sets where the proxy reports each package it blocks, at the
+// moment it blocks it, so the reason appears next to the package manager's
+// own failure rather than only in the summary after it exits.
+func WithBlockNotice(notice policy.Logf) Option {
+	return func(p *Proxy) {
+		p.blockNotice = notice
+	}
 }
 
 func New(matcher Matcher, checker policy.Checker, projectID string, opts ...Option) (*Proxy, error) {
@@ -336,11 +347,11 @@ func (p *Proxy) Verdicts() []verdict.Entry {
 	return out
 }
 
-func (p *Proxy) record(e verdict.Entry) {
+func (p *Proxy) record(e verdict.Entry) bool {
 	p.mu.Lock()
 	if _, ok := p.seen[e.Key()]; ok {
 		p.mu.Unlock()
-		return
+		return false
 	}
 	p.seen[e.Key()] = struct{}{}
 	p.verdicts = append(p.verdicts, e)
@@ -352,6 +363,22 @@ func (p *Proxy) record(e verdict.Entry) {
 	if hook != nil {
 		hook(e)
 	}
+	return true
+}
+
+func (p *Proxy) recordBlock(e verdict.Entry, checkFailed bool) {
+	// The caching checker already warns about a failed check, and its reason
+	// is the raw API error.
+	if !p.record(e) || checkFailed || p.blockNotice == nil {
+		return
+	}
+	msg := strings.TrimSpace("dependency firewall blocked " + text.SanitizeInline(e.Package) + " " + text.SanitizeInline(e.Version))
+	if reason := strings.TrimSuffix(text.SanitizeInline(e.Reason), "."); reason != "" {
+		msg += ": " + reason
+	}
+	p.warnMu.Lock()
+	defer p.warnMu.Unlock()
+	p.blockNotice("%s. The summary at the end of this command lists every blocked package.\n", msg)
 }
 
 func (p *Proxy) warnUpstreamFailureOnce(authority string, err error) {
@@ -416,7 +443,7 @@ func (p *Proxy) handlePlain(w http.ResponseWriter, r *http.Request) {
 	defer context.AfterFunc(p.ctx, cancel)() //nolint:contextcheck // Stop's proxy context must also end this request
 	r = r.WithContext(ctx)
 
-	if ecosystem, reason, ok := p.admit(ctx, r); !ok {
+	if ecosystem, reason, _, ok := p.admit(ctx, r); !ok {
 		contentType, body := blockBody(ecosystem, reason)
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
@@ -527,8 +554,8 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 		req.RequestURI = ""
 		req.Header.Del("Accept-Encoding")
 
-		if ecosystem, reason, ok := p.admit(ctx, req); !ok {
-			_, _ = io.WriteString(conn, blockResponse(ecosystem, reason))
+		if ecosystem, reason, checkFailed, ok := p.admit(ctx, req); !ok {
+			_, _ = io.WriteString(conn, blockResponse(ecosystem, reason, checkFailed))
 			drainAndClose(req.Body)
 			return
 		}
@@ -577,9 +604,10 @@ func (p *Proxy) serveTunnel(ctx context.Context, conn net.Conn, authority string
 }
 
 // admit matches req and checks it against policy, recording the verdict. It
-// returns ok=false, with the ecosystem and reason for the block response, when
-// req must not reach the upstream.
-func (p *Proxy) admit(ctx context.Context, req *http.Request) (string, string, bool) {
+// returns ok=false when req must not reach the upstream, with the ecosystem,
+// the reason to show the package manager, and whether the policy check itself
+// failed.
+func (p *Proxy) admit(ctx context.Context, req *http.Request) (string, string, bool, bool) {
 	// Match before the round trip: an upload carries its identity in the
 	// body, which the matcher reads and restores before RoundTrip.
 	m := p.matcher.Match(req)
@@ -588,28 +616,32 @@ func (p *Proxy) admit(ctx context.Context, req *http.Request) (string, string, b
 		// The matcher recognized an in-scope request but did not clear it
 		// for the policy check — e.g. an over-limit upload body it could
 		// not inspect. Fail closed.
-		p.record(verdict.Entry{
+		p.recordBlock(verdict.Entry{
 			Package: m.Coordinate.Name,
 			Version: m.Coordinate.Version,
 			Verdict: verdict.Blocked,
 			Status:  http.StatusForbidden,
 			Reason:  m.Reason,
-		})
-		return m.Coordinate.Ecosystem, m.Reason, false
+		}, false)
+		return m.Coordinate.Ecosystem, m.Reason, false, false
 	}
 	if !m.Matched {
-		return "", "", true
+		return "", "", false, true
 	}
 	res, coordinate := p.checkPolicy(ctx, m)
 	if res.Blocked() {
-		p.record(verdict.Entry{
+		p.recordBlock(verdict.Entry{
 			Package: coordinate.Name,
 			Version: coordinate.Version,
 			Verdict: verdict.Blocked,
 			Status:  http.StatusForbidden,
 			Reason:  res.Reason,
-		})
-		return m.Coordinate.Ecosystem, res.Reason, false
+		}, res.CheckFailed)
+		reason := res.Reason
+		if res.CheckFailed {
+			reason = checkFailedReason
+		}
+		return m.Coordinate.Ecosystem, reason, res.CheckFailed, false
 	}
 	if res.Verdict == verdict.Warning {
 		// Status is left unset: a warning allows the request through, but
@@ -623,7 +655,7 @@ func (p *Proxy) admit(ctx context.Context, req *http.Request) (string, string, b
 			Reason:  res.Reason,
 		})
 	}
-	return "", "", true
+	return "", "", false, true
 }
 
 // checkPolicy checks every candidate coordinate m carries and returns the
