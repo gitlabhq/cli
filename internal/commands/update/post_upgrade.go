@@ -18,12 +18,18 @@ const LastSeenVersionKey = "last_seen_version"
 // `glab whatsnew` whenever buildInfo.Version is newer than the recorded
 // LastSeenVersionKey marker. The default for LastSeenVersionKey is seeded
 // in defaultFor() so existing users see the banner the first time they
-// run the release that ships this feature.
+// run the release that ships this feature. It stays silent in CI and when
+// stderr is not a terminal, where a fresh config would otherwise print it on
+// every run.
 func MaybeShowPostUpgradeBanner(io *iostreams.IOStreams, cfg config.Config, buildInfo api.BuildInfo) {
+	maybeShowPostUpgradeBanner(io, cfg, buildInfo, config.InCI())
+}
+
+func maybeShowPostUpgradeBanner(io *iostreams.IOStreams, cfg config.Config, buildInfo api.BuildInfo, inCI bool) {
 	if !isWhatsNewEnabled(cfg) {
 		return
 	}
-	if buildInfo.CodingAgent != "" {
+	if buildInfo.CodingAgent != "" || inCI || !io.IsErrTTY {
 		return
 	}
 

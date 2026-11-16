@@ -236,9 +236,11 @@ func TestWhatsnew_flagConflicts(t *testing.T) {
 func TestWhatsnew_bannerNudgeThenWhatsnew(t *testing.T) {
 	const currentVersion = "1.101.0"
 
+	t.Setenv("CI", "")
+	t.Setenv("GITLAB_CI", "")
 	cfg := newTestConfig(t, nil)
 
-	bannerIO, _, _, bannerErr := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	bannerIO, _, _, bannerErr := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(true))
 	bannerBuild := api.BuildInfo{Version: currentVersion}
 	update.MaybeShowPostUpgradeBanner(bannerIO, cfg, bannerBuild)
 	require.Contains(t, bannerErr.String(), "glab whatsnew",
