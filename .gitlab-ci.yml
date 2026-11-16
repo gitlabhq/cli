@@ -132,12 +132,14 @@ include:
       - $CI_PROJECT_DIR/.go/pkg/mod/
       - $CI_PROJECT_DIR/.gocache/
       - $CI_PROJECT_DIR/.golangci-lint-cache/
-    # Keyed per job rather than on go.sum. Go's module and build caches are
-    # content-addressed, so an entry that no longer matches is ignored rather
-    # than used wrongly, whereas a go.sum-keyed cache went fully cold on every
-    # dependency bump - one every day or two here, costing tests:unit 153s ->
-    # 682s and lint 79s -> 309s whenever a pipeline landed on a new key.
-    key: "go-$CI_JOB_NAME_SLUG"
+    # One cache per job, starting fresh whenever go.sum or .tool-versions
+    # (Go and golangci-lint versions) changes, so it never accumulates old
+    # builds. The first pipeline after such a change runs without a cache.
+    key:
+      files:
+        - go.sum
+        - .tool-versions
+      prefix: go-$CI_JOB_NAME_SLUG
     policy: pull-push
 
 .documentation:
