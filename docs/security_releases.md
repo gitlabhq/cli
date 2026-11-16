@@ -1,103 +1,132 @@
-# Security Releases
+# Security releases
 
-This guide is based on the main [`gitlab-org/gitlab` security release process](https://gitlab.com/gitlab-org/release/docs/-/tree/master/general/security)
+Security fixes are developed in the private
+[`gitlab-org/security/cli`](https://gitlab.com/gitlab-org/security/cli) repository and
+ship in a regular release from `main`. The CLI doesn't use patch release branches.
 
-## DO NOT PUSH TO `gitlab-org/cli`
+> [!warning]
+> Never push a security fix, or a branch that contains one, to
+> [`gitlab-org/cli`](https://gitlab.com/gitlab-org/cli). The project is public, so
+> anything pushed there discloses the vulnerability.
 
-As a developer working on a fix for a security vulnerability, your main concern is not disclosing the vulnerability or the fix before we're ready to publicly disclose it.
+## How the security repository works
 
-To that end, you'll need to be sure that security vulnerabilities are fixed in the [`security` repository](https://gitlab.com/gitlab-org/security/cli).
+`gitlab-org/security/cli` is a private fork of `gitlab-org/cli`. Its `main` branch
+pull-mirrors canonical `main`. The mirror only updates `main`, and doesn't overwrite a
+branch that has diverged. When a security fix merges into the security repository's
+`main`, the mirror stops updating it until the fix is released and `main` is resynced.
 
-This is fundamental to our security release process because the [`security` repository](https://gitlab.com/gitlab-org/security/cli) is not publicly-accessible.
+Every fix merged into the security repository's `main` ships together in the next
+release. Merge a fix only when it's ready to release.
+
+The mirror is configured in the security repository's
+**Settings > Repository > Mirroring repositories**: it pulls from `gitlab-org/cli`,
+the branch filter is `main`, and overwriting diverged branches is off.
 
 ## Process
 
-A security fix starts with an issue identifying the vulnerability. In this case, it should be a confidential issue on the `gitlab-org/cli` project on [GitLab.com](https://gitlab.com/)
-
-Once a security issue is assigned to a developer, we follow the same merge request and code review process as any other change, but on the [`security` repository](https://gitlab.com/gitlab-org/security/cli).
-
-### Schema
-
 ```mermaid
 graph TD;
-A[run security-harness] --> B[prepare branches]
-B --> C[MR to the release branch]
-C --> D[MR to the main]
-D --> E[tag, release and validate]
-E --> F[push changes to the regular repo]
+A[Confidential issue] --> B[MR to security main]
+B --> D[MR from security main to canonical main]
+D --> E[Release from canonical main]
+E --> F[Resync security main]
+F -.-> G[Optional: notify package maintainers]
 ```
 
-### Preparation
+### Start with a confidential issue
 
-Before starting, add the new `security` remote on your local GitLab repository:
+A security fix starts with a confidential issue in `gitlab-org/cli` that describes the
+vulnerability.
+
+### Set up the security repository
+
+Work in a separate clone of the security repository, so `origin` points to it and a
+default `git push` can't reach the public project:
 
 ```shell
-git remote add security git@gitlab.com:gitlab-org/security/cli.git
+git clone git@gitlab.com:gitlab-org/security/cli.git glab-security
+cd glab-security
+lefthook install
 ```
 
-Finally, run the `scripts/security-harness` script. This script will install a Git `pre-push` hook that will prevent pushing to any remote besides `gitlab.com/gitlab-org/security`, in order to prevent accidental disclosure.
+Don't add `gitlab-org/cli` as a remote in this clone. To fetch canonical `main`, use
+its URL, as the commands in this guide do.
 
-Please make sure the output of running `scripts/security-harness` is:
+### Develop the fix
 
-```plaintext
-Pushing to remotes other than gitlab.com/gitlab-org/security has been disabled!
-```
+1. Create a branch named `security-<issue number>`, for example `security-9999` for
+   issue `#9999`.
+1. Implement the fix and push the branch to the security repository.
+1. Open a merge request that targets the security repository's `main`. Follow the
+   same review process as any other change.
+1. Request a review from `@ai-security-fix-reviewer-gitlab-org` and address its
+   findings. Its review is advisory. Then get a PSIRT review: assign a member of
+   `@gitlab-com/gl-security/product-security/psirt-group` as a reviewer, or mention
+   the group in a comment
+   ([example](https://gitlab.com/gitlab-org/security/cli/-/merge_requests/28)).
+   PSIRT decides whether the fix needs a CVE.
+1. When the fix is ready to release, merge it.
 
-### Request CVE number
+### Merge into canonical `main`
 
-For exploitable security issues, request a CVE number by [creating an issue in `gitlab-org/cves` project](https://gitlab.com/gitlab-org/cves/-/issues/new). **You can do the release before the CVE number is available.** When the CVE number is assigned, add it to the changelog entry. Here's an [example](https://gitlab.com/gitlab-org/gitlab-vscode-extension/-/blob/main/CHANGELOG.md#security) from the VS Code Project.
-
-[Example CVE request](https://gitlab.com/gitlab-org/cves/-/issues/21)
-
-### Branches
-
-The main objective is to release the security fix as a patch of the latest production release and backporting this fix on `main`.
-
-#### Patch release branch
-
-Before starting the development of the fix, create a branch from the latest released tag. You can see the latest released tag on the [releases page](https://gitlab.com/gitlab-org/cli/-/releases). For example, if the latest release has a tag `v2.2.0` create a branch `security-2-2`. This is going to be the target of the security MRs. Push the branch to the security repo.
+The merge request to `gitlab-org/cli` is public, so open it only when you're ready to
+release. Use the security repository's `main` as the source:
 
 ```shell
-git checkout v2.2.0
-git checkout -b security-2-2
-git push security security-2-2
+glab mr create --repo gitlab-org/cli --head gitlab-org/security/cli \
+  --source-branch main --target-branch main \
+  --title "fix(scope): describe the fix" \
+  --description "Merge the security fix from gitlab-org/security/cli." --yes
 ```
 
-#### Security fix branch
+Pass `--description` so `glab` doesn't prompt for a template. Don't use `--fill`. It
+pushes and adds a `gitlab-org/cli` remote. The description is public, so don't
+describe the vulnerability in it.
 
-Your fix is going to be pushed into `security-<issue number>` branch. If you work on issue #9999, you push the fix into `security-9999` branch.
+In the UI, go to **Code > Merge requests > New merge request** in
+`gitlab-org/security/cli`, select `gitlab-org/security/cli` and `main` as the source,
+and `gitlab-org/cli` and `main` as the target.
+
+Merging runs the merged results pipeline and the merge train against the latest
+canonical `main`. Squash is on by default, so the merge request title becomes the
+commit message on `main`. Use a Conventional Commits title, such as `fix(auth): ...`.
+For an example, see [!2841](https://gitlab.com/gitlab-org/cli/-/merge_requests/2841).
+
+If canonical `main` has moved and the merge request has conflicts, resolve them in
+the security repository, not in a public branch. Pushing to the security
+repository's `main` needs the Maintainer role:
 
 ```shell
-git checkout security-2-2
-git checkout -b security-9999
-git push security security-9999
+git checkout main
+git pull origin main
+git fetch https://gitlab.com/gitlab-org/cli.git main
+git merge FETCH_HEAD
+git push origin main
 ```
 
-### Development
+### Release
 
-Here, the process diverges from the [`gitlab-org/gitlab` security release process](https://gitlab.com/gitlab-org/release/docs/-/blob/master/general/security/engineer.md).
+Release from canonical `main` straight away. Run the release schedule on demand. See
+[forcing a release off-cycle](release_process.md#forcing-a-release-off-cycle).
 
-1. **Before developing the fix, make sure that you've already run the `scripts/security-harness` script.**
-1. Implement the fix and push it to your branch (`security-9999` for issue #9999).
-1. Create an MR to merge `security-9999` to the patch release branch (`security-2-2`) and get it reviewed.
-1. Merge the fix (make sure you squash all the MR commits into one).
+Validate that the released binary fixes the vulnerability.
 
-### Release the change
+### Resync the security repository
 
-Follow the [regular release process](release_process.md) to tag a new patch version on the `security-2-2` branch and release it. Patch release for tag `v2.2.0` would have version and tag `v2.2.1`. Push the tag to the security repo.
+After the release, reset the security repository's `main` to canonical `main`, so the
+mirror resumes:
 
-Validate that the security issue is fixed in the released binary.
+```shell
+git fetch https://gitlab.com/gitlab-org/cli.git main
+git push --force origin FETCH_HEAD:main
+```
 
-### Backport the fix to `main`
+This needs the Maintainer role in `gitlab-org/security/cli`.
 
-1. Create an MR to merge the security branch `security-2-2` to `main`. Don't squash commits. Delete source branch.
-1. In the MR description, add references to all the reviewed MRs that were merged into `security-2-2`.
-1. Review the MR and merge it. You don't need an additional reviewer because all of the changes have been reviewed.
+### Notify package maintainers
 
-[Example in VS Code extension](https://gitlab.com/gitlab-org/security/gitlab-vscode-extension/-/merge_requests/8), TODO: replace with example from CLI
-
-## Push changes back to the CLI repository
-
-1. Push the patch tag to the [CLI repository](https://gitlab.com/gitlab-org/cli).
-1. Merge the [Security repository](https://gitlab.com/gitlab-org/security/cli) `main` branch with the
-   [CLI repository](https://gitlab.com/gitlab-org/cli/) `main` and push to CLI repository.
+This step is optional. Homebrew, Snap, and Scoop update automatically after the
+release. To get the fix to other packages sooner, you can email the maintainers of the
+community-maintained packages. See
+[notifying maintainers](release_process.md#notifying-maintainers).
