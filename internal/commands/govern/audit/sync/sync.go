@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -162,8 +163,13 @@ func runSync(ctx context.Context, opts *options) error {
 			return err
 		}
 		// Written before ResolveProject so a failed project lookup still
-		// leaves enough context for --all to retry this session later.
-		if err := recordSessionMeta(opts, sessionID, locator); err != nil && !opts.silent {
+		// leaves enough context for --all to retry this session later, or to
+		// report it when the folder has no GitLab project.
+		err = recordSessionMeta(ctx, opts, ag, sessionID, locator)
+		if errors.Is(err, errEarlierActivityNotSkipped) {
+			return err
+		}
+		if err != nil && !opts.silent {
 			opts.io.LogErrorf("warning: could not record session metadata: %v\n", err)
 		}
 	}
@@ -210,13 +216,41 @@ func runSync(ctx context.Context, opts *options) error {
 	return syncSession(ctx, t, sessionID, src, opts)
 }
 
-func recordSessionMeta(opts *options, sessionID, locator string) error {
+var errEarlierActivityNotSkipped = errors.New("could not skip activity from before the session had a GitLab project")
+
+// recordSessionMeta records the session for --all. A session recorded without a
+// project skips its earlier activity before it is recorded with one, so a
+// failed skip leaves it without a project for the next hook call to retry.
+func recordSessionMeta(ctx context.Context, opts *options, ag agent, sessionID, locator string) error {
 	if opts.baseRepo == nil {
 		return nil
 	}
+	meta, readErr := readSessionMeta(sessionID)
+	recordedWithoutProject := readErr == nil && meta.PathWithNamespace == ""
 	repo, err := opts.baseRepo()
 	if err != nil {
-		return err
+		// ResolveProject reports err. Recording the session lets --all report
+		// it as not synced, and every hook call rewrites the record, which
+		// --all reads as the session's last activity.
+		switch {
+		case errors.Is(readErr, errNoSessionMeta):
+		case readErr != nil:
+			return readErr
+		case meta.PathWithNamespace != "":
+			return nil
+		}
+		return writeSessionMeta(sessionID, sessionMeta{AgentType: opts.agentType, Transcript: locator})
+	}
+	if recordedWithoutProject {
+		// The recorded transcript, not the hook's: the hook's path follows its
+		// working directory, which changes if the agent changed directory.
+		src, _, err := ag.recorded(sessionID, cmp.Or(meta.Transcript, locator))
+		if err == nil {
+			err = skipToEnd(ctx, sessionID, src)
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %w", errEarlierActivityNotSkipped, err)
+		}
 	}
 	return writeSessionMeta(sessionID, sessionMeta{
 		AgentType:         opts.agentType,
@@ -224,6 +258,25 @@ func recordSessionMeta(opts *options, sessionID, locator string) error {
 		Host:              repo.RepoHost(),
 		Transcript:        locator,
 	})
+}
+
+// skipToEnd moves the session's cursor past what the transcript holds now. The
+// user agreed to upload sessions in a GitLab repository, so a session that only
+// now has a GitLab remote uploads its activity from this point, not what it did
+// before in another folder or repository.
+func skipToEnd(ctx context.Context, sessionID string, src transcript) error {
+	if src == nil {
+		return nil
+	}
+	cursor, err := readCursor(sessionID)
+	if err != nil {
+		return err
+	}
+	_, end, err := src.read(ctx, cursor)
+	if err != nil {
+		return err
+	}
+	return writeCursor(sessionID, end)
 }
 
 // target is the project a session is synced to.
@@ -498,6 +551,21 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 		}
 
 		if isPaused(ag) {
+			continue
+		}
+		if meta.PathWithNamespace == "" {
+			recordSkip(meta.AgentType + " sessions in a folder where glab could not identify a GitLab project")
+			last, err := sessionMetaModTime(sessionID)
+			if err != nil {
+				recordErr(sessionID, err)
+			} else if now.Sub(last) > idleCompleteAfter {
+				// Completed rather than forgotten: if the session resumes in a
+				// GitLab project, the record is what makes it skip its earlier
+				// activity. canForget deletes it once the agent cannot resume it.
+				if err := markSessionCompleted(sessionID, now); err != nil {
+					recordErr(sessionID, err)
+				}
+			}
 			continue
 		}
 		offset, err := readCursor(sessionID)

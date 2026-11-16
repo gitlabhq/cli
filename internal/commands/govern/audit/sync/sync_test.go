@@ -26,6 +26,7 @@ import (
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
+	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
@@ -481,4 +482,141 @@ func TestRateLimitWait(t *testing.T) {
 			assert.Equal(t, tt.wantWait, wait)
 		})
 	}
+}
+
+func TestRecordSessionMeta_WithoutGitLabRemote(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) { return nil, errors.New("no git remote") }}
+
+	require.NoError(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", "/transcripts/sess-1.jsonl"))
+
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.Equal(t, sessionMeta{AgentType: "claude-code", Transcript: "/transcripts/sess-1.jsonl"}, *meta)
+}
+
+func TestRecordSessionMeta_WithoutGitLabRemoteKeepsProject(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	recorded := sessionMeta{AgentType: "claude-code", PathWithNamespace: "my-group/my-project", Host: "gitlab.com", Transcript: "/t.jsonl"}
+	require.NoError(t, writeSessionMeta("sess-1", recorded))
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) { return nil, errors.New("no git remote") }}
+
+	require.NoError(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", "/t.jsonl"))
+
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.Equal(t, recorded, *meta)
+}
+
+func TestRecordSessionMeta_RemoteReplacesSessionWithoutProject(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "sess-1.jsonl")
+	content := claudeTranscriptLines(t, "sess-1", "toolu_1")
+	require.NoError(t, os.WriteFile(path, content, 0o644))
+	require.NoError(t, writeSessionMeta("sess-1", sessionMeta{AgentType: "claude-code", Transcript: path}))
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) {
+		return glrepo.NewWithHost("my-group", "my-project", "gitlab.com"), nil
+	}}
+
+	require.NoError(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", path))
+
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.Equal(t, sessionMeta{AgentType: "claude-code", PathWithNamespace: "my-group/my-project", Host: "gitlab.com", Transcript: path}, *meta)
+	assertCursorAt(t, "sess-1", int64(len(content)))
+}
+
+func TestRecordSessionMeta_KeepsSessionWithoutProjectWhenSkipFails(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	missing := filepath.Join(t.TempDir(), "gone.jsonl")
+	require.NoError(t, writeSessionMeta("sess-1", sessionMeta{AgentType: "claude-code", Transcript: missing}))
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) {
+		return glrepo.NewWithHost("my-group", "my-project", "gitlab.com"), nil
+	}}
+
+	require.ErrorIs(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", missing),
+		errEarlierActivityNotSkipped, "the hook stops rather than syncing from the start")
+
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.Empty(t, meta.PathWithNamespace, "the next hook call retries the skip")
+	assertCursorAt(t, "sess-1", 0)
+}
+
+func TestRecordSessionMeta_NewSessionWithRemoteUploadsFromTheStart(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) {
+		return glrepo.NewWithHost("my-group", "my-project", "gitlab.com"), nil
+	}}
+
+	path := filepath.Join(t.TempDir(), "sess-1.jsonl")
+	require.NoError(t, os.WriteFile(path, claudeTranscriptLines(t, "sess-1", "toolu_1"), 0o644))
+
+	require.NoError(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", path))
+
+	assertCursorAt(t, "sess-1", 0)
+}
+
+func TestSkipToEnd(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "sess-1.jsonl")
+	content := claudeTranscriptLines(t, "sess-1", "toolu_1", "toolu_2")
+	require.NoError(t, os.WriteFile(path, append(content, []byte(`{"type":"assistant"`)...), 0o644))
+	require.NoError(t, writeCursor("sess-1", 10))
+
+	require.NoError(t, skipToEnd(t.Context(), "sess-1", claudeTranscript{path: path}))
+
+	assertCursorAt(t, "sess-1", int64(len(content)))
+}
+
+func TestRecordSessionMeta_WithoutGitLabRemoteKeepsUnreadableRecord(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	path, err := metaPath("sess-1")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte("not json"), 0o600))
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) { return nil, errors.New("no git remote") }}
+
+	require.Error(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", "/t.jsonl"))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "not json", string(data), "a record that may hold a project is not replaced")
+}
+
+func TestRecordSessionMeta_RemoteReplacesUnreadableRecord(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	path, err := metaPath("sess-1")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte("not json"), 0o600))
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) {
+		return glrepo.NewWithHost("my-group", "my-project", "gitlab.com"), nil
+	}}
+
+	require.NoError(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", "/t.jsonl"))
+
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.Equal(t, "my-group/my-project", meta.PathWithNamespace)
+}
+
+func TestRecordSessionMeta_SkipsUsingTheRecordedTranscript(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "sess-1.jsonl")
+	content := claudeTranscriptLines(t, "sess-1", "toolu_1")
+	require.NoError(t, os.WriteFile(path, content, 0o644))
+	require.NoError(t, writeSessionMeta("sess-1", sessionMeta{AgentType: "claude-code", Transcript: path}))
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) {
+		return glrepo.NewWithHost("my-group", "my-project", "gitlab.com"), nil
+	}}
+
+	// The hook ran from another folder after the agent changed directory.
+	hookPath := filepath.Join(t.TempDir(), "elsewhere", "sess-1.jsonl")
+	require.NoError(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", hookPath))
+
+	assertCursorAt(t, "sess-1", int64(len(content)))
 }
