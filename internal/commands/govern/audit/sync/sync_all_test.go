@@ -36,6 +36,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/opencodeplugin"
 	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -1753,4 +1754,92 @@ func TestOptionsWait_StopsWhenCanceled(t *testing.T) {
 	cancel()
 
 	assert.ErrorIs(t, (&options{}).wait(ctx, time.Hour), context.Canceled)
+}
+
+// writeSessionWithoutProject records a Claude Code session the way a hook does
+// in a folder without a GitLab remote.
+func (e *syncAllEnv) writeSessionWithoutProject(t *testing.T, sessionID string) {
+	t.Helper()
+	path := e.writeClaudeSession(t, sessionID, "my-group/my-project", "toolu_1")
+	require.NoError(t, writeSessionMeta(sessionID, sessionMeta{AgentType: "claude-code", Transcript: path}))
+}
+
+const notSyncedWithoutRemote = "claude-code sessions in a folder where glab could not identify a GitLab project"
+
+func TestSyncAll_ReportsSessionWithoutGitLabRemote(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.writeSessionWithoutProject(t, "sess-1")
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	assert.Empty(t, env.fake.sessionsCreated)
+	status := readStatus(t)
+	assert.Empty(t, status.Errors)
+	assert.Equal(t, []string{notSyncedWithoutRemote}, status.Skipped)
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.Nil(t, meta.CompletedAt, "an active session is kept, so later runs still report it")
+}
+
+func TestSyncAll_CompletesIdleSessionWithoutGitLabRemote(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.writeSessionWithoutProject(t, "sess-1")
+	path, err := metaPath("sess-1")
+	require.NoError(t, err)
+	idle := time.Now().Add(-2 * idleCompleteAfter)
+	require.NoError(t, os.Chtimes(path, idle, idle))
+
+	_, err = env.exec("--all")
+	require.NoError(t, err)
+
+	assert.Empty(t, env.fake.sessionsCreated)
+	assert.Empty(t, readStatus(t).Errors)
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.NotNil(t, meta.CompletedAt, "the record is kept until the agent can no longer resume the session")
+}
+
+func TestSyncAll_SessionResumedInGitLabProjectAfterIdleCompletionSkipsEarlierActivity(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.writeSessionWithoutProject(t, "sess-2")
+	path, err := metaPath("sess-2")
+	require.NoError(t, err)
+	idle := time.Now().Add(-2 * idleCompleteAfter)
+	require.NoError(t, os.Chtimes(path, idle, idle))
+	_, err = env.exec("--all")
+	require.NoError(t, err)
+	meta, err := readSessionMeta("sess-2")
+	require.NoError(t, err)
+	require.NotNil(t, meta.CompletedAt)
+	content, err := os.ReadFile(meta.Transcript)
+	require.NoError(t, err)
+
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) {
+		return glrepo.NewWithHost("my-group", "my-project", testHost), nil
+	}}
+	require.NoError(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-2", meta.Transcript))
+
+	assertCursorAt(t, "sess-2", int64(len(content)))
+	meta, err = readSessionMeta("sess-2")
+	require.NoError(t, err)
+	assert.Equal(t, "my-group/my-project", meta.PathWithNamespace)
+	assert.Nil(t, meta.CompletedAt, "the resumed session syncs again")
+}
+
+func TestSyncAll_ReportsSessionWithoutGitLabRemoteWhoseTranscriptIsGone(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.writeSessionWithoutProject(t, "sess-1")
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(meta.Transcript))
+
+	_, err = env.exec("--all")
+	require.NoError(t, err)
+
+	status := readStatus(t)
+	assert.Empty(t, status.Errors)
+	assert.Equal(t, []string{notSyncedWithoutRemote}, status.Skipped)
+	_, err = readSessionMeta("sess-1")
+	assert.NoError(t, err, "unlike a session with a project, it is not forgotten when its transcript is gone")
 }
