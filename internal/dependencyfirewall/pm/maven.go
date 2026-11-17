@@ -2,6 +2,7 @@ package pm
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -98,6 +99,27 @@ func (m *mavenManager) CleanupCAFiles(caPath string) {
 	_ = os.Remove(caPath + ".settings.xml")
 	_ = os.Remove(caPath + ".global-settings.xml")
 	_ = os.Remove(caPath + ".p12")
+}
+
+// upstreamTrustAnchors returns the certificates in the truststore mvn's JVM
+// would load. glab replaces that truststore for the child, so the user's
+// anchors move to the registry side. Maven 3's launcher passes jvm.config
+// before MAVEN_OPTS and MAVEN_DEBUG_OPTS, and Maven 4's passes it after
+// MAVEN_OPTS; this follows Maven 3. The JVM reads JAVA_TOOL_OPTIONS first,
+// the java launcher puts JDK_JAVA_OPTIONS before the command line, and
+// _JAVA_OPTIONS comes last. A -D option in mvn's own arguments fills only a
+// property those leave unset, as on Maven 4: on Maven 3 it replaces glab's
+// truststore, so the run fails whatever registry connections trust. The
+// error also reports a truststore option in MAVEN_DEBUG_OPTS, _JAVA_OPTIONS
+// or mvn's own arguments, which replaces glab's in the child.
+func (m *mavenManager) upstreamTrustAnchors(env []string, dir string, args []string) ([]*x509.Certificate, error) {
+	argProps := mavenArgProperties(env, dir, args)
+	certs, err := jvmTrustAnchors(env, dir, argProps,
+		lookupEnv(env, "JAVA_TOOL_OPTIONS"), lookupEnv(env, "JDK_JAVA_OPTIONS"), mavenJVMConfig(env, dir, args),
+		lookupEnv(env, "MAVEN_OPTS"), lookupEnv(env, "MAVEN_DEBUG_OPTS"), lookupEnv(env, "_JAVA_OPTIONS"))
+	return certs, errors.Join(err,
+		jvmTrustStoreOverride(env, "mvn", "MAVEN_OPTS", "MAVEN_DEBUG_OPTS", "_JAVA_OPTIONS"),
+		argTrustStoreOverride(argProps, "-D%s in the mvn arguments replaces glab's truststore on Maven 3, so mvn cannot trust the dependency firewall proxy there; set it in MAVEN_OPTS instead"))
 }
 
 func (m *mavenManager) Matcher() proxy.Matcher { return proxy.MavenMatcher{Mirrors: m.mirrors} }

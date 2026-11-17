@@ -102,7 +102,7 @@ func assertVerifies(t *testing.T, pool *x509.CertPool, leaf *x509.Certificate) {
 
 func TestUpstreamRootCAsNoneConfigured(t *testing.T) {
 	t.Parallel()
-	pool, caPEM, err := upstreamRootCAs(nil, "")
+	pool, caPEM, err := upstreamRootCAs(nil, "", nil)
 	require.NoError(t, err)
 	assert.Nil(t, pool)
 	assert.Nil(t, caPEM)
@@ -110,7 +110,7 @@ func TestUpstreamRootCAsNoneConfigured(t *testing.T) {
 
 func TestUpstreamRootCAsEmptyVariableIsUnset(t *testing.T) {
 	t.Parallel()
-	pool, _, err := upstreamRootCAs([]string{"REQUESTS_CA_BUNDLE="}, "")
+	pool, _, err := upstreamRootCAs([]string{"REQUESTS_CA_BUNDLE="}, "", nil)
 	require.NoError(t, err)
 	assert.Nil(t, pool)
 }
@@ -120,7 +120,7 @@ func TestUpstreamRootCAsTrustsEveryCertInBundle(t *testing.T) {
 	a, b := newTestAuthority(t), newTestAuthority(t)
 	bundle := writeTestFile(t, "bundle.pem", append(a.pem(), b.pem()...))
 
-	pool, caPEM, err := upstreamRootCAs([]string{"REQUESTS_CA_BUNDLE=" + bundle}, "")
+	pool, caPEM, err := upstreamRootCAs([]string{"REQUESTS_CA_BUNDLE=" + bundle}, "", nil)
 	require.NoError(t, err)
 	require.NotNil(t, pool)
 	assertVerifies(t, pool, a.leaf(t, "a.registry.test"))
@@ -133,7 +133,7 @@ func TestUpstreamRootCAsTrustsCACertPath(t *testing.T) {
 	a := newTestAuthority(t)
 	caCert := writeTestFile(t, "ca.pem", a.pem())
 
-	pool, _, err := upstreamRootCAs(nil, caCert)
+	pool, _, err := upstreamRootCAs(nil, caCert, nil)
 	require.NoError(t, err)
 	require.NotNil(t, pool)
 	assertVerifies(t, pool, a.leaf(t, "registry.test"))
@@ -148,7 +148,7 @@ func TestUpstreamRootCAsSkipsUnusableFiles(t *testing.T) {
 		"NODE_EXTRA_CA_CERTS=" + writeTestFile(t, "ca.pem", a.pem()),
 	}
 
-	pool, _, err := upstreamRootCAs(env, "")
+	pool, _, err := upstreamRootCAs(env, "", nil)
 	require.NoError(t, err)
 	require.NotNil(t, pool)
 	assertVerifies(t, pool, a.leaf(t, "registry.test"))
@@ -159,7 +159,7 @@ func TestUpstreamRootCAsOnlyUnusableFiles(t *testing.T) {
 	env := []string{"SSL_CERT_FILE=" + filepath.Join(t.TempDir(), "missing.pem")}
 	caCert := writeTestFile(t, "garbage.pem", []byte("not a certificate"))
 
-	pool, caPEM, err := upstreamRootCAs(env, caCert)
+	pool, caPEM, err := upstreamRootCAs(env, caCert, nil)
 	require.NoError(t, err)
 	assert.Nil(t, pool)
 	assert.Nil(t, caPEM)
