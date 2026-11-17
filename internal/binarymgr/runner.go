@@ -83,6 +83,9 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	if info.Path == managedPath {
 		r.saveAutoDownloadPreference(result.AutoDownloadPreference)
+		if result.Downloaded {
+			r.saveLastUpdateCheck(time.Now())
+		}
 		if err := r.SaveBinaryInfo(info); err != nil {
 			r.warnf("Failed to save binary metadata: %v", err)
 		}
@@ -281,10 +284,7 @@ func (r *Runner) performUpdateCheck(ctx context.Context, forceCheck bool) (*upda
 	}
 
 	check, err := r.Manager.CheckForUpdate(ctx, currentVersion, lastCheckTime, forceCheck)
-	if err != nil {
-		return nil, err
-	}
-
+	// A failed check is stamped too, so an unreachable registry costs one timeout per day, not one per run.
 	if !check.NewCheckTime.IsZero() {
 		if err := r.Cfg.Set("", r.Spec.configKey("last_update_check"), check.NewCheckTime.Format(time.RFC3339)); err != nil {
 			r.warnf("Failed to save update check time: %v", err)
@@ -292,6 +292,10 @@ func (r *Runner) performUpdateCheck(ctx context.Context, forceCheck bool) (*upda
 		if err := r.Cfg.Write(); err != nil {
 			r.warnf("Failed to write config: %v", err)
 		}
+	}
+
+	if err != nil {
+		return nil, err
 	}
 
 	return &updateCheckResult{

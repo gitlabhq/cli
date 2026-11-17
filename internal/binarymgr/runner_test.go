@@ -4,6 +4,7 @@ package binarymgr
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -361,4 +362,64 @@ func TestRunner_HandleInstall_keepsStdoutClean(t *testing.T) {
 	assert.Contains(t, stderr.String(), "Downloading")
 	assert.Contains(t, stderr.String(), "Checksum verified")
 	assert.Contains(t, stderr.String(), "Installed to:")
+}
+
+func TestRunner_performUpdateCheck_stampsFailedCheck(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	testClient := gitlabtesting.NewTestClient(t, gitlab.WithBaseURL("https://gitlab.com"))
+	spec := testSpec()
+	testClient.MockPackages.EXPECT().
+		ListProjectPackages(spec.ProjectID, gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil, errors.New("i/o timeout")).
+		Times(1)
+	cfg := config.NewBlankConfig()
+	require.NoError(t, cfg.Set("", spec.configKey("binary_version"), "8.0.0"))
+	r := &Runner{IO: ios, Cfg: cfg, Spec: spec, Manager: &Manager{io: ios, spec: spec, client: testClient.Client}}
+
+	_, err := r.performUpdateCheck(t.Context(), false)
+	require.Error(t, err)
+
+	stamp, _ := cfg.Get("", spec.configKey("last_update_check"))
+	require.NotEmpty(t, stamp)
+
+	result, err := r.performUpdateCheck(t.Context(), false)
+	require.NoError(t, err)
+	assert.False(t, result.hasUpdate)
+}
+
+func TestRunner_Run_freshDownloadSkipsFollowUpUpdateCheck(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	testClient := gitlabtesting.NewTestClient(t, gitlab.WithBaseURL("https://gitlab.com"))
+	spec := testSpec()
+	platform, err := detectPlatform(spec)
+	require.NoError(t, err)
+	content := []byte("#!/bin/sh\n")
+	checksum := sha256.Sum256(content)
+
+	testClient.MockPackages.EXPECT().
+		ListProjectPackages(spec.ProjectID, gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*gitlab.Package{{ID: 1, Version: "8.0.0"}}, noMorePages(), nil).
+		Times(1)
+	testClient.MockPackages.EXPECT().
+		ListPackageFiles(spec.ProjectID, int64(1), gomock.Any(), gomock.Any()).
+		Return([]*gitlab.PackageFile{{FileName: assetName(spec, platform), FileSHA256: hex.EncodeToString(checksum[:])}}, nil, nil)
+	testClient.MockGenericPackages.EXPECT().
+		DownloadPackageFile(spec.ProjectID, spec.PackageName, "8.0.0", assetName(spec, platform), gomock.Any()).
+		Return(content, nil, nil)
+
+	cfg := config.NewBlankConfig()
+	executed := false
+	r := &Runner{
+		IO: ios, Cfg: cfg, Spec: spec, Yes: true,
+		Manager:  &Manager{io: ios, spec: spec, client: testClient.Client},
+		Executor: func(context.Context, string, []string) error { executed = true; return nil },
+	}
+
+	require.NoError(t, r.Run(t.Context()))
+
+	assert.True(t, executed)
+	stamp, _ := cfg.Get("", spec.configKey("last_update_check"))
+	assert.NotEmpty(t, stamp)
 }

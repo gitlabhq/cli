@@ -21,6 +21,10 @@ import (
 
 const defaultUpdateCheckDelay = 24 * time.Hour
 
+// registryLookupTimeout bounds the package-registry metadata calls (list packages, list files).
+// Without it, an unreachable registry costs six 30 s dial timeouts per call.
+const registryLookupTimeout = 15 * time.Second
+
 // BinaryInfo describes an installed (or located) managed binary.
 type BinaryInfo struct {
 	Path     string
@@ -107,7 +111,8 @@ func (m *Manager) EnsureInstalled(ctx context.Context, installedVersion, install
 }
 
 // UpdateCheck is the result of CheckForUpdate. NewCheckTime is non-zero
-// when the call actually contacted the registry; callers should persist it.
+// when a registry lookup was attempted, whether or not it succeeded;
+// callers should persist it.
 type UpdateCheck struct {
 	HasUpdate       bool
 	LatestVersion   string
@@ -124,9 +129,11 @@ func (m *Manager) CheckForUpdate(ctx context.Context, currentVersion string, las
 		return UpdateCheck{}, nil
 	}
 
-	latestPkg, err := m.fetchLatestPackage(ctx)
+	lookupCtx, cancel := context.WithTimeout(ctx, registryLookupTimeout)
+	defer cancel()
+	latestPkg, err := m.fetchLatestPackage(lookupCtx)
 	if err != nil {
-		return UpdateCheck{}, err
+		return UpdateCheck{NewCheckTime: time.Now()}, err
 	}
 
 	now := time.Now()
@@ -299,12 +306,13 @@ func (m *Manager) fetchLatestPackage(ctx context.Context) (*gitlab.Package, erro
 		PackageName: &m.spec.PackageName,
 		OrderBy:     new("created_at"),
 		Sort:        new("desc"),
+		ListOptions: gitlab.ListOptions{PerPage: 100},
 	}
 	packages, err := gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.Package, *gitlab.Response, error) {
 		return m.client.Packages.ListProjectPackages(m.spec.ProjectID, opts, p, gitlab.WithContext(ctx))
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch packages: %w", err)
+		return nil, registryError("packages", err)
 	}
 	if len(packages) == 0 {
 		return nil, errors.New("no packages found")
@@ -327,7 +335,16 @@ func (m *Manager) fetchLatestPackage(ctx context.Context) (*gitlab.Package, erro
 	return latestPkg, nil
 }
 
+func registryError(what string, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("package registry did not respond within %s: %w", registryLookupTimeout, err)
+	}
+	return fmt.Errorf("failed to fetch %s: %w", what, err)
+}
+
 func (m *Manager) fetchPackageAsset(ctx context.Context, platform Platform) (*packageAsset, error) {
+	ctx, cancel := context.WithTimeout(ctx, registryLookupTimeout)
+	defer cancel()
 	pkg, err := m.fetchLatestPackage(ctx)
 	if err != nil {
 		return nil, err
@@ -346,7 +363,7 @@ func (m *Manager) fetchPackageAsset(ctx context.Context, platform Platform) (*pa
 
 	files, _, err := m.client.Packages.ListPackageFiles(m.spec.ProjectID, pkg.ID, &gitlab.ListPackageFilesOptions{}, gitlab.WithContext(ctx))
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch package files: %w", err)
+		return nil, registryError("package files", err)
 	}
 
 	wanted := assetName(m.spec, platform)
