@@ -47,7 +47,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
 	github.com/tidwall/pretty v1.3.0
-	github.com/yuin/goldmark/v2 v2.1.13
+	github.com/yuin/goldmark/v2 v2.1.15
 	github.com/zalando/go-keyring v0.2.8
 	gitlab.com/gitlab-org/api/client-go/v3 v3.52.0
 	gitlab.com/gitlab-org/protos/gen/go/gitlab/autoflow v0.1.16
