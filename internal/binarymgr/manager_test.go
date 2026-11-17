@@ -3,14 +3,17 @@
 package binarymgr
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -406,4 +409,123 @@ func TestManager_validateBinaryPath(t *testing.T) {
 		require.NoError(t, os.WriteFile(f, []byte("#!/bin/sh\n"), 0o755))
 		require.NoError(t, validateBinaryPath(f, spec))
 	})
+}
+
+func requestDeadline(t *testing.T, options []gitlab.RequestOptionFunc) (time.Time, bool) {
+	t.Helper()
+	req, err := retryablehttp.NewRequest(http.MethodGet, "https://gitlab.com", nil)
+	require.NoError(t, err)
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+		require.NoError(t, option(req))
+	}
+	return req.Context().Deadline()
+}
+
+func TestManager_registryLookups_haveDeadline(t *testing.T) {
+	t.Parallel()
+
+	assertDeadline := func(t *testing.T, options []gitlab.RequestOptionFunc) {
+		t.Helper()
+		deadline, ok := requestDeadline(t, options)
+		require.True(t, ok, "registry lookup must carry a deadline")
+		assert.WithinDuration(t, time.Now().Add(registryLookupTimeout), deadline, 2*time.Second)
+	}
+
+	t.Run("CheckForUpdate", func(t *testing.T) {
+		t.Parallel()
+		spec := testSpec()
+		testClient := gitlabtesting.NewTestClient(t, gitlab.WithBaseURL("https://gitlab.com"))
+		testClient.MockPackages.EXPECT().
+			ListProjectPackages(spec.ProjectID, gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ any, _ *gitlab.ListProjectPackagesOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.Package, *gitlab.Response, error) {
+				assertDeadline(t, options)
+				return []*gitlab.Package{{ID: 1, Version: "8.0.0"}}, noMorePages(), nil
+			})
+		ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+		m := &Manager{io: ios, spec: spec, client: testClient.Client}
+
+		_, err := m.CheckForUpdate(t.Context(), "8.0.0", time.Time{}, true)
+		require.NoError(t, err)
+	})
+
+	t.Run("fetchPackageAsset", func(t *testing.T) {
+		t.Parallel()
+		spec := testSpec()
+		platform, err := detectPlatform(spec)
+		require.NoError(t, err)
+		testClient := gitlabtesting.NewTestClient(t, gitlab.WithBaseURL("https://gitlab.com"))
+		testClient.MockPackages.EXPECT().
+			ListProjectPackages(spec.ProjectID, gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ any, _ *gitlab.ListProjectPackagesOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.Package, *gitlab.Response, error) {
+				assertDeadline(t, options)
+				return []*gitlab.Package{{ID: 1, Version: "8.0.0"}}, noMorePages(), nil
+			})
+		testClient.MockPackages.EXPECT().
+			ListPackageFiles(spec.ProjectID, int64(1), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ any, _ int64, _ *gitlab.ListPackageFilesOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.PackageFile, *gitlab.Response, error) {
+				assertDeadline(t, options)
+				return []*gitlab.PackageFile{{FileName: assetName(spec, platform), FileSHA256: "abc"}}, nil, nil
+			})
+		ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+		m := &Manager{io: ios, spec: spec, client: testClient.Client}
+
+		_, err = m.fetchPackageAsset(t.Context(), platform)
+		require.NoError(t, err)
+	})
+}
+
+func TestManager_fetchLatestPackage_timeoutError(t *testing.T) {
+	t.Parallel()
+
+	spec := testSpec()
+	testClient := gitlabtesting.NewTestClient(t, gitlab.WithBaseURL("https://gitlab.com"))
+	testClient.MockPackages.EXPECT().
+		ListProjectPackages(spec.ProjectID, gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil, context.DeadlineExceeded)
+	ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	m := &Manager{io: ios, spec: spec, client: testClient.Client}
+
+	_, err := m.fetchLatestPackage(t.Context())
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.ErrorContains(t, err, "package registry did not respond within 15s")
+}
+
+func TestManager_fetchPackageAsset_filesTimeoutError(t *testing.T) {
+	t.Parallel()
+
+	spec := testSpec()
+	testClient := gitlabtesting.NewTestClient(t, gitlab.WithBaseURL("https://gitlab.com"))
+	testClient.MockPackages.EXPECT().
+		ListProjectPackages(spec.ProjectID, gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*gitlab.Package{{ID: 1, Version: "8.0.0"}}, noMorePages(), nil)
+	testClient.MockPackages.EXPECT().
+		ListPackageFiles(spec.ProjectID, int64(1), gomock.Any(), gomock.Any()).
+		Return(nil, nil, context.DeadlineExceeded)
+	ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	m := &Manager{io: ios, spec: spec, client: testClient.Client}
+
+	_, err := m.fetchPackageAsset(t.Context(), Platform{OS: "linux", Arch: "x64"})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.ErrorContains(t, err, "package registry did not respond within 15s")
+}
+
+func TestManager_fetchLatestPackage_requestsLargePages(t *testing.T) {
+	t.Parallel()
+
+	spec := testSpec()
+	testClient := gitlabtesting.NewTestClient(t, gitlab.WithBaseURL("https://gitlab.com"))
+	testClient.MockPackages.EXPECT().
+		ListProjectPackages(spec.ProjectID, gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ any, opts *gitlab.ListProjectPackagesOptions, _ ...gitlab.RequestOptionFunc) ([]*gitlab.Package, *gitlab.Response, error) {
+			assert.Equal(t, int64(100), opts.PerPage)
+			return []*gitlab.Package{{ID: 1, Version: "8.0.0"}}, noMorePages(), nil
+		})
+	ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+	m := &Manager{io: ios, spec: spec, client: testClient.Client}
+
+	_, err := m.fetchLatestPackage(t.Context())
+	require.NoError(t, err)
 }
