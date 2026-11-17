@@ -379,7 +379,7 @@ var KeySchema = []KeyDef{
 		Name: "client_cert", Scope: ScopePerHost, Type: TypeString,
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_CLIENT_CERT", "CLIENT_CERT"},
-		Description:  "Path to a client certificate used for mutual TLS authentication. Use a PEM or DER\ncertificate with client_key, or a PKCS#12 bundle (.p12, .pfx) and leave client_key unset.",
+		Description:  "Path to a client certificate used for mutual TLS authentication. Use a PEM or DER\ncertificate with client_key, or a PKCS#12 bundle (.p12, .pfx) and leave client_key unset.\nglab dependency-firewall commands also present it to an https:// outbound\nproxy, never to package registries.",
 	},
 	{
 		Name: "client_key", Scope: ScopePerHost, Type: TypeString,
