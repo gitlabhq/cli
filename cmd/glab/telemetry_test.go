@@ -327,6 +327,66 @@ func Test_sendTelemetryData_skipsMachineInvokedCommands(t *testing.T) {
 	}
 }
 
+func Test_sendTelemetryData_skipsAgentHookRuns(t *testing.T) {
+	newSync := func() *cobra.Command {
+		root := &cobra.Command{Use: "glab"}
+		minder := &cobra.Command{Use: "minder"}
+		audit := &cobra.Command{Use: "audit"}
+		sync := &cobra.Command{Use: "sync"}
+		sync.Flags().String("hook", "", "")
+		root.AddCommand(minder)
+		minder.AddCommand(audit)
+		audit.AddCommand(sync)
+		return sync
+	}
+
+	t.Run("with --hook", func(t *testing.T) {
+		f, sent := telemetryServer(t)
+		cmd := newSync()
+		require.NoError(t, cmd.Flags().Set("hook", "codex"))
+
+		sendTelemetryData(f, cmd)
+
+		require.Empty(t, sent(), "the agent waits for its hook, and the glab it starts sends the event")
+	})
+
+	t.Run("without --hook", func(t *testing.T) {
+		f, sent := telemetryServer(t)
+
+		sendTelemetryData(f, newSync())
+
+		require.Len(t, sent(), 1)
+	})
+}
+
+func Test_ranFromAgentHook(t *testing.T) {
+	for _, name := range []string{"minder", "govern"} {
+		t.Run(name, func(t *testing.T) {
+			newRoot := func() *cobra.Command {
+				root := &cobra.Command{Use: "glab"}
+				group := &cobra.Command{Use: name}
+				audit := &cobra.Command{Use: "audit"}
+				sync := &cobra.Command{Use: "sync"}
+				sync.Flags().String("hook", "", "")
+				root.AddCommand(group)
+				group.AddCommand(audit)
+				audit.AddCommand(sync)
+				return root
+			}
+			args := []string{name, "audit", "sync", "--hook", "codex"}
+
+			root := newRoot()
+			cmd, _, err := root.Find(args)
+			require.NoError(t, err)
+			require.NoError(t, cmd.Flags().Set("hook", "codex"))
+			assert.True(t, ranFromAgentHook(root, args), "the update check would delay the agent and print to its hook")
+
+			assert.False(t, ranFromAgentHook(newRoot(), []string{name, "audit", "sync"}))
+			assert.False(t, ranFromAgentHook(newRoot(), []string{"no-such-command"}))
+		})
+	}
+}
+
 func Test_buildTelemetryEvent_sendsProjectPath(t *testing.T) {
 	t.Parallel()
 

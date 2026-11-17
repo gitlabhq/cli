@@ -19,19 +19,37 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
-// codex syncs Codex sessions, which the scheduled job finds by scanning
-// Codex's rollout files. Their transcript locator is the rollout path.
+// codex syncs Codex sessions, which its Stop hook records and the scheduled
+// job also finds by scanning Codex's rollout files. Their transcript locator
+// is the rollout path.
 type codex struct {
 	executor cmdutils.Executor
 }
 
 func (codex) name() string { return "codex" }
 
-// sessionID reports no session, because Codex sessions are only discovered.
-func (codex) sessionID() string { return "" }
+func (codex) sessionID() string {
+	id, _ := hookSession("codex")
+	return id
+}
 
-func (codex) current(string) (transcript, string, error) {
-	return nil, "", errors.New("codex sessions are discovered, not recorded by a hook")
+// current opens the rollout that the Stop hook passed. Subagent threads are
+// skipped, as discover skips them.
+func (codex) current(sessionID string) (transcript, string, error) {
+	_, path := hookSession("codex")
+	meta, err := readCodexSessionMeta(path)
+	if err != nil {
+		return nil, "", err
+	}
+	if meta.ParentThreadID != "" {
+		return nil, "", errors.New("codex subagent threads are not synced")
+	}
+	// Discovery keys the session by this ID, so a different one would sync
+	// it twice.
+	if meta.ID != sessionID {
+		return nil, "", fmt.Errorf("the Codex hook passed session %s for rollout %s", sessionID, meta.ID)
+	}
+	return codexTranscript{sessionID: sessionID, path: path}, path, nil
 }
 
 func (codex) recorded(sessionID, path string) (transcript, string, error) {

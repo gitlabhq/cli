@@ -42,11 +42,15 @@ type options struct {
 	complete  bool
 	agentType string
 	all       bool
+	// hook is the agent whose hook passes the session on stdin.
+	hook      string
 	buildInfo api.BuildInfo
 	// rateLimitWaited is how long this run has waited out GitLab's rate limit.
 	rateLimitWaited time.Duration
 	// waitFor, when set, replaces waiting for a duration, for tests.
 	waitFor func(ctx context.Context, d time.Duration) error
+	// startDetached, when set, replaces starting glab in the background, for tests.
+	startDetached func(dir string, env []string, args ...string) error
 }
 
 // wait waits for d, or until ctx is done.
@@ -105,6 +109,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Called by the Stop hook after every agent turn. Also used by the SessionEnd hook (with %[1]s--complete%[1]s) to mark the session as complete. The hooks also record the session's project, host, and transcript location so that %[1]s--all%[1]s can sync it later.
 
+			With %[1]s--hook codex%[1]s, reads the session from the JSON that a Codex Stop hook gets on stdin, and syncs it with a glab started in the background, so Codex does not wait for the upload. It prints nothing, because Codex reads a Stop hook's output as a reason to continue. The project is resolved from the session's directory.
+
 			Project is resolved from the Git remote of the current directory, or overridden with %[1]s-R/--repo%[1]s.
 
 			With %[1]s--all%[1]s, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them. The fallback periodic sync installed by %[1]sglab minder setup%[1]s runs this, and %[1]sglab minder doctor%[1]s shows the result of its last run.
@@ -138,15 +144,22 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl.BoolVar(&opts.silent, "silent", false, "Suppress all output. Used when invoked from hooks.")
 	fl.BoolVar(&opts.complete, "complete", false, "Mark the session as completed. Used by the SessionEnd hook.")
 	fl.BoolVar(&opts.all, "all", false, "Sync all sessions recorded by the hooks. Used by the fallback periodic sync.")
+	fl.Var(cmdutils.NewEnumValue(hookAgents, "", &opts.hook), "hook", fmt.Sprintf("Read the session from the stdin of this agent's hook, and sync it in the background: %s. Used by the Codex Stop hook.", strings.Join(hookAgents, ", ")))
 
 	cmdutils.EnableRepoOverride(cmd, f)
 	cmd.MarkFlagsMutuallyExclusive("all", "repo")
 	cmd.MarkFlagsMutuallyExclusive("all", "complete")
+	for _, other := range []string{"all", "complete", "repo"} {
+		cmd.MarkFlagsMutuallyExclusive("hook", other)
+	}
 
 	return cmd
 }
 
 func runSync(ctx context.Context, opts *options) error {
+	if opts.hook != "" {
+		return runHook(opts)
+	}
 	if opts.all {
 		return syncAllSessions(ctx, opts)
 	}

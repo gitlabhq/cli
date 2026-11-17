@@ -47,6 +47,22 @@ var telemetrySkippedCommands = map[string]struct{}{
 	"auth credential-helper":  {},
 }
 
+// agentHookFlags are flags with which a command runs from an agent's hook that
+// waits for it. Such a run sends no telemetry, because the glab that it starts
+// sends its own event, and does not check for updates.
+var agentHookFlags = map[string]string{
+	"minder audit sync": "hook",
+	// Hooks installed before the rename to glab minder still run glab govern.
+	"govern audit sync": "hook",
+}
+
+// runByAgentHook reports whether cmd ran from an agent's hook that waits for it.
+func runByAgentHook(cmd *cobra.Command) bool {
+	_, _, fullCommand := parseCommand(strings.Split(cmd.CommandPath(), " "))
+	flag, ok := agentHookFlags[fullCommand]
+	return ok && cmd.Flags().Changed(flag)
+}
+
 func addTelemetryHook(f cmdutils.Factory, rootCmd *cobra.Command, args []string) func() {
 	return func() {
 		// Cobra registers __complete (and its __completeNoDesc alias) during Execute.
@@ -103,6 +119,10 @@ func sendTelemetryData(f cmdutils.Factory, cmd *cobra.Command) {
 	command, subcommand, fullCommand := parseCommand(strings.Split(cmd.CommandPath(), " "))
 	if _, skip := telemetrySkippedCommands[fullCommand]; skip {
 		dbg.Debug("Telemetry skipped for machine-invoked command: ", fullCommand)
+		return
+	}
+	if runByAgentHook(cmd) {
+		dbg.Debug("Telemetry skipped for command run by an agent hook: ", fullCommand)
 		return
 	}
 
