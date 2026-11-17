@@ -302,6 +302,46 @@ var KeySchema = []KeyDef{
 		UserSettable: true, HelpHidden: true,
 		Description: "Last time a GitLab Orbit CLI update check was performed (automatically set).",
 	},
+	// ---- GitLab Endpoint Agent Platform binarymgr keys ----
+	{
+		Name: "minder_cli_auto_run", Scope: ScopeGlobal, Type: TypeString,
+		UserSettable: true,
+		EnvVars:      []string{"GLAB_MINDER_CLI_AUTO_RUN", "MINDER_CLI_AUTO_RUN"},
+		Description:  "Automatically run the GitLab Endpoint Agent Platform without prompting (true/false). Set to true to skip the confirmation prompt.",
+		Values:       []string{"true", "false"},
+	},
+	{
+		Name: "minder_cli_auto_download", Scope: ScopeGlobal, Type: TypeString,
+		UserSettable: true,
+		EnvVars:      []string{"GLAB_MINDER_CLI_AUTO_DOWNLOAD", "MINDER_CLI_AUTO_DOWNLOAD"},
+		Description:  "Automatically download the GitLab Endpoint Agent Platform binary without prompting (true/false).",
+		Values:       []string{"true", "false"},
+	},
+	{
+		Name: "minder_cli_binary_path", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
+		UserSettable: true, HelpHidden: true,
+		EnvVars:     []string{"GLAB_MINDER_CLI_BINARY_PATH"},
+		Description: "Path to the installed GitLab Endpoint Agent Platform binary (automatically set). Default: ~/.config/glab-cli/bin/agent-client",
+	},
+	{
+		Name: "minder_cli_binary_version", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
+		UserSettable: true, HelpHidden: true,
+		Description: "Version of the installed GitLab Endpoint Agent Platform binary (automatically set).",
+	},
+	{
+		Name: "minder_cli_binary_checksum", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
+		UserSettable: true, HelpHidden: true,
+		Description: "SHA256 checksum of the installed GitLab Endpoint Agent Platform binary (automatically set).",
+	},
+	{
+		Name: "minder_cli_last_update_check", Scope: ScopeGlobal, Type: TypeString,
+		GlobalOnly:   true,
+		UserSettable: true, HelpHidden: true,
+		Description: "Last time a GitLab Endpoint Agent Platform update check was performed (automatically set).",
+	},
 
 	// ---------------- Per-host ----------------
 	{

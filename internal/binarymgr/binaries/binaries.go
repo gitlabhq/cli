@@ -6,5 +6,5 @@ import "gitlab.com/gitlab-org/cli/internal/binarymgr"
 
 // All returns every managed binary, in the order glab check-update reports them.
 func All() []binarymgr.Spec {
-	return []binarymgr.Spec{DuoCLI(), Orbit()}
+	return []binarymgr.Spec{MinderCLI(), DuoCLI(), Orbit()}
 }

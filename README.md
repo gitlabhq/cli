@@ -87,7 +87,7 @@ Run `glab --help` to view a list of core commands in your terminal.
 - [`glab job`](docs/source/job): Work with GitLab CI/CD jobs.
 - [`glab label`](docs/source/label): Manage project and group labels.
 - [`glab milestone`](docs/source/milestone): Manage group or project milestones.
-- [`glab minder`](docs/source/minder): Manage AI governance. (EXPERIMENTAL)
+- [`glab minder`](docs/source/minder): Manage AI governance and run the GitLab Endpoint Agent Platform. (EXPERIMENTAL)
 - [`glab mr`](docs/source/mr): Create, view, and manage merge requests.
 - [`glab opentofu`](docs/source/opentofu): Work with the OpenTofu or Terraform integration.
 - [`glab orbit`](docs/source/orbit): Query the GitLab Orbit context graph. (EXPERIMENTAL)

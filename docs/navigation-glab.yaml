@@ -329,6 +329,8 @@
       url: 'cli/minder/doctor/'
     - title: glab minder setup
       url: 'cli/minder/setup/'
+    - title: glab minder update
+      url: 'cli/minder/update/'
 - title: glab mr
   url: 'cli/mr/'
   submenu:
