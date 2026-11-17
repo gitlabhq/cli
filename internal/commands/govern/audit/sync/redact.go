@@ -187,6 +187,10 @@ var secretPatterns = []secretPattern{
 var (
 	sensitiveKey  = regexp.MustCompile(`(?i)^(?:(?:proxy[-_])?authorization|token|secret|passphrase|.*(?:password|passwd)|(?:.*[-_])?(?:api[-_]?key|secret[-_]key|private[-_]key|pwd)|.*[-_]secret|.*[-_]secret[-_]access[-_]key|.*[-_]token)$`)
 	paginationKey = regexp.MustCompile(`(?i)^(?:next[-_])?page[-_]token$`)
+	// camelCaseWord finds where a word starts inside a camelCase name.
+	camelCaseWord = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	// acronymWord finds where a word starts after a leading acronym, as in APIToken.
+	acronymWord = regexp.MustCompile(`([A-Z]+)([A-Z][a-z])`)
 )
 
 // workingDirectory reports whether name is PWD holding a path, the shell's
@@ -195,8 +199,17 @@ func workingDirectory(name, value string) bool {
 	return strings.EqualFold(name, "pwd") && (strings.HasPrefix(value, "/") || strings.HasPrefix(value, "~"))
 }
 
+// nameWords returns name with its camelCase words separated, so openaiApiKey is
+// matched as openai_Api_Key and OPENAIApiKey as OPENAI_Api_Key.
+func nameWords(name string) string {
+	return camelCaseWord.ReplaceAllString(acronymWord.ReplaceAllString(name, "${1}_${2}"), "${1}_${2}")
+}
+
+// credentialKey matches the name as written too, because splitting can break a word
+// that it already matched, such as passPhrase.
 func credentialKey(name string) bool {
-	return sensitiveKey.MatchString(name) && !paginationKey.MatchString(name)
+	words := nameWords(name)
+	return (sensitiveKey.MatchString(name) || sensitiveKey.MatchString(words)) && !paginationKey.MatchString(words)
 }
 
 func redactedMarker(kind string) string {
@@ -277,7 +290,7 @@ func secretMatches(s string, p secretPattern) [][]int {
 		// In escaped text such as user=bob\npassword=..., the name starts
 		// after the letter of the escape.
 		if name > 0 && s[name-1] == '\\' && strings.IndexByte("nrt", s[name]) >= 0 &&
-			(!credentialKey(s[name:m[3]]) || paginationKey.MatchString(s[name+1:m[3]])) {
+			(!credentialKey(s[name:m[3]]) || paginationKey.MatchString(nameWords(s[name+1:m[3]]))) {
 			name++
 		}
 		if !credentialKey(s[name:m[3]]) {
