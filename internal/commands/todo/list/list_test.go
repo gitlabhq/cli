@@ -42,6 +42,24 @@ func TestTodoList(t *testing.T) {
 		CreatedAt: &createdAt,
 	}
 
+	groupTodo := &gitlab.Todo{
+		ID:         7,
+		ActionName: gitlab.TodoMentioned,
+		TargetType: gitlab.TodoTargetType("Epic"),
+		Target:     &gitlab.TodoTarget{Title: "Plan the quarter"},
+		Group:      &gitlab.ProjectNamespace{FullPath: "gitlab-org/plans"},
+		CreatedAt:  &createdAt,
+	}
+	projectTodoInGroup := &gitlab.Todo{
+		ID:         8,
+		ActionName: gitlab.TodoAssigned,
+		TargetType: gitlab.TodoTargetIssue,
+		Target:     &gitlab.TodoTarget{Title: "Fix the bug"},
+		Project:    &gitlab.BasicProject{PathWithNamespace: "mygroup/myproject"},
+		Group:      &gitlab.ProjectNamespace{FullPath: "mygroup"},
+		CreatedAt:  &createdAt,
+	}
+
 	testCases := []testCase{
 		{
 			name:        "lists pending todos",
@@ -49,7 +67,7 @@ func TestTodoList(t *testing.T) {
 			expectedOut: "ID\tAction\tType\tTitle\tProject\tCreated\n42\tassigned\tMergeRequest\tFix the bug\tmygroup/myproject\t2025-01-01 00:00:00 +0000 UTC\n\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockTodos.EXPECT().
-					ListTodos(gomock.Any()).
+					ListTodos(gomock.Any(), gomock.Any()).
 					Return([]*gitlab.Todo{testTodo}, nil, nil)
 			},
 		},
@@ -59,7 +77,7 @@ func TestTodoList(t *testing.T) {
 			expectedOut: "ID\tAction\tType\tTitle\tProject\tCreated\n42\tassigned\tMergeRequest\tFix the bug\tmygroup/myproject\t2025-01-01 00:00:00 +0000 UTC\n\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockTodos.EXPECT().
-					ListTodos(gomock.Any()).
+					ListTodos(gomock.Any(), gomock.Any()).
 					Return([]*gitlab.Todo{testTodo}, nil, nil)
 			},
 		},
@@ -69,7 +87,7 @@ func TestTodoList(t *testing.T) {
 			expectedOut: "ID\tAction\tType\tTitle\tProject\tCreated\n42\tassigned\tMergeRequest\tFix the bug\tmygroup/myproject\t2025-01-01 00:00:00 +0000 UTC\n\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockTodos.EXPECT().
-					ListTodos(gomock.Any()).
+					ListTodos(gomock.Any(), gomock.Any()).
 					Return([]*gitlab.Todo{testTodo}, nil, nil)
 			},
 		},
@@ -79,8 +97,20 @@ func TestTodoList(t *testing.T) {
 			expectedOut: "ID\tAction\tType\tTitle\tProject\tCreated\n42\tassigned\tMergeRequest\tFix the bug\tmygroup/myproject\t2025-01-01 00:00:00 +0000 UTC\n\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockTodos.EXPECT().
-					ListTodos(gomock.Any()).
+					ListTodos(gomock.Any(), gomock.Any()).
 					Return([]*gitlab.Todo{testTodo}, nil, nil)
+			},
+		},
+		{
+			name: "shows the group path for group-scoped todos and the project path otherwise",
+			cli:  "",
+			expectedOut: "ID\tAction\tType\tTitle\tProject\tCreated\n" +
+				"7\tmentioned\tEpic\tPlan the quarter\tgitlab-org/plans\t2025-01-01 00:00:00 +0000 UTC\n" +
+				"8\tassigned\tIssue\tFix the bug\tmygroup/myproject\t2025-01-01 00:00:00 +0000 UTC\n\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockTodos.EXPECT().
+					ListTodos(gomock.Any(), gomock.Any()).
+					Return([]*gitlab.Todo{groupTodo, projectTodoInGroup}, nil, nil)
 			},
 		},
 		{
@@ -89,7 +119,7 @@ func TestTodoList(t *testing.T) {
 			expectedOut: "\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockTodos.EXPECT().
-					ListTodos(gomock.Any()).
+					ListTodos(gomock.Any(), gomock.Any()).
 					Return([]*gitlab.Todo{}, nil, nil)
 			},
 		},
@@ -143,7 +173,7 @@ func TestTodoList_JSON(t *testing.T) {
 
 	testClient := gitlabtesting.NewTestClient(t)
 	testClient.MockTodos.EXPECT().
-		ListTodos(gomock.Any()).
+		ListTodos(gomock.Any(), gomock.Any()).
 		Return([]*gitlab.Todo{testTodo}, nil, nil)
 
 	exec := cmdtest.SetupCmdForTest(
