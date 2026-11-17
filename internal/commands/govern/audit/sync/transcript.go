@@ -194,6 +194,10 @@ type toolCall struct {
 	Namespace string
 	Input     json.RawMessage
 	Timestamp time.Time
+	// CWD is the folder the agent worked in when it recorded the entry, or
+	// empty when the transcript does not say. Results, prompts and responses
+	// carry the same field.
+	CWD string
 }
 
 // toolResult is the outcome of a tool call. Name and Duration are empty when
@@ -209,6 +213,7 @@ type toolResult struct {
 	Error     string
 	Duration  time.Duration
 	Timestamp time.Time
+	CWD       string
 }
 
 // prompt is a prompt the user typed.
@@ -216,6 +221,7 @@ type prompt struct {
 	ID        string
 	Text      string
 	Timestamp time.Time
+	CWD       string
 }
 
 // llmResponse is the metadata of one model response, without its content.
@@ -224,6 +230,16 @@ type llmResponse struct {
 	Model     string
 	Usage     tokenUsage
 	Timestamp time.Time
+	CWD       string
+}
+
+// cleanCWD cleans a recorded folder, so the same folder always compares equal
+// whichever agent or line recorded it.
+func cleanCWD(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	return filepath.Clean(dir)
 }
 
 // sessionMeta is written by the hooks so that `--all` can sync the session
@@ -333,10 +349,11 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 					continue
 				}
 				hasResults = true
-				result := toolResult{CallID: block.ToolUseID, IsError: block.IsError, Timestamp: ts}
+				result := toolResult{CallID: block.ToolUseID, IsError: block.IsError, Timestamp: ts, CWD: cleanCWD(entry.CWD)}
 				if call, ok := calls[block.ToolUseID]; ok {
 					result.Name = call.Name
 					result.Duration = ts.Sub(call.Timestamp)
+					result.CWD = call.CWD
 				}
 				if block.IsError {
 					result.Error = toolResultText(block.Content)
@@ -350,7 +367,7 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 			if text == "" {
 				return
 			}
-			data.Prompts = append(data.Prompts, prompt{ID: entry.UUID, Text: text, Timestamp: ts})
+			data.Prompts = append(data.Prompts, prompt{ID: entry.UUID, Text: text, Timestamp: ts, CWD: cleanCWD(entry.CWD)})
 			if !goalFound {
 				data.Goal = goalFromText(text)
 				data.StartedAt = ts
@@ -365,7 +382,7 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 
 			for _, block := range msg.Content {
 				if block.Type == "tool_use" {
-					call := toolCall{ID: block.ID, Name: block.Name, Input: block.Input, Timestamp: ts}
+					call := toolCall{ID: block.ID, Name: block.Name, Input: block.Input, Timestamp: ts, CWD: cleanCWD(entry.CWD)}
 					calls[block.ID] = call
 					data.ToolCalls = append(data.ToolCalls, call)
 				}
@@ -374,9 +391,10 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 			// A response is streamed as several entries with the same message
 			// ID. The usage of the latest entry is the most complete.
 			if msg.ID != "" {
-				response := llmResponse{ID: msg.ID, Model: msg.Model, Usage: msg.Usage, Timestamp: ts}
+				response := llmResponse{ID: msg.ID, Model: msg.Model, Usage: msg.Usage, Timestamp: ts, CWD: cleanCWD(entry.CWD)}
 				if i, ok := responses[msg.ID]; ok {
 					response.Timestamp = data.Responses[i].Timestamp
+					response.CWD = data.Responses[i].CWD
 					data.Responses[i] = response
 				} else {
 					responses[msg.ID] = len(data.Responses)

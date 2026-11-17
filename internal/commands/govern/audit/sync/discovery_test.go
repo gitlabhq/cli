@@ -85,9 +85,9 @@ func TestCodexTranscript_Read(t *testing.T) {
 	assert.Equal(t, "fix the flaky test", data.Goal, "the typed prompt, not injected instructions")
 	assert.Equal(t, time.Date(2026, 10, 9, 1, 0, 0, 0, time.UTC), data.StartedAt)
 	require.Len(t, data.ToolCalls, 3)
-	assert.Equal(t, toolCall{ID: "call_1", Name: "exec_command", Input: json.RawMessage(`{}`), Timestamp: time.Date(2026, 10, 9, 1, 0, 2, 0, time.UTC)}, data.ToolCalls[0])
+	assert.Equal(t, toolCall{ID: "call_1", Name: "exec_command", Input: json.RawMessage(`{}`), Timestamp: time.Date(2026, 10, 9, 1, 0, 2, 0, time.UTC), CWD: "/work"}, data.ToolCalls[0])
 	assert.Equal(t, "apply_patch", data.ToolCalls[1].Name)
-	assert.Equal(t, toolCall{ID: "ls_1", Name: "shell", Timestamp: time.Date(2026, 10, 9, 1, 0, 5, 0, time.UTC)}, data.ToolCalls[2])
+	assert.Equal(t, toolCall{ID: "ls_1", Name: "shell", Timestamp: time.Date(2026, 10, 9, 1, 0, 5, 0, time.UTC), CWD: "/work"}, data.ToolCalls[2])
 	assert.Equal(t, int64(len(complete)), offset, "a line still being written is left for the next read")
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
@@ -440,11 +440,65 @@ func TestCodexTranscript_RichEvents(t *testing.T) {
 	require.Len(t, data.ToolResults, 1)
 	assert.Equal(t, toolResult{
 		CallID: "call_1", Name: "exec_command", Outcome: "completed",
-		Duration: 3 * time.Second, Timestamp: time.Date(2026, 10, 9, 1, 0, 5, 0, time.UTC),
+		Duration: 3 * time.Second, Timestamp: time.Date(2026, 10, 9, 1, 0, 5, 0, time.UTC), CWD: "/work",
 	}, data.ToolResults[0], "Codex does not record whether a call succeeded")
 	require.Len(t, data.Responses, 1, "a token count without usage is not a response")
 	assert.Equal(t, "gpt-5.5-codex", data.Responses[0].Model)
 	assert.Equal(t, tokenUsage{InputTokens: 120, OutputTokens: 30, CacheReadInputTokens: 100}, data.Responses[0].Usage)
+}
+
+func TestCodexTranscript_Dirs(t *testing.T) {
+	t.Parallel()
+
+	ts := func(s int) string { return time.Date(2026, 10, 9, 1, 0, s, 0, time.UTC).Format(time.RFC3339) }
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte(jsonLines(t,
+		codexSessionMetaLine("th-1", "/work/a/", ""),
+		map[string]any{"timestamp": ts(1), "type": "event_msg", "payload": map[string]any{"type": "user_message", "message": "clone b"}},
+		codexItem(ts(2), map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_abs", "arguments": `{"cmd":"git status","workdir":"/work/x/../b"}`}),
+		codexItem(ts(3), map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_rel", "arguments": `{"cmd":"ls","workdir":"sub"}`}),
+		codexItem(ts(4), map[string]any{"type": "local_shell_call", "id": "ls_1", "action": map[string]any{"type": "exec", "working_directory": "/work/c"}}),
+		codexItem(ts(5), map[string]any{"type": "function_call_output", "call_id": "call_abs"}),
+		map[string]any{"timestamp": ts(6), "type": "turn_context", "payload": map[string]any{"model": "gpt-5.5-codex", "cwd": "/work/b/"}},
+		map[string]any{"timestamp": ts(7), "type": "event_msg", "payload": map[string]any{"type": "user_message", "message": "now in b"}},
+		map[string]any{"timestamp": ts(8), "type": "event_msg", "payload": map[string]any{"type": "token_count", "info": map[string]any{
+			"last_token_usage": map[string]any{"input_tokens": 1, "output_tokens": 1},
+		}}},
+	)), 0o644))
+
+	data, _, err := codexTranscript{sessionID: "th-1", path: path}.read(t.Context(), 0)
+	require.NoError(t, err)
+
+	require.Len(t, data.ToolCalls, 3)
+	assert.Equal(t, "/work/b", data.ToolCalls[0].CWD, "an absolute workdir, cleaned")
+	assert.Equal(t, "/work/a/sub", data.ToolCalls[1].CWD, "a workdir relative to the turn")
+	assert.Equal(t, "/work/c", data.ToolCalls[2].CWD, "a local shell call's working directory")
+	require.Len(t, data.ToolResults, 1)
+	assert.Equal(t, "/work/b", data.ToolResults[0].CWD, "a result runs where its call did")
+	require.Len(t, data.Prompts, 2)
+	assert.Equal(t, "/work/a", data.Prompts[0].CWD, "folders are cleaned, so a trailing slash makes no difference")
+	assert.Equal(t, "/work/b", data.Prompts[1].CWD, "a later turn's folder")
+	require.Len(t, data.Responses, 1)
+	assert.Equal(t, "/work/b", data.Responses[0].CWD)
+}
+
+func TestCodexTranscript_DirUnknownBeforeTurnWhenReadingMidRollout(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	head := jsonLines(t, codexSessionMetaLine("th-1", "/work/a", ""))
+	require.NoError(t, os.WriteFile(path, []byte(head+jsonLines(t,
+		map[string]any{"timestamp": "2026-10-09T01:00:01Z", "type": "event_msg", "payload": map[string]any{"type": "user_message", "message": "go on"}},
+		codexItem("2026-10-09T01:00:02Z", map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_1", "arguments": `{"cmd":"ls","workdir":"sub"}`}),
+	)), 0o644))
+
+	data, _, err := codexTranscript{sessionID: "th-1", path: path}.read(t.Context(), int64(len(head)))
+	require.NoError(t, err)
+
+	require.Len(t, data.Prompts, 1)
+	assert.Empty(t, data.Prompts[0].CWD)
+	require.Len(t, data.ToolCalls, 1)
+	assert.Empty(t, data.ToolCalls[0].CWD, "a relative workdir without the turn's folder is no folder")
 }
 
 func TestCodexTranscript_PaginatedPrompts(t *testing.T) {
