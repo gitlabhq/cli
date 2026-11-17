@@ -14,7 +14,9 @@ List deploy tokens.
 
 ## Synopsis
 
-List the deploy tokens of a project or a group.
+List the deploy tokens of a project, a group, or the instance.
+
+Pass `--instance` to list every deploy token on the instance. This requires administrator access, and `GITLAB_GROUP` does not apply.
 
 The output never contains the token value. A token value is shown only once, when the token is created.
 
@@ -45,6 +47,9 @@ glab deploy-token list --active
 # List a group's deploy tokens
 glab deploy-token list --group group/sub-group
 
+# List every deploy token on the instance (administrator only)
+glab deploy-token list --instance
+
 # List the current project's deploy tokens as JSON
 glab deploy-token list --output json
 ```
@@ -54,6 +59,7 @@ glab deploy-token list --output json
 ```plaintext
   -a, --active          List only the tokens that are neither revoked nor expired.
   -g, --group string    List the deploy tokens of the group <group> instead of a project.
+  -i, --instance        List every deploy token on the instance instead of a project or group. Requires administrator access.
       --jq string       Filter JSON output with a jq expression.
   -F, --output string   Format output as: text, json. (default "text")
   -R, --repo string     Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.
