@@ -620,3 +620,43 @@ func TestRecordSessionMeta_SkipsUsingTheRecordedTranscript(t *testing.T) {
 
 	assertCursorAt(t, "sess-1", int64(len(content)))
 }
+
+func TestParseTranscript_Dirs(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	line := func(entry map[string]any) string {
+		data, err := json.Marshal(entry)
+		require.NoError(t, err)
+		return string(data) + "\n"
+	}
+	content := line(map[string]any{
+		"type": "user", "promptId": "p1", "uuid": "u1", "cwd": "/work/a/", "timestamp": "2026-10-09T01:00:00Z",
+		"message": map[string]any{"content": "clone b"},
+	}) + line(map[string]any{
+		"type": "assistant", "cwd": "/work/a", "timestamp": "2026-10-09T01:00:01Z",
+		"message": map[string]any{"id": "msg_1", "content": []any{map[string]any{"type": "tool_use", "id": "toolu_1", "name": "Bash"}}},
+	}) + line(map[string]any{
+		"type": "assistant", "cwd": "/work/b", "timestamp": "2026-10-09T01:00:01Z",
+		"message": map[string]any{"id": "msg_1", "content": []any{}},
+	}) + line(map[string]any{
+		"type": "user", "cwd": "/work/b", "timestamp": "2026-10-09T01:00:02Z",
+		"message": map[string]any{"content": []any{map[string]any{"type": "tool_result", "tool_use_id": "toolu_1"}}},
+	}) + line(map[string]any{
+		"type": "user", "promptId": "p2", "uuid": "u2", "cwd": "/work/b", "timestamp": "2026-10-09T01:00:03Z",
+		"message": map[string]any{"content": "now in b"},
+	})
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	data, _, err := parseTranscript(path, 0)
+	require.NoError(t, err)
+
+	require.Len(t, data.Prompts, 2)
+	assert.Equal(t, "/work/a", data.Prompts[0].CWD, "folders are cleaned, so a trailing slash makes no difference")
+	assert.Equal(t, "/work/b", data.Prompts[1].CWD, "Claude Code records the folder after a cd")
+	require.Len(t, data.ToolCalls, 1)
+	assert.Equal(t, "/work/a", data.ToolCalls[0].CWD)
+	require.Len(t, data.Responses, 1)
+	assert.Equal(t, "/work/a", data.Responses[0].CWD, "a streamed response keeps its first entry's folder")
+	require.Len(t, data.ToolResults, 1)
+	assert.Equal(t, "/work/a", data.ToolResults[0].CWD, "a result runs where its call did")
+}

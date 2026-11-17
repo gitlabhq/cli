@@ -2,6 +2,7 @@ package sync
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -232,6 +233,11 @@ type codexReader struct {
 	goalFound bool
 	calls     map[string]toolCall
 	model     string
+	// cwd is the folder of the current turn, from the session_meta and
+	// turn_context lines. A read that starts mid-rollout has none until the
+	// next turn, rather than a possibly stale one from session_meta, so the
+	// caller fills in the folder it last saw for those entries.
+	cwd string
 }
 
 type codexLine struct {
@@ -261,6 +267,7 @@ type codexLine struct {
 			} `json:"last_token_usage"`
 		} `json:"info"`
 		CLIVersion string `json:"cli_version"`
+		CWD        string `json:"cwd"`
 	} `json:"payload"`
 }
 
@@ -280,8 +287,10 @@ func (r *codexReader) parseLine(line []byte, lineOffset int64) {
 	case "session_meta":
 		r.data.StartedAt = ts
 		r.data.AgentVersion = p.CLIVersion
+		r.setCWD(p.CWD)
 	case "turn_context":
 		r.model = p.Model
+		r.setCWD(p.CWD)
 	case "event_msg":
 		switch p.Type {
 		case "user_message":
@@ -298,6 +307,7 @@ func (r *codexReader) parseLine(line []byte, lineOffset int64) {
 				Model:     r.model,
 				Usage:     tokenUsage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CacheReadInputTokens: u.CachedInputTokens},
 				Timestamp: ts,
+				CWD:       r.cwd,
 			})
 		}
 	case "response_item":
@@ -332,19 +342,21 @@ func (r *codexReader) parseResponseItem(itemType string, entry codexLine, lineID
 		if id == "" {
 			return
 		}
+		input := codexArguments(p.Arguments, p.Input, p.Action)
 		call := toolCall{
 			ID: id, Name: name, Namespace: namespace,
-			Input: codexArguments(p.Arguments, p.Input, p.Action), Timestamp: ts,
+			Input: input, Timestamp: ts, CWD: r.callCWD(input),
 		}
 		r.calls[id] = call
 		r.data.ToolCalls = append(r.data.ToolCalls, call)
 	case "function_call_output", "custom_tool_call_output":
 		// Codex does not record whether a call succeeded.
-		result := toolResult{CallID: p.CallID, Outcome: "completed", Timestamp: ts}
+		result := toolResult{CallID: p.CallID, Outcome: "completed", Timestamp: ts, CWD: r.cwd}
 		if call, ok := r.calls[p.CallID]; ok {
 			result.Name = call.Name
 			result.Namespace = call.Namespace
 			result.Duration = ts.Sub(call.Timestamp)
+			result.CWD = call.CWD
 		}
 		r.data.ToolResults = append(r.data.ToolResults, result)
 	}
@@ -354,10 +366,38 @@ func (r *codexReader) addPrompt(id, text string, ts time.Time) {
 	if text == "" || skipPrompt(text) {
 		return
 	}
-	r.data.Prompts = append(r.data.Prompts, prompt{ID: id, Text: text, Timestamp: ts})
+	r.data.Prompts = append(r.data.Prompts, prompt{ID: id, Text: text, Timestamp: ts, CWD: r.cwd})
 	if !r.goalFound {
 		r.data.Goal = goalFromText(text)
 		r.goalFound = true
+	}
+}
+
+func (r *codexReader) setCWD(cwd string) {
+	if cwd != "" {
+		r.cwd = cleanCWD(cwd)
+	}
+}
+
+// callCWD returns the folder a tool call ran in: a shell call's working
+// directory, which can be relative to the turn's folder, or the turn's folder.
+func (r *codexReader) callCWD(input json.RawMessage) string {
+	var args struct {
+		Workdir          string `json:"workdir"`
+		WorkingDirectory string `json:"working_directory"`
+	}
+	// Free-text and other non-object inputs name no working directory.
+	_ = json.Unmarshal(input, &args)
+	dir := cmp.Or(args.Workdir, args.WorkingDirectory)
+	switch {
+	case dir == "":
+		return r.cwd
+	case filepath.IsAbs(dir):
+		return cleanCWD(dir)
+	case r.cwd == "":
+		return ""
+	default:
+		return filepath.Join(r.cwd, dir)
 	}
 }
 
