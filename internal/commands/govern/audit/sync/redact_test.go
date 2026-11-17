@@ -231,6 +231,15 @@ func TestRedactSecrets(t *testing.T) {
 		{"prefixed secret key in a .env file", "STRIPE_SECRET_KEY=" + fake("", 20) + "\n", "STRIPE_SECRET_KEY=[REDACTED:credential]\n"},
 		{"name ending in a credential word plus more", "api_key_id: k1abcdefgh secret_key_name: main12345", "api_key_id: k1abcdefgh secret_key_name: main12345"},
 		{"file named after a password", "password_file: pass1.txt", "password_file: pass1.txt"},
+		{"camelCase name in code", `const openaiApiKey = "` + fake("", 24) + `";`, `const openaiApiKey = "[REDACTED:credential]";`},
+		{"name starting with an acronym", "APIToken=" + fake("", 16), "APIToken=[REDACTED:credential]"},
+		{"token name starting with an acronym", "JWTToken=" + fake("", 16), "JWTToken=[REDACTED:credential]"},
+		{"secret access key starting with an acronym", "AWSSecretAccessKey=" + fake("", 40), "AWSSecretAccessKey=[REDACTED:credential]"},
+		{"API key starting with an acronym", "OPENAIApiKey=" + fake("", 24), "OPENAIApiKey=[REDACTED:credential]"},
+		{"acronym name that isn't a credential", "APITokenCount=" + fake("", 16), "APITokenCount=" + fake("", 16)},
+		{"camelCase pagination token", "nextPageToken=" + fake("", 16), "nextPageToken=" + fake("", 16)},
+		{"camelCase pagination token after an escaped newline", `a=1\nnextPageToken=` + fake("", 16), `a=1\nnextPageToken=` + fake("", 16)},
+		{"camelCase name read from the environment", "const apiKey = process.env.API_KEY;", "const apiKey = process.env.API_KEY;"},
 		{"password that starts with a slash", "password=/" + fake("", 15), "password=[REDACTED:credential]"},
 		{"password in an ODBC connection string", "Driver=x;UID=bob;PWD=" + fake("", 12) + ";", "Driver=x;UID=bob;PWD=[REDACTED:credential];"},
 		{"working directory", "PWD=/home/u1/app OLDPWD=~/src2", "PWD=/home/u1/app OLDPWD=~/src2"},
@@ -297,6 +306,28 @@ func TestRedactJSON(t *testing.T) {
 		assert.JSONEq(t,
 			`{"AWS_SECRET_ACCESS_KEY":"[REDACTED:credential]","password":"[REDACTED:credential]","PWD":"[REDACTED:credential]"}`,
 			string(redactJSON(in)))
+	})
+
+	t.Run("redacts values under camelCase credential names", func(t *testing.T) {
+		t.Parallel()
+		in := json.RawMessage(`{"openaiApiKey":"` + fake("", 20) + `","clientSecret":"` + fake("", 20) + `","authToken":"` + fake("", 20) + `","secretKey":"` + fake("", 20) + `","sshPrivateKey":"` + fake("", 20) + `","oauth2Token":"` + fake("", 20) + `"}`)
+		assert.JSONEq(t,
+			`{"openaiApiKey":"[REDACTED:credential]","clientSecret":"[REDACTED:credential]","authToken":"[REDACTED:credential]","secretKey":"[REDACTED:credential]","sshPrivateKey":"[REDACTED:credential]","oauth2Token":"[REDACTED:credential]"}`,
+			string(redactJSON(in)))
+	})
+
+	t.Run("redacts names that camelCase splitting would break", func(t *testing.T) {
+		t.Parallel()
+		in := json.RawMessage(`{"passPhrase":"` + fake("", 16) + `","PassWord":"` + fake("", 16) + `","passWd":"` + fake("", 16) + `"}`)
+		assert.JSONEq(t,
+			`{"passPhrase":"[REDACTED:credential]","PassWord":"[REDACTED:credential]","passWd":"[REDACTED:credential]"}`,
+			string(redactJSON(in)))
+	})
+
+	t.Run("keeps camelCase names that aren't credentials", func(t *testing.T) {
+		t.Parallel()
+		in := json.RawMessage(`{"nextPageToken":"c2abcdefgh1","maxTokens":"4096","tokenCount":"12345678","apiKeyId":"k1abcdefgh","secretKeyName":"main12345"}`)
+		assert.JSONEq(t, string(in), string(redactJSON(in)))
 	})
 
 	t.Run("redacts secrets in keys", func(t *testing.T) {
