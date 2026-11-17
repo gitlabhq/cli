@@ -597,6 +597,17 @@
       url: 'cli/service-account/get/'
     - title: glab service-account list
       url: 'cli/service-account/list/'
+    - title: glab service-account token
+      url: 'cli/service-account/token/'
+      submenu:
+        - title: glab service-account token create
+          url: 'cli/service-account/token/create/'
+        - title: glab service-account token list
+          url: 'cli/service-account/token/list/'
+        - title: glab service-account token revoke
+          url: 'cli/service-account/token/revoke/'
+        - title: glab service-account token rotate
+          url: 'cli/service-account/token/rotate/'
     - title: glab service-account update
       url: 'cli/service-account/update/'
 - title: glab skills
