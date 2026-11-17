@@ -1,6 +1,7 @@
 package list
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -70,7 +71,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			if err := opts.validate(); err != nil {
 				return err
 			}
-			return opts.run()
+			return opts.run(cmd.Context())
 		},
 	}
 
@@ -109,7 +110,7 @@ func (o *options) validate() error {
 	return nil
 }
 
-func (o *options) run() error {
+func (o *options) run(ctx context.Context) error {
 	c, err := o.apiClient("")
 	if err != nil {
 		return err
@@ -134,7 +135,7 @@ func (o *options) run() error {
 		listOpts.Type = &o.typ
 	}
 
-	todos, _, err := client.Todos.ListTodos(listOpts)
+	todos, _, err := client.Todos.ListTodos(listOpts, gitlab.WithContext(ctx))
 	if err != nil {
 		return cmdutils.WrapError(err, "failed to list to-do items.")
 	}
@@ -162,8 +163,11 @@ func (o *options) run() error {
 		}
 
 		projectPath := ""
-		if todo.Project != nil {
+		switch {
+		case todo.Project != nil:
 			projectPath = todo.Project.PathWithNamespace
+		case todo.Group != nil:
+			projectPath = todo.Group.FullPath
 		}
 
 		title := ""
