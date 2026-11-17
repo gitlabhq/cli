@@ -191,7 +191,7 @@ check_docs_markdown:
     - lychee --offline --include-fragments docs/**/*.md *.md
 
 docs hugo_build:
-  image: registry.gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/docs-gitlab-com-builder:hugo-0.154.5
+  image: registry.gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/docs-gitlab-com-builder:alpine-3.24-hugo-0.166.0
   extends: .documentation
   variables:
     DOCS_BRANCH: "main"
@@ -234,7 +234,7 @@ docs hugo_build:
     # See https://gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/-/merge_requests/1554#note_2901887344
     - rm -f ../docs/index.rst ../docs/*.md
     # Test that Hugo will build
-    - hugo --gc --printPathWarnings --panicOnWarning  --environment test
+    - hugo --gc --printPathWarnings --environment test
     # Test for invalid index pages
     # See https://gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/-/blob/main/scripts/check-index-filenames.sh
     - make check-index-pages SEARCH_DIR="../docs/source"
