@@ -258,6 +258,7 @@ func newSyncAllEnvWithConfig(t *testing.T, hooksInstalled bool, cfg string) *syn
 	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(home, "glab"))
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("OPENCODE_SESSION_ID", "")
+	t.Setenv(hookAgentEnv, "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 
 	if hooksInstalled {

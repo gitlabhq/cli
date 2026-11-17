@@ -199,10 +199,18 @@ func main() {
 	if expandedArgs != nil {
 		argCommand = expandedArgs[0]
 	}
-	if !update.ShouldSkipUpdate(argCommand) {
+	if !update.ShouldSkipUpdate(argCommand) && !ranFromAgentHook(rootCmd, expandedArgs) {
 		update.MaybeShowPostUpgradeBanner(cmdFactory.IO(), cmdFactory.Config(), cmdFactory.BuildInfo())
 		checkForUpdate(cmdFactory, rootCmd, debug)
 	}
+}
+
+// ranFromAgentHook reports whether the command in args ran from an agent's hook
+// that waits for it. The agent reads the hook's output, and waits for it to
+// exit.
+func ranFromAgentHook(rootCmd *cobra.Command, args []string) bool {
+	cmd, _, err := rootCmd.Find(args)
+	return err == nil && runByAgentHook(cmd)
 }
 
 func setupTelemetryHook(cfg config.Config, f cmdutils.Factory, rootCmd *cobra.Command, args []string) {
