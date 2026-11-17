@@ -2,6 +2,8 @@ package list
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -23,6 +25,7 @@ type options struct {
 	baseRepo  func() (glrepo.Interface, error)
 
 	group        string
+	instance     bool
 	activeOnly   bool
 	outputFormat string
 }
@@ -41,7 +44,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
 		Long: heredoc.Docf(`
-			List the deploy tokens of a project or a group.
+			List the deploy tokens of a project, a group, or the instance.
+
+			Pass %[1]s--instance%[1]s to list every deploy token on the instance. This requires administrator access, and %[1]sGITLAB_GROUP%[1]s does not apply.
 
 			The output never contains the token value. A token value is shown only once, when the token is created.
 
@@ -59,6 +64,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# List a group's deploy tokens
 			glab deploy-token list --group group/sub-group
+
+			# List every deploy token on the instance (administrator only)
+			glab deploy-token list --instance
 
 			# List the current project's deploy tokens as JSON
 			glab deploy-token list --output json`),
@@ -79,14 +87,19 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVarP(&opts.group, "group", "g", "", "List the deploy tokens of the group <group> instead of a project.")
 	fl.BoolVarP(&opts.activeOnly, "active", "a", false, "List only the tokens that are neither revoked nor expired.")
+	fl.BoolVarP(&opts.instance, "instance", "i", false, "List every deploy token on the instance instead of a project or group. Requires administrator access.")
 
 	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat)
-	cmd.MarkFlagsMutuallyExclusive("repo", "group")
+	cmd.MarkFlagsMutuallyExclusive("repo", "group", "instance")
 
 	return cmd
 }
 
 func (o *options) complete(cmd *cobra.Command) error {
+	if o.instance {
+		return nil
+	}
+
 	group, err := cmdutils.GroupOverride(cmd)
 	if err != nil {
 		return err
@@ -97,11 +110,11 @@ func (o *options) complete(cmd *cobra.Command) error {
 }
 
 func (o *options) run(ctx context.Context) error {
-	// The group scope works outside a repository, so a missing base repo is only
-	// fatal for the project scope. Fail before building a client that would be
+	// The group and instance scopes work outside a repository, so a missing base
+	// repo is only fatal for the project scope. Fail before building a client that would be
 	// discarded, so the caller sees why the repository was needed.
 	repo, repoErr := o.baseRepo()
-	if o.group == "" && repoErr != nil {
+	if o.group == "" && !o.instance && repoErr != nil {
 		return repoErr
 	}
 
@@ -118,6 +131,13 @@ func (o *options) run(ctx context.Context) error {
 
 	var tokens []*gitlab.DeployToken
 	switch {
+	case o.instance:
+		tokens, err = gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.DeployToken, *gitlab.Response, error) {
+			return client.DeployTokens.ListAllDeployTokens(p, gitlab.WithContext(ctx))
+		})
+		if gitlab.HasStatusCode(err, http.StatusForbidden) {
+			err = fmt.Errorf("%w. Listing the deploy tokens of the instance requires administrator access", err)
+		}
 	case o.group != "":
 		tokens, err = gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.DeployToken, *gitlab.Response, error) {
 			return client.DeployTokens.ListGroupDeployTokens(o.group, &gitlab.ListGroupDeployTokensOptions{}, p, gitlab.WithContext(ctx))

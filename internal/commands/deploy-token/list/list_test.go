@@ -5,6 +5,7 @@ package list
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -288,4 +289,123 @@ func TestList_OutsideRepositoryWithGroup(t *testing.T) {
 		7	group-reader	gitlab+deploy-token-7	read_repository	-	false	false
 	`)
 	assert.Equal(t, expected, out.OutBuf.String())
+}
+
+func TestList_Instance(t *testing.T) {
+	t.Parallel()
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockDeployTokens.EXPECT().
+		ListAllDeployTokens(gomock.Any(), gomock.Any()).
+		Return([]*gitlab.DeployToken{
+			{ID: 3, Name: "registry-pull", Username: "gitlab+deploy-token-3", Scopes: []string{"read_registry"}},
+		}, noMorePages(), nil)
+
+	out, err := setupExec(t, tc)("--instance")
+	require.NoError(t, err)
+
+	expected := heredoc.Doc(`
+		ID	Name	Username	Scopes	Expires At	Revoked	Expired
+		3	registry-pull	gitlab+deploy-token-3	read_registry	-	false	false
+	`)
+	assert.Equal(t, expected, out.OutBuf.String())
+}
+
+func TestList_InstanceOutsideRepository(t *testing.T) {
+	t.Parallel()
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockDeployTokens.EXPECT().
+		ListAllDeployTokens(gomock.Any(), gomock.Any()).
+		Return([]*gitlab.DeployToken{
+			{ID: 3, Name: "registry-pull", Username: "gitlab+deploy-token-3", Scopes: []string{"read_registry"}},
+		}, noMorePages(), nil)
+
+	exec := cmdtest.SetupCmdForTest(
+		t,
+		NewCmd,
+		false,
+		cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(tc.Client))),
+		cmdtest.WithBaseRepoError(errors.New("not a git repository")),
+	)
+
+	out, err := exec("--instance")
+	require.NoError(t, err)
+	assert.Contains(t, out.OutBuf.String(), "registry-pull")
+}
+
+// Any call to the group endpoint fails the mock, so this proves GITLAB_GROUP
+// does not redirect --instance.
+func TestList_InstanceIgnoresGroupEnv(t *testing.T) {
+	t.Setenv("GITLAB_GROUP", "env-group")
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockDeployTokens.EXPECT().
+		ListAllDeployTokens(gomock.Any(), gomock.Any()).
+		Return([]*gitlab.DeployToken{}, noMorePages(), nil)
+
+	out, err := setupExec(t, tc)("--instance")
+	require.NoError(t, err)
+	assert.Equal(t, "No deploy tokens found.\n", out.OutBuf.String())
+}
+
+func TestList_InstanceAPIError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		status   int
+		wantHint bool
+	}{
+		{name: "forbidden names the administrator requirement", status: http.StatusForbidden, wantHint: true},
+		{name: "other failures are passed through", status: http.StatusInternalServerError, wantHint: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tc := gitlabtesting.NewTestClient(t)
+			tc.MockDeployTokens.EXPECT().
+				ListAllDeployTokens(gomock.Any(), gomock.Any()).
+				Return(nil, nil, &gitlab.ErrorResponse{StatusCode: tt.status, Message: http.StatusText(tt.status)})
+
+			_, err := setupExec(t, tc)("--instance")
+			require.Error(t, err)
+
+			var exitErr *cmdutils.ExitError
+			require.ErrorAs(t, err, &exitErr)
+			assert.Equal(t, "failed to list deploy tokens", exitErr.Details)
+			assert.True(t, gitlab.HasStatusCode(err, tt.status))
+			if tt.wantHint {
+				assert.Contains(t, err.Error(), "requires administrator access")
+			} else {
+				assert.NotContains(t, err.Error(), "administrator")
+			}
+		})
+	}
+}
+
+func TestList_InstanceIsMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args string
+	}{
+		{name: "with repo", args: "--instance --repo OWNER/REPO"},
+		{name: "with group", args: "--instance --group group/sub-group"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tc := gitlabtesting.NewTestClient(t)
+
+			_, err := setupExec(t, tc)(tt.args)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "none of the others can be")
+		})
+	}
 }
