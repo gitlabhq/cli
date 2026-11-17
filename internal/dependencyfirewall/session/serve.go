@@ -42,7 +42,14 @@ type ServeConfig struct {
 	// upstream registry connections alongside the system roots and the CA
 	// bundles named in the environment, as a per-command run does.
 	CACertPath string
-	IO         *iostreams.IOStreams
+	// ClientCertPath, ClientKeyPath and ClientCertPassword are glab's client_cert,
+	// client_key and client_cert_password for the GitLab host, presented to an
+	// https:// outbound proxy that requires a client certificate, as a
+	// per-command run does. Registries never receive the certificate.
+	ClientCertPath     string
+	ClientKeyPath      string
+	ClientCertPassword func() (string, error)
+	IO                 *iostreams.IOStreams
 }
 
 // flushInterval bounds how stale the CI log can be if the daemon is killed
@@ -79,6 +86,11 @@ func Serve(ctx context.Context, cfg ServeConfig) error {
 	if roots != nil {
 		opts = append(opts, proxy.WithUpstreamRootCAs(roots))
 	}
+	certOpts, err := pm.UpstreamProxyCertificateOptions(cfg.ClientCertPath, cfg.ClientKeyPath, cfg.ClientCertPassword)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, certOpts...)
 	p, err := proxy.New(proxy.DefaultMatchers(), checker, cfg.ProjectID, opts...)
 	if err != nil {
 		return err

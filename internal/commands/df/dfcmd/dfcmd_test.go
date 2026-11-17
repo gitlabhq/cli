@@ -4,10 +4,17 @@ package dfcmd
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,11 +23,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"software.sslmate.com/src/go-pkcs12"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
@@ -280,4 +289,115 @@ func TestRegistryTrustsCACertForRepoHost(t *testing.T) {
 	_, err := run("install")
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, fe.status, "the inspection proxy must trust the registry via ca_cert")
+}
+
+func TestRunFailsWhenClientCertForRepoHostCannotBeLoaded(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("GITLAB_CI", "")
+
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "client.pem")
+	keyPath := filepath.Join(dir, "client-key.pem")
+	require.NoError(t, os.WriteFile(certPath, []byte("not a certificate"), 0o600))
+	require.NoError(t, os.WriteFile(keyPath, []byte("not a key"), 0o600))
+	cfg := config.NewFromString(heredoc.Docf(`
+		hosts:
+		  gitlab.example.com:
+		    client_cert: %s
+		    client_key: %s
+	`, certPath, keyPath))
+	fe := &fakeExecutor{}
+	run := cmdtest.SetupCmdForTest(
+		t,
+		newTestCmd,
+		false,
+		cmdtest.WithExecutor(fe),
+		cmdtest.WithConfig(cfg),
+		cmdtest.WithBaseRepo("g", "p", "gitlab.example.com"),
+	)
+
+	_, err := run("install")
+	require.ErrorContains(t, err, "failed to load client certificate")
+	assert.Empty(t, fe.gotName, "npm must not run without the outbound proxy client certificate")
+}
+
+func newClientIdentity(t *testing.T) (*ecdsa.PrivateKey, *x509.Certificate) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "glab client"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
+	require.NoError(t, err)
+	cert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return key, cert
+}
+
+func runInstallWithHostConfig(t *testing.T, hostConfig string) (*fakeExecutor, error) {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	t.Setenv("GITLAB_CI", "")
+	cfg := config.NewFromString("hosts:\n  gitlab.example.com:\n" + hostConfig)
+	fe := &fakeExecutor{}
+	run := cmdtest.SetupCmdForTest(
+		t,
+		newTestCmd,
+		false,
+		cmdtest.WithExecutor(fe),
+		cmdtest.WithConfig(cfg),
+		cmdtest.WithBaseRepo("g", "p", "gitlab.example.com"),
+	)
+	_, err := run("install")
+	return fe, err
+}
+
+func TestRunAcceptsDERClientCertForRepoHost(t *testing.T) {
+	key, cert := newClientIdentity(t)
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "client.der")
+	keyPath := filepath.Join(dir, "client-key.der")
+	require.NoError(t, os.WriteFile(certPath, cert.Raw, 0o600))
+	require.NoError(t, os.WriteFile(keyPath, keyDER, 0o600))
+
+	fe, err := runInstallWithHostConfig(t, fmt.Sprintf("    client_cert: %s\n    client_key: %s\n", certPath, keyPath))
+	require.NoError(t, err)
+	assert.Equal(t, "/usr/bin/npm", fe.gotName, "a DER pair that the API client accepts must not stop the run")
+}
+
+func TestRunLoadsPKCS12ClientCertForRepoHost(t *testing.T) {
+	key, cert := newClientIdentity(t)
+	bundle, err := pkcs12.Modern.Encode(key, cert, nil, "secret")
+	require.NoError(t, err)
+	bundlePath := filepath.Join(t.TempDir(), "client.p12")
+	require.NoError(t, os.WriteFile(bundlePath, bundle, 0o600))
+
+	t.Run("correct password", func(t *testing.T) {
+		fe, err := runInstallWithHostConfig(t, fmt.Sprintf("    client_cert: %s\n    client_cert_password: secret\n", bundlePath))
+		require.NoError(t, err)
+		assert.Equal(t, "/usr/bin/npm", fe.gotName)
+	})
+
+	t.Run("wrong password", func(t *testing.T) {
+		fe, err := runInstallWithHostConfig(t, fmt.Sprintf("    client_cert: %s\n    client_cert_password: wrong\n", bundlePath))
+		require.ErrorContains(t, err, "incorrect password for the PKCS#12 client certificate")
+		assert.Empty(t, fe.gotName, "npm must not run when the PKCS#12 client certificate cannot be opened")
+	})
+}
+
+func TestRunIgnoresClientCertWithoutKeyThatIsNotPKCS12(t *testing.T) {
+	_, cert := newClientIdentity(t)
+	certPath := filepath.Join(t.TempDir(), "client.pem")
+	require.NoError(t, os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}), 0o600))
+
+	fe, err := runInstallWithHostConfig(t, fmt.Sprintf("    client_cert: %s\n", certPath))
+	require.NoError(t, err)
+	assert.Equal(t, "/usr/bin/npm", fe.gotName, "a lone client_cert is ignored, as the API client ignores it")
 }

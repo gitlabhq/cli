@@ -159,15 +159,32 @@ func (o *options) run(ctx context.Context) error {
 	if err != nil {
 		return cmdutils.WrapError(err, "failed to read ca_cert from the glab configuration.")
 	}
+	clientCert, err := o.config().Get(host, "client_cert")
+	if err != nil {
+		return cmdutils.WrapError(err, "failed to read client_cert from the glab configuration.")
+	}
+	clientKey, err := o.config().Get(host, "client_key")
+	if err != nil {
+		return cmdutils.WrapError(err, "failed to read client_key from the glab configuration.")
+	}
 
 	if err := pm.Run(ctx, o.manager(), pm.RunOptions{
-		IO:         o.io,
-		Executor:   o.executor,
-		BaseDir:    o.baseDir,
-		Client:     client,
-		ProjectID:  projectID,
-		Args:       o.args,
-		CACertPath: caCert,
+		IO:             o.io,
+		Executor:       o.executor,
+		BaseDir:        o.baseDir,
+		Client:         client,
+		ProjectID:      projectID,
+		Args:           o.args,
+		CACertPath:     caCert,
+		ClientCertPath: clientCert,
+		ClientKeyPath:  clientKey,
+		ClientCertPassword: func() (string, error) {
+			password, err := o.config().Get(host, "client_cert_password")
+			if err != nil {
+				return "", fmt.Errorf("failed to read client_cert_password for %q: %w", host, err)
+			}
+			return password, nil
+		},
 	}); err != nil {
 		if ee, ok := errors.AsType[*pm.ExitError](err); ok {
 			if ee.ChildExited {

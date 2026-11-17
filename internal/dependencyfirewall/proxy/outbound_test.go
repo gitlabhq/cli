@@ -51,8 +51,9 @@ func startCorporateProxy(t *testing.T, user, password string) *corporateProxy {
 
 // startTLSCorporateProxy serves the proxy over TLS with a certificate from its
 // own CA, which it returns. httptest's built-in certificate is shared with the
-// upstream, so trusting the upstream would silently trust the proxy too.
-func startTLSCorporateProxy(t *testing.T, user, password string) (*corporateProxy, *x509.Certificate) {
+// upstream, so trusting the upstream would silently trust the proxy too. A
+// non-nil clientCAs makes the proxy require a client certificate they issued.
+func startTLSCorporateProxy(t *testing.T, user, password string, clientCAs *x509.CertPool) (*corporateProxy, *x509.Certificate) {
 	t.Helper()
 	ca, err := newCertAuthority()
 	require.NoError(t, err)
@@ -61,6 +62,10 @@ func startTLSCorporateProxy(t *testing.T, user, password string) (*corporateProx
 
 	cp := newCorporateProxy(user, password)
 	cp.server.TLS = &tls.Config{Certificates: []tls.Certificate{*leaf}}
+	if clientCAs != nil {
+		cp.server.TLS.ClientAuth = tls.RequireAndVerifyClientCert
+		cp.server.TLS.ClientCAs = clientCAs
+	}
 	cp.server.Config.ErrorLog = log.New(io.Discard, "", 0)
 	cp.server.StartTLS()
 	t.Cleanup(cp.server.Close)
@@ -124,13 +129,17 @@ func (cp *corporateProxy) URL(t *testing.T, user, password string) *url.URL {
 
 func startProxyThrough(t *testing.T, upstream *httptest.Server, outbound *url.URL, extraRoots ...*x509.Certificate) *Proxy {
 	t.Helper()
+	return startProxyTrusting(t, append([]*x509.Certificate{upstream.Certificate()}, extraRoots...),
+		WithUpstreamProxy(http.ProxyURL(outbound)))
+}
+
+func startProxyTrusting(t *testing.T, roots []*x509.Certificate, opts ...Option) *Proxy {
+	t.Helper()
 	pool := x509.NewCertPool()
-	pool.AddCert(upstream.Certificate())
-	for _, c := range extraRoots {
+	for _, c := range roots {
 		pool.AddCert(c)
 	}
-	p, err := New(stubMatcher{}, stubChecker{}, "group/proj",
-		WithUpstreamRootCAs(pool), WithUpstreamProxy(http.ProxyURL(outbound)))
+	p, err := New(stubMatcher{}, stubChecker{}, "group/proj", append([]Option{WithUpstreamRootCAs(pool)}, opts...)...)
 	require.NoError(t, err)
 	require.NoError(t, p.Start())
 	t.Cleanup(p.Stop)
@@ -189,7 +198,7 @@ func TestProxyReachesUpstreamThroughTrustedTLSOutboundProxy(t *testing.T) {
 		_, _ = io.WriteString(w, "TARBALL")
 	}))
 	defer upstream.Close()
-	corporate, corporateCA := startTLSCorporateProxy(t, "corp", "secret")
+	corporate, corporateCA := startTLSCorporateProxy(t, "corp", "secret", nil)
 
 	p := startProxyThrough(t, upstream, corporate.URL(t, "corp", "secret"), corporateCA)
 	resp, err := newClient(t, p).Get(upstream.URL + "/left-pad/-/left-pad-1.3.0.tgz")
@@ -214,7 +223,7 @@ func TestProxyFailsWhenTLSOutboundProxyIsUntrusted(t *testing.T) {
 		_, _ = io.WriteString(w, "TARBALL")
 	}))
 	defer upstream.Close()
-	corporate, _ := startTLSCorporateProxy(t, "corp", "secret")
+	corporate, _ := startTLSCorporateProxy(t, "corp", "secret", nil)
 
 	p := startProxyThrough(t, upstream, corporate.URL(t, "corp", "secret"))
 	resp, err := newClient(t, p).Get(upstream.URL + "/left-pad/-/left-pad-1.3.0.tgz")

@@ -23,6 +23,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/cilog"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/fsx"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
@@ -280,6 +281,12 @@ type RunOptions struct {
 	// CACertPath is glab's ca_cert for the GitLab host. Registry connections
 	// trust it in addition to the system roots.
 	CACertPath string
+	// ClientCertPath, ClientKeyPath and ClientCertPassword are glab's client_cert,
+	// client_key and client_cert_password for the GitLab host. The certificate is
+	// presented to an https:// outbound proxy that requires one, never to a registry.
+	ClientCertPath     string
+	ClientKeyPath      string
+	ClientCertPassword func() (string, error)
 
 	// notify is a test-only seam. When nil (the production path) Run installs
 	// no signal handler at all — glab's root command owns signals via
@@ -287,6 +294,25 @@ type RunOptions struct {
 	// invoked in place of signal.Notify so tests can drive the same
 	// cancellation deterministically without a real OS signal.
 	notify func(c chan<- os.Signal, sig ...os.Signal)
+}
+
+// UpstreamProxyCertificateOptions returns the option that presents glab's
+// client_cert to an https:// outbound proxy that requires one, loading it the
+// way the API client does. It returns no option when certPath is empty or names
+// no certificate. Run and the job-level proxy both use it, so the two load the
+// certificate the same way.
+func UpstreamProxyCertificateOptions(certPath, keyPath string, password func() (string, error)) ([]proxy.Option, error) {
+	if certPath == "" {
+		return nil, nil
+	}
+	certs, err := api.LoadClientCertificates(certPath, keyPath, password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load client certificate: %w", err)
+	}
+	if len(certs) == 0 {
+		return nil, nil
+	}
+	return []proxy.Option{proxy.WithUpstreamProxyCertificate(certs[0])}, nil
 }
 
 // Run executes manager.Binary() with args forwarded verbatim, routing HTTPS
@@ -317,6 +343,11 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	if roots != nil {
 		proxyOpts = append(proxyOpts, proxy.WithUpstreamRootCAs(roots))
 	}
+	certOpts, err := UpstreamProxyCertificateOptions(opts.ClientCertPath, opts.ClientKeyPath, opts.ClientCertPassword)
+	if err != nil {
+		return err
+	}
+	proxyOpts = append(proxyOpts, certOpts...)
 
 	p, err := proxy.New(manager.Matcher(), checker, opts.ProjectID, proxyOpts...)
 	if err != nil {

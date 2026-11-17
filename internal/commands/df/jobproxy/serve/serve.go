@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spf13/cobra"
 
@@ -75,16 +76,34 @@ func (o *options) run(ctx context.Context) error {
 	if err != nil {
 		return cmdutils.WrapError(err, "failed to create a GitLab API client.")
 	}
-	caCert, err := o.config().Get(r.RepoHost(), "ca_cert")
+	host := r.RepoHost()
+	caCert, err := o.config().Get(host, "ca_cert")
 	if err != nil {
 		return cmdutils.WrapError(err, "failed to read ca_cert from the glab configuration.")
 	}
+	clientCert, err := o.config().Get(host, "client_cert")
+	if err != nil {
+		return cmdutils.WrapError(err, "failed to read client_cert from the glab configuration.")
+	}
+	clientKey, err := o.config().Get(host, "client_key")
+	if err != nil {
+		return cmdutils.WrapError(err, "failed to read client_key from the glab configuration.")
+	}
 	return session.Serve(ctx, session.ServeConfig{
-		Client:     client,
-		ProjectID:  r.FullName(),
-		BaseDir:    o.baseDir,
-		StateDir:   o.stateDir,
-		CACertPath: caCert,
-		IO:         o.io,
+		Client:         client,
+		ProjectID:      r.FullName(),
+		BaseDir:        o.baseDir,
+		StateDir:       o.stateDir,
+		CACertPath:     caCert,
+		ClientCertPath: clientCert,
+		ClientKeyPath:  clientKey,
+		ClientCertPassword: func() (string, error) {
+			password, err := o.config().Get(host, "client_cert_password")
+			if err != nil {
+				return "", fmt.Errorf("failed to read client_cert_password for %q: %w", host, err)
+			}
+			return password, nil
+		},
+		IO: o.io,
 	})
 }

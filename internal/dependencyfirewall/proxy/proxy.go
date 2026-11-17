@@ -122,6 +122,10 @@ type Proxy struct {
 	matcher  Matcher
 	checker  policy.Checker
 
+	// upstreamProxyCert is applied after every option has run, so it wraps
+	// whichever Proxy func and roots they set.
+	upstreamProxyCert *tls.Certificate
+
 	projectID string
 
 	// ctx is the proxy-lifetime context; it bounds policy checks made on
@@ -244,6 +248,15 @@ func WithBlockNotice(notice policy.Logf) Option {
 	}
 }
 
+// WithUpstreamProxyCertificate presents cert on the TLS handshake with an
+// https:// outbound proxy that requires a client certificate. Registries never
+// receive it, and the proxy is still verified against the upstream roots.
+func WithUpstreamProxyCertificate(cert tls.Certificate) Option {
+	return func(p *Proxy) {
+		p.upstreamProxyCert = &cert
+	}
+}
+
 func New(matcher Matcher, checker policy.Checker, projectID string, opts ...Option) (*Proxy, error) {
 	ca, err := newCertAuthority()
 	if err != nil {
@@ -280,6 +293,9 @@ func New(matcher Matcher, checker policy.Checker, projectID string, opts ...Opti
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	for _, opt := range opts {
 		opt(p)
+	}
+	if p.upstreamProxyCert != nil {
+		presentCertToProxy(p.upstream, *p.upstreamProxyCert)
 	}
 	return p, nil
 }

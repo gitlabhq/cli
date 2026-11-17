@@ -57,6 +57,18 @@ func loadClientCertificates(certFile, keyFile, password string) ([]tls.Certifica
 	return []tls.Certificate{cert}, nil
 }
 
+// LoadClientCertificates loads client_cert and client_key the way the API
+// client does, so a bundle that works for API calls also works for callers
+// outside this package. Like loadClientCertificates, it returns no certificate
+// and no error for a lone client_cert that is not a PKCS#12 bundle.
+func LoadClientCertificates(certFile, keyFile string, password func() (string, error)) ([]tls.Certificate, error) {
+	pass, err := pkcs12Password(certFile, keyFile, password)
+	if err != nil {
+		return nil, err
+	}
+	return loadClientCertificates(certFile, keyFile, pass)
+}
+
 // pkcs12Password calls password only when certFile, used without keyFile, is a
 // PKCS#12 bundle that an empty password does not open, so an unreadable keyring
 // cannot fail a client that never uses the password. When certFile is not a
