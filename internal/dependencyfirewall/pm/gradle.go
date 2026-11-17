@@ -1,6 +1,8 @@
 package pm
 
 import (
+	"crypto/x509"
+	"errors"
 	"net/url"
 	"os"
 	"strings"
@@ -83,6 +85,47 @@ func (m *gradleManager) ExistingBundleVars() []string { return nil }
 // the CA bundle in CATrustEnviron.
 func (m *gradleManager) CleanupCAFiles(caPath string) {
 	_ = os.Remove(caPath + ".p12")
+}
+
+// upstreamTrustAnchors returns the certificates in the truststore gradle's
+// JVM would load. glab replaces that truststore for the child, so the user's
+// anchors move to the registry side. The gradle launcher passes JAVA_OPTS
+// before GRADLE_OPTS. The JVM reads JAVA_TOOL_OPTIONS first, the java
+// launcher puts JDK_JAVA_OPTIONS before the command line, and _JAVA_OPTIONS
+// comes last. The error also reports a truststore option in _JAVA_OPTIONS or
+// on the gradle command line, which gradle applies over GRADLE_OPTS, so it
+// replaces glab's in the child.
+func (m *gradleManager) upstreamTrustAnchors(env []string, dir string, args []string) ([]*x509.Certificate, error) {
+	certs, err := jvmTrustAnchors(env, dir, nil,
+		lookupEnv(env, "JAVA_TOOL_OPTIONS"), lookupEnv(env, "JDK_JAVA_OPTIONS"), lookupEnv(env, "JAVA_OPTS"),
+		lookupEnv(env, "GRADLE_OPTS"), lookupEnv(env, "_JAVA_OPTIONS"))
+	return certs, errors.Join(err,
+		jvmTrustStoreOverride(env, "gradle", "GRADLE_OPTS", "_JAVA_OPTIONS"),
+		argTrustStoreOverride(gradleArgProperties(args), "-D%s in the gradle arguments replaces glab's truststore, so gradle cannot trust the dependency firewall proxy; set it in GRADLE_OPTS instead"))
+}
+
+// gradleArgProperties returns the system properties the gradle command line
+// sets with -Dk=v, -D k=v, --system-prop k=v or --system-prop=k=v, the later
+// winning.
+func gradleArgProperties(args []string) map[string]string {
+	props := map[string]string{}
+	for i := 0; i < len(args); i++ {
+		var kv string
+		switch a := args[i]; {
+		case (a == "-D" || a == "--system-prop") && i+1 < len(args):
+			i++
+			kv = args[i]
+		case strings.HasPrefix(a, "--system-prop="):
+			kv = strings.TrimPrefix(a, "--system-prop=")
+		case strings.HasPrefix(a, "-D") && len(a) > 2:
+			kv = a[2:]
+		default:
+			continue
+		}
+		k, v, _ := strings.Cut(kv, "=")
+		props[k] = v
+	}
+	return props
 }
 
 func (m *gradleManager) Matcher() proxy.Matcher { return proxy.MavenMatcher{} }

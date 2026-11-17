@@ -26,25 +26,25 @@ var upstreamCAVars = []string{
 // single manager but must trust the same registry CAs as a per-command run. The
 // job-level proxy needs only the pool, so the PEM return is dropped here.
 func UpstreamRootCAs(env []string, caCertPath string) (*x509.CertPool, error) {
-	pool, _, err := upstreamRootCAs(env, caCertPath)
+	pool, _, err := upstreamRootCAs(env, caCertPath, nil)
 	return pool, err
 }
 
-// upstreamRootCAs returns the system roots extended with every certificate in
-// caCertPath and in the files named by upstreamCAVars in env, and those extra
-// certificates PEM-encoded. It returns a nil pool and PEM when no file yields
-// a certificate, so the transport default applies.
-// Unusable files are logged only under GLAB_DEBUG: writeCABundle already warns
-// about the running manager's variables, and the API client fails on a bad
-// ca_cert.
-func upstreamRootCAs(env []string, caCertPath string) (*x509.CertPool, []byte, error) {
+// upstreamRootCAs returns the system roots extended with anchors and with
+// every certificate in caCertPath and in the files named by upstreamCAVars in
+// env, and those extra certificates PEM-encoded. It returns a nil pool and PEM
+// when there are no anchors and no file yields a certificate, so the transport
+// default applies. Unusable files are logged only under GLAB_DEBUG:
+// writeCABundle already warns about the running manager's variables, and the
+// API client fails on a bad ca_cert.
+func upstreamRootCAs(env []string, caCertPath string, anchors []*x509.Certificate) (*x509.CertPool, []byte, error) {
 	paths := make([]string, 0, len(upstreamCAVars)+1)
 	paths = append(paths, caCertPath)
 	for _, v := range upstreamCAVars {
 		paths = append(paths, lookupEnv(env, v))
 	}
 
-	var certs []*x509.Certificate
+	certs := anchors
 	seen := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
 		if path == "" {
