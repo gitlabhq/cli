@@ -63,7 +63,7 @@ func RenderMarkdownWithoutIndentations(text, glamourStyle string) (string, error
 
 // markdownParser must use the same extensions as glamour, so that a block is
 // a paragraph here exactly when glamour treats it as one.
-var markdownParser = parser.New(parser.WithExtensions(extension.GFMParser, extension.DefinitionListParser))
+var markdownParser = parser.New(parser.WithExtensions(extension.NewGFMParser(), extension.NewDefinitionListParser()))
 
 // collapseSoftLineBreaks replaces soft line breaks in paragraphs with spaces so
 // that glamour can preserve intentional hard line breaks without also
