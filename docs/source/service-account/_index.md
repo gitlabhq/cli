@@ -42,4 +42,5 @@ Project service accounts require the Maintainer or Owner role for the project, o
 - [`delete`](delete.md)
 - [`get`](get.md)
 - [`list`](list.md)
+- [`token`](token/_index.md)
 - [`update`](update.md)

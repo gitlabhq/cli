@@ -9,6 +9,7 @@ import (
 	cmdDelete "gitlab.com/gitlab-org/cli/internal/commands/service-account/delete"
 	cmdGet "gitlab.com/gitlab-org/cli/internal/commands/service-account/get"
 	cmdList "gitlab.com/gitlab-org/cli/internal/commands/service-account/list"
+	cmdToken "gitlab.com/gitlab-org/cli/internal/commands/service-account/token"
 	cmdUpdate "gitlab.com/gitlab-org/cli/internal/commands/service-account/update"
 )
 
@@ -35,6 +36,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmd.AddCommand(cmdDelete.NewCmd(f))
 	cmd.AddCommand(cmdGet.NewCmd(f))
 	cmd.AddCommand(cmdList.NewCmd(f))
+	cmd.AddCommand(cmdToken.NewCmd(f))
 	cmd.AddCommand(cmdUpdate.NewCmd(f))
 
 	return cmd

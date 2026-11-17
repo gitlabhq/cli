@@ -154,12 +154,16 @@ func List(ctx context.Context, client *gitlab.Client, scope Scope) (any, []Accou
 // argument is always an ID, and is rejected when it is below 1 or does not fit
 // in an int64.
 func ParseID(ref string) (int64, bool, error) {
+	return parseID(ref, "service account")
+}
+
+func parseID(ref, kind string) (int64, bool, error) {
 	id, err := strconv.ParseInt(ref, 10, 64)
 	switch {
 	case err == nil && id > 0:
 		return id, true, nil
 	case err == nil || errors.Is(err, strconv.ErrRange):
-		return 0, false, fmt.Errorf("invalid service account ID %q", ref)
+		return 0, false, fmt.Errorf("invalid %s ID %q", kind, ref)
 	}
 	return 0, false, nil
 }
