@@ -38,123 +38,9 @@ func TestNewCmd_PassthroughStructure(t *testing.T) {
 	assert.Equal(t, "y", yesFlag.Shorthand)
 }
 
-func TestSplitGlabFlags(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		args          []string
-		wantYes       bool
-		wantInstall   bool
-		wantUpdate    bool
-		wantHelpOnly  bool
-		wantForwarded []string
-	}{
-		{
-			name:          "verbatim forwarding of a query command",
-			args:          []string{"query", "-"},
-			wantForwarded: []string{"query", "-"},
-		},
-		{
-			name:          "verbatim forwarding of a sql command",
-			args:          []string{"sql", "SELECT 1"},
-			wantForwarded: []string{"sql", "SELECT 1"},
-		},
-		{
-			name:          "verbatim forwarding of top-level command",
-			args:          []string{"version"},
-			wantForwarded: []string{"version"},
-		},
-		{
-			name:          "yes long flag is consumed and dropped",
-			args:          []string{"--yes", "index", "."},
-			wantYes:       true,
-			wantForwarded: []string{"index", "."},
-		},
-		{
-			name:          "yes short flag is consumed and dropped",
-			args:          []string{"-y", "query", "-"},
-			wantYes:       true,
-			wantForwarded: []string{"query", "-"},
-		},
-		{
-			name:        "install flag is consumed and dropped",
-			args:        []string{"--install", "--yes"},
-			wantYes:     true,
-			wantInstall: true,
-		},
-		{
-			name:       "update flag is consumed and dropped",
-			args:       []string{"--update"},
-			wantUpdate: true,
-		},
-		{
-			name:         "no args forwards nothing so the binary prints its own usage",
-			wantHelpOnly: true,
-		},
-		{
-			name:          "lone help is forwarded to the binary",
-			args:          []string{"--help"},
-			wantHelpOnly:  true,
-			wantForwarded: []string{"--help"},
-		},
-		{
-			name:          "lone short help is forwarded to the binary",
-			args:          []string{"-h"},
-			wantHelpOnly:  true,
-			wantForwarded: []string{"-h"},
-		},
-		{
-			name:          "help after a glab flag is forwarded to the binary",
-			args:          []string{"--yes", "--help"},
-			wantYes:       true,
-			wantHelpOnly:  true,
-			wantForwarded: []string{"--help"},
-		},
-		{
-			name:          "help with a forwarded command is forwarded to the binary",
-			args:          []string{"query", "--help"},
-			wantForwarded: []string{"query", "--help"},
-		},
-		{
-			name:          "glab flag after the subcommand is forwarded to the binary",
-			args:          []string{"setup", "claude", "--yes"},
-			wantForwarded: []string{"setup", "claude", "--yes"},
-		},
-		{
-			name:          "double dash forwards the rest verbatim",
-			args:          []string{"--", "--yes", "status"},
-			wantForwarded: []string{"--yes", "status"},
-		},
-		{
-			name:          "help before a command is forwarded to the binary",
-			args:          []string{"--help", "status"},
-			wantHelpOnly:  true,
-			wantForwarded: []string{"--help", "status"},
-		},
-		{
-			name:          "unknown leading flag forwards everything to the binary",
-			args:          []string{"--log-level", "debug", "status"},
-			wantForwarded: []string{"--log-level", "debug", "status"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			flags := splitGlabFlags(tt.args)
-			assert.Equal(t, tt.wantYes, flags.yes)
-			assert.Equal(t, tt.wantInstall, flags.install)
-			assert.Equal(t, tt.wantUpdate, flags.update)
-			assert.Equal(t, tt.wantHelpOnly, flags.helpOnly())
-			assert.Equal(t, tt.wantForwarded, flags.forwarded)
-		})
-	}
-}
-
 func TestValidate_InstallUpdateMutuallyExclusive(t *testing.T) {
 	t.Parallel()
-	opts := &options{flags: splitGlabFlags([]string{"--install", "--update"})}
+	opts := &options{flags: binarymgr.SplitFlags([]string{"--install", "--update"})}
 
 	err := opts.validate()
 	require.Error(t, err)
@@ -163,7 +49,7 @@ func TestValidate_InstallUpdateMutuallyExclusive(t *testing.T) {
 
 func TestValidate_InstallWithCommandErrors(t *testing.T) {
 	t.Parallel()
-	opts := &options{flags: splitGlabFlags([]string{"--update", "status"})}
+	opts := &options{flags: binarymgr.SplitFlags([]string{"--update", "status"})}
 
 	err := opts.validate()
 	require.Error(t, err)
@@ -199,7 +85,7 @@ func TestRun_HelpExecsTheInstalledBinaryWithoutRunLifecycle(t *testing.T) {
 			io:      ios,
 			cfg:     f.Config(),
 			factory: f,
-			flags:   splitGlabFlags(args),
+			flags:   binarymgr.SplitFlags(args),
 			execute: func(_ context.Context, _ *iostreams.IOStreams, path string, execArgs, env []string) error {
 				assert.Equal(t, binary, path, "%v", args)
 				assert.Contains(t, env, "ORBIT_AUTH_HEADER_VALUE=glpat-remote", "%v", args)
@@ -209,7 +95,7 @@ func TestRun_HelpExecsTheInstalledBinaryWithoutRunLifecycle(t *testing.T) {
 		}
 
 		require.NoError(t, opts.run(t.Context()), "%v", args)
-		assert.Equal(t, opts.flags.forwarded, forwarded, "%v", args)
+		assert.Equal(t, opts.flags.Forwarded, forwarded, "%v", args)
 	}
 	assert.Empty(t, stdout.String())
 }
@@ -265,7 +151,7 @@ func TestRunWithCustomPath_Validation(t *testing.T) {
 		factory := cmdtest.NewTestFactory(ios)
 
 		t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", "/nonexistent/path/to/orbit")
-		runner := newRunner(factory.IO(), factory.Config(), binaries.Orbit())
+		runner := binarymgr.NewRunner(factory.IO(), factory.Config(), binaries.Orbit())
 		err := runner.Run(t.Context())
 
 		require.Error(t, err)
@@ -284,7 +170,7 @@ func TestRunWithCustomPath_Validation(t *testing.T) {
 		require.NoError(t, os.WriteFile(nonExecFile, []byte("#!/bin/sh\n"), 0o644))
 
 		t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", nonExecFile)
-		runner := newRunner(factory.IO(), factory.Config(), binaries.Orbit())
+		runner := binarymgr.NewRunner(factory.IO(), factory.Config(), binaries.Orbit())
 		err := runner.Run(t.Context())
 
 		require.Error(t, err)
@@ -306,7 +192,7 @@ func TestHandleInstall_CustomPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/sh\n"), 0o755))
 
 	t.Setenv("GLAB_ORBIT_CLI_BINARY_PATH", execFile)
-	runner := newRunner(factory.IO(), factory.Config(), binaries.Orbit())
+	runner := binarymgr.NewRunner(factory.IO(), factory.Config(), binaries.Orbit())
 	err := runner.HandleInstall(t.Context())
 
 	require.NoError(t, err)

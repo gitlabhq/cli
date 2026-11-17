@@ -33,6 +33,7 @@ import (
 	jobCmd "gitlab.com/gitlab-org/cli/internal/commands/job"
 	labelCmd "gitlab.com/gitlab-org/cli/internal/commands/label"
 	milestoneCmd "gitlab.com/gitlab-org/cli/internal/commands/milestone"
+	minderCmd "gitlab.com/gitlab-org/cli/internal/commands/minder"
 	mrCmd "gitlab.com/gitlab-org/cli/internal/commands/mr"
 	opentofuCmd "gitlab.com/gitlab-org/cli/internal/commands/opentofu"
 	orbitCmd "gitlab.com/gitlab-org/cli/internal/commands/orbit"
@@ -136,7 +137,7 @@ func NewCmdRoot(f cmdutils.Factory) *cobra.Command {
 	rootCmd.AddCommand(jobCmd.NewCmdJob(f))
 	rootCmd.AddCommand(labelCmd.NewCmdLabel(f))
 	rootCmd.AddCommand(milestoneCmd.NewCmdMilestone(f))
-	rootCmd.AddCommand(governCmd.NewCmd(f))
+	rootCmd.AddCommand(minderCmd.NewCmd(f))
 	rootCmd.AddCommand(mrCmd.NewCmdMR(f))
 	rootCmd.AddCommand(opentofuCmd.NewCmd(f))
 	rootCmd.AddCommand(orbitCmd.NewCmd(f))

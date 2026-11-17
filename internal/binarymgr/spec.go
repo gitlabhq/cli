@@ -40,6 +40,12 @@ type Spec struct {
 	// MinVersion forces a re-download when the installed version is below it; empty disables the floor.
 	MinVersion string
 
+	// RequireChecksum makes a missing registry checksum fatal instead of a
+	// skipped-with-warning verification. Set it for binaries whose integrity is
+	// load-bearing (e.g. one that can block tool calls), so an unverified
+	// artifact is never executed.
+	RequireChecksum bool
+
 	// SupportedOS lists the GOOS values the binary is published for.
 	SupportedOS []string
 

@@ -12,13 +12,23 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
-func TestNewLegacyCmd_RunsTheMinderCommands(t *testing.T) {
+func TestAddSubcommands_AttachesGovernanceCommands(t *testing.T) {
 	f := cmdtest.NewTestFactory(nil)
-	minder := NewCmd(f)
+	cmd := &cobra.Command{Use: "minder <command>"}
+	AddSubcommands(cmd, f)
+
+	for _, args := range [][]string{{"audit", "sync"}, {"doctor"}, {"setup"}} {
+		found, _, err := cmd.Find(args)
+		if assert.NoError(t, err) {
+			assert.Equal(t, args[len(args)-1], found.Name())
+		}
+	}
+}
+
+func TestNewLegacyCmd_RunsTheGovernanceCommands(t *testing.T) {
+	f := cmdtest.NewTestFactory(nil)
 	legacy := NewLegacyCmd(f)
 
-	assert.Equal(t, "minder", minder.Name())
-	assert.False(t, minder.Hidden)
 	assert.Equal(t, "govern", legacy.Name())
 	assert.True(t, legacy.Hidden, "glab govern is not listed, but the hooks earlier glab versions installed still run it")
 
@@ -41,5 +51,4 @@ func TestNewLegacyCmd_IsExcludedFromMCP(t *testing.T) {
 		}
 	}
 	walk(NewLegacyCmd(f), true)
-	walk(NewCmd(f), false)
 }

@@ -401,6 +401,9 @@ func (m *Manager) downloadFile(ctx context.Context, asset *packageAsset, dest *o
 
 func (m *Manager) verifyChecksum(filePath, expectedChecksum string) error {
 	if expectedChecksum == "" {
+		if m.spec.RequireChecksum {
+			return fmt.Errorf("refusing to run %s: no checksum available from the registry to verify the download", m.spec.DisplayName)
+		}
 		color := m.io.Color()
 		m.io.LogErrorf("%s No checksum available, skipping verification\n", color.DotWarnIcon())
 		return nil

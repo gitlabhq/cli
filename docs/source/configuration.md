@@ -148,6 +148,10 @@ For more information, see
 | `GIT_PROTOCOL` | `git_protocol` | `ssh` | Alternative name for `GLAB_GIT_PROTOCOL`, checked after it. |
 | `GLAB_GLAMOUR_STYLE` | `glamour_style` | `auto` | Set your desired Markdown renderer style. Available options are [auto, dark, light, notty]. `auto` detects your terminal's background color. To set a custom style, refer to <https://github.com/charmbracelet/glamour#styles>. |
 | `GLAMOUR_STYLE` | `glamour_style` | `auto` | Alternative name for `GLAB_GLAMOUR_STYLE`, checked after it. |
+| `GLAB_MINDER_CLI_AUTO_DOWNLOAD` | `minder_cli_auto_download` | - | Automatically download the GitLab Endpoint Agent Platform binary without prompting (true/false). |
+| `MINDER_CLI_AUTO_DOWNLOAD` | `minder_cli_auto_download` | - | Alternative name for `GLAB_MINDER_CLI_AUTO_DOWNLOAD`, checked after it. |
+| `GLAB_MINDER_CLI_AUTO_RUN` | `minder_cli_auto_run` | - | Automatically run the GitLab Endpoint Agent Platform without prompting (true/false). Set to true to skip the confirmation prompt. |
+| `MINDER_CLI_AUTO_RUN` | `minder_cli_auto_run` | - | Alternative name for `GLAB_MINDER_CLI_AUTO_RUN`, checked after it. |
 | `GLAB_NOTIFY_SKILL_UPDATES` | `notify_skill_updates` | `true` | Show a notice when an installed agent skill (bundled or remote) has updates available. |
 | `GLAB_NO_PROMPT` | `no_prompt` | `false` | Set to true (1) to disable prompts, or false (0) to enable them. |
 | `NO_PROMPT` | `no_prompt` | `false` | Alternative name for `GLAB_NO_PROMPT`, checked after it. |

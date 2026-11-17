@@ -23,7 +23,7 @@ type options struct {
 	cfg     config.Config
 	factory cmdutils.Factory
 	execute func(ctx context.Context, io *iostreams.IOStreams, binaryPath string, args, extraEnv []string) error
-	flags   glabFlags
+	flags   binarymgr.Flags
 }
 
 func NewCmd(f cmdutils.Factory) *cobra.Command {
@@ -85,7 +85,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		},
 	}
 
-	// Registered for `glab help orbit` and the docs; DisableFlagParsing routes real parsing through splitGlabFlags.
+	// Registered for `glab help orbit` and the docs; DisableFlagParsing routes real parsing through binarymgr.SplitFlags.
 	fl := cmd.Flags()
 	fl.BoolP("help", "h", false, "Show the Orbit binary's help, or install instructions until the binary is installed.")
 	fl.BoolP("yes", "y", false, "Skip confirmation prompts.")
@@ -98,28 +98,28 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) complete(args []string) {
-	o.flags = splitGlabFlags(args)
+	o.flags = binarymgr.SplitFlags(args)
 }
 
 func (o *options) validate() error {
-	if o.flags.install && o.flags.update {
+	if o.flags.Install && o.flags.Update {
 		return errors.New("the --install and --update flags are mutually exclusive")
 	}
-	if (o.flags.install || o.flags.update) && len(o.flags.forwarded) > 0 {
+	if (o.flags.Install || o.flags.Update) && len(o.flags.Forwarded) > 0 {
 		return errors.New("the --install and --update flags cannot be combined with a command")
 	}
 	return nil
 }
 
 func (o *options) run(ctx context.Context) error {
-	if o.flags.helpOnly() {
+	if o.flags.HelpOnly() {
 		return o.runHelp(ctx)
 	}
-	runner := newRunner(o.io, o.cfg, binaries.Orbit())
-	runner.Yes = o.flags.yes
-	runner.Install = o.flags.install
-	runner.Update = o.flags.update
-	runner.Args = o.flags.forwarded
+	runner := binarymgr.NewRunner(o.io, o.cfg, binaries.Orbit())
+	runner.Yes = o.flags.Yes
+	runner.Install = o.flags.Install
+	runner.Update = o.flags.Update
+	runner.Args = o.flags.Forwarded
 	runner.Executor = o.exec
 	if runner.Install {
 		return runner.HandleInstall(ctx)
@@ -134,7 +134,7 @@ func (o *options) runHelp(ctx context.Context) error {
 		dbg.Debugf("orbit help: %v", err)
 	}
 	if status.Installed {
-		return o.exec(ctx, status.Path, o.flags.forwarded)
+		return o.exec(ctx, status.Path, o.flags.Forwarded)
 	}
 	managedPath, _ := binarymgr.ManagedBinaryPath(spec)
 	if status.Path != "" && status.Path != managedPath {
@@ -155,48 +155,4 @@ func (o *options) runHelp(ctx context.Context) error {
 
 func (o *options) exec(ctx context.Context, binaryPath string, args []string) error {
 	return o.execute(ctx, o.io, binaryPath, args, orbitCredentialEnv(ctx, o.factory))
-}
-
-type glabFlags struct {
-	yes       bool
-	install   bool
-	update    bool
-	forwarded []string
-}
-
-func (g glabFlags) helpOnly() bool {
-	if g.install || g.update {
-		return false
-	}
-	return len(g.forwarded) == 0 || g.forwarded[0] == "--help" || g.forwarded[0] == "-h"
-}
-
-func splitGlabFlags(args []string) glabFlags {
-	var flags glabFlags
-	for i := range len(args) {
-		switch arg := args[i]; {
-		case arg == "--yes" || arg == "-y":
-			flags.yes = true
-		case arg == "--install":
-			flags.install = true
-		case arg == "--update":
-			flags.update = true
-		case arg == "--":
-			flags.forwarded = args[i+1:]
-			return flags
-		default:
-			flags.forwarded = args[i:]
-			return flags
-		}
-	}
-	return flags
-}
-
-func newRunner(io *iostreams.IOStreams, cfg config.Config, spec binarymgr.Spec) *binarymgr.Runner {
-	return &binarymgr.Runner{
-		IO:      io,
-		Cfg:     cfg,
-		Spec:    spec,
-		Manager: binarymgr.NewManager(io, spec),
-	}
 }

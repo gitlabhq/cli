@@ -165,6 +165,48 @@ func TestManager_verifyChecksum(t *testing.T) {
 	}
 }
 
+func TestManager_verifyChecksum_RequireChecksum(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.bin")
+	testContent := []byte("test content for checksum")
+	require.NoError(t, os.WriteFile(testFile, testContent, 0o644))
+
+	hash := sha256.New()
+	hash.Write(testContent)
+	expected := hex.EncodeToString(hash.Sum(nil))
+
+	tests := []struct {
+		name             string
+		expectedChecksum string
+		wantsErr         bool
+		errContains      string
+	}{
+		{"empty checksum is fatal when required", "", true, "no checksum available"},
+		{"valid checksum still passes when required", expected, false, ""},
+		{"mismatched checksum still fails when required", "deadbeef", true, "checksum verification failed"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			spec := testSpec()
+			spec.RequireChecksum = true
+			ios, _, _, _ := cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
+			m := NewManager(ios, spec)
+			err := m.verifyChecksum(testFile, tc.expectedChecksum)
+			if tc.wantsErr {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tc.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestManager_CheckForUpdate(t *testing.T) {
 	t.Parallel()
 

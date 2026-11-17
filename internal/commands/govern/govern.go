@@ -1,7 +1,6 @@
 package govern
 
 import (
-	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
@@ -9,21 +8,7 @@ import (
 	governDoctorCmd "gitlab.com/gitlab-org/cli/internal/commands/govern/doctor"
 	governSetupCmd "gitlab.com/gitlab-org/cli/internal/commands/govern/setup"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
-	"gitlab.com/gitlab-org/cli/internal/text"
 )
-
-// NewCmd returns the glab minder command.
-func NewCmd(f cmdutils.Factory) *cobra.Command {
-	minderCmd := &cobra.Command{
-		Use:   "minder <command>",
-		Short: "Manage AI governance. (EXPERIMENTAL)",
-		Long: heredoc.Doc(`
-			Manage AI governance for external agents running against GitLab projects. Configure hooks and diagnose setup issues.
-		`) + text.ExperimentalString,
-	}
-	AddSubcommands(minderCmd, f)
-	return minderCmd
-}
 
 // AddSubcommands adds the audit, doctor and setup subcommands of glab minder
 // to cmd.
