@@ -170,6 +170,20 @@ hosts:
 			err:    nil,
 		},
 		{
+			name:   "self-managed www. hostname kept",
+			input:  "https://www.example.com/monalisa/octo-cat.git",
+			result: "monalisa/octo-cat",
+			host:   "www.example.com",
+			err:    nil,
+		},
+		{
+			name:   "self-managed www. hostname with port kept",
+			input:  "https://www.example.com:8443/monalisa/octo-cat.git",
+			result: "monalisa/octo-cat",
+			host:   "www.example.com:8443",
+			err:    nil,
+		},
+		{
 			name:   "group namespacing",
 			input:  "https://gitlab.com/monalisa/octo-cat/minor",
 			result: "monalisa/octo-cat/minor",
@@ -279,6 +293,29 @@ hosts:
 			if tt.host != repo.RepoHost() {
 				t.Errorf("expected %q, got %q", tt.host, repo.RepoHost())
 			}
+		})
+	}
+}
+
+func Test_normalizeHostname(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"gitlab.com unchanged", "gitlab.com", "gitlab.com"},
+		{"www.gitlab.com collapses", "www.gitlab.com", "gitlab.com"},
+		{"www.gitlab.com with port collapses", "www.gitlab.com:8443", "gitlab.com:8443"},
+		{"uppercase gitlab.com lowercased", "GITLAB.COM", "gitlab.com"},
+		{"uppercase www.gitlab.com collapses", "WWW.GITLAB.COM", "gitlab.com"},
+		{"self-managed www. host kept", "www.example.com", "www.example.com"},
+		{"self-managed www. host with port kept", "www.example.com:8443", "www.example.com:8443"},
+		{"self-managed host unchanged", "example.com", "example.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, normalizeHostname(tt.input))
 		})
 	}
 }

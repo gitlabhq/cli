@@ -239,8 +239,16 @@ func TrimSubfolder(u *url.URL, cfg config.Config) string {
 	return urlPath
 }
 
+// www.gitlab.com is an alias of gitlab.com; other www. hosts may be
+// distinct instances (#8750).
 func normalizeHostname(h string) string {
-	return strings.ToLower(strings.TrimPrefix(h, "www."))
+	h = strings.ToLower(h)
+	if rest, ok := strings.CutPrefix(h, "www."); ok {
+		if rest == glinstance.DefaultHostname || strings.HasPrefix(rest, glinstance.DefaultHostname+":") {
+			return rest
+		}
+	}
+	return h
 }
 
 // IsSame compares two GitLab repositories
