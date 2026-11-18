@@ -226,7 +226,7 @@ func (o *options) run() error {
 			return err
 		}
 	} else {
-		if _, err := o.io.StdOut.Write([]byte(outputTokenValue)); err != nil {
+		if _, err := fmt.Fprintln(o.io.StdOut, outputTokenValue); err != nil { //nolint:forbidigo // write error must propagate to the caller
 			return err
 		}
 	}

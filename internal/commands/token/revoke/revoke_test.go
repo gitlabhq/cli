@@ -56,7 +56,7 @@ func TestRevokePersonalAccessToken(t *testing.T) {
 		{
 			name:        "revoke personal access token as text",
 			cli:         "--user @me my-pat",
-			expectedOut: "revoked @me my-pat 10183862",
+			expectedOut: "revoked @me my-pat 10183862\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockUsers.EXPECT().
 					CurrentUser(gomock.Any()).
@@ -128,7 +128,7 @@ func TestRevokeGroupAccessToken(t *testing.T) {
 		{
 			name:        "revoke group access token as text",
 			cli:         "--group GROUP my-group-token",
-			expectedOut: "revoked my-group-token 10190772",
+			expectedOut: "revoked my-group-token 10190772\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockGroupAccessTokens.EXPECT().
 					ListGroupAccessTokens("GROUP", gomock.Any(), gomock.Any()).
@@ -197,7 +197,7 @@ func TestRevokeProjectAccessToken(t *testing.T) {
 		{
 			name:        "revoke project access token as text",
 			cli:         "my-project-token",
-			expectedOut: "revoked my-project-token 10191548",
+			expectedOut: "revoked my-project-token 10191548\n",
 			setupMock: func(tc *gitlabtesting.TestClient) {
 				tc.MockProjectAccessTokens.EXPECT().
 					ListProjectAccessTokens("OWNER/REPO", gomock.Any(), gomock.Any()).
