@@ -21,9 +21,9 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/opencodeplugin"
 	"gitlab.com/gitlab-org/cli/internal/commands/version"
-	"gitlab.com/gitlab-org/cli/internal/config"
 )
 
 const (
@@ -449,7 +449,7 @@ type Status struct {
 var ErrNoStatus = errors.New("no fallback sync run recorded")
 
 func statusPath() string {
-	return filepath.Join(config.ConfigDir(), "gaig", "fallback-sync-status.json")
+	return filepath.Join(gaig.StateDir(), "fallback-sync-status.json")
 }
 
 // WriteStatus replaces the recorded status of the last run.
@@ -490,11 +490,11 @@ var DiscoverableAgents = []string{"codex", "cursor"}
 var HookAgents = []string{"claude-code", "opencode"}
 
 func discoveredAgentsPath() string {
-	return filepath.Join(config.ConfigDir(), "gaig", "discovered-agents.json")
+	return filepath.Join(gaig.StateDir(), "discovered-agents.json")
 }
 
 func hookAgentsPath() string {
-	return filepath.Join(config.ConfigDir(), "gaig", "hook-agents.json")
+	return filepath.Join(gaig.StateDir(), "hook-agents.json")
 }
 
 // SetDiscoveredAgents replaces the agents whose sessions the scheduled job

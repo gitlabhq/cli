@@ -30,7 +30,7 @@ Run setup again with `--agents` to add agents. Agents set up by an earlier run s
 
 Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run `glab minder doctor` afterwards to verify the setup.
 
-Run `glab minder setup --uninstall` to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also forgets the agents you set up, so the next setup starts with Claude Code again. Other hooks and settings in `~/.claude/settings.json`, and other OpenCode plugins, are left unchanged.
+Run `glab minder setup --uninstall` to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also removes glab's local records of your agent sessions and forgets the agents you set up, so the next setup starts with Claude Code again. Other hooks and settings in `~/.claude/settings.json`, and other OpenCode plugins, are left unchanged.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
@@ -66,7 +66,7 @@ $ glab minder setup --uninstall
 ```plaintext
       --agents strings     Agents to sync sessions from: claude-code, opencode, codex, cursor. Added to the agents set up by an earlier run. The OpenCode plugin runs for all your OpenCode sessions. Multiple agents can be comma-separated or specified by repeating the flag.
       --no-fallback-sync   Install only the hooks and plugin, without the fallback periodic sync job.
-      --uninstall          Remove the hooks, the OpenCode plugin, and the fallback periodic sync job, and stop syncing Codex and Cursor sessions.
+      --uninstall          Remove the hooks, the OpenCode plugin, the fallback periodic sync job, and the local session records, and stop syncing Codex and Cursor sessions.
   -y, --yes                Skip confirmation prompt.
 ```
 

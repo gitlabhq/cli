@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/opencodeplugin"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -297,6 +299,7 @@ func TestSetup_UninstallConflictsWithNoFallbackSync(t *testing.T) {
 func TestRunUninstall(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
 	path := filepath.Join(dir, ".claude", "settings.json")
 
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
@@ -314,11 +317,14 @@ func TestRunUninstall(t *testing.T) {
 	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "disable", "--now", "glab-govern-audit-sync.timer"}, nil).Return(nil, nil)
 	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "daemon-reload"}, nil).Return(nil, nil)
 	opts.executor = mExec
+	writeSessionState(t)
 
 	require.NoError(t, runUninstall(t.Context(), opts))
 
 	assert.NoFileExists(t, filepath.Join(dir, ".config", "systemd", "user", "glab-govern-audit-sync.timer"))
 	assert.Contains(t, stdout.String(), "Fallback periodic sync removed")
+	assert.NoDirExists(t, gaig.StateDir())
+	assert.Contains(t, stdout.String(), "Local records of your agent sessions removed")
 
 	raw, err := claudehooks.LoadRawSettings(path)
 	require.NoError(t, err)
@@ -332,6 +338,7 @@ func TestRunUninstall(t *testing.T) {
 func TestRunUninstall_HooksOnly(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
 	path := filepath.Join(dir, ".claude", "settings.json")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(`{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo user-hook"}]}]}}`), 0o644))
@@ -414,6 +421,7 @@ func TestRunSetup_KeepsOneHookWhenBothFormsArePresent(t *testing.T) {
 func TestRunUninstall_RemovesHooksFromBeforeTheRename(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
 	path := filepath.Join(dir, ".claude", "settings.json")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(`{"model":"opus","hooks":{
@@ -440,6 +448,7 @@ func TestRunUninstall_RemovesHooksFromBeforeTheRename(t *testing.T) {
 func TestRunUninstall_RemovesEmptiedHooksKey(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
 	path := filepath.Join(dir, ".claude", "settings.json")
 
 	ios, _, _, _ := cmdtest.TestIOStreams()
@@ -483,6 +492,7 @@ func TestRunUninstall_CorruptSettings(t *testing.T) {
 	t.Run("nothing else to remove fails before prompting", func(t *testing.T) {
 		dir := t.TempDir()
 		t.Setenv("HOME", dir)
+		t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
 		path := writeCorruptSettings(t, dir)
 
 		ios, _, _, _ := cmdtest.TestIOStreams()
@@ -490,6 +500,22 @@ func TestRunUninstall_CorruptSettings(t *testing.T) {
 		err := runUninstall(t.Context(), &options{io: ios, executor: expectNoJob(t), goos: "linux", settingsPathOverride: path})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "the agent session hooks were not removed")
+	})
+
+	t.Run("keeps the session records while the hooks may still write them", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", dir)
+		t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+		path := writeCorruptSettings(t, dir)
+		writeSessionState(t)
+
+		ios, _, stdout, _ := cmdtest.TestIOStreams()
+		// Without --yes and without a terminal, prompting would fail differently.
+		err := runUninstall(t.Context(), &options{io: ios, executor: expectNoJob(t), goos: "linux", settingsPathOverride: path})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "the agent session hooks were not removed", "records that are kept don't make it prompt")
+		assert.DirExists(t, gaig.StateDir())
+		assert.NotContains(t, stdout.String(), "Local records of your agent sessions removed")
 	})
 
 	t.Run("the rest is removed and the error says what is left", func(t *testing.T) {
@@ -553,9 +579,69 @@ func TestRunUninstall_UnreadableOpenCodePlugin(t *testing.T) {
 	})
 }
 
+// writeSessionState writes the records that syncing leaves in glab's
+// configuration directory.
+func writeSessionState(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"cursors/sess-1", "cursors/sess-1.meta", "identities/42_claude-code.json", "fallback-sync-status.json"} {
+		path := filepath.Join(gaig.StateDir(), name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte("{}"), 0o600))
+	}
+}
+
+func TestRunUninstall_OnlySessionState(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	writeSessionState(t)
+
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	mExec.EXPECT().
+		ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "is-active", "--quiet", "glab-govern-audit-sync.timer"}, nil).
+		Return(nil, &exec.ExitError{})
+
+	ios, _, stdout, _ := cmdtest.TestIOStreams()
+	opts := &options{io: ios, executor: mExec, goos: "linux", yes: true}
+
+	require.NoError(t, runUninstall(t.Context(), opts))
+
+	assert.NotContains(t, stdout.String(), "Nothing to uninstall", "records left by an earlier uninstall are still removed")
+	assert.NoDirExists(t, gaig.StateDir())
+}
+
+func TestRunUninstall_UnreadableSessionStateFails(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory that can't be listed")
+	}
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	// An execute-only directory can't be listed, but files in it can be opened,
+	// so only the records check fails.
+	require.NoError(t, os.MkdirAll(gaig.StateDir(), 0o700))
+	require.NoError(t, os.Chmod(gaig.StateDir(), 0o100))
+	t.Cleanup(func() { _ = os.Chmod(gaig.StateDir(), 0o700) })
+
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	mExec.EXPECT().
+		ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "is-active", "--quiet", "glab-govern-audit-sync.timer"}, nil).
+		Return(nil, &exec.ExitError{})
+
+	ios, _, stdout, _ := cmdtest.TestIOStreams()
+	opts := &options{io: ios, executor: mExec, goos: "linux"}
+
+	err := runUninstall(t.Context(), opts)
+
+	require.ErrorContains(t, err, "glab's local records of your agent sessions were not removed")
+	assert.NotContains(t, stdout.String(), "Nothing to uninstall")
+	assert.DirExists(t, gaig.StateDir())
+}
+
 func TestRunUninstall_NothingInstalled(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
 
 	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
 	mExec.EXPECT().
@@ -578,6 +664,7 @@ func TestRunUninstall_NothingInstalled(t *testing.T) {
 func TestRunUninstall_LoadedJobWithoutFiles(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
 
 	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
 	gomock.InOrder(
@@ -771,8 +858,9 @@ func TestSetupPrompt(t *testing.T) {
 
 	assert.Equal(t,
 		"glab will install agent session hooks in ~/.claude/settings.json and a systemd user timer (~/.config/systemd/user/glab-govern-audit-sync.timer) that syncs sessions in the background every 30 minutes, replacing any existing job. "+
-			"Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are. Do you wish to continue?",
-		setupPrompt("linux", false, plan{claudeHooks: true}), "every setup says what is uploaded, not only --agents")
+			"Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are. "+
+			"glab also keeps a local record of each agent session in its configuration directory, with the session ID, the agent, the transcript path and how far it was synced, including sessions outside GitLab repositories, which are never uploaded. Do you wish to continue?",
+		setupPrompt("linux", false, plan{claudeHooks: true}), "every setup says what is uploaded and what is kept, not only --agents")
 
 	withAgents := setupPrompt("linux", false, plan{claudeHooks: true, discovered: []string{"codex", "cursor"}})
 	assert.Contains(t, withAgents, "including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are")
@@ -791,12 +879,20 @@ func TestSetupPrompt(t *testing.T) {
 func TestUninstallPrompt(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "glab will remove the agent session hooks from ~/.claude/settings.json and the fallback periodic sync job. Do you wish to continue?", uninstallPrompt(true, "", nil))
-	assert.Equal(t, "glab will remove the fallback periodic sync job. Do you wish to continue?", uninstallPrompt(false, "", nil))
+	assert.Equal(t, "glab will remove the agent session hooks from ~/.claude/settings.json and the fallback periodic sync job. Do you wish to continue?", uninstallPrompt(true, "", true, nil, false))
+	assert.Equal(t, "glab will remove the fallback periodic sync job. Do you wish to continue?", uninstallPrompt(false, "", true, nil, false))
 	assert.Equal(t, "glab will remove the agent session hooks from ~/.claude/settings.json and the fallback periodic sync job. It will also stop syncing codex and cursor sessions. Do you wish to continue?",
-		uninstallPrompt(true, "", []string{"codex", "cursor"}))
+		uninstallPrompt(true, "", true, []string{"codex", "cursor"}, false))
 	assert.Equal(t, "glab will remove the agent session hooks from ~/.claude/settings.json, the OpenCode plugin at /p.js, and the fallback periodic sync job. It will also stop syncing codex sessions. Do you wish to continue?",
-		uninstallPrompt(true, "/p.js", []string{"codex"}))
+		uninstallPrompt(true, "/p.js", true, []string{"codex"}, false))
+	assert.Equal(t, "glab will remove the fallback periodic sync job and glab's local records of your agent sessions. Do you wish to continue?",
+		uninstallPrompt(false, "", true, nil, true))
+	assert.Equal(t, "glab will remove glab's local records of your agent sessions. Do you wish to continue?",
+		uninstallPrompt(false, "", false, nil, true), "a job that isn't installed isn't listed")
+	assert.Equal(t, "glab will stop syncing codex sessions. Do you wish to continue?",
+		uninstallPrompt(false, "", false, []string{"codex"}, false))
+	assert.Equal(t, "glab will turn off session discovery. Do you wish to continue?",
+		uninstallPrompt(false, "", false, nil, false))
 }
 
 func TestRunSetup_NamesAgentsEnabledEarlier(t *testing.T) {
