@@ -134,6 +134,17 @@ func TestAddJQFlag_PreservesOriginalPreRun(t *testing.T) {
 	assert.Equal(t, 1, preRanCount, "original PreRun should still be invoked")
 }
 
+func TestAddJQFlag_RegistersNoFileCompletions(t *testing.T) {
+	cmd, _, _ := jqCmdHarness(t)
+
+	compFn, ok := cmd.GetFlagCompletionFunc("jq")
+	require.True(t, ok, "--jq should have a completion function registered")
+
+	comps, directive := compFn(cmd, nil, "")
+	assert.Empty(t, comps)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+}
+
 func TestAddJQFlag_LooksUpOutputFormatFlag(t *testing.T) {
 	io := &iostreams.IOStreams{
 		StdOut: &bytes.Buffer{},

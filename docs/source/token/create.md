@@ -67,7 +67,7 @@ glab token create --access-level developer --scope api my-token --expires-at 202
 ## Options
 
 ```plaintext
-  -A, --access-level AccessLevel   Access level of the token: one of 'guest', 'reporter', 'developer', 'maintainer', 'owner'. (default no)
+  -A, --access-level AccessLevel   Access level of the token. Options: guest, reporter, developer, maintainer, owner. (default no)
       --description string         Sets the token's description.
   -D, --duration duration          Sets the token lifetime in days. Accepts: days (30d), weeks (4w), or hours in multiples of 24 (24h, 168h, 720h). Maximum: 365d. The token expires at midnight UTC on the calculated date. (default 30d)
   -E, --expires-at DATE            Sets the token's expiration date and time, in YYYY-MM-DD format. If not specified, --duration is used. (default 0001-01-01)

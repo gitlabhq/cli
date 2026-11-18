@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -404,6 +405,49 @@ func TestCreateProjectAccessToken(t *testing.T) {
 				assert.Equal(t, tc.expectedOut, out.OutBuf.String())
 			}
 			assert.Empty(t, out.ErrBuf.String())
+		})
+	}
+}
+
+func TestCreate_Completions(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+	// No mock expectations: completions must not call the API.
+	f := cmdtest.NewTestFactory(nil,
+		cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
+	)
+
+	cmd := NewCmdCreate(f)
+	cmd.SetContext(t.Context())
+
+	// The <name> argument never takes file completions.
+	comps, directive := cmd.ValidArgsFunction(cmd, nil, "")
+	assert.Empty(t, comps)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+
+	testCases := map[string]struct {
+		wantComps     []cobra.Completion
+		wantDirective cobra.ShellCompDirective
+	}{
+		"group":       {wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"user":        {wantComps: []cobra.Completion{cobra.CompletionWithDesc("@me", "Current user")}, wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"description": {wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"duration":    {wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"expires-at":  {wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"scope":       {wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"access-level": {
+			wantComps:     []cobra.Completion{"guest", "reporter", "developer", "maintainer", "owner"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+	}
+
+	for flag, tc := range testCases {
+		t.Run(flag, func(t *testing.T) {
+			compFn, ok := cmd.GetFlagCompletionFunc(flag)
+			require.True(t, ok, "--%s should have a completion function registered", flag)
+
+			comps, directive := compFn(cmd, nil, "")
+			assert.Equal(t, tc.wantComps, comps)
+			assert.Equal(t, tc.wantDirective, directive)
 		})
 	}
 }

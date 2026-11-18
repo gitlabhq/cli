@@ -12,6 +12,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/token/filter"
+	"gitlab.com/gitlab-org/cli/internal/commands/token/tokenutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -42,6 +43,9 @@ func NewCmdRevoke(f cmdutils.Factory) *cobra.Command {
 		Short:   "Revoke user, group, or project access tokens.",
 		Aliases: []string{"revoke", "rm"},
 		Args:    cobra.ExactArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			return tokenutils.NameOrIDCompletions(cmd.Context(), f, cmd, args, toComplete)
+		},
 		Long: heredoc.Doc(`
 			Revoke a user, group or project access token. If multiple tokens with the same name exist, you can specify
 			the ID of the token.
@@ -81,7 +85,9 @@ func NewCmdRevoke(f cmdutils.Factory) *cobra.Command {
 
 	cmdutils.EnableRepoOverride(cmd, f)
 	cmd.Flags().StringVarP(&opts.group, "group", "g", "", "Revoke group access token. Ignored if a user or repository argument is set.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("group", tokenutils.GroupCompletions))
 	cmd.Flags().StringVarP(&opts.user, "user", "U", "", "Revoke personal access token. Use @me for the current user.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("user", tokenutils.UserCompletions))
 	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat, "Format output as: text, json. 'text' provides the name and ID of the revoked token; 'json' outputs the token with metadata.")
 	cmd.MarkFlagsMutuallyExclusive("group", "user")
 	return cmd

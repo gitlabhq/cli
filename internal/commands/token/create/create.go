@@ -3,6 +3,7 @@ package create
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -16,6 +17,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/token/accesslevel"
 	"gitlab.com/gitlab-org/cli/internal/commands/token/expirationdate"
 	"gitlab.com/gitlab-org/cli/internal/commands/token/filter"
+	"gitlab.com/gitlab-org/cli/internal/commands/token/tokenutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -46,10 +48,11 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:     "create <name>",
-		Aliases: []string{"create", "new"},
-		Args:    cobra.ExactArgs(1),
-		Short:   "Creates user, group, or project access tokens.",
+		Use:               "create <name>",
+		Aliases:           []string{"create", "new"},
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: cobra.NoFileCompletions,
+		Short:             "Creates user, group, or project access tokens.",
 		Long: heredoc.Doc(`
 		Creates a new access token for a user, group, or project. Defaults to a
 		project access token, unless user or group name is specified.
@@ -104,12 +107,20 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 
 	cmdutils.EnableRepoOverride(cmd, f)
 	cmd.Flags().StringVarP(&opts.group, "group", "g", "", "Create a group access token. Ignored if a user or repository argument is set.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("group", tokenutils.GroupCompletions))
 	cmd.Flags().StringVarP(&opts.user, "user", "U", "", "Create a personal access token. For the current user, use @me.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("user", tokenutils.UserCompletions))
 	cmd.Flags().StringVarP(&opts.description, "description", "", "", "Sets the token's description.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("description", cobra.NoFileCompletions))
 	cmd.Flags().VarP(&opts.duration, "duration", "D", "Sets the token lifetime in days. Accepts: days (30d), weeks (4w), or hours in multiples of 24 (24h, 168h, 720h). Maximum: 365d. The token expires at midnight UTC on the calculated date.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("duration", cobra.NoFileCompletions))
 	cmd.Flags().VarP(&opts.expireAt, "expires-at", "E", "Sets the token's expiration date and time, in YYYY-MM-DD format. If not specified, --duration is used.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("expires-at", cobra.NoFileCompletions))
 	cmd.Flags().StringSliceVarP(&opts.scopes, "scope", "S", []string{"read_repository"}, "Scopes for the token. Multiple scopes can be comma-separated or specified by repeating the flag. For a list, see https://docs.gitlab.com/security/tokens/access_token_scopes/.")
-	cmd.Flags().VarP(&opts.accessLevel, "access-level", "A", "Access level of the token: one of 'guest', 'reporter', 'developer', 'maintainer', 'owner'.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("scope", cobra.NoFileCompletions))
+	levels := []string{"guest", "reporter", "developer", "maintainer", "owner"}
+	cmd.Flags().VarP(&opts.accessLevel, "access-level", "A", "Access level of the token. Options: "+strings.Join(levels, ", ")+".")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("access-level", cobra.FixedCompletions(levels, cobra.ShellCompDirectiveNoFileComp)))
 	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat, "Format output as 'text' for the token value, 'json' for the actual API token structure.")
 	cmd.MarkFlagsMutuallyExclusive("user", "group")
 	cmd.MarkFlagsMutuallyExclusive("expires-at", "duration")
