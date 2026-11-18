@@ -12,29 +12,26 @@ var groupViper = func() *viper.Viper {
 	return inst
 }()
 
+// GroupOverride determines which group to use based repo/group flags and the environment.
 func GroupOverride(cmd *cobra.Command) (string, error) {
-	groupFromEnv := groupViper.GetString("group")
-
-	// Get group/repo flags
-	group, err := cmd.Flags().GetString("group")
-	if err != nil {
-		return "", err
-	}
 	repo, err := cmd.Flags().GetString("repo")
 	if err != nil {
 		return "", err
 	}
-
-	// Determine which group to use based on env and repo/group flags
-	switch {
-	case repo != "":
+	if repo != "" {
 		// Ignore any groups if the repo flag is set
 		return "", nil
-	case group != "":
+	}
+
+	group, err := cmd.Flags().GetString("group")
+	if err != nil {
+		return "", err
+	}
+	if group != "" {
 		// Use the group flag if set and repo flag is not set
 		return group, nil
-	default:
-		// Consider environment if no repo or group flags are set
-		return groupFromEnv, nil
 	}
+
+	// Consider environment if no repo or group flags are set
+	return groupViper.GetString("group"), nil
 }
