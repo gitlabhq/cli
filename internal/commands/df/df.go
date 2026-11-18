@@ -35,7 +35,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			managers, run local package managers with a summary of blocked or
 			flagged packages, and view activity during the current session.
 
-			Each package manager command, like %[1]sglab dependency-firewall npm%[1]s, runs the package manager binary and forwards every argument to it verbatim. While the package manager runs, the command:
+			Each package manager command, like %[1]sglab dependency-firewall npm%[1]s, runs the package manager binary and forwards every argument to it verbatim, except pip's %[1]s--proxy%[1]s, which glab uses as its outbound proxy. While the package manager runs, the command:
 
 			1. Starts a local proxy and routes the package manager's HTTPS traffic through it.
 			1. Reads the name and version of each package the package manager downloads or publishes.

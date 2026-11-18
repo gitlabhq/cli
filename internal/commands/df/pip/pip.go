@@ -21,7 +21,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Package names are normalized as described in PEP 503, so %[1]sFlask_Login%[1]s and %[1]sflask-login%[1]s are treated as the same package.
 
-			All arguments are forwarded to %[1]spip%[1]s verbatim.
+			All arguments are forwarded to %[1]spip%[1]s verbatim, except %[1]s--proxy%[1]s, whose value glab uses as its outbound proxy.
 		`, "`"),
 		Example: heredoc.Doc(`
 			# Install a package through the Dependency Firewall

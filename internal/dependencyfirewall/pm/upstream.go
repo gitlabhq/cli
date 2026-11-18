@@ -340,12 +340,28 @@ func (pyPIManager) proxyConfigFiles() []string {
 	return []string{"pip.conf", "$PIP_CONFIG_FILE"}
 }
 
-// resolveUpstreamProxy for pip and pipenv. PIP_PROXY or a proxy in pip's
-// config files makes pip ignore HTTPS_PROXY and NO_PROXY entirely (verified
-// against pip 24.3 and 26.1).
+func (m pyPIManager) proxyHelpNote() string {
+	if m.binary != "pip" {
+		return ""
+	}
+	return "glab reads pip's --proxy option ahead of all of these."
+}
+
+// resolveUpstreamProxy for pip and pipenv, as pip 26.0 reads its settings:
+// pip's --proxy option, then PIP_PROXY, then a proxy in its config files. Any
+// of these makes pip ignore HTTPS_PROXY and NO_PROXY, except that an empty
+// --proxy clears the other two and leaves pip on HTTPS_PROXY. pip 26.3 reads
+// an empty --proxy as a direct connection instead; glab keeps HTTPS_PROXY.
 func (m pyPIManager) resolveUpstreamProxy(environ []string, dir string, args []string) (upstreamProxy, bool, error) {
 	command := ""
 	if m.binary == "pip" {
+		if value, _, ok := pipProxyArg(args); ok {
+			if value == "" {
+				dbg.Debugf("dependency firewall: pip's --proxy is empty, so glab keeps its default outbound proxy")
+				return upstreamProxy{}, false, nil
+			}
+			return upstreamProxy{Source: "--proxy", URL: value}, true, nil
+		}
 		command = pipCommand(args)
 	}
 	return pipUpstreamProxy(environ, dir, m.binary, command, m.binary == "pip" && pipIsolated(args))

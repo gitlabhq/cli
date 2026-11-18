@@ -77,6 +77,46 @@ func pipCommand(args []string) string {
 	return ""
 }
 
+// isPipProxyOption reports whether name is --proxy or an abbreviation pip can
+// read as it, which leaves out --p because --python shares it.
+func isPipProxyOption(name string) bool {
+	const option = "--proxy"
+	return len(name) >= len("--pr") && len(name) <= len(option) && name == option[:len(name)]
+}
+
+// pipProxyArg returns the value of the last --proxy in args and args without
+// any --proxy, or false when there is none. It takes an abbreviation for every
+// subcommand, even where pip calls it ambiguous, so no subcommand or pip
+// version lets a --proxy through. Only the full names of pip's general options
+// are modeled: a --proxy that pip reads as another option's value, as after
+// -r, is still taken, and so is one after --, which pip reads as an option's
+// value after --cache-d or -t. Both are harmless because traffic stays
+// inspected.
+func pipProxyArg(args []string) (string, []string, bool) {
+	var value string
+	var found bool
+	rest := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		name, inline, hasInline := strings.Cut(args[i], "=")
+		switch {
+		case !isPipProxyOption(name):
+			rest = append(rest, args[i])
+			if _, ok := pipValueOptions[args[i]]; ok && i+1 < len(args) {
+				i++
+				rest = append(rest, args[i])
+			}
+		case hasInline:
+			value, found = inline, true
+		case i+1 < len(args):
+			i++
+			value, found = args[i], true
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	return value, rest, found
+}
+
 // pipConfigFiles lists the files pip reads, lowest precedence first: the
 // global files, the user files, the site file of the virtualenv the pip on
 // PATH belongs to, then PIP_CONFIG_FILE. PIP_CONFIG_FILE set to the null

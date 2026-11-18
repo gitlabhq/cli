@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/cilog"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
@@ -201,6 +202,227 @@ func TestUpstreamProxyResolvers(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// The cases match the parsers of pip 26.0, 26.1.2 and 26.3, except where
+// pipProxyArg's doc comment says glab takes a --proxy that pip doesn't.
+func TestPipProxyArg(t *testing.T) {
+	t.Parallel()
+	const proxyURL = "http://alice:s3cret@corp:3128"
+	tests := []struct {
+		name      string
+		args      []string
+		wantValue string
+		wantRest  []string
+		wantOK    bool
+	}{
+		{
+			name:      "after the command",
+			args:      []string{"install", "--proxy", proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "with = after the command",
+			args:      []string{"install", "--proxy=" + proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "before the command",
+			args:      []string{"--proxy", proxyURL, "install", "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "with = before the command",
+			args:      []string{"--proxy=" + proxyURL, "install", "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "an abbreviation",
+			args:      []string{"install", "--prox", proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "an abbreviation with = before the command",
+			args:      []string{"--prox=" + proxyURL, "install", "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "an abbreviation pip calls ambiguous for install",
+			args:      []string{"install", "--pro", proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "an abbreviation pip calls ambiguous for list",
+			args:      []string{"list", "--outdated", "--pr", proxyURL},
+			wantValue: proxyURL,
+			wantRest:  []string{"list", "--outdated"},
+			wantOK:    true,
+		},
+		{
+			name:      "an abbreviated option before the command does not hide one",
+			args:      []string{"--ca", "install", "search", "--pr", "http://p:1", "six"},
+			wantValue: "http://p:1",
+			wantRest:  []string{"--ca", "install", "search", "six"},
+			wantOK:    true,
+		},
+		{
+			name:     "--p is too short, as --python shares it",
+			args:     []string{"search", "--p", proxyURL, "six"},
+			wantRest: []string{"search", "--p", proxyURL, "six"},
+		},
+		{
+			name:     "options are case-sensitive",
+			args:     []string{"install", "--PROXY", proxyURL, "six"},
+			wantRest: []string{"install", "--PROXY", proxyURL, "six"},
+		},
+		{
+			name:     "options sharing only --pr are kept",
+			args:     []string{"install", "--pre", "--prefix", "/opt/py", "six"},
+			wantRest: []string{"install", "--pre", "--prefix", "/opt/py", "six"},
+		},
+		{
+			name:      "the last one wins",
+			args:      []string{"--proxy", "http://first:1", "install", "--proxy=" + proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "one after -- counts",
+			args:      []string{"install", "--", "--proxy", proxyURL},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "--"},
+			wantOK:    true,
+		},
+		{
+			name:      "the last one wins across --",
+			args:      []string{"install", "--proxy", "http://first:1", "--", "--proxy", proxyURL},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "--"},
+			wantOK:    true,
+		},
+		{
+			name:      "-- as an abbreviated general option's value",
+			args:      []string{"install", "--cache-d", "--", "--proxy", proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "--cache-d", "--", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "-- as an abbreviated general option's value before the command",
+			args:      []string{"--cache-d", "--", "install", "--proxy", proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"--cache-d", "--", "install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "-- as install -t's value",
+			args:      []string{"install", "-t", "--", "--proxy", proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "-t", "--", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "-- as download -d's value",
+			args:      []string{"download", "-d", "--", "--proxy", proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"download", "-d", "--", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "-- as install --root's value",
+			args:      []string{"install", "--root", "--", "--proxy", proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "--root", "--", "six"},
+			wantOK:    true,
+		},
+		{
+			name:     "another option's value is not an option",
+			args:     []string{"--cache-dir", "--proxy", "install", "six"},
+			wantRest: []string{"--cache-dir", "--proxy", "install", "six"},
+		},
+		{
+			name:      "-- as another option's value does not end the options",
+			args:      []string{"install", "--log", "--", "--proxy", proxyURL, "six"},
+			wantValue: proxyURL,
+			wantRest:  []string{"install", "--log", "--", "six"},
+			wantOK:    true,
+		},
+		{
+			name:      "the value is taken even when it looks like an option",
+			args:      []string{"install", "--proxy", "--isolated", "six"},
+			wantValue: "--isolated",
+			wantRest:  []string{"install", "six"},
+			wantOK:    true,
+		},
+		{
+			name:     "an empty value",
+			args:     []string{"install", "--proxy", "", "six"},
+			wantRest: []string{"install", "six"},
+			wantOK:   true,
+		},
+		{
+			name:     "an empty value with =",
+			args:     []string{"install", "--proxy=", "six"},
+			wantRest: []string{"install", "six"},
+			wantOK:   true,
+		},
+		{
+			name:     "a value option missing its value",
+			args:     []string{"install", "--cache-dir"},
+			wantRest: []string{"install", "--cache-dir"},
+		},
+		{
+			name:     "a missing value is left for pip to reject",
+			args:     []string{"install", "six", "--proxy"},
+			wantRest: []string{"install", "six", "--proxy"},
+		},
+		{
+			name:     "without --proxy",
+			args:     []string{"install", "six"},
+			wantRest: []string{"install", "six"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			value, rest, ok := pipProxyArg(tt.args)
+			assert.Equal(t, tt.wantValue, value)
+			assert.Equal(t, tt.wantRest, rest)
+			assert.Equal(t, tt.wantOK, ok)
+		})
+	}
+}
+
+func TestOnlyPipTakesOutItsProxyOption(t *testing.T) {
+	t.Parallel()
+	args := []string{"install", "--proxy", "http://corp:3128", "six"}
+	pip, ok := Pip().(argsRewriter)
+	require.True(t, ok)
+	assert.Equal(t, []string{"install", "six"}, pip.rewriteArgs(args))
+	pipenv, ok := Pipenv().(argsRewriter)
+	require.True(t, ok)
+	assert.Equal(t, args, pipenv.rewriteArgs(args), "pipenv has no --proxy option")
+}
+
+func TestPipCommandSkipsOptionValues(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "install", pipCommand([]string{"--cache-dir", "/tmp/c", "install", "six"}))
+	assert.Empty(t, pipCommand([]string{"--isolated"}))
 }
 
 func TestPlainHTTPProxyResolvers(t *testing.T) {
@@ -412,6 +634,24 @@ func TestRunRejectsInvalidManagerProxy(t *testing.T) {
 	assert.Nil(t, exec.env, "the package manager must not run")
 }
 
+func TestRunRejectsInvalidPipProxyOptionWithoutLeakingIt(t *testing.T) {
+	t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
+	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	exec := &fakeExecutor{}
+
+	err := Run(t.Context(), Pip(), RunOptions{
+		IO:        ios,
+		Executor:  exec,
+		BaseDir:   t.TempDir(),
+		ProjectID: "group/proj",
+		Args:      []string{"install", "--proxy", "ftp://alice:s3cret@corp:21", "six"},
+	})
+	require.ErrorContains(t, err, "invalid outbound proxy in --proxy")
+	assert.NotContains(t, err.Error(), "s3cret")
+	assert.Nil(t, exec.env, "the package manager must not run")
+}
+
 // refusingProxy records the target of each CONNECT and refuses it, so a test
 // can see where upstream traffic was sent without reaching the internet.
 type refusingProxy struct {
@@ -491,12 +731,19 @@ func TestRunSendsRegistryTrafficThroughManagersOwnProxy(t *testing.T) {
 
 // gettingExecutor ignores the package-manager binary and GETs url through the
 // proxy it is handed, as a package manager does: HTTP_PROXY for a plain-HTTP
-// url, else HTTPS_PROXY, trusting the proxy CA named by caVar.
-type gettingExecutor struct{ url, caVar string }
+// url, else HTTPS_PROXY, trusting the proxy CA named by caVar. A non-nil args
+// receives the arguments the package manager was run with.
+type gettingExecutor struct {
+	url, caVar string
+	args       *[]string
+}
 
 func (gettingExecutor) LookPath(file string) (string, error) { return "/bin/" + file, nil }
 
-func (e gettingExecutor) ExecWithIO(ctx context.Context, _ string, _ []string, env []string, _ io.Reader, _, _ io.Writer) error {
+func (e gettingExecutor) ExecWithIO(ctx context.Context, _ string, args []string, env []string, _ io.Reader, _, _ io.Writer) error {
+	if e.args != nil {
+		*e.args = args
+	}
 	transport := &http.Transport{}
 	proxyVar := "HTTP_PROXY"
 	if strings.HasPrefix(e.url, "https:") {
@@ -842,4 +1089,94 @@ func TestRunConnectsDirectlyWhenTheManagerDisablesItsProxy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunSendsPipTrafficThroughItsProxyOption(t *testing.T) {
+	t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
+	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+	option, environ := &refusingProxy{}, &refusingProxy{}
+	optionServer, environServer := httptest.NewServer(option), httptest.NewServer(environ)
+	t.Cleanup(optionServer.Close)
+	t.Cleanup(environServer.Close)
+	isolateUserConfig(t, t.TempDir())
+	clearProxyEnv(t)
+	t.Setenv("PIP_PROXY", environServer.URL)
+	optionURL := strings.Replace(optionServer.URL, "http://", "http://alice:s3cret@", 1)
+	dir := t.TempDir()
+	var args []string
+	debugLog := captureDebugLog(t)
+
+	ios, _, _, stderr := cmdtest.TestIOStreams()
+	_ = Run(t.Context(), Pip(), RunOptions{
+		IO:        ios,
+		Executor:  gettingExecutor{url: "https://registry.invalid/simple/six/", caVar: "PIP_CERT", args: &args},
+		BaseDir:   dir,
+		ProjectID: "group/proj",
+		Args:      []string{"install", "--proxy", optionURL, "six"},
+	})
+
+	assert.Equal(t, []string{"install", "six"}, args, "pip must not get --proxy, which outranks the PIP_PROXY glab sets")
+	assert.Equal(t, []string{"registry.invalid:443"}, option.Targets())
+	assert.Empty(t, environ.Targets(), "--proxy outranks PIP_PROXY")
+	log, err := cilog.Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "pip install six", log.Session.Command)
+	assert.NotContains(t, stderr.String(), "s3cret")
+	assert.Contains(t, debugLog.String(), "reaching https registries through the outbound proxy from --proxy")
+	assert.NotContains(t, debugLog.String(), "s3cret")
+}
+
+func TestRunKeepsTheDefaultUpstreamForAnEmptyPipProxyOption(t *testing.T) {
+	t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
+	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+	pipProxy, httpsProxy := &refusingProxy{}, &refusingProxy{}
+	pipProxyServer, httpsProxyServer := httptest.NewServer(pipProxy), httptest.NewServer(httpsProxy)
+	t.Cleanup(pipProxyServer.Close)
+	t.Cleanup(httpsProxyServer.Close)
+	isolateUserConfig(t, t.TempDir())
+	clearProxyEnv(t)
+	t.Setenv("PIP_PROXY", pipProxyServer.URL)
+	t.Setenv("HTTPS_PROXY", httpsProxyServer.URL)
+	var args []string
+	debugLog := captureDebugLog(t)
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	_ = Run(t.Context(), Pip(), RunOptions{
+		IO:        ios,
+		Executor:  gettingExecutor{url: "https://registry.invalid/simple/six/", caVar: "PIP_CERT", args: &args},
+		BaseDir:   t.TempDir(),
+		ProjectID: "group/proj",
+		Args:      []string{"install", "--proxy=", "six"},
+	})
+
+	assert.Equal(t, []string{"install", "six"}, args, "an empty --proxy would make pip 26.3 bypass glab's proxy")
+	assert.Equal(t, []string{"registry.invalid:443"}, httpsProxy.Targets())
+	assert.Empty(t, pipProxy.Targets(), "an empty --proxy clears PIP_PROXY")
+	assert.Contains(t, debugLog.String(), "pip's --proxy is empty, so glab keeps its default outbound proxy")
+}
+
+// argsSettingPip is pip as a manager that also reads its arguments, as Maven
+// does, to check that SetArgs sees what the binary runs with.
+type argsSettingPip struct {
+	pyPIManager
+	args []string
+}
+
+func (m *argsSettingPip) SetArgs(args []string) { m.args = args }
+
+func TestRunSetsTheArgsTheBinaryRunsWith(t *testing.T) {
+	t.Setenv("GITLAB_CI", "") // honor fake mode even when the suite runs in CI
+	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	m := &argsSettingPip{pyPIManager: pyPIManager{name: "pip", binary: "pip"}}
+
+	err := Run(t.Context(), m, RunOptions{
+		IO:        ios,
+		Executor:  &fakeExecutor{},
+		BaseDir:   t.TempDir(),
+		ProjectID: "group/proj",
+		Args:      []string{"install", "--proxy", "http://corp:3128", "six"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"install", "six"}, m.args)
 }

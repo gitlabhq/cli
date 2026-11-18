@@ -20,7 +20,7 @@ The command uses your package manager's registry or index configuration, and doe
 
 Package names are normalized as described in PEP 503, so `Flask_Login` and `flask-login` are treated as the same package.
 
-All arguments are forwarded to `pip` verbatim.
+All arguments are forwarded to `pip` verbatim, except `--proxy`, whose value glab uses as its outbound proxy.
 
 This feature is in beta and might not be ready for production use.
 It might be unstable and breaking changes can occur outside of major releases.
@@ -48,7 +48,7 @@ glab dependency-firewall pip install -r requirements.txt
 HTTPS_PROXY: outbound proxy glab uses to reach package registries. Credentials in the URL are sent to the proxy.
 HTTP_PROXY: outbound proxy for plain-HTTP registries. When it's unset, glab uses HTTPS_PROXY.
 NO_PROXY: hosts glab reaches directly instead of through an outbound proxy.
-PIP_PROXY: proxy setting for pip. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY. glab also reads the same settings from your user and global config files (pip.conf, $PIP_CONFIG_FILE). glab doesn't read proxy settings from files inside the project.
+PIP_PROXY: proxy setting for pip. glab reads it first, so the outbound proxy can differ from HTTPS_PROXY and HTTP_PROXY. glab also reads the same settings from your user and global config files (pip.conf, $PIP_CONFIG_FILE). glab doesn't read proxy settings from files inside the project. glab reads pip's --proxy option ahead of all of these.
 ```
 
 ## Options inherited from parent commands
