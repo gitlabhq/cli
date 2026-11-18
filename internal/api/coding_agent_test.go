@@ -1,6 +1,7 @@
 package api
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -142,18 +143,165 @@ func TestDetectCodingAgent(t *testing.T) {
 			envVars:  map[string]string{"COPILOT_CLI": "0"},
 			expected: "",
 		},
+		{
+			name:     "AI_AGENT=1 names no agent",
+			envVars:  map[string]string{"AI_AGENT": "1"},
+			expected: "",
+		},
+		{
+			name:     "AI_AGENT=true names no agent and falls through",
+			envVars:  map[string]string{"AI_AGENT": "true", "CLAUDECODE": "1"},
+			expected: "claude-code",
+		},
+		{
+			name:     "AI_AGENT boolean words are matched in any case",
+			envVars:  map[string]string{"AI_AGENT": "TRUE"},
+			expected: "",
+		},
+		{
+			name:     "AI_AGENT=false names no agent",
+			envVars:  map[string]string{"AI_AGENT": "false"},
+			expected: "",
+		},
+		{
+			name:     "AI_AGENT=0 names no agent",
+			envVars:  map[string]string{"AI_AGENT": "0"},
+			expected: "",
+		},
+		{
+			name:     "Kilo Code wins over the OpenCode markers it inherits",
+			envVars:  map[string]string{"KILO": "1", "OPENCODE": "1"},
+			expected: "kilo-code",
+		},
+		{
+			name:     "KILO with value true is ignored",
+			envVars:  map[string]string{"KILO": "true", "OPENCODE": "1"},
+			expected: "opencode",
+		},
+		{
+			name:     "Cline",
+			envVars:  map[string]string{"CLINE_ACTIVE": "true"},
+			expected: "cline",
+		},
+		{
+			name:     "CLINE_ACTIVE with value 1 is ignored",
+			envVars:  map[string]string{"CLINE_ACTIVE": "1"},
+			expected: "",
+		},
+		{
+			name:     "Goose",
+			envVars:  map[string]string{"GOOSE_TERMINAL": "1"},
+			expected: "goose",
+		},
+		{
+			name:     "GOOSE_TERMINAL with value true is ignored",
+			envVars:  map[string]string{"GOOSE_TERMINAL": "true"},
+			expected: "",
+		},
+		{
+			name:     "Kiro CLI wins over TERM_PROGRAM=kiro",
+			envVars:  map[string]string{"KIRO_CLI_IS_CHILD_PROCESS": "1", "TERM_PROGRAM": "kiro"},
+			expected: "kiro-cli",
+		},
+		{
+			name:     "Amazon Q Developer CLI",
+			envVars:  map[string]string{"AWS_EXECUTION_ENV": "AmazonQ-For-CLI Version/1.16.0"},
+			expected: "amazon-q",
+		},
+		{
+			name:     "Kiro CLI wins over the Amazon Q marker it also sets",
+			envVars:  map[string]string{"KIRO_CLI_IS_CHILD_PROCESS": "1", "AWS_EXECUTION_ENV": "AmazonQ-For-CLI Version/3.4.0 acp-client/kiro-cli-non-interactive"},
+			expected: "kiro-cli",
+		},
+		{
+			name:     "Other AWS_EXECUTION_ENV values are ignored",
+			envVars:  map[string]string{"AWS_EXECUTION_ENV": "AWS_Lambda_go1.x"},
+			expected: "",
+		},
+		{
+			name:     "Kiro IDE agent wins over TERM_PROGRAM=kiro",
+			envVars:  map[string]string{"KIRO_SESSION_ID": "sess_123", "TERM_PROGRAM": "kiro"},
+			expected: "kiro",
+		},
+		{
+			name:     "Kiro IDE agent without TERM_PROGRAM",
+			envVars:  map[string]string{"KIRO_SESSION_ID": "sess_123"},
+			expected: "kiro",
+		},
+		{
+			name:     "Kiro CLI wins over the session ID it also sets",
+			envVars:  map[string]string{"KIRO_CLI_IS_CHILD_PROCESS": "1", "KIRO_SESSION_ID": "sess_123"},
+			expected: "kiro-cli",
+		},
+		{
+			name:     "Junie CLI",
+			envVars:  map[string]string{"JUNIE_SHIM_PATH": "/Users/me/.local/bin/junie"},
+			expected: "junie",
+		},
+		{
+			name:     "Warp cloud agent run",
+			envVars:  map[string]string{"OZ_RUN_ID": "run_123"},
+			expected: "warp",
+		},
+		{
+			name:     "Qwen Code",
+			envVars:  map[string]string{"QWEN_CODE": "1"},
+			expected: "qwen-code",
+		},
+		{
+			name:     "QWEN_CODE with value true is ignored",
+			envVars:  map[string]string{"QWEN_CODE": "true"},
+			expected: "",
+		},
+		{
+			name:     "Roo Code extension terminal",
+			envVars:  map[string]string{"ROO_ACTIVE": "true"},
+			expected: "roo-code",
+		},
+		{
+			name:     "ROO_ACTIVE with value 1 is ignored",
+			envVars:  map[string]string{"ROO_ACTIVE": "1"},
+			expected: "",
+		},
+		{
+			name:     "Zed agent terminal",
+			envVars:  map[string]string{"TERM_PROGRAM": "zed", "PAGER": "", "GIT_PAGER": "cat"},
+			expected: "zed",
+		},
+		{
+			name:     "Zed terminal with PAGER unset",
+			envVars:  map[string]string{"TERM_PROGRAM": "zed", "GIT_PAGER": "cat"},
+			expected: "zed-terminal",
+		},
+		{
+			name:     "Zed terminal with PAGER empty and GIT_PAGER unset",
+			envVars:  map[string]string{"TERM_PROGRAM": "zed", "PAGER": ""},
+			expected: "zed-terminal",
+		},
+		{
+			name:     "Zed terminal with PAGER empty and a user GIT_PAGER",
+			envVars:  map[string]string{"TERM_PROGRAM": "zed", "PAGER": "", "GIT_PAGER": "delta"},
+			expected: "zed-terminal",
+		},
+		{
+			name:     "Zed terminal with a user pager",
+			envVars:  map[string]string{"TERM_PROGRAM": "zed", "PAGER": "less", "GIT_PAGER": "cat"},
+			expected: "zed-terminal",
+		},
 	}
 
 	allAgentVars := []string{
 		"AI_AGENT", "CLAUDECODE", "CODEX_THREAD_ID", "COPILOT_CLI",
-		"OPENCODE", "CURSOR_AGENT", "GEMINI_CLI",
-		"ROO_CLI_RUNTIME", "TERM_PROGRAM",
+		"OPENCODE", "CURSOR_AGENT", "GEMINI_CLI", "KILO",
+		"CLINE_ACTIVE", "GOOSE_TERMINAL", "KIRO_CLI_IS_CHILD_PROCESS", "QWEN_CODE", "ROO_ACTIVE", "AWS_EXECUTION_ENV", "JUNIE_SHIM_PATH", "OZ_RUN_ID", "KIRO_SESSION_ID",
+		"ROO_CLI_RUNTIME", "TERM_PROGRAM", "PAGER", "GIT_PAGER",
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, key := range allAgentVars {
-				t.Setenv(key, "")
+				t.Setenv(key, "") // restores the original value after the test
+				_ = os.Unsetenv(key)
 			}
 			for key, value := range tt.envVars {
 				t.Setenv(key, value)
