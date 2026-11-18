@@ -24,6 +24,7 @@ func AddJQFlag(cmd *cobra.Command, io *iostreams.IOStreams) {
 		io.JQ = &iostreams.JQFilter{}
 	}
 	cmd.Flags().Var(io.JQ, "jq", "Filter JSON output with a jq expression.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("jq", cobra.NoFileCompletions))
 
 	origPreRunE := cmd.PreRunE
 	origPreRun := cmd.PreRun

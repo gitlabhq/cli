@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
@@ -643,6 +644,51 @@ func TestRotateSelf_StoredToken(t *testing.T) {
 			got, _, getErr := cfg.GetWithSource(host, "token", false)
 			require.NoError(t, getErr)
 			assert.Equal(t, tt.wantStored, got)
+		})
+	}
+}
+
+func TestRotate_Completions(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+	// No mock expectations: with an argument already present the completion
+	// must not call the API.
+	f := cmdtest.NewTestFactory(nil,
+		cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
+	)
+
+	// With --self set, no token names are offered.
+	cmd := NewCmdRotate(f)
+	cmd.SetContext(t.Context())
+	require.NoError(t, cmd.Flags().Set("self", "true"))
+	comps, directive := cmd.ValidArgsFunction(cmd, []string{}, "")
+	assert.Empty(t, comps)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+
+	cmd = NewCmdRotate(f)
+	cmd.SetContext(t.Context())
+
+	comps, directive = cmd.ValidArgsFunction(cmd, []string{"123"}, "")
+	assert.Empty(t, comps)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+
+	testCases := map[string]struct {
+		wantComps     []cobra.Completion
+		wantDirective cobra.ShellCompDirective
+	}{
+		"group":      {wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"user":       {wantComps: []cobra.Completion{cobra.CompletionWithDesc("@me", "Current user")}, wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"duration":   {wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"expires-at": {wantDirective: cobra.ShellCompDirectiveNoFileComp},
+	}
+
+	for flag, tc := range testCases {
+		t.Run(flag, func(t *testing.T) {
+			compFn, ok := cmd.GetFlagCompletionFunc(flag)
+			require.True(t, ok, "--%s should have a completion function registered", flag)
+
+			comps, directive := compFn(cmd, nil, "")
+			assert.Equal(t, tc.wantComps, comps)
+			assert.Equal(t, tc.wantDirective, directive)
 		})
 	}
 }

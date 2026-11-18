@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -239,4 +240,39 @@ func TestRevokeProjectAccessToken(t *testing.T) {
 func parseTime(s string) *time.Time {
 	t, _ := time.Parse(time.RFC3339, s)
 	return &t
+}
+
+func TestRevoke_Completions(t *testing.T) {
+	testClient := gitlabtesting.NewTestClient(t)
+	// No mock expectations: with an argument already present the completion
+	// must not call the API.
+	f := cmdtest.NewTestFactory(nil,
+		cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
+	)
+
+	cmd := NewCmdRevoke(f)
+	cmd.SetContext(t.Context())
+
+	comps, directive := cmd.ValidArgsFunction(cmd, []string{"123"}, "")
+	assert.Empty(t, comps)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+
+	testCases := map[string]struct {
+		wantComps     []cobra.Completion
+		wantDirective cobra.ShellCompDirective
+	}{
+		"group": {wantDirective: cobra.ShellCompDirectiveNoFileComp},
+		"user":  {wantComps: []cobra.Completion{cobra.CompletionWithDesc("@me", "Current user")}, wantDirective: cobra.ShellCompDirectiveNoFileComp},
+	}
+
+	for flag, tc := range testCases {
+		t.Run(flag, func(t *testing.T) {
+			compFn, ok := cmd.GetFlagCompletionFunc(flag)
+			require.True(t, ok, "--%s should have a completion function registered", flag)
+
+			comps, directive := compFn(cmd, nil, "")
+			assert.Equal(t, tc.wantComps, comps)
+			assert.Equal(t, tc.wantDirective, directive)
+		})
+	}
 }

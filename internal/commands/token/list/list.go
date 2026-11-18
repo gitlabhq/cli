@@ -13,6 +13,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/token/accesslevel"
+	"gitlab.com/gitlab-org/cli/internal/commands/token/tokenutils"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -81,7 +82,9 @@ func NewCmdList(f cmdutils.Factory) *cobra.Command {
 
 	cmdutils.EnableRepoOverride(cmd, f)
 	cmd.Flags().StringVarP(&opts.group, "group", "g", "", "List group access tokens. Ignored if a user or repository argument is set.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("group", tokenutils.GroupCompletions))
 	cmd.Flags().StringVarP(&opts.user, "user", "U", "", "List personal access tokens. Use @me for the current user.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("user", tokenutils.UserCompletions))
 	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat, "Format output as: text, json. text provides a readable table, json outputs the tokens with metadata.")
 	cmd.Flags().BoolVarP(&opts.listActive, "active", "a", false, "List only the active tokens.")
 	cmd.MarkFlagsMutuallyExclusive("group", "user")

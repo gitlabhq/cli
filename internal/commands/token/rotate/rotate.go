@@ -18,6 +18,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils/tokenduration"
 	"gitlab.com/gitlab-org/cli/internal/commands/token/expirationdate"
 	"gitlab.com/gitlab-org/cli/internal/commands/token/filter"
+	"gitlab.com/gitlab-org/cli/internal/commands/token/tokenutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -55,6 +56,12 @@ func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 		Short:   "Rotate user, group, or project access tokens.",
 		Aliases: []string{"rot"},
 		Args:    cobra.MaximumNArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			if self, err := cmd.Flags().GetBool("self"); err == nil && self {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return tokenutils.NameOrIDCompletions(cmd.Context(), f, cmd, args, toComplete)
+		},
 		Long: heredoc.Docf(`
 			Rotating a token revokes the existing token and creates a new one
 			with a new secret value and expiration date.
@@ -110,10 +117,14 @@ func NewCmdRotate(f cmdutils.Factory) *cobra.Command {
 	cmdutils.EnableRepoOverride(cmd, f)
 	fl := cmd.Flags()
 	fl.StringVarP(&opts.group, "group", "g", "", "Rotate group access token. Ignored if a user or repository argument is set.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("group", tokenutils.GroupCompletions))
 	fl.StringVarP(&opts.user, "user", "U", "", "Rotate personal access token. Use @me for the current user.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("user", tokenutils.UserCompletions))
 	fl.BoolVar(&opts.self, "self", false, "Rotate the access token currently used for authentication.")
 	fl.VarP(&opts.duration, "duration", "D", "Sets the token lifetime in days. Accepts: days (30d), weeks (4w), or hours in multiples of 24 (24h, 168h, 720h). Maximum: 365d. The token expires at 00:00 UTC on the calculated date.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("duration", cobra.NoFileCompletions))
 	fl.VarP(&opts.expireAt, "expires-at", "E", "Sets the token's expiration date and time, in YYYY-MM-DD format. If not specified, --duration is used.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("expires-at", cobra.NoFileCompletions))
 	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat, "Format output as: text, json. 'text' provides the new token value; 'json' outputs the token with metadata.")
 	cmd.MarkFlagsMutuallyExclusive("duration", "expires-at")
 	cmd.MarkFlagsMutuallyExclusive("self", "user")

@@ -101,6 +101,17 @@ func TestEnableJSONOutput_RegistersJQFlag(t *testing.T) {
 	assert.NotNil(t, cmd.Flag("jq"), "EnableJSONOutput must also register --jq")
 }
 
+func TestEnableJSONOutput_RegistersFlagCompletions(t *testing.T) {
+	cmd, _, _ := outputCmdHarness(t)
+
+	compFn, ok := cmd.GetFlagCompletionFunc("output")
+	require.True(t, ok, "--output should have a completion function registered")
+
+	comps, directive := compFn(cmd, nil, "")
+	assert.Equal(t, []cobra.Completion{"text", "json"}, comps)
+	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+}
+
 func TestEnableJSONOutputP_CustomShorthand(t *testing.T) {
 	ios := &iostreams.IOStreams{
 		StdOut: &bytes.Buffer{},

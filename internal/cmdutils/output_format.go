@@ -50,5 +50,6 @@ func EnableJSONOutputP(cmd *cobra.Command, io *iostreams.IOStreams, outputFormat
 		shorthand,
 		description,
 	)
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions([]cobra.Completion{"text", "json"}, cobra.ShellCompDirectiveNoFileComp)))
 	AddJQFlag(cmd, io)
 }
