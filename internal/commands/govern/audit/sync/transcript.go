@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
-	"gitlab.com/gitlab-org/cli/internal/config"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 )
 
 // claudeProjectsDir returns the base directory for Claude Code project transcripts.
@@ -52,7 +52,7 @@ func cursorPath(sessionID string) (string, error) {
 	if strings.ContainsAny(sessionID, "/\\..") {
 		return "", fmt.Errorf("invalid session ID: %q", sessionID)
 	}
-	return filepath.Join(config.ConfigDir(), "gaig", "cursors", sessionID), nil
+	return filepath.Join(gaig.StateDir(), "cursors", sessionID), nil
 }
 
 // readCursor returns the byte offset of the last synced position for a session.
@@ -543,7 +543,7 @@ func readSessionMeta(sessionID string) (*sessionMeta, error) {
 
 // listSessionMetas returns the IDs of sessions that have metadata.
 func listSessionMetas() ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(config.ConfigDir(), "gaig", "cursors"))
+	entries, err := os.ReadDir(filepath.Join(gaig.StateDir(), "cursors"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}

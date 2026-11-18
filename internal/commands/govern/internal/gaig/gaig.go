@@ -85,6 +85,12 @@ func ResolveProject(
 	return project, client, nil
 }
 
+// StateDir holds glab's local records of agent sessions: their sync cursors,
+// cached agent identities, the agent lists and the fallback job's status.
+func StateDir() string {
+	return filepath.Join(config.ConfigDir(), "gaig")
+}
+
 // identityCachePath returns the path to the cached identity file for a given
 // project ID and agent type.
 func identityCachePath(projectID int64, agentType string) (string, error) {
@@ -93,7 +99,7 @@ func identityCachePath(projectID int64, agentType string) (string, error) {
 	}
 
 	filename := fmt.Sprintf("%d_%s.json", projectID, agentType)
-	return filepath.Join(config.ConfigDir(), "gaig", "identities", filename), nil
+	return filepath.Join(StateDir(), "identities", filename), nil
 }
 
 // LoadCachedIdentity loads a cached identity for the given project and agent type.
