@@ -35,6 +35,17 @@ func (m pyPIManager) Environment(proxyURL string) []string {
 	return []string{"PIP_PROXY=" + proxyURL}
 }
 
+// rewriteArgs takes pip's --proxy option out of args, because it outranks
+// PIP_PROXY and would send pip's traffic around the inspection proxy.
+// resolveUpstreamProxy makes its value the inspection proxy's upstream.
+func (m pyPIManager) rewriteArgs(args []string) []string {
+	if m.binary != "pip" {
+		return args
+	}
+	_, rest, _ := pipProxyArg(args)
+	return rest
+}
+
 func (m pyPIManager) CATrustEnviron(caPath string) []string {
 	return []string{
 		"PIP_CERT=" + caPath,

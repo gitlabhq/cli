@@ -1,7 +1,7 @@
 // Package pm runs a supported package manager (npm, pip, gem, ...) behind the
 // Dependency Firewall's local MITM proxy. The shared Run flow starts the
 // proxy, routes the manager's HTTPS traffic through it, makes the manager
-// trust the proxy CA, passes through the command's args, records the
+// trust the proxy CA, forwards the command's args, records the
 // firewall's per-coordinate verdicts to the CI log, renders a summary, and
 // propagates the child's exit code. Each supported manager is a small
 // implementation of PackageManager describing only what varies by ecosystem.
@@ -85,6 +85,13 @@ type setupManager interface {
 // can be named on the command line).
 type argsManager interface {
 	SetArgs(args []string)
+}
+
+// argsRewriter takes options out of the arguments before the package manager
+// binary runs with them. Run reads the upstream proxy from the arguments as
+// given, so an option there can still choose it.
+type argsRewriter interface {
+	rewriteArgs(args []string) []string
 }
 
 type setupInput struct {
@@ -326,10 +333,10 @@ func UpstreamProxyCertificateOptions(certPath, keyPath string, password func() (
 	return []proxy.Option{proxy.WithUpstreamProxyCertificate(certs[0])}, nil
 }
 
-// Run executes manager.Binary() with args forwarded verbatim, routing HTTPS
-// traffic through a local MITM proxy that policy-checks each artifact/upload
-// coordinate. Blocked packages are recorded and the summary is rendered on
-// exit.
+// Run executes manager.Binary() with args forwarded verbatim, except the
+// options an argsRewriter takes out, routing HTTPS traffic through a local
+// MITM proxy that policy-checks each artifact/upload coordinate. Blocked
+// packages are recorded and the summary is rendered on exit.
 func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -421,8 +428,12 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 		return fmt.Errorf("%s not found on PATH: %w", manager.Binary(), err)
 	}
 
+	args := opts.Args
+	if r, ok := manager.(argsRewriter); ok {
+		args = r.rewriteArgs(args)
+	}
 	if a, ok := manager.(argsManager); ok {
-		a.SetArgs(opts.Args)
+		a.SetArgs(args)
 	}
 
 	var setup setupResult
@@ -456,7 +467,7 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	// environment, regardless of how the child runtime parses envp.
 	env = dedupEnv(env)
 
-	execErr := opts.Executor.ExecWithIO(ctx, binPath, opts.Args, env, opts.IO.In, opts.IO.StdOut, opts.IO.StdErr)
+	execErr := opts.Executor.ExecWithIO(ctx, binPath, args, env, opts.IO.In, opts.IO.StdOut, opts.IO.StdErr)
 
 	p.Stop() //nolint:contextcheck // proxy shutdown manages its own context internally
 	stopSetup()
@@ -464,7 +475,7 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	if setup.verdicts != nil {
 		verdicts = append(verdicts, setup.verdicts()...)
 	}
-	writeLog(opts.IO, opts.BaseDir, manager.Name(), opts.Args, verdicts)
+	writeLog(opts.IO, opts.BaseDir, manager.Name(), args, verdicts)
 	if len(verdicts) > 0 {
 		summary.Render(opts.IO, verdicts)
 	}

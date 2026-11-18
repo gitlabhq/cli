@@ -650,6 +650,27 @@ func TestPipUpstreamProxyFromConfigFiles(t *testing.T) {
 			wantOK: true,
 		},
 		{
+			name:   "--proxy wins over PIP_PROXY and config files, and ignores NO_PROXY",
+			files:  map[string]string{"home/.config/pip/pip.conf": "[install]\nproxy = http://xdg:2\n[global]\nproxy = http://global:4\n"},
+			env:    []string{"PIP_PROXY=http://env:3", "NO_PROXY=pypi.org"},
+			args:   []string{"install", "--proxy", "http://cli:5", "six"},
+			want:   upstreamProxy{Source: "--proxy", URL: "http://cli:5"},
+			wantOK: true,
+		},
+		{
+			name:  "an empty --proxy clears PIP_PROXY and config files",
+			files: map[string]string{"home/.config/pip/pip.conf": "[global]\nproxy = http://xdg:2\n"},
+			env:   []string{"PIP_PROXY=http://env:3", "HTTPS_PROXY=http://env:1"},
+			args:  []string{"install", "--proxy=", "six"},
+		},
+		{
+			name:   "--isolated leaves --proxy in effect",
+			env:    []string{"PIP_PROXY=http://env:3"},
+			args:   []string{"--isolated", "install", "--prox", "http://cli:5", "six"},
+			want:   upstreamProxy{Source: "--proxy", URL: "http://cli:5"},
+			wantOK: true,
+		},
+		{
 			name:   "PIP_CONFIG_FILE wins and replaces the user files",
 			files:  map[string]string{"home/.config/pip/pip.conf": "[install]\nproxy = http://xdg:2\n", "custom.conf": "[global]\nproxy = http://custom:4\n"},
 			env:    []string{"PIP_CONFIG_FILE=$ROOT/custom.conf"},
@@ -718,6 +739,13 @@ func TestPipUpstreamProxyFromConfigFiles(t *testing.T) {
 			files:  map[string]string{"home/.config/pip/pip.conf": "[install]\nproxy = http://install:1\n[global]\nproxy = http://global:2\n"},
 			args:   install,
 			want:   upstreamProxy{Source: "$ROOT/home/.config/pip/pip.conf (global.proxy)", URL: "http://global:2"},
+			wantOK: true,
+		},
+		{
+			name:   "pipenv has no --proxy option",
+			env:    []string{"PIP_PROXY=http://env:3"},
+			args:   []string{"install", "--proxy", "http://cli:5", "six"},
+			want:   upstreamProxy{Source: "PIP_PROXY", URL: "http://env:3"},
 			wantOK: true,
 		},
 	})
