@@ -705,6 +705,26 @@ func Test_latestJobs(t *testing.T) {
 	}
 }
 
+func Test_latestJobsKeepsJobsAfterRetry(t *testing.T) {
+	t.Parallel()
+
+	first := &ViewJob{ID: 1, Stage: "test", Name: "unit"}
+	retry := &ViewJob{ID: 2, Stage: "test", Name: "unit"}
+	bridge := &ViewJob{ID: 3, Stage: "deploy", Name: "downstream"}
+
+	assert.Equal(t, []*ViewJob{retry, bridge}, latestJobs([]*ViewJob{first, retry, bridge}))
+}
+
+func TestLatestJobsKeepsDistinctStageAndNamePairs(t *testing.T) {
+	t.Parallel()
+
+	first := &ViewJob{ID: 1, Stage: "ab", Name: "c"}
+	second := &ViewJob{ID: 2, Stage: "a", Name: "bc"}
+	jobs := []*ViewJob{first, second}
+
+	assert.Equal(t, jobs, latestJobs(jobs))
+}
+
 func Test_adjacentStages(t *testing.T) {
 	t.Parallel()
 
