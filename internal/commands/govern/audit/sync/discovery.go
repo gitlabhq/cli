@@ -2,18 +2,13 @@ package sync
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
-	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
-	"gitlab.com/gitlab-org/cli/internal/git"
-	"gitlab.com/gitlab-org/cli/internal/glinstance"
-	"gitlab.com/gitlab-org/cli/internal/glrepo"
 )
 
 // discoveredSession is a session found by scanning an agent's transcripts
@@ -66,7 +61,7 @@ func discoverSessions(ctx context.Context, agents []agent, known map[string]stru
 				recordSkip(s.skip)
 				continue
 			}
-			host, path, err := projectForRemote(s.remote, hosts, cfg)
+			host, path, err := gaig.ProjectForRemote(s.remote, hosts, cfg)
 			if err != nil {
 				dbg.Debugf("not syncing %s session %s: %v", a.name(), s.id, err)
 				continue
@@ -85,35 +80,4 @@ func discoverSessions(ctx context.Context, agents []agent, known map[string]stru
 		}
 	}
 	return found
-}
-
-var errNotGitLab = errors.New("repository is not on a GitLab host glab is logged in to")
-
-// projectForRemote returns the GitLab host and project path of a Git remote
-// URL, if the host is one glab is logged in to.
-func projectForRemote(remote string, hosts []string, cfg config.Config) (string, string, error) {
-	if remote == "" {
-		return "", "", errors.New("repository has no Git remote")
-	}
-	u, err := git.ParseURL(remote)
-	if err != nil {
-		return "", "", err
-	}
-	repo, err := glrepo.FromURL(u, glinstance.DefaultHostname, cfg)
-	if err != nil {
-		return "", "", err
-	}
-	if !slices.Contains(hosts, repo.RepoHost()) {
-		return "", "", errNotGitLab
-	}
-	return repo.RepoHost(), repo.FullName(), nil
-}
-
-// gitRemote returns the origin remote URL of the repository at dir.
-func gitRemote(ctx context.Context, executor cmdutils.Executor, dir string) (string, error) {
-	out, err := executor.ExecWithCombinedOutput(ctx, "git", []string{"-C", dir, "config", "--get", "remote.origin.url"}, nil)
-	if err != nil {
-		return "", fmt.Errorf("could not read the origin remote of %s: %w", dir, err)
-	}
-	return strings.TrimSpace(string(out)), nil
 }

@@ -17,6 +17,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
@@ -141,7 +142,7 @@ func (c codex) discover(ctx context.Context, known func(string) bool) ([]discove
 		} else if meta.CWD != "" {
 			remote, ok := remotes[meta.CWD]
 			if !ok {
-				remote, err = gitRemote(ctx, c.executor, meta.CWD)
+				remote, err = gaig.OriginRemote(ctx, c.executor, meta.CWD)
 				if err != nil {
 					dbg.Debugf("codex session %s: %v", meta.ID, err)
 				}
