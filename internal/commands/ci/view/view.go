@@ -1231,30 +1231,22 @@ func vline(screen tcell.Screen, x, y, l int) {
 	}
 }
 
-// latestJobs returns a list of unique jobs favoring the last stage+name
-// version of a job in the provided list
+// latestJobs keeps the first display position of each job and shows its latest attempt.
 func latestJobs(jobs []*ViewJob) []*ViewJob {
-	var (
-		lastJob = make(map[string]*ViewJob, len(jobs))
-		dupIdx  = -1
-	)
-	for i, j := range jobs {
-		_, ok := lastJob[j.Stage+j.Name]
-		if dupIdx == -1 && ok {
-			dupIdx = i
+	type jobKey struct {
+		stage string
+		name  string
+	}
+	positions := make(map[jobKey]int, len(jobs))
+	out := make([]*ViewJob, 0, len(jobs))
+	for _, job := range jobs {
+		key := jobKey{stage: job.Stage, name: job.Name}
+		if position, exists := positions[key]; exists {
+			out[position] = job
+			continue
 		}
-		// always want the latest job
-		lastJob[j.Stage+j.Name] = j
+		positions[key] = len(out)
+		out = append(out, job)
 	}
-	if dupIdx == -1 {
-		dupIdx = len(jobs)
-	}
-	// first duplicate marks where retries begin
-	outJobs := make([]*ViewJob, dupIdx)
-	for i := range outJobs {
-		j := jobs[i]
-		outJobs[i] = lastJob[j.Stage+j.Name]
-	}
-
-	return outJobs
+	return out
 }
