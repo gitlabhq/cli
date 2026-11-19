@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -186,9 +185,7 @@ func TestIssueList_tty(t *testing.T) {
 		t.Errorf("error running command `issue list`: %v", err)
 	}
 
-	out := output.String()
-	timeRE := regexp.MustCompile(`\d+ years`)
-	out = timeRE.ReplaceAllString(out, "X years")
+	out := cmdtest.NormalizeRelativeYears(output.String())
 
 	assert.Equal(t, heredoc.Doc(`
 		Showing 3 open issues in OWNER/REPO that match your search. (Page 1)
@@ -773,9 +770,7 @@ func TestIssueList_tty_withIssueType(t *testing.T) {
 	output, err := exec("--issue-type=incident")
 	require.NoError(t, err)
 
-	out := output.String()
-	timeRE := regexp.MustCompile(`\d+ years`)
-	out = timeRE.ReplaceAllString(out, "X years")
+	out := cmdtest.NormalizeRelativeYears(output.String())
 
 	assert.Contains(t, out, "Showing 1 open incident in OWNER/REPO that match your search. (Page 1)")
 	assert.Contains(t, out, "#8\tIncident\t(foo, baz)\tabout X years ago")
@@ -1015,9 +1010,7 @@ func TestIssueList_hyperlinks(t *testing.T) {
 			output, err := exec("")
 			require.NoError(t, err)
 
-			out := output.String()
-			timeRE := regexp.MustCompile(`\d+ years`)
-			out = timeRE.ReplaceAllString(out, "X years")
+			out := cmdtest.NormalizeRelativeYears(output.String())
 
 			lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 

@@ -3,7 +3,6 @@
 package list
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -72,9 +71,7 @@ func TestCiList(t *testing.T) {
 	// THEN
 	require.NoError(t, err)
 
-	out := output.String()
-	timeRE := regexp.MustCompile(`\d+ years`)
-	out = timeRE.ReplaceAllString(out, "X years")
+	out := cmdtest.NormalizeRelativeYears(output.String())
 
 	assert.Equal(t, heredoc.Doc(`
 		Showing 2 pipelines on OWNER/REPO. (Page 1)
