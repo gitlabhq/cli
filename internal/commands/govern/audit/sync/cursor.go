@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
@@ -149,7 +150,7 @@ func (c cursor) workspaceRemote(ctx context.Context, slug string, sessions []dis
 		return "", fmt.Sprintf("the Cursor workspace %s matches %d directories (%s), and its sessions do not show which", slug, len(candidates), strings.Join(candidates, ", "))
 	}
 
-	remote, err := gitRemote(ctx, c.executor, dir)
+	remote, err := gaig.OriginRemote(ctx, c.executor, dir)
 	if err != nil {
 		dbg.Debugf("cursor workspace %s: %v", dir, err)
 	}

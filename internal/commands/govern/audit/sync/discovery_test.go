@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,8 +20,15 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
-	"gitlab.com/gitlab-org/cli/internal/config"
 )
+
+// writesStdout mocks Executor.ExecWithIO for a command that prints out.
+func writesStdout(out string) func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return func(_ context.Context, _ string, _, _ []string, _ io.Reader, stdout, _ io.Writer) error {
+		_, err := io.WriteString(stdout, out)
+		return err
+	}
+}
 
 // jsonLines encodes records as JSONL.
 func jsonLines(t *testing.T, records ...any) string {
@@ -201,8 +209,8 @@ func TestSyncAll_CodexSessionWithoutRemoteUsesGit(t *testing.T) {
 		))
 	}
 	env.mExec.EXPECT().
-		ExecWithCombinedOutput(gomock.Any(), "git", []string{"-C", "/work/repo", "config", "--get", "remote.origin.url"}, nil).
-		Return([]byte("https://"+testHost+"/my-group/my-project.git\n"), nil).
+		ExecWithIO(gomock.Any(), "git", []string{"-C", "/work/repo", "config", "--get", "remote.origin.url"}, nil, nil, gomock.Any(), gomock.Any()).
+		DoAndReturn(writesStdout("https://" + testHost + "/my-group/my-project.git\n")).
 		Times(1)
 
 	_, err := env.exec("--all")
@@ -289,17 +297,18 @@ func TestSyncAll_DiscoversCursorSession(t *testing.T) {
 		map[string]any{"role": "assistant", "message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "Shell"}}}},
 	)), 0o644))
 	env.mExec.EXPECT().
-		ExecWithCombinedOutput(gomock.Any(), "git", gomock.Any(), nil).
-		DoAndReturn(func(_ context.Context, _ string, args, _ []string) ([]byte, error) {
+		ExecWithIO(gomock.Any(), "git", gomock.Any(), nil, nil, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, args, _ []string, _ io.Reader, stdout, _ io.Writer) error {
 			resolved, err := filepath.EvalSymlinks(args[1])
 			if err != nil {
-				return nil, err
+				return err
 			}
 			want, err := filepath.EvalSymlinks(workspace)
 			if err != nil || resolved != want {
-				return nil, errors.New("not the workspace")
+				return errors.New("not the workspace")
 			}
-			return []byte("git@" + testHost + ":my-group/my-project.git\n"), nil
+			_, err = io.WriteString(stdout, "git@"+testHost+":my-group/my-project.git\n")
+			return err
 		})
 
 	_, err := env.exec("--all")
@@ -310,30 +319,6 @@ func TestSyncAll_DiscoversCursorSession(t *testing.T) {
 	require.Len(t, env.fake.sessionRequests, 1)
 	assert.Empty(t, env.fake.sessionRequests[0].AgentVersion, "Cursor does not record its version")
 	assert.Equal(t, []string{eventUserInput, eventToolInvoked}, eventNames(env.fake.events))
-}
-
-func TestProjectForRemote(t *testing.T) {
-	t.Parallel()
-
-	cfg := config.NewFromString("hosts:\n  gitlab.example.com:\n    token: x\n")
-	hosts := []string{"gitlab.example.com"}
-
-	for _, remote := range []string{
-		"git@gitlab.example.com:group/sub/project.git",
-		"https://gitlab.example.com/group/sub/project.git",
-		"ssh://git@gitlab.example.com:2222/group/sub/project.git",
-	} {
-		host, path, err := projectForRemote(remote, hosts, cfg)
-		require.NoError(t, err, remote)
-		assert.Equal(t, "gitlab.example.com", host, remote)
-		assert.Equal(t, "group/sub/project", path, remote)
-	}
-
-	_, _, err := projectForRemote("git@github.com:someone/repo.git", hosts, cfg)
-	require.ErrorIs(t, err, errNotGitLab)
-
-	_, _, err = projectForRemote("", hosts, cfg)
-	require.Error(t, err)
 }
 
 func TestCodexTranscript_NamespacedToolNames(t *testing.T) {
@@ -655,8 +640,8 @@ func TestSyncAll_ConfirmsAmbiguousCursorWorkspaceFromToolPaths(t *testing.T) {
 		return filepath.Join(base, "code", "cli-docs", "README.md")
 	})
 	env.mExec.EXPECT().
-		ExecWithCombinedOutput(gomock.Any(), "git", []string{"-C", sibling, "config", "--get", "remote.origin.url"}, nil).
-		Return([]byte("git@"+testHost+":my-group/my-project.git\n"), nil)
+		ExecWithIO(gomock.Any(), "git", []string{"-C", sibling, "config", "--get", "remote.origin.url"}, nil, nil, gomock.Any(), gomock.Any()).
+		DoAndReturn(writesStdout("git@" + testHost + ":my-group/my-project.git\n"))
 
 	_, err := env.exec("--all")
 	require.NoError(t, err)
@@ -736,8 +721,8 @@ func TestSyncAll_SyncsCursorWorkspaceConfirmedByToolPaths(t *testing.T) {
 	workspace := filepath.Join(base, "code", "cli-docs")
 	env.writeCursorSessionFor(t, workspace, workspace, filepath.Join(workspace, "README.md"))
 	env.mExec.EXPECT().
-		ExecWithCombinedOutput(gomock.Any(), "git", []string{"-C", workspace, "config", "--get", "remote.origin.url"}, nil).
-		Return([]byte("git@"+testHost+":my-group/my-project.git\n"), nil)
+		ExecWithIO(gomock.Any(), "git", []string{"-C", workspace, "config", "--get", "remote.origin.url"}, nil, nil, gomock.Any(), gomock.Any()).
+		DoAndReturn(writesStdout("git@" + testHost + ":my-group/my-project.git\n"))
 
 	_, err = env.exec("--all")
 	require.NoError(t, err)
