@@ -307,6 +307,9 @@ func Test_rawMRPreview(t *testing.T) {
 		},
 	}
 
+	conflictingMR := *mr
+	conflictingMR.HasConflicts = true
+
 	// The raw preview is only produced for non-TTY output, so render bodies verbatim.
 	ioStreams, _, _, _ = cmdtest.TestIOStreams(cmdtest.WithTestIOStreamsAsTTY(false))
 
@@ -334,6 +337,7 @@ func Test_rawMRPreview(t *testing.T) {
 				"reviewers:\tjohn, paul",
 				"source_branch:\ttopic",
 				"target_branch:\tmain",
+				"conflicts:\tfalse",
 				"comments:\t2",
 				"milestone:\tSome milestone",
 				"number:\t503",
@@ -341,6 +345,14 @@ func Test_rawMRPreview(t *testing.T) {
 				"--",
 				"MR description",
 			},
+			nil,
+		},
+		{
+			"mr_with_conflicts",
+			&options{io: ioStreams},
+			&conflictingMR,
+			nil,
+			[]string{"conflicts:\ttrue"},
 			nil,
 		},
 		{
@@ -416,6 +428,18 @@ func Test_rawMRPreview(t *testing.T) {
 			for _, notWant := range tt.notWant {
 				assert.NotContains(t, got, notWant)
 			}
+		})
+	}
+
+	for _, status := range []string{"unchecked", "checking", "preparing"} {
+		t.Run(status, func(t *testing.T) {
+			pendingMR := *mr
+			pendingMR.State = "opened"
+			pendingMR.DetailedMergeStatus = status
+
+			got := rawMRPreview(&options{io: ioStreams}, &pendingMR, nil)
+			assert.Contains(t, got, "conflicts:\tunknown\n")
+			assert.NotContains(t, got, "conflicts:\tfalse\n")
 		})
 	}
 }

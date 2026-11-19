@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -50,11 +51,14 @@ func NewCmdView(f cmdutils.Factory) *cobra.Command {
 		Short: `Display the title, body, and other information about a merge request.`,
 		Long: heredoc.Docf(`
 			You can use a branch name or ID. Use %[1]s--web%[1]s to open in a browser.
+
+			When output is redirected, the plain-text preview reports %[1]sconflicts: true%[1]s or %[1]sconflicts: false%[1]s. It reports %[1]sconflicts: unknown%[1]s while GitLab is still checking mergeability. In JSON output, check %[1]sdetailed_merge_status%[1]s before relying on %[1]shas_conflicts%[1]s.
 		`, "`"),
 		Example: heredoc.Doc(`
 			glab mr view 123
 			glab mr view branch-name
 			glab mr view 123 --comments
+			glab mr view 123 --output json --jq '{detailed_merge_status, has_conflicts}'
 			glab mr view 123 --web`),
 		Aliases: []string{"show"},
 		Args:    cobra.MaximumNArgs(1),
@@ -329,6 +333,11 @@ func rawMRPreview(opts *options, mr *gitlab.MergeRequest, discussions []*gitlab.
 	assignees := assigneesList(mr)
 	reviewers := reviewersList(mr)
 	labels := labelsList(mr)
+	conflicts := strconv.FormatBool(mr.HasConflicts)
+	switch mr.DetailedMergeStatus {
+	case "unchecked", "checking", "preparing":
+		conflicts = "unknown"
+	}
 
 	fmt.Fprintf(&out, "title:\t%s\n", mr.Title)                     //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 	fmt.Fprintf(&out, "state:\t%s\n", mrState(opts.io.Color(), mr)) //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
@@ -338,6 +347,7 @@ func rawMRPreview(opts *options, mr *gitlab.MergeRequest, discussions []*gitlab.
 	fmt.Fprintf(&out, "reviewers:\t%s\n", reviewers)                //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 	fmt.Fprintf(&out, "source_branch:\t%s\n", mr.SourceBranch)      //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 	fmt.Fprintf(&out, "target_branch:\t%s\n", mr.TargetBranch)      //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
+	fmt.Fprintf(&out, "conflicts:\t%s\n", conflicts)                //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 	fmt.Fprintf(&out, "comments:\t%d\n", mr.UserNotesCount)         //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
 	if mr.Milestone != nil {
 		fmt.Fprintf(&out, "milestone:\t%s\n", mr.Milestone.Title) //nolint:forbidigo // writing to strings.Builder, not stdout/stderr
