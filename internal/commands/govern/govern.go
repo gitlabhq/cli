@@ -1,3 +1,13 @@
+// Package govern holds the AI governance commands of glab minder: setup,
+// audit, and doctor. They change other tools' configuration and upload those
+// tools' session transcripts, so they keep to these rules:
+//
+//   - Nothing installs, upgrades, or re-enables them without the user running
+//     glab minder setup. No other glab command or upgrade runs setup.
+//   - Setup never writes trust or approval state into an agent's
+//     configuration, such as Codex's hooks.state or trusted_hash.
+//   - Hooks and plugins never inject instructions or context into an agent's
+//     session. They only start a sync in the background.
 package govern
 
 import (

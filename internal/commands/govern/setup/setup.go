@@ -104,7 +104,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	}
 
 	fl := cmd.Flags()
-	fl.BoolVarP(&opts.yes, "yes", "y", false, "Skip confirmation prompt.")
+	fl.BoolVarP(&opts.yes, "yes", "y", false, "Skip the confirmation prompt, and agree to what it would describe: the changes and, for setup, the uploads.")
 	fl.BoolVar(&opts.noFallbackSync, "no-fallback-sync", false, "Install only the hooks and plugin, without the fallback periodic sync job.")
 	fl.BoolVar(&opts.uninstall, "uninstall", false, "Remove the hooks, the OpenCode plugin, the fallback periodic sync job, and the local session records, and stop syncing Codex and Cursor sessions.")
 	fl.StringSliceVar(&opts.agents, "agents", nil, fmt.Sprintf("Agents to sync sessions from: %s. Added to the agents set up by an earlier run. The OpenCode plugin runs for all your OpenCode sessions. Multiple agents can be comma-separated or specified by repeating the flag.", strings.Join(allAgents(), ", ")))

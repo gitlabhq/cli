@@ -67,7 +67,7 @@ $ glab minder setup --uninstall
       --agents strings     Agents to sync sessions from: claude-code, opencode, codex, cursor. Added to the agents set up by an earlier run. The OpenCode plugin runs for all your OpenCode sessions. Multiple agents can be comma-separated or specified by repeating the flag.
       --no-fallback-sync   Install only the hooks and plugin, without the fallback periodic sync job.
       --uninstall          Remove the hooks, the OpenCode plugin, the fallback periodic sync job, and the local session records, and stop syncing Codex and Cursor sessions.
-  -y, --yes                Skip confirmation prompt.
+  -y, --yes                Skip the confirmation prompt, and agree to what it would describe: the changes and, for setup, the uploads.
 ```
 
 ## Options inherited from parent commands
