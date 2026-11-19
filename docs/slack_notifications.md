@@ -54,6 +54,9 @@ so headings, bold text, and links render in Slack. It includes:
   - **Maintenance** - CI changes, refactoring, other chores (`chore:`, `ci:`, `refactor:`)
   - **Dependencies** - Dependency updates (`chore(deps):`, `chore(dependencies):`)
   - **Others** - Everything else
+- **Go module bumps** - When a release has two or more `update module` commits, Slack shows
+  them as a single `* N Go module updates` line under **Dependencies**. The Go version bump,
+  a single module bump, and other dependency lines stay listed.
 - **Commit information** - Each entry has a bold `type(scope):` prefix, a linked
   commit hash, and the author name. Author emails are not included.
 - **Author emoji** - 🤖 for `gitlab-bot@gitlab.com`, `:tanuki:` for other
@@ -84,7 +87,8 @@ Slack's 12,000-character limit for a `markdown` block.
 [View release on GitLab](https://gitlab.com/gitlab-org/cli/-/releases/v1.120.0)
 ```
 
-The GitLab release page uses the same changelog lines, without the author emoji.
+The GitLab release page uses the same changelog lines, without the author emoji, and lists
+every Go module bump individually.
 
 ## Customization
 
