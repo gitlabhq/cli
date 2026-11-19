@@ -122,6 +122,7 @@ func TestRunHook_IgnoresInputWithoutSession(t *testing.T) {
 
 func TestRunSync_CodexHookSession(t *testing.T) {
 	env := newSyncAllEnv(t, true)
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
 	path := writeCodexRollout(t, env.home, "th-1", jsonLines(t,
 		codexSessionMetaLine("th-1", "/work", ""),
 		codexItem(recentTimestamp(), map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_1"}),
@@ -166,6 +167,7 @@ func TestSyncAll_CodexHookSessionIsNotDiscoveredAgain(t *testing.T) {
 
 func TestRunSync_CodexHookSessionIDMustMatchRollout(t *testing.T) {
 	env := newSyncAllEnv(t, true)
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
 	path := writeCodexRollout(t, env.home, "th-1", jsonLines(t, codexSessionMetaLine("th-1", "/work", "")))
 	t.Setenv(hookAgentEnv, "codex")
 	t.Setenv(hookSessionEnv, "th-other")
@@ -179,6 +181,7 @@ func TestRunSync_CodexHookSessionIDMustMatchRollout(t *testing.T) {
 
 func TestRunSync_CodexHookSkipsSubagentThreads(t *testing.T) {
 	env := newSyncAllEnv(t, true)
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
 	meta := codexSessionMetaLine("th-child", "/work", "")
 	meta["payload"].(map[string]any)["parent_thread_id"] = "th-parent" //nolint:forcetypeassert // built above
 	path := writeCodexRollout(t, env.home, "th-child", jsonLines(t, meta))

@@ -113,7 +113,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Project is resolved from the Git remote of the current directory, or overridden with %[1]s-R/--repo%[1]s.
 
-			With %[1]s--all%[1]s, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them. The fallback periodic sync installed by %[1]sglab minder setup%[1]s runs this, and %[1]sglab minder doctor%[1]s shows the result of its last run.
+			With %[1]s--all%[1]s, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them, including an agent session that was already open and still runs them. The fallback periodic sync installed by %[1]sglab minder setup%[1]s runs this, and %[1]sglab minder doctor%[1]s shows the result of its last run.
 
 			Supports Claude Code, OpenCode, Codex, and Cursor sessions. OpenCode sessions are read with %[1]sopencode session export%[1]s, or %[1]sopencode export%[1]s before OpenCode 2. With %[1]s--all%[1]s, it also finds and syncs the sessions of Codex and Cursor, when they are enabled with %[1]sglab minder setup --agents%[1]s, by scanning their transcripts, for repositories on GitLab hosts glab is logged in to.
 		`, "`") + text.ExperimentalString,
@@ -168,9 +168,20 @@ func runSync(ctx context.Context, opts *options) error {
 
 	var src transcript
 	if ag != nil {
+		// A session that started before the hooks were removed still runs
+		// them, so the pause that --all and --hook honour applies here too.
+		reason, err := ag.pausedReason()
+		if err != nil {
+			return fmt.Errorf("not syncing the %s session: could not check whether syncing is paused: %w", ag.name(), err)
+		}
+		if reason != "" {
+			if !opts.silent {
+				opts.io.LogInfof("Not syncing the %s session: %s.\n", ag.name(), reason)
+			}
+			return nil
+		}
 		opts.agentType = ag.name()
 		var locator string
-		var err error
 		src, locator, err = ag.current(sessionID)
 		if err != nil {
 			return err

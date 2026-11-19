@@ -264,13 +264,7 @@ func newSyncAllEnvWithConfig(t *testing.T, hooksInstalled bool, cfg string) *syn
 
 	if hooksInstalled {
 		installOpenCodePlugin(t)
-		hooks := map[string][]claudehooks.HookGroup{}
-		claudehooks.AddHook(hooks, "Stop", claudehooks.StopHookCommand)
-		hooksJSON, err := json.Marshal(hooks)
-		require.NoError(t, err)
-		settings, err := claudehooks.SettingsPath()
-		require.NoError(t, err)
-		require.NoError(t, claudehooks.WriteSettings(settings, map[string]json.RawMessage{"hooks": hooksJSON}))
+		installClaudeStopHook(t)
 	}
 
 	fake := &fakeGitLab{projects: map[string]int64{"my-group/my-project": 42}, projectLookups: map[string]int{}}
@@ -830,6 +824,17 @@ func TestSyncAll_KeepsCompletedOpenCodeSession(t *testing.T) {
 	assert.Equal(t, "/opencode/that/was/removed", meta.Transcript)
 }
 
+func installClaudeStopHook(t *testing.T) {
+	t.Helper()
+	hooks := map[string][]claudehooks.HookGroup{}
+	claudehooks.AddHook(hooks, "Stop", claudehooks.StopHookCommand)
+	hooksJSON, err := json.Marshal(hooks)
+	require.NoError(t, err)
+	settings, err := claudehooks.SettingsPath()
+	require.NoError(t, err)
+	require.NoError(t, claudehooks.WriteSettings(settings, map[string]json.RawMessage{"hooks": hooksJSON}))
+}
+
 func installOpenCodePlugin(t *testing.T) {
 	t.Helper()
 	path, err := opencodeplugin.Path()
@@ -1065,6 +1070,7 @@ func TestRunSync_RecordsMetaBeforeProjectLookup(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", dir)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-meta")
 	t.Setenv("OPENCODE_SESSION_ID", "")
+	installClaudeStopHook(t)
 
 	ctrl := gomock.NewController(t)
 	tc := gitlabtesting.NewTestClientWithCtrl(ctrl, gitlab.WithBaseURL("https://"+testHost))
@@ -1209,6 +1215,7 @@ func TestRunSync_RecordsOpenCodeMeta(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", dir)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("OPENCODE_SESSION_ID", "ses_meta")
+	installOpenCodePlugin(t)
 
 	ctrl := gomock.NewController(t)
 	tc := gitlabtesting.NewTestClientWithCtrl(ctrl, gitlab.WithBaseURL("https://"+testHost))

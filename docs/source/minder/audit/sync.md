@@ -36,7 +36,7 @@ With `--hook codex`, reads the session from the JSON that a Codex Stop hook gets
 
 Project is resolved from the Git remote of the current directory, or overridden with `-R/--repo`.
 
-With `--all`, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them. The fallback periodic sync installed by `glab minder setup` runs this, and `glab minder doctor` shows the result of its last run.
+With `--all`, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them, including an agent session that was already open and still runs them. The fallback periodic sync installed by `glab minder setup` runs this, and `glab minder doctor` shows the result of its last run.
 
 Supports Claude Code, OpenCode, Codex, and Cursor sessions. OpenCode sessions are read with `opencode session export`, or `opencode export` before OpenCode 2. With `--all`, it also finds and syncs the sessions of Codex and Cursor, when they are enabled with `glab minder setup --agents`, by scanning their transcripts, for repositories on GitLab hosts glab is logged in to.
 
