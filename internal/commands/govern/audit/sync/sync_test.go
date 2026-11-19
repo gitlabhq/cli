@@ -48,6 +48,12 @@ func TestDeterministicUUID(t *testing.T) {
 		assert.NotEqual(t, deterministicUUID("id-1"), deterministicUUID("id-2"))
 	})
 
+	t.Run("is a stable SHA-256 UUIDv8", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, "e7c71be9-dd76-8834-9de1-8119c8141268", deterministicUUID("toolu_01QY5JDwbgF8AuLRsEMrYyyn"),
+			"GitLab deduplicates audit events by this ID, so changing it duplicates re-synced events")
+	})
+
 	t.Run("output is valid UUID format", func(t *testing.T) {
 		t.Parallel()
 		uuid := deterministicUUID("toolu_01QY5JDwbgF8AuLRsEMrYyyn")
