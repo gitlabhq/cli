@@ -25,24 +25,40 @@ const (
 const maxHookInputBytes = 16 << 20
 
 // hookAgents are the agents whose hooks pass the session on stdin.
-var hookAgents = []string{"codex"}
+var hookAgents = []string{"codex", "cursor"}
 
-// hookInput is the JSON a Codex Stop hook gets on stdin.
+// hookInput is the JSON that a Codex Stop hook, or a Cursor stop or
+// sessionEnd hook, gets on stdin.
 type hookInput struct {
-	SessionID      string `json:"session_id"`
-	TranscriptPath string `json:"transcript_path"`
-	CWD            string `json:"cwd"`
+	SessionID      string   `json:"session_id"`
+	TranscriptPath string   `json:"transcript_path"`
+	CWD            string   `json:"cwd"`
+	WorkspaceRoots []string `json:"workspace_roots"`
 }
 
 // hookTarget returns the session ID, transcript and directory of the session
-// that the hook input in names.
-func hookTarget(in hookInput) (string, string, string) {
-	dir := in.CWD
-	if dir == "" {
-		// The Codex hook runs in the session's directory.
-		dir = "."
+// named in the hook input in, for agent.
+func hookTarget(agent string, in hookInput) (string, string, string) {
+	if agent != "cursor" {
+		dir := in.CWD
+		if dir == "" {
+			// The Codex hook runs in the session's directory.
+			dir = "."
+		}
+		return in.SessionID, in.TranscriptPath, dir
 	}
-	return in.SessionID, in.TranscriptPath, dir
+	if in.TranscriptPath == "" || len(in.WorkspaceRoots) == 0 {
+		return "", "", ""
+	}
+	// Discovery takes the session ID from the transcript path, so the hook
+	// does too, so that a session is not created twice. A user-level hook runs
+	// in ~/.cursor, so the directory comes from the workspace.
+	dir := cursorWorkspaceRoot(in.TranscriptPath, in.WorkspaceRoots)
+	if dir == "" {
+		return "", "", ""
+	}
+	id := strings.TrimSuffix(filepath.Base(in.TranscriptPath), filepath.Ext(in.TranscriptPath))
+	return id, in.TranscriptPath, dir
 }
 
 // hookSession returns the session and transcript that a hook for agent passed
@@ -77,9 +93,9 @@ func runHook(opts *options) error {
 			return nil
 		}
 	}
-	sessionID, transcriptPath, dir := hookTarget(in)
+	sessionID, transcriptPath, dir := hookTarget(opts.hook, in)
 	if sessionID == "" || transcriptPath == "" {
-		dbg.Debugf("the %s hook input has no session or transcript", opts.hook)
+		dbg.Debugf("the %s hook input has no session, transcript or workspace", opts.hook)
 		return nil
 	}
 	// The glab started below runs in another directory, and records the path
