@@ -24,7 +24,7 @@ var PipelineInputsDescription = heredoc.Docf(`
 
 	Valid types are:
 
-	- %[1]sstring%[1]s: A string value. This is the default type. For example, %[1]skey:string(value)%[1]s.
+	- %[1]sstring%[1]s: A string value. This type is the default. For example, %[1]skey:string(value)%[1]s.
 	- %[1]sint%[1]s: An integer value. For example, %[1]skey:int(42)%[1]s.
 	- %[1]sfloat%[1]s: A floating-point value. For example, %[1]skey:float(3.14)%[1]s.
 	- %[1]sbool%[1]s: A boolean value. For example, %[1]skey:bool(true)%[1]s.

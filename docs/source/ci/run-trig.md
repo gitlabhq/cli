@@ -28,7 +28,7 @@ specified. To specify a type, use the `type(value)` syntax. For example,
 
 Valid types are:
 
-- `string`: A string value. This is the default type. For example, `key:string(value)`.
+- `string`: A string value. This type is the default. For example, `key:string(value)`.
 - `int`: An integer value. For example, `key:int(42)`.
 - `float`: A floating-point value. For example, `key:float(3.14)`.
 - `bool`: A boolean value. For example, `key:bool(true)`.
