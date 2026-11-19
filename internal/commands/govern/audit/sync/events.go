@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/redact"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
@@ -144,7 +145,7 @@ func cappedArguments(input json.RawMessage) any {
 	if !json.Valid(input) || encodedLen(input) > maxValueBytes {
 		return argumentsOmitted
 	}
-	redacted := redactJSON(input)
+	redacted := redact.JSON(input)
 	if trimmed := bytes.TrimSpace(redacted); trimmed[0] != '{' {
 		return map[string]json.RawMessage{"input": trimmed}
 	}

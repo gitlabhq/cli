@@ -24,6 +24,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/redact"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
@@ -416,6 +417,19 @@ func pushSession(ctx context.Context, t target, sessionID, agentType string, src
 		opts.io.LogErrorf("warning: could not record session completion: %v\n", err)
 	}
 	return res, nil
+}
+
+// redactSessionData replaces the secrets in the prompts and error messages
+// that glab sends from data. The goal is redacted when it is read, because it
+// is shortened then, and tool arguments when their size is checked, because a
+// marker can be longer than the secret it replaces.
+func redactSessionData(data *sessionData) {
+	for i := range data.Prompts {
+		data.Prompts[i].Text = redact.Secrets(data.Prompts[i].Text)
+	}
+	for i := range data.ToolResults {
+		data.ToolResults[i].Error = redact.Secrets(data.ToolResults[i].Error)
+	}
 }
 
 func syncAllSessions(ctx context.Context, opts *options) error {

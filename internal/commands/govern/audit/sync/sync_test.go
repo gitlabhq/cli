@@ -708,3 +708,50 @@ func TestRunSync_FailsWhenItCannotTellWhetherSyncingIsPaused(t *testing.T) {
 	_, err = readSessionMeta("sess-1")
 	require.ErrorIs(t, err, errNoSessionMeta)
 }
+
+func TestGoalFromText_RedactsBeforeShortening(t *testing.T) {
+	t.Parallel()
+
+	token := fake("glpat-", 20)
+	goal := goalFromText(strings.Repeat("x", 250) + " " + token)
+
+	assert.NotContains(t, goal, "glpat-", "a token cut in half is still a leak")
+}
+
+func TestRunSync_RedactsSecretsBeforeUpload(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+
+	token := fake("glpat-", 20)
+	cwd, err := currentCWD()
+	require.NoError(t, err)
+	path, err := transcriptPath("sess-1", cwd)
+	require.NoError(t, err)
+	lines := jsonLines(t,
+		map[string]any{
+			"type": "user", "sessionId": "sess-1", "uuid": "u-1", "promptId": "p-1",
+			"timestamp": time.Now().Format(time.RFC3339),
+			"message":   map[string]any{"role": "user", "content": "use " + token + " to call the API"},
+		},
+		map[string]any{
+			"type": "assistant", "sessionId": "sess-1", "timestamp": time.Now().Format(time.RFC3339),
+			"message": map[string]any{"content": []map[string]any{{
+				"type": "tool_use", "id": "toolu_1", "name": "Bash",
+				"input": map[string]any{"command": `curl -H "PRIVATE-TOKEN: ` + token + `" https://gitlab.com/api/v4/user`},
+			}}},
+		},
+	)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(lines), 0o644))
+
+	_, err = env.exec("-R my-group/my-project --silent")
+	require.NoError(t, err)
+
+	require.Len(t, env.fake.sessionRequests, 1)
+	assert.Equal(t, "use [REDACTED:gitlab_token] to call the API", env.fake.sessionRequests[0].Goal)
+	uploaded, err := json.Marshal(env.fake.events)
+	require.NoError(t, err)
+	assert.NotContains(t, string(uploaded), token)
+	assert.Contains(t, string(uploaded), "use [REDACTED:gitlab_token] to call the API")
+	assert.Contains(t, string(uploaded), `PRIVATE-TOKEN: [REDACTED:gitlab_token]`)
+}

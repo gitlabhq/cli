@@ -1,4 +1,5 @@
-package sync
+// Package redact replaces the secrets in text and JSON that glab sends to GitLab.
+package redact
 
 import (
 	"bytes"
@@ -212,13 +213,14 @@ func credentialKey(name string) bool {
 	return (sensitiveKey.MatchString(name) || sensitiveKey.MatchString(words)) && !paginationKey.MatchString(words)
 }
 
-func redactedMarker(kind string) string {
+// Marker returns the text that replaces a secret of the given kind.
+func Marker(kind string) string {
 	return "[REDACTED:" + kind + "]"
 }
 
-// redactSecrets returns s with the secrets that secretPatterns find replaced
+// Secrets returns s with the secrets that secretPatterns find replaced
 // by a marker that names their kind.
-func redactSecrets(s string) string {
+func Secrets(s string) string {
 	lower := strings.ToLower(s)
 	for _, p := range secretPatterns {
 		if !containsAny(lower, p.hints) {
@@ -270,7 +272,7 @@ func replaceSecret(s string, p secretPattern) string {
 			continue
 		}
 		b.WriteString(s[last:start])
-		b.WriteString(redactedMarker(p.kind))
+		b.WriteString(Marker(p.kind))
 		last = end
 	}
 	b.WriteString(s[last:])
@@ -392,10 +394,10 @@ func looksLikeToken(s string, mixedCase bool) bool {
 	return digit || (upper && lower)
 }
 
-// redactJSON returns input with the secrets in its keys and string values
+// JSON returns input with the secrets in its keys and string values
 // replaced, or input unchanged when it holds none, so key order and formatting
 // are kept.
-func redactJSON(input json.RawMessage) json.RawMessage {
+func JSON(input json.RawMessage) json.RawMessage {
 	if len(input) == 0 {
 		return input
 	}
@@ -405,18 +407,18 @@ func redactJSON(input json.RawMessage) json.RawMessage {
 	if dec.Decode(&v) != nil {
 		// Not JSON, so it can't be walked. It is redacted as text instead,
 		// which may leave it invalid; it is omitted later then.
-		return json.RawMessage(redactSecrets(string(input)))
+		return json.RawMessage(Secrets(string(input)))
 	}
 	redacted, changed := redactValue(v, "")
 	// A secret the walk didn't see, such as one in a duplicate key that
 	// decoding dropped, still means input must not be sent as it is.
-	if !changed && redactSecrets(string(input)) == string(input) {
+	if !changed && Secrets(string(input)) == string(input) {
 		return input
 	}
 	encoded, err := json.Marshal(redacted) //nolint:forbidigo // encoding, not output
 	if err != nil {
 		dbg.Debugf("could not encode redacted tool arguments: %v", err)
-		return json.RawMessage(redactSecrets(string(input)))
+		return json.RawMessage(Secrets(string(input)))
 	}
 	return encoded
 }
@@ -425,9 +427,9 @@ func redactValue(v any, key string) (any, bool) {
 	switch v := v.(type) {
 	case string:
 		if v != "" && !strings.HasPrefix(v, "$") && credentialKey(key) && !workingDirectory(key, v) {
-			return redactedMarker("credential"), true
+			return Marker("credential"), true
 		}
-		r := redactSecrets(v)
+		r := Secrets(v)
 		return r, r != v
 	case []any:
 		changed := false
@@ -441,7 +443,7 @@ func redactValue(v any, key string) (any, bool) {
 		out := make(map[string]any, len(v))
 		changed := false
 		for k, e := range v {
-			rk := redactSecrets(k)
+			rk := Secrets(k)
 			if rk != k {
 				rk = unusedKey(out, rk)
 			}
@@ -463,18 +465,5 @@ func unusedKey(out map[string]any, key string) string {
 			return unused
 		}
 		unused = key + "#" + strconv.Itoa(n)
-	}
-}
-
-// redactSessionData replaces the secrets in the prompts and error messages
-// that glab sends from data. The goal is redacted when it is read, because it
-// is shortened then, and tool arguments when their size is checked, because a
-// marker can be longer than the secret it replaces.
-func redactSessionData(data *sessionData) {
-	for i := range data.Prompts {
-		data.Prompts[i].Text = redactSecrets(data.Prompts[i].Text)
-	}
-	for i := range data.ToolResults {
-		data.ToolResults[i].Error = redactSecrets(data.ToolResults[i].Error)
 	}
 }
