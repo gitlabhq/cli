@@ -26,6 +26,7 @@ import (
 	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -659,4 +660,51 @@ func TestParseTranscript_Dirs(t *testing.T) {
 	assert.Equal(t, "/work/a", data.Responses[0].CWD, "a streamed response keeps its first entry's folder")
 	require.Len(t, data.ToolResults, 1)
 	assert.Equal(t, "/work/a", data.ToolResults[0].CWD, "a result runs where its call did")
+}
+
+func TestRunSync_SkipsASessionWhoseHooksWereRemoved(t *testing.T) {
+	for name, args := range map[string]string{
+		"from the hook": "-R my-group/my-project --silent",
+		"run by hand":   "-R my-group/my-project",
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := newSyncAllEnv(t, false)
+			t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+			cwd, err := currentCWD()
+			require.NoError(t, err)
+			path, err := transcriptPath("sess-1", cwd)
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+			require.NoError(t, os.WriteFile(path, claudeTranscriptLines(t, "sess-1", "toolu_1"), 0o644))
+
+			out, err := env.exec(args)
+			require.NoError(t, err)
+
+			assert.Empty(t, env.fake.sessionRequests, "an open session must not upload after uninstall")
+			assert.Empty(t, env.fake.events)
+			_, err = readSessionMeta("sess-1")
+			require.ErrorIs(t, err, errNoSessionMeta, "uninstall removed the records, so they must not come back")
+			if strings.Contains(args, "--silent") {
+				assert.Empty(t, out.String())
+			} else {
+				assert.Contains(t, out.String(), "Not syncing the claude-code session: the glab Stop hook is not installed")
+			}
+		})
+	}
+}
+
+func TestRunSync_FailsWhenItCannotTellWhetherSyncingIsPaused(t *testing.T) {
+	env := newSyncAllEnv(t, false)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+	settings, err := claudehooks.SettingsPath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(settings), 0o755))
+	require.NoError(t, os.WriteFile(settings, []byte("{not json"), 0o600))
+
+	_, err = env.exec("-R my-group/my-project --silent")
+
+	require.ErrorContains(t, err, "could not check whether syncing is paused")
+	assert.Empty(t, env.fake.sessionRequests)
+	_, err = readSessionMeta("sess-1")
+	require.ErrorIs(t, err, errNoSessionMeta)
 }
