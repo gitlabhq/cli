@@ -17,20 +17,28 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
-// cursor syncs Cursor agent sessions, which the scheduled job finds by
-// scanning Cursor's agent transcripts. Their transcript locator is the
-// transcript path.
+// cursor syncs Cursor agent sessions, which its stop and sessionEnd hooks
+// record and the scheduled job also finds by scanning Cursor's agent
+// transcripts. Their transcript locator is the transcript path.
 type cursor struct {
 	executor cmdutils.Executor
 }
 
 func (cursor) name() string { return "cursor" }
 
-// sessionID reports no session, because Cursor sessions are only discovered.
-func (cursor) sessionID() string { return "" }
+func (cursor) sessionID() string {
+	id, _ := hookSession("cursor")
+	return id
+}
 
-func (cursor) current(string) (transcript, string, error) {
-	return nil, "", errors.New("cursor sessions are discovered, not recorded by a hook")
+// current opens the transcript that the hook passed. Subagent transcripts, in
+// <id>/subagents, are skipped, as discover skips them.
+func (cursor) current(sessionID string) (transcript, string, error) {
+	_, path := hookSession("cursor")
+	if filepath.Base(filepath.Dir(path)) != sessionID {
+		return nil, "", fmt.Errorf("%s is not the main transcript of a Cursor session", path)
+	}
+	return cursorTranscript{sessionID: sessionID, path: path}, path, nil
 }
 
 func (cursor) recorded(sessionID, path string) (transcript, string, error) {
@@ -189,6 +197,40 @@ func toolCallPaths(transcriptPath string) []string {
 }
 
 var nonAlphanumeric = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// cursorWorkspaceRoot returns the folder of a multi-root workspace that the
+// transcript at path belongs to, the way workspaceRemote decides: the one root
+// that Cursor encodes as the workspace slug in path, unless the transcript's
+// tool calls point elsewhere, or when no single root matches the slug, the one
+// root the tool calls point into. Every later turn of a session then returns
+// the same root or "", so a session never moves to another project.
+func cursorWorkspaceRoot(path string, roots []string) string {
+	if len(roots) == 1 {
+		return roots[0]
+	}
+	var named []string
+	sessionDir := filepath.Dir(path)
+	if filepath.Base(filepath.Dir(sessionDir)) == "agent-transcripts" {
+		slug := strings.TrimPrefix(filepath.Base(filepath.Dir(filepath.Dir(sessionDir))), "-")
+		for _, root := range roots {
+			if strings.TrimPrefix(nonAlphanumeric.ReplaceAllString(filepath.Clean(root), "-"), "-") == slug {
+				named = append(named, root)
+			}
+		}
+	}
+	paths := toolCallPaths(path)
+	used := slices.DeleteFunc(slices.Clone(roots), func(r string) bool { return !anyUnder(paths, filepath.Clean(r)) })
+	if len(named) == 1 {
+		if len(paths) == 0 || slices.Contains(used, named[0]) {
+			return named[0]
+		}
+		return ""
+	}
+	if len(used) == 1 {
+		return used[0]
+	}
+	return ""
+}
 
 // workspaceCandidates returns every directory under dir that Cursor could
 // have named slug. Cursor replaces every non-alphanumeric character of the

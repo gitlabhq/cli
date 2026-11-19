@@ -107,9 +107,11 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			If a GitLab instance does not accept an agent's sessions yet, they are not uploaded, then or after the instance is upgraded. Sessions from after the upgrade are.
 
-			Called by the Stop hook after every agent turn. Also used by the SessionEnd hook (with %[1]s--complete%[1]s) to mark the session as complete. The hooks also record the session's project, host, and transcript location so that %[1]s--all%[1]s can sync it later.
+			Called by the Claude Code Stop hook after every agent turn. Also used by its SessionEnd hook (with %[1]s--complete%[1]s) to mark the session as complete. The hooks also record the session's project, host, and transcript location so that %[1]s--all%[1]s can sync it later.
 
-			With %[1]s--hook codex%[1]s, reads the session from the JSON that a Codex Stop hook gets on stdin, and syncs it with a glab started in the background, so Codex does not wait for the upload. It prints nothing, because Codex reads a Stop hook's output as a reason to continue. The project is resolved from the session's directory.
+			With %[1]s--hook codex%[1]s or %[1]s--hook cursor%[1]s, reads the session from the JSON that a Codex Stop hook, or a Cursor stop or sessionEnd hook, gets on stdin, and syncs it with a glab started in the background, so the agent does not wait for the upload. It prints nothing, because the agent reads a hook's output as a reason to continue. The project is resolved from the session's directory, or for Cursor from the workspace folder that the transcript belongs to.
+
+			In a Cursor workspace with several folders, glab uses the folder the workspace is named after, unless the session's tool calls point elsewhere, or otherwise the one folder the tool calls used. Until a turn shows which, the session is not synced. Cursor's sessionEnd hook does not mark a session as complete. A Cursor session is completed once it has been inactive for 24 hours.
 
 			Project is resolved from the Git remote of the current directory, or overridden with %[1]s-R/--repo%[1]s.
 
@@ -144,7 +146,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl.BoolVar(&opts.silent, "silent", false, "Suppress all output. Used when invoked from hooks.")
 	fl.BoolVar(&opts.complete, "complete", false, "Mark the session as completed. Used by the SessionEnd hook.")
 	fl.BoolVar(&opts.all, "all", false, "Sync all sessions recorded by the hooks. Used by the fallback periodic sync.")
-	fl.Var(cmdutils.NewEnumValue(hookAgents, "", &opts.hook), "hook", fmt.Sprintf("Read the session from the stdin of this agent's hook, and sync it in the background: %s. Used by the Codex Stop hook.", strings.Join(hookAgents, ", ")))
+	fl.Var(cmdutils.NewEnumValue(hookAgents, "", &opts.hook), "hook", fmt.Sprintf("Read the session from the stdin of this agent's hook, and sync it in the background: %s. Used by the Codex and Cursor hooks.", strings.Join(hookAgents, ", ")))
 
 	cmdutils.EnableRepoOverride(cmd, f)
 	cmd.MarkFlagsMutuallyExclusive("all", "repo")
