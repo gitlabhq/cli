@@ -16,6 +16,8 @@ Display the title, body, and other information about a merge request.
 
 You can use a branch name or ID. Use `--web` to open in a browser.
 
+When output is redirected, the plain-text preview reports `conflicts: true` or `conflicts: false`. It reports `conflicts: unknown` while GitLab is still checking mergeability. In JSON output, check `detailed_merge_status` before relying on `has_conflicts`.
+
 ```plaintext
 glab mr view [<id | branch>] [flags]
 ```
@@ -32,6 +34,7 @@ show
 glab mr view 123
 glab mr view branch-name
 glab mr view 123 --comments
+glab mr view 123 --output json --jq '{detailed_merge_status, has_conflicts}'
 glab mr view 123 --web
 ```
 
