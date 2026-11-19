@@ -189,7 +189,16 @@ announce:
           {{- $notes := reverseFilter .ReleaseNotes `^## Changelog` }}
           {{- $notes = replace $notes "<!--bot-->" " 🤖" }}
           {{- $notes = replace $notes "<!--team-->" " :tanuki:" }}
-          {{- $notes = replace $notes "<!--community-->" " :community:" -}}
+          {{- $notes = replace $notes "<!--community-->" " :community:" }}
+          {{- /* Collapse two or more Go module bumps into a count; other dependency lines stay. */}}
+          {{- $modRe := `chore\((deps|dependencies)\)[^:]*:\*\* update module ` }}
+          {{- $modCount := len (split (filter $notes $modRe) "\n") }}
+          {{- $depsHeading := "### 📦 Dependencies" }}
+          {{- /* GitLab changelogs end lines with "   \n", so match the heading without its newline. */}}
+          {{- if and (gt $modCount 1) (contains $notes $depsHeading) }}
+          {{- $notes = reverseFilter $notes $modRe }}
+          {{- $notes = replace $notes $depsHeading (printf "%s\n* %d Go module updates" $depsHeading $modCount) }}
+          {{- end -}}
           🚀 **glab {{ .Tag }}** has been released!
 
           {{/* Cap below Slack's 12,000-character block limit. */ -}}
