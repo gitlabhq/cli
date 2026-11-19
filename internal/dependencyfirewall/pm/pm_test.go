@@ -325,6 +325,7 @@ func TestRunPassesRunInputsToSetup(t *testing.T) {
 	assert.Same(t, ios, m.in.io)
 	assert.NotNil(t, m.in.checker)
 	assert.Equal(t, "inherited", lookupEnv(m.in.parent, "GLAB_DF_TEST_PARENT"))
+	assert.Equal(t, lookupEnv(exec.env, "NODE_EXTRA_CA_CERTS"), m.in.caPath)
 }
 
 func TestRunRecordsSetupVerdicts(t *testing.T) {

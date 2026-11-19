@@ -96,7 +96,8 @@ type argsRewriter interface {
 
 type setupInput struct {
 	parent      []string // the environment the child would otherwise inherit
-	bin         string   // the manager binary's path from LookPath
+	caPath      string
+	bin         string // the manager binary's path from LookPath
 	exec        Executor
 	checker     policy.Checker
 	projectID   string
@@ -441,6 +442,7 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	if s, ok := manager.(setupManager); ok {
 		setup, err = s.Setup(ctx, setupInput{
 			parent:      os.Environ(),
+			caPath:      caPath,
 			bin:         binPath,
 			exec:        opts.Executor,
 			checker:     checker,
