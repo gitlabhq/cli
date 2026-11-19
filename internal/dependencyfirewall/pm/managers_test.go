@@ -3,6 +3,7 @@
 package pm
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
 // TestManagerEnvironAndCATrust pins the exact proxy-routing and CA-trust env
@@ -61,7 +64,7 @@ func TestManagerEnvironAndCATrust(t *testing.T) {
 	t.Run("poetry", func(t *testing.T) {
 		t.Parallel()
 		assert.Equal(t, []string{"PIP_PROXY=" + proxyURL}, Poetry().Environment(proxyURL))
-		assert.Equal(t, []string{"REQUESTS_CA_BUNDLE=" + caPath}, Poetry().CATrustEnviron(caPath))
+		assert.Equal(t, []string{"PIP_CERT=" + caPath, "REQUESTS_CA_BUNDLE=" + caPath}, Poetry().CATrustEnviron(caPath))
 	})
 
 	t.Run("twine", func(t *testing.T) {
@@ -118,7 +121,7 @@ func TestManagerExistingBundleVars(t *testing.T) {
 		{Pip(), []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}},
 		{Pipenv(), []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}},
 		{Uv(), []string{"SSL_CERT_FILE"}},
-		{Poetry(), []string{"REQUESTS_CA_BUNDLE"}},
+		{Poetry(), []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}},
 		{Twine(), []string{"TWINE_CERT", "REQUESTS_CA_BUNDLE"}},
 		{Gem(), []string{"SSL_CERT_FILE"}},
 		{Bundle(), []string{"SSL_CERT_FILE", "BUNDLE_SSL_CA_CERT"}},
@@ -164,6 +167,40 @@ func TestManagerExistingBundleVars(t *testing.T) {
 			for _, v := range c.m.ExistingBundleVars() {
 				assert.Containsf(t, upstreamCAVars, v, "%s declares %q but upstreamCAVars does not list it", c.m.Name(), v)
 			}
+		})
+	}
+}
+
+func TestRunMergesUserCAIntoOverriddenVar(t *testing.T) {
+	cases := []struct {
+		m   PackageManager
+		key string
+	}{
+		{Poetry(), "PIP_CERT"},
+	}
+	for _, c := range cases {
+		t.Run(c.m.Name()+"/"+c.key, func(t *testing.T) {
+			t.Setenv("GITLAB_CI", "")
+			t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+			for _, v := range upstreamCAVars {
+				t.Setenv(v, "")
+			}
+			userPEM := newTestAuthority(t).pem()
+			userPath := filepath.Join(t.TempDir(), "corp-ca.pem")
+			require.NoError(t, os.WriteFile(userPath, userPEM, 0o600))
+			t.Setenv(c.key, userPath)
+			ios, _, _, _ := cmdtest.TestIOStreams()
+			exec := &fakeExecutor{}
+			var bundle []byte
+			exec.onExec = func() { bundle, _ = os.ReadFile(lookupEnv(exec.env, c.key)) }
+
+			require.NoError(t, Run(t.Context(), c.m, RunOptions{
+				IO: ios, Executor: exec, BaseDir: t.TempDir(), ProjectID: "group/proj", Args: []string{"install"},
+			}))
+
+			assert.NotEqual(t, userPath, lookupEnv(exec.env, c.key))
+			assert.True(t, bytes.HasPrefix(bundle, userPEM), "the child must still trust the user's CA")
+			assert.Equal(t, 2, countPEMBlocks(bundle), "the bundle must hold the user's CA and the proxy CA")
 		})
 	}
 }
