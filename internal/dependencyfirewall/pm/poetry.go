@@ -3,9 +3,9 @@ package pm
 import "gitlab.com/gitlab-org/cli/internal/dependencyfirewall/proxy"
 
 // poetryManager runs poetry through the proxy. poetry reads REQUESTS_CA_BUNDLE
-// for CA trust and HTTPS_PROXY for routing, plus PIP_PROXY so its legacy
-// installer — which can shell out to pip — routes through the proxy too; its
-// sources are left untouched.
+// for CA trust and HTTPS_PROXY for routing, plus PIP_PROXY and PIP_CERT so its
+// legacy installer — which can shell out to pip — routes through and trusts
+// the proxy too; its sources are left untouched.
 type poetryManager struct{}
 
 // Poetry returns the poetry package manager.
@@ -25,10 +25,13 @@ func (poetryManager) Environment(proxyURL string) []string {
 }
 
 func (poetryManager) CATrustEnviron(caPath string) []string {
-	return []string{"REQUESTS_CA_BUNDLE=" + caPath}
+	return []string{
+		"PIP_CERT=" + caPath,
+		"REQUESTS_CA_BUNDLE=" + caPath,
+	}
 }
 
-func (poetryManager) ExistingBundleVars() []string { return []string{"REQUESTS_CA_BUNDLE"} }
+func (poetryManager) ExistingBundleVars() []string { return []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"} }
 
 func (poetryManager) CleanupCAFiles(string) {}
 
