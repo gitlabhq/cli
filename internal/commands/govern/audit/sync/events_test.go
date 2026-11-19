@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/redact"
 )
 
 // richClaudeTranscript is shaped like a real Claude Code transcript: a typed
@@ -208,7 +210,7 @@ func TestAuditEvents_RedactionDoesNotOmitArguments(t *testing.T) {
 	arguments, err := json.Marshal(map[string]string{"command": command + padding})
 	require.NoError(t, err)
 	require.LessOrEqual(t, encodedLen(json.RawMessage(arguments)), maxValueBytes)
-	require.Greater(t, encodedLen(redactJSON(arguments)), maxValueBytes, "redaction lengthens the arguments past the limit")
+	require.Greater(t, encodedLen(redact.JSON(arguments)), maxValueBytes, "redaction lengthens the arguments past the limit")
 
 	now := time.Date(2026, 10, 9, 1, 0, 0, 0, time.UTC)
 	events := auditEvents("claude-code", &sessionData{
@@ -219,7 +221,7 @@ func TestAuditEvents_RedactionDoesNotOmitArguments(t *testing.T) {
 	details, err := json.Marshal(events[0].Details)
 	require.NoError(t, err)
 	assert.NotContains(t, string(details), "Abc12345")
-	assert.Contains(t, string(details), redactedMarker("url_password"))
+	assert.Contains(t, string(details), redact.Marker("url_password"))
 	assert.NotContains(t, string(details), "omitted")
 	assert.LessOrEqual(t, encodedLen(events[0].Details), 10*1024, "GitLab measures the encoded details")
 }
@@ -284,7 +286,7 @@ func TestAuditEvents_ToolArgsAreObjects(t *testing.T) {
 	}}, at)
 	require.Len(t, events, 4)
 
-	redacted := `{"input":"curl https://u:` + redactedMarker("url_password") + `@example.com"}`
+	redacted := `{"input":"curl https://u:` + redact.Marker("url_password") + `@example.com"}`
 	for i, want := range []string{`{"input":"not json"}`, `{"input":[1, 2]}`, `{"cmd":"ls"}`, redacted} {
 		encoded, err := json.Marshal(events[i].Details["tool_args"])
 		require.NoError(t, err)

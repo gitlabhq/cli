@@ -19,6 +19,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/redact"
 )
 
 // claudeProjectsDir returns the base directory for Claude Code project transcripts.
@@ -303,7 +304,7 @@ func goalFromText(text string) string {
 	if skipPrompt(text) {
 		return ""
 	}
-	text = redactSecrets(text)
+	text = redact.Secrets(text)
 	if len(text) > 256 {
 		return text[:256] + "..."
 	}

@@ -1,12 +1,9 @@
-package sync
+package redact
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +15,7 @@ func fake(prefix string, n int) string {
 	return prefix + strings.Repeat("a1B2", n/4+1)[:n]
 }
 
-func TestRedactSecrets(t *testing.T) {
+func TestSecrets(t *testing.T) {
 	t.Parallel()
 
 	privateKey := "-----BEGIN OPENSSH " + "PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH " + "PRIVATE KEY-----"
@@ -248,18 +245,18 @@ func TestRedactSecrets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, redactSecrets(tt.in))
+			assert.Equal(t, tt.want, Secrets(tt.in))
 		})
 	}
 }
 
-func TestRedactJSON(t *testing.T) {
+func TestJSON(t *testing.T) {
 	t.Parallel()
 
 	t.Run("keeps input without secrets byte for byte", func(t *testing.T) {
 		t.Parallel()
 		in := json.RawMessage(`{"z": 1.50, "a": ["x"]}`)
-		assert.Equal(t, string(in), string(redactJSON(in)))
+		assert.Equal(t, string(in), string(JSON(in)))
 	})
 
 	t.Run("redacts nested string values and keeps numbers", func(t *testing.T) {
@@ -267,7 +264,7 @@ func TestRedactJSON(t *testing.T) {
 		in := json.RawMessage(`{"command":"echo ` + fake("glpat-", 20) + `","env":{"KEY":"` + fake("ghp_", 36) + `"},"n":12345678901234567890}`)
 		assert.JSONEq(t,
 			`{"command":"echo [REDACTED:gitlab_token]","env":{"KEY":"[REDACTED:github_token]"},"n":12345678901234567890}`,
-			string(redactJSON(in)))
+			string(JSON(in)))
 	})
 
 	t.Run("redacts a secret split across JSON escapes", func(t *testing.T) {
@@ -275,7 +272,7 @@ func TestRedactJSON(t *testing.T) {
 		key := "-----BEGIN EC " + "PRIVATE KEY-----\nMHc\n-----END EC " + "PRIVATE KEY-----\n"
 		encoded, err := json.Marshal(map[string]string{"content": key})
 		require.NoError(t, err)
-		assert.JSONEq(t, `{"content":"[REDACTED:private_key]\n"}`, string(redactJSON(encoded)))
+		assert.JSONEq(t, `{"content":"[REDACTED:private_key]\n"}`, string(JSON(encoded)))
 	})
 
 	t.Run("redacts values under credential keys", func(t *testing.T) {
@@ -283,7 +280,7 @@ func TestRedactJSON(t *testing.T) {
 		in := json.RawMessage(`{"headers":{"Authorization":"Bearer ` + fake("", 30) + `","X-Auth-Token":"t0k3n"},"env":{"AWS_SECRET_ACCESS_KEY":"` + fake("", 40) + `","HOME":"/home/me","TOKEN":"$CI_JOB_TOKEN"},"next_page_token":"c2"}`)
 		assert.JSONEq(t,
 			`{"headers":{"Authorization":"[REDACTED:credential]","X-Auth-Token":"[REDACTED:credential]"},"env":{"AWS_SECRET_ACCESS_KEY":"[REDACTED:credential]","HOME":"/home/me","TOKEN":"$CI_JOB_TOKEN"},"next_page_token":"c2"}`,
-			string(redactJSON(in)))
+			string(JSON(in)))
 	})
 
 	t.Run("redacts values under prefixed credential names", func(t *testing.T) {
@@ -291,13 +288,13 @@ func TestRedactJSON(t *testing.T) {
 		in := json.RawMessage(`{"env":{"OPENAI_API_KEY":"` + fake("", 20) + `","STRIPE_SECRET_KEY":"` + fake("", 20) + `","PGPASSWORD":"` + fake("", 12) + `","MYSQL_PWD":"` + fake("", 12) + `","SSH_PRIVATE_KEY":"` + fake("", 20) + `"}}`)
 		assert.JSONEq(t,
 			`{"env":{"OPENAI_API_KEY":"[REDACTED:credential]","STRIPE_SECRET_KEY":"[REDACTED:credential]","PGPASSWORD":"[REDACTED:credential]","MYSQL_PWD":"[REDACTED:credential]","SSH_PRIVATE_KEY":"[REDACTED:credential]"}}`,
-			string(redactJSON(in)))
+			string(JSON(in)))
 	})
 
 	t.Run("keeps names that only contain a credential word, and the working directory", func(t *testing.T) {
 		t.Parallel()
 		in := json.RawMessage(`{"password_file":"pass1.txt","api_key_id":"k1abcdefgh","secret_key_name":"main1","PWD":"/home/me/src1","OLDPWD":"/tmp/x1"}`)
-		assert.JSONEq(t, string(in), string(redactJSON(in)))
+		assert.JSONEq(t, string(in), string(JSON(in)))
 	})
 
 	t.Run("redacts credentials that start with a slash or tilde", func(t *testing.T) {
@@ -305,7 +302,7 @@ func TestRedactJSON(t *testing.T) {
 		in := json.RawMessage(`{"AWS_SECRET_ACCESS_KEY":"/` + fake("", 39) + `","password":"~` + fake("", 15) + `","PWD":"` + fake("", 12) + `"}`)
 		assert.JSONEq(t,
 			`{"AWS_SECRET_ACCESS_KEY":"[REDACTED:credential]","password":"[REDACTED:credential]","PWD":"[REDACTED:credential]"}`,
-			string(redactJSON(in)))
+			string(JSON(in)))
 	})
 
 	t.Run("redacts values under camelCase credential names", func(t *testing.T) {
@@ -313,7 +310,7 @@ func TestRedactJSON(t *testing.T) {
 		in := json.RawMessage(`{"openaiApiKey":"` + fake("", 20) + `","clientSecret":"` + fake("", 20) + `","authToken":"` + fake("", 20) + `","secretKey":"` + fake("", 20) + `","sshPrivateKey":"` + fake("", 20) + `","oauth2Token":"` + fake("", 20) + `"}`)
 		assert.JSONEq(t,
 			`{"openaiApiKey":"[REDACTED:credential]","clientSecret":"[REDACTED:credential]","authToken":"[REDACTED:credential]","secretKey":"[REDACTED:credential]","sshPrivateKey":"[REDACTED:credential]","oauth2Token":"[REDACTED:credential]"}`,
-			string(redactJSON(in)))
+			string(JSON(in)))
 	})
 
 	t.Run("redacts names that camelCase splitting would break", func(t *testing.T) {
@@ -321,26 +318,26 @@ func TestRedactJSON(t *testing.T) {
 		in := json.RawMessage(`{"passPhrase":"` + fake("", 16) + `","PassWord":"` + fake("", 16) + `","passWd":"` + fake("", 16) + `"}`)
 		assert.JSONEq(t,
 			`{"passPhrase":"[REDACTED:credential]","PassWord":"[REDACTED:credential]","passWd":"[REDACTED:credential]"}`,
-			string(redactJSON(in)))
+			string(JSON(in)))
 	})
 
 	t.Run("keeps camelCase names that aren't credentials", func(t *testing.T) {
 		t.Parallel()
 		in := json.RawMessage(`{"nextPageToken":"c2abcdefgh1","maxTokens":"4096","tokenCount":"12345678","apiKeyId":"k1abcdefgh","secretKeyName":"main12345"}`)
-		assert.JSONEq(t, string(in), string(redactJSON(in)))
+		assert.JSONEq(t, string(in), string(JSON(in)))
 	})
 
 	t.Run("redacts secrets in keys", func(t *testing.T) {
 		t.Parallel()
 		in := json.RawMessage(`{"` + fake("glpat-", 20) + `":1}`)
-		assert.JSONEq(t, `{"[REDACTED:gitlab_token]":1}`, string(redactJSON(in)))
+		assert.JSONEq(t, `{"[REDACTED:gitlab_token]":1}`, string(JSON(in)))
 	})
 
 	t.Run("keeps keys that redact to the same marker", func(t *testing.T) {
 		t.Parallel()
 		in := json.RawMessage(`{"` + fake("glpat-", 20) + `":1,"` + fake("glpat-", 21) + `":2}`)
 		var out map[string]int
-		require.NoError(t, json.Unmarshal(redactJSON(in), &out))
+		require.NoError(t, json.Unmarshal(JSON(in), &out))
 		assert.Len(t, out, 2)
 		assert.ElementsMatch(t, []int{1, 2}, []int{out["[REDACTED:gitlab_token]"], out["[REDACTED:gitlab_token]#2"]})
 	})
@@ -348,72 +345,25 @@ func TestRedactJSON(t *testing.T) {
 	t.Run("does not send a secret that a duplicate key hides from the walk", func(t *testing.T) {
 		t.Parallel()
 		in := json.RawMessage(`{"a":"` + fake("glpat-", 20) + `","a":"other"}`)
-		assert.NotContains(t, string(redactJSON(in)), "glpat-")
+		assert.NotContains(t, string(JSON(in)), "glpat-")
 	})
 
 	t.Run("keeps empty and null input", func(t *testing.T) {
 		t.Parallel()
-		assert.Empty(t, redactJSON(nil))
-		assert.Equal(t, "null", string(redactJSON(json.RawMessage("null"))))
+		assert.Empty(t, JSON(nil))
+		assert.Equal(t, "null", string(JSON(json.RawMessage("null"))))
 	})
 
 	t.Run("redacts input that is not JSON as text", func(t *testing.T) {
 		t.Parallel()
-		assert.Equal(t, "not json [REDACTED:gitlab_token]", string(redactJSON(json.RawMessage("not json "+fake("glpat-", 20)))))
+		assert.Equal(t, "not json [REDACTED:gitlab_token]", string(JSON(json.RawMessage("not json "+fake("glpat-", 20)))))
 	})
 }
 
-func TestGoalFromText_RedactsBeforeShortening(t *testing.T) {
-	t.Parallel()
-
-	token := fake("glpat-", 20)
-	goal := goalFromText(strings.Repeat("x", 250) + " " + token)
-
-	assert.NotContains(t, goal, "glpat-", "a token cut in half is still a leak")
-}
-
-func TestRunSync_RedactsSecretsBeforeUpload(t *testing.T) {
-	env := newSyncAllEnv(t, true)
-	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
-
-	token := fake("glpat-", 20)
-	cwd, err := currentCWD()
-	require.NoError(t, err)
-	path, err := transcriptPath("sess-1", cwd)
-	require.NoError(t, err)
-	lines := jsonLines(t,
-		map[string]any{
-			"type": "user", "sessionId": "sess-1", "uuid": "u-1", "promptId": "p-1",
-			"timestamp": time.Now().Format(time.RFC3339),
-			"message":   map[string]any{"role": "user", "content": "use " + token + " to call the API"},
-		},
-		map[string]any{
-			"type": "assistant", "sessionId": "sess-1", "timestamp": time.Now().Format(time.RFC3339),
-			"message": map[string]any{"content": []map[string]any{{
-				"type": "tool_use", "id": "toolu_1", "name": "Bash",
-				"input": map[string]any{"command": `curl -H "PRIVATE-TOKEN: ` + token + `" https://gitlab.com/api/v4/user`},
-			}}},
-		},
-	)
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	require.NoError(t, os.WriteFile(path, []byte(lines), 0o644))
-
-	_, err = env.exec("-R my-group/my-project --silent")
-	require.NoError(t, err)
-
-	require.Len(t, env.fake.sessionRequests, 1)
-	assert.Equal(t, "use [REDACTED:gitlab_token] to call the API", env.fake.sessionRequests[0].Goal)
-	uploaded, err := json.Marshal(env.fake.events)
-	require.NoError(t, err)
-	assert.NotContains(t, string(uploaded), token)
-	assert.Contains(t, string(uploaded), "use [REDACTED:gitlab_token] to call the API")
-	assert.Contains(t, string(uploaded), `PRIVATE-TOKEN: [REDACTED:gitlab_token]`)
-}
-
-func BenchmarkRedactSecrets(b *testing.B) {
+func BenchmarkSecrets(b *testing.B) {
 	prompt := strings.Repeat("Please refactor the sync loop so it retries on timeouts. ", 150)
 	b.SetBytes(int64(len(prompt)))
 	for b.Loop() {
-		redactSecrets(prompt)
+		Secrets(prompt)
 	}
 }
