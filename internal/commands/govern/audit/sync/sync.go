@@ -3,6 +3,7 @@ package sync
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -1092,6 +1093,8 @@ func completeSession(ctx context.Context, client *api.Client, projectID int64, s
 	return nil
 }
 
+// deterministicUUID derives a name-based UUIDv8 from SHA-256, the RFC 9562
+// replacement for SHA-1 UUIDv5, which FIPS 140-3 mode rejects.
 func deterministicUUID(toolCallID string) string {
-	return uuid.NewSHA1(uuid.NameSpaceDNS, []byte("gaig.gitlab.com/"+toolCallID)).String()
+	return uuid.NewHash(sha256.New(), uuid.NameSpaceDNS, []byte("gaig.gitlab.com/"+toolCallID), 8).String()
 }
