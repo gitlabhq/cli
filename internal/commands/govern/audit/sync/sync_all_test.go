@@ -35,6 +35,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/opencodeplugin"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -310,7 +311,7 @@ func (e *syncAllEnv) writeClaudeSession(t *testing.T, sessionID, project string,
 
 func assertCursorAt(t *testing.T, sessionID string, want int64) {
 	t.Helper()
-	cursor, err := readCursor(sessionID)
+	cursor, err := syncstate.ReadPosition(sessionID)
 	require.NoError(t, err)
 	assert.Equal(t, want, cursor)
 }
@@ -353,7 +354,7 @@ func TestSyncAll_UploadsRecordedSession(t *testing.T) {
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	cursor, err := readCursor("sess-1")
+	cursor, err := syncstate.ReadPosition("sess-1")
 	require.NoError(t, err)
 	assert.Equal(t, info.Size(), cursor)
 
@@ -372,7 +373,7 @@ func TestSyncAll_KeepsCursorWhenSessionHasNoID(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Zero(t, env.fake.eventsPosted)
-	cursor, err := readCursor("sess-1")
+	cursor, err := syncstate.ReadPosition("sess-1")
 	require.NoError(t, err)
 	assert.Zero(t, cursor, "unposted events must be retried on the next run")
 
@@ -390,7 +391,7 @@ func TestSyncAll_RecordsFailedIdentityRegistration(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, env.fake.sessionsCreated, "GitLab requires an agent identity to create a session")
-	cursor, err := readCursor("sess-1")
+	cursor, err := syncstate.ReadPosition("sess-1")
 	require.NoError(t, err)
 	assert.Zero(t, cursor, "the session is retried on the next run")
 	status := readStatus(t)
@@ -451,7 +452,7 @@ func TestSyncAll_GovernanceNotEnabledIsNotAnError(t *testing.T) {
 			status := readStatus(t)
 			assert.Empty(t, status.Errors, "a project without governance is expected, not a failure")
 			assert.Equal(t, []string{testHost + "/my-group/my-project"}, status.GovernanceNotEnabled)
-			cursor, err := readCursor("sess-1")
+			cursor, err := syncstate.ReadPosition("sess-1")
 			require.NoError(t, err)
 			assert.Zero(t, cursor, "the session syncs once governance is enabled")
 		})
@@ -659,7 +660,7 @@ func TestSyncAll_SkipsSessionsWithNothingNew(t *testing.T) {
 	path := env.writeClaudeSession(t, "sess-1", "my-group/my-project", "toolu_1")
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	require.NoError(t, writeCursor("sess-1", info.Size()))
+	require.NoError(t, syncstate.WritePosition("sess-1", info.Size()))
 
 	_, err = env.exec("--all")
 	require.NoError(t, err)
@@ -692,7 +693,7 @@ func TestSyncAll_ContinuesPastFailedProjectLookup(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"sess-good"}, env.fake.sessionsCreated)
-	cursor, err := readCursor("sess-bad")
+	cursor, err := syncstate.ReadPosition("sess-bad")
 	require.NoError(t, err)
 	assert.Zero(t, cursor, "a failed session keeps its cursor so the next run retries it")
 
@@ -740,7 +741,7 @@ func TestSyncAll_DoesNotCompleteActiveSession(t *testing.T) {
 func TestSyncAll_ForgetsSessionWithDeletedTranscript(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	path := env.writeClaudeSession(t, "sess-1", "my-group/my-project", "toolu_1")
-	require.NoError(t, writeCursor("sess-1", 10))
+	require.NoError(t, syncstate.WritePosition("sess-1", 10))
 	require.NoError(t, os.Remove(path))
 
 	_, err := env.exec("--all")
@@ -750,7 +751,7 @@ func TestSyncAll_ForgetsSessionWithDeletedTranscript(t *testing.T) {
 	assert.Empty(t, readStatus(t).Errors, "a deleted transcript is not an error")
 	_, err = readSessionMeta("sess-1")
 	require.ErrorIs(t, err, errNoSessionMeta)
-	cp, err := cursorPath("sess-1")
+	cp, err := syncstate.PositionPath("sess-1")
 	require.NoError(t, err)
 	assert.NoFileExists(t, cp)
 }
@@ -963,7 +964,7 @@ func TestSyncAll_UploadsOpenCodeSession(t *testing.T) {
 	assert.Equal(t, "1.19.4", env.fake.sessionRequests[0].AgentVersion)
 	assert.Equal(t, []string{eventToolInvoked, eventToolInvoked, eventToolResponse, eventToolResponse}, eventNames(env.fake.events),
 		"completed OpenCode tool calls also record their result")
-	cursor, err := readCursor("ses_1")
+	cursor, err := syncstate.ReadPosition("ses_1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), cursor)
 }
@@ -1160,7 +1161,7 @@ func TestSyncAll_ForgetsLongCompletedOpenCodeSession(t *testing.T) {
 
 	_, err = readSessionMeta("ses_old")
 	require.ErrorIs(t, err, errNoSessionMeta)
-	cp, err := cursorPath("ses_old")
+	cp, err := syncstate.PositionPath("ses_old")
 	require.NoError(t, err)
 	assert.NoFileExists(t, cp)
 }
@@ -1749,11 +1750,11 @@ func installFakeFallbackSync(t *testing.T, home string) {
 func TestWriteCursor_DoesNotMoveBack(t *testing.T) {
 	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
 
-	require.NoError(t, writeCursor("sess-1", 200))
-	require.NoError(t, writeCursor("sess-1", 100))
+	require.NoError(t, syncstate.WritePosition("sess-1", 200))
+	require.NoError(t, syncstate.WritePosition("sess-1", 100))
 	assertCursorAt(t, "sess-1", 200)
 
-	require.NoError(t, writeCursor("sess-1", 300))
+	require.NoError(t, syncstate.WritePosition("sess-1", 300))
 	assertCursorAt(t, "sess-1", 300)
 }
 

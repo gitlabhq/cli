@@ -26,6 +26,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/redact"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
@@ -99,13 +100,13 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Before anything is sent, glab replaces common secret formats with a marker such as %[1]s[REDACTED:gitlab_token]%[1]s: GitLab, GitHub, Slack, npm and PyPI tokens, AWS, Google, Stripe, OpenAI and Anthropic API keys, JWTs, private keys, credentials in Authorization and token headers or under credential-like keys, and passwords in URLs. This is best effort: other secrets in prompts, commands, or file contents are sent as they are.
 
-			When glab creates a session on GitLab, it also sends the glab version and the agent's version. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old.
+			When glab creates a session on GitLab, it also sends the glab version and the agent's version. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old. Activity from before an agent was set up with %[1]sglab minder setup%[1]s is not uploaded either, unless setup was run with %[1]s--include-history%[1]s.
 
 			Some agents record less:
 
 			- OpenCode: prompts and responses are not sent, and a tool call's outcome is sent only if the call had finished when it was first synced.
 			- Codex: a tool call's outcome is "completed", because Codex does not record whether it succeeded.
-			- Cursor: only prompts and tool calls are sent, timed by the transcript's last modification, because Cursor records no results, token usage, timestamps, or version. A Cursor session is not synced if the files its tool calls read or write are outside the workspace glab finds, or if several directories match the workspace's name and those files don't show which, so that it is not uploaded to the wrong project.
+			- Cursor: only prompts and tool calls are sent, timed by the transcript's last modification, because Cursor records no results, token usage, timestamps, or version. For a Cursor session that started before Cursor was set up, only what was added after setup is uploaded. A Cursor session is not synced if the files its tool calls read or write are outside the workspace glab finds, or if several directories match the workspace's name and those files don't show which, so that it is not uploaded to the wrong project.
 
 			If a GitLab instance does not accept an agent's sessions yet, they are not uploaded, then or after the instance is upgraded. Sessions from after the upgrade are.
 
@@ -294,23 +295,23 @@ func recordSessionMeta(ctx context.Context, opts *options, ag agent, sessionID, 
 	})
 }
 
-// skipToEnd moves the session's cursor past what the transcript holds now. The
-// user agreed to upload sessions in a GitLab repository, so a session that only
-// now has a GitLab remote uploads its activity from this point, not what it did
-// before in another folder or repository.
+// skipToEnd moves the session's sync position past what the transcript holds
+// now. The user agreed to upload sessions in a GitLab repository, so a session
+// that only now has a GitLab remote uploads its activity from this point, not
+// what it did before in another folder or repository.
 func skipToEnd(ctx context.Context, sessionID string, src transcript) error {
 	if src == nil {
 		return nil
 	}
-	cursor, err := readCursor(sessionID)
+	position, err := syncstate.ReadPosition(sessionID)
 	if err != nil {
 		return err
 	}
-	_, end, err := src.read(ctx, cursor)
+	_, end, err := src.read(ctx, position)
 	if err != nil {
 		return err
 	}
-	return writeCursor(sessionID, end)
+	return syncstate.StartAt(sessionID, end)
 }
 
 // target is the project a session is synced to.
@@ -322,12 +323,11 @@ type target struct {
 
 // syncSession syncs a single session transcript to GitLab.
 func syncSession(ctx context.Context, t target, sessionID string, src transcript, opts *options) error {
-	offset, err := readCursor(sessionID)
-	if err != nil && !opts.silent {
-		opts.io.LogErrorf("warning: could not read cursor: %v\n", err)
+	since, err := uploadsFrom(opts.agentType)
+	if err != nil {
+		return err
 	}
-
-	data, newOffset, err := src.read(ctx, offset)
+	p, err := readPending(ctx, sessionID, src, since)
 	if errors.Is(err, errTranscriptNotFound) {
 		if !opts.silent {
 			opts.io.LogInfof("No transcript found at %s\n", src)
@@ -335,10 +335,10 @@ func syncSession(ctx context.Context, t target, sessionID string, src transcript
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("could not parse transcript: %w", err)
+		return fmt.Errorf("could not read the session: %w", err)
 	}
 
-	if data.empty() && !opts.complete {
+	if p.data.empty() && (!opts.complete || !p.uploaded) {
 		if !opts.silent {
 			opts.io.LogInfo("No new entries to sync.")
 		}
@@ -356,7 +356,7 @@ func syncSession(ctx context.Context, t target, sessionID string, src transcript
 		return nil
 	}
 
-	if _, err := pushSession(ctx, t, sessionID, opts.agentType, src, data, newOffset, opts.complete, opts); err != nil && !opts.silent {
+	if _, err := pushSession(ctx, t, sessionID, opts.agentType, src, p.data, p.next, opts.complete, opts); err != nil && !opts.silent {
 		opts.io.LogErrorf("warning: %v\n", err)
 	}
 	return nil
@@ -401,8 +401,8 @@ func pushSession(ctx context.Context, t target, sessionID, agentType string, src
 		}
 	}
 
-	if err := writeCursor(sessionID, newCursor); err != nil && !opts.silent {
-		opts.io.LogErrorf("warning: could not update cursor: %v\n", err)
+	if err := syncstate.WritePosition(sessionID, newCursor); err != nil && !opts.silent {
+		opts.io.LogErrorf("warning: could not update the sync position: %v\n", err)
 	}
 
 	if !complete {
@@ -462,6 +462,12 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 
 	sessionIDs, err := listSessionMetas()
 	if err != nil {
+		status.Errors = append(status.Errors, err.Error())
+		return err
+	}
+	setups, err := fallbacksync.ReadAgentSetups()
+	if err != nil {
+		err = fmt.Errorf("could not tell which activity to upload: %w", err)
 		status.Errors = append(status.Errors, err.Error())
 		return err
 	}
@@ -615,12 +621,7 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 			}
 			continue
 		}
-		offset, err := readCursor(sessionID)
-		if err != nil {
-			recordErr(sessionID, err)
-			continue
-		}
-		data, newOffset, err := src.read(ctx, offset)
+		p, err := readPending(ctx, sessionID, src, setups.UploadsFrom(meta.AgentType))
 		if errors.Is(err, errTranscriptNotFound) {
 			// The agent has deleted the transcript, so there is nothing left
 			// to sync. Forgetting the session stops later runs searching for it.
@@ -647,9 +648,9 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 			recordErr(sessionID, err)
 			continue
 		}
-		if offset == 0 && now.Sub(last) > maxEventAge {
-			// GitLab accepts no events this old, so a session that has never
-			// synced would arrive empty. It is marked completed locally so it
+		if !p.uploaded && now.Sub(last) > gaig.MaxEventAge {
+			// GitLab accepts no events this old, so a session with nothing
+			// uploaded would arrive empty. It is marked completed locally so it
 			// is not checked again. A session that has synced still goes
 			// through idle completion, so it is completed on GitLab.
 			if err := markSessionCompleted(sessionID, now); err != nil {
@@ -658,7 +659,7 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 			continue
 		}
 		idle := now.Sub(last) > idleCompleteAfter
-		if data.empty() && !idle {
+		if p.data.empty() && (!idle || !p.uploaded) {
 			continue
 		}
 
@@ -705,7 +706,7 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 		}
 		t.identityID = identity.id
 
-		res, err := pushSession(ctx, t, sessionID, meta.AgentType, src, data, newOffset, idle, opts)
+		res, err := pushSession(ctx, t, sessionID, meta.AgentType, src, p.data, p.next, idle, opts)
 		status.EventsPosted += res.eventsPosted
 		status.EventsTooLarge += res.eventsTooLarge
 		if res.eventsPosted > 0 {

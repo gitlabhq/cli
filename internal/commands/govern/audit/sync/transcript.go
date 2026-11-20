@@ -13,13 +13,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/redact"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
 )
 
 // claudeProjectsDir returns the base directory for Claude Code project transcripts.
@@ -48,75 +48,6 @@ func transcriptPath(sessionID, cwd string) (string, error) {
 	return filepath.Join(base, projectHash, sessionID+".jsonl"), nil
 }
 
-// cursorPath returns the path to the cursor file for a given session.
-func cursorPath(sessionID string) (string, error) {
-	if strings.ContainsAny(sessionID, "/\\..") {
-		return "", fmt.Errorf("invalid session ID: %q", sessionID)
-	}
-	return filepath.Join(gaig.StateDir(), "cursors", sessionID), nil
-}
-
-// readCursor returns the byte offset of the last synced position for a session.
-// Returns 0 if no cursor exists.
-func readCursor(sessionID string) (int64, error) {
-	path, err := cursorPath(sessionID)
-	if err != nil {
-		return 0, err
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("could not read cursor: %w", err)
-	}
-
-	offset, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("could not parse cursor: %w", err)
-	}
-
-	return offset, nil
-}
-
-// writeCursor saves the current byte offset as the cursor for a session. It
-// does not move the cursor back: a hook and the fallback sync can work on the
-// same session at once, and the one that finishes last may have read less.
-// The cursor is replaced by a rename so that a concurrent read never sees a
-// partly written file.
-func writeCursor(sessionID string, offset int64) error {
-	path, err := cursorPath(sessionID)
-	if err != nil {
-		return err
-	}
-
-	if current, err := readCursor(sessionID); err == nil && current > offset {
-		return nil
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("could not create cursor directory: %w", err)
-	}
-
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
-	if err != nil {
-		return fmt.Errorf("could not write cursor: %w", err)
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(strconv.FormatInt(offset, 10)); err != nil {
-		tmp.Close()
-		return fmt.Errorf("could not write cursor: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("could not write cursor: %w", err)
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		return fmt.Errorf("could not write cursor: %w", err)
-	}
-	return os.Rename(tmp.Name(), path)
-}
-
 // transcriptEntry represents a single line in a Claude Code JSONL transcript.
 type transcriptEntry struct {
 	Type      string          `json:"type"`
@@ -125,9 +56,13 @@ type transcriptEntry struct {
 	UUID      string          `json:"uuid"`
 	Message   json.RawMessage `json:"message"`
 	IsMeta    bool            `json:"isMeta"`
-	Subtype   string          `json:"subtype"`
-	CWD       string          `json:"cwd"`
-	Version   string          `json:"version"`
+	// IsCompactSummary marks the summary Claude Code writes of the
+	// conversation so far when it compacts it, which can be from before setup.
+	IsCompactSummary          bool   `json:"isCompactSummary"`
+	IsVisibleInTranscriptOnly bool   `json:"isVisibleInTranscriptOnly"`
+	Subtype                   string `json:"subtype"`
+	CWD                       string `json:"cwd"`
+	Version                   string `json:"version"`
 
 	// user entry fields
 	PromptID string `json:"promptId"`
@@ -361,7 +296,7 @@ func parseTranscript(path string, startOffset int64) (*sessionData, int64, error
 				}
 				data.ToolResults = append(data.ToolResults, result)
 			}
-			if entry.IsMeta || entry.PromptID == "" || hasResults {
+			if entry.IsMeta || entry.IsCompactSummary || entry.IsVisibleInTranscriptOnly || entry.PromptID == "" || hasResults {
 				return
 			}
 			text := extractPrompt(entry.Message)
@@ -498,7 +433,7 @@ func findTranscriptForSession(sessionID string) (string, error) {
 }
 
 func metaPath(sessionID string) (string, error) {
-	cp, err := cursorPath(sessionID)
+	cp, err := syncstate.PositionPath(sessionID)
 	if err != nil {
 		return "", err
 	}
@@ -560,14 +495,17 @@ func listSessionMetas() ([]string, error) {
 	return ids, nil
 }
 
-// forgetSession removes the cursor and metadata of a session.
 func forgetSession(sessionID string) error {
-	cp, err := cursorPath(sessionID)
+	cp, err := syncstate.PositionPath(sessionID)
+	if err != nil {
+		return err
+	}
+	start, err := syncstate.StartPath(sessionID)
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for _, path := range []string{cp, cp + ".meta"} {
+	for _, path := range []string{cp, cp + ".meta", start} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
 		}

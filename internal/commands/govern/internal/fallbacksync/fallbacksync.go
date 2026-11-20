@@ -500,7 +500,7 @@ func hookAgentsPath() string {
 // SetDiscoveredAgents replaces the agents whose sessions the scheduled job
 // discovers.
 func SetDiscoveredAgents(agents []string) error {
-	return writeAgents(discoveredAgentsPath(), agents)
+	return writeJSON(discoveredAgentsPath(), agents)
 }
 
 // agentsListError is an error reading a file in which setup lists the agents
@@ -530,16 +530,12 @@ func DiscoveredAgents() ([]string, error) {
 
 // SetHookAgents records the agents setup installed a hook or plugin for.
 func SetHookAgents(agents []string) error {
-	return writeAgents(hookAgentsPath(), agents)
+	return writeJSON(hookAgentsPath(), agents)
 }
 
 // ForgetHookAgents forgets the agents recorded by SetHookAgents.
 func ForgetHookAgents() error {
-	err := os.Remove(hookAgentsPath())
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	return err
+	return ignoreNotExist(os.Remove(hookAgentsPath()))
 }
 
 // RecordedHookAgents returns the agents setup recorded with SetHookAgents, and
@@ -589,30 +585,89 @@ func DefaultHookAgents(setUp, discovered []string) []string {
 	return setUp
 }
 
-func writeAgents(path string, agents []string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+// AgentSetup records when setup first set up an agent.
+type AgentSetup struct {
+	SetUpAt time.Time `json:"set_up_at"`
+	// History reports that the user agreed to upload the agent's activity
+	// from before SetUpAt too.
+	History bool `json:"history,omitempty"`
+}
+
+// AgentSetups are the recorded setups, by agent. Agents set up by glab
+// versions that did not record them are missing.
+type AgentSetups map[string]AgentSetup
+
+// UploadsFrom returns the time from which agent's activity is uploaded, or the
+// zero time when there is no such limit: the user opted in to its history, or
+// setup did not record it. Uploading history for an agent set up before glab
+// recorded setups keeps what that user agreed to, until they run setup again.
+func (s AgentSetups) UploadsFrom(agent string) time.Time {
+	setup, ok := s[agent]
+	if !ok || setup.History {
+		return time.Time{}
 	}
-	data, err := json.Marshal(agents) //nolint:forbidigo // writing to disk, not stdout
-	if err != nil {
-		return err
+	return setup.SetUpAt
+}
+
+func agentSetupsPath() string {
+	return filepath.Join(gaig.StateDir(), "agent-setups.json")
+}
+
+// ReadAgentSetups returns the recorded agent setups.
+func ReadAgentSetups() (AgentSetups, error) {
+	setups := AgentSetups{}
+	if _, err := readJSON(agentSetupsPath(), &setups); err != nil {
+		return nil, err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return setups, nil
+}
+
+// SetAgentSetups replaces the recorded agent setups.
+func SetAgentSetups(setups AgentSetups) error {
+	return writeJSON(agentSetupsPath(), setups)
 }
 
 func readAgents(path string) ([]string, bool, error) {
+	var agents []string
+	recorded, err := readJSON(path, &agents)
+	if err != nil {
+		return nil, false, err
+	}
+	return agents, recorded, nil
+}
+
+func writeJSON(path string, v any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(v) //nolint:forbidigo // writing to disk, not stdout
+	if err != nil {
+		return err
+	}
+	return gaig.WriteFileAtomic(path, data)
+}
+
+func ignoreNotExist(err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// readJSON decodes the file at path into v, and reports false if there is no
+// such file.
+func readJSON(path string, v any) (bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, false, nil
+		return false, nil
 	}
 	if err != nil {
-		return nil, false, &agentsListError{err}
+		return false, &agentsListError{err}
 	}
-	var agents []string
-	if err := json.Unmarshal(data, &agents); err != nil {
-		return nil, false, &agentsListError{fmt.Errorf("could not parse %s: %w", path, err)}
+	if err := json.Unmarshal(data, v); err != nil {
+		return false, &agentsListError{fmt.Errorf("could not parse %s: %w", path, err)}
 	}
-	return agents, true, nil
+	return true, nil
 }
 
 // BuildVersion returns what `glab version` prints for the build described by

@@ -85,8 +85,14 @@ func ResolveProject(
 	return project, client, nil
 }
 
+// MaxEventAge is the age of the oldest activity glab uploads. It stays inside
+// the 90 days GitLab accepts, because one older event makes GitLab reject the
+// whole batch.
+const MaxEventAge = 89 * 24 * time.Hour
+
 // StateDir holds glab's local records of agent sessions: their sync cursors,
-// cached agent identities, the agent lists and the fallback job's status.
+// cached agent identities, the agent lists, when the agents were set up, and
+// the fallback job's status.
 func StateDir() string {
 	return filepath.Join(config.ConfigDir(), "gaig")
 }

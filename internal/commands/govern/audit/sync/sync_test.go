@@ -27,6 +27,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
 	"gitlab.com/gitlab-org/cli/internal/glrepo"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -318,7 +319,7 @@ func TestSyncSession_CursorNotAdvancedOnSessionFailure(t *testing.T) {
 	_ = syncSession(t.Context(), target{}, "sess-test", claudeTranscript{path: path}, opts)
 
 	// Cursor should NOT have advanced since session creation failed
-	cursor, err := readCursor("sess-test")
+	cursor, err := syncstate.ReadPosition("sess-test")
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), cursor, "cursor should not advance when session creation fails")
 }
@@ -571,7 +572,7 @@ func TestSkipToEnd(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sess-1.jsonl")
 	content := claudeTranscriptLines(t, "sess-1", "toolu_1", "toolu_2")
 	require.NoError(t, os.WriteFile(path, append(content, []byte(`{"type":"assistant"`)...), 0o644))
-	require.NoError(t, writeCursor("sess-1", 10))
+	require.NoError(t, syncstate.WritePosition("sess-1", 10))
 
 	require.NoError(t, skipToEnd(t.Context(), "sess-1", claudeTranscript{path: path}))
 
