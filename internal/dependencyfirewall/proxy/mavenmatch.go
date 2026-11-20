@@ -114,6 +114,9 @@ func mavenCoordinate(path string) (string, string, mavenCoordinateResult, bool) 
 	// unmatched request bypasses the firewall that is a policy-bypass vector.
 	// Match against the once-decoded path the origin actually receives.
 	rest := strings.Trim(path, "/")
+	// Treating maven2/ as Central is a guess: a mirror served under
+	// maven2/<repo>/ is read as <repo>.<group>:<artifact> with no alternates.
+	// A mirror named in settings.xml is matched exactly instead.
 	central := strings.HasPrefix(rest, "maven2/")
 	name, version, result := mavenLayoutCoordinate(strings.TrimPrefix(rest, "maven2/"))
 	return name, version, result, central && result == mavenParsed

@@ -5,6 +5,8 @@ package policy
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -345,4 +347,69 @@ func TestCacheConcurrentSameKeySingleFetch(t *testing.T) {
 	}
 	// Coalescing collapses concurrent identical requests into one inner call.
 	assert.Equal(t, int64(1), inner.calls.Load(), "concurrent identical requests must coalesce into a single inner check")
+}
+
+type panickingChecker struct {
+	calls   atomic.Int64
+	entered chan<- struct{}
+	gate    <-chan struct{}
+}
+
+func (c *panickingChecker) Check(context.Context, Request) (Result, error) {
+	if c.calls.Add(1) == 1 {
+		c.entered <- struct{}{}
+		<-c.gate
+		panic("boom")
+	}
+	return Result{Verdict: verdict.Blocked, Reason: "denied"}, nil
+}
+
+func TestCachePanicFailsClosed(t *testing.T) {
+	t.Parallel()
+	entered, gate := make(chan struct{}, 1), make(chan struct{})
+	inner := &panickingChecker{entered: entered, gate: gate}
+	var warned strings.Builder
+	var warnedMu sync.Mutex
+	c := NewCachingChecker(inner, func(format string, a ...any) {
+		warnedMu.Lock()
+		defer warnedMu.Unlock()
+		fmt.Fprintf(&warned, format, a...)
+	})
+	r := req("maven", "a:b", "1.0")
+
+	type outcome struct {
+		res      Result
+		panicked any
+	}
+	first := make(chan outcome, 1)
+	go func() {
+		var o outcome
+		defer func() { o.panicked = recover(); first <- o }()
+		o.res, _ = c.Check(t.Context(), r)
+	}()
+	<-entered
+	c.mu.Lock()
+	waiter := c.cache[r]
+	c.mu.Unlock()
+	close(gate)
+	got := <-first
+	require.Nil(t, got.panicked, "the cache must not pass a checker's panic on to its caller")
+	assert.Equal(t, verdict.Blocked, got.res.Verdict, "the caller that ran the panicked check is blocked")
+	assert.True(t, got.res.CheckFailed)
+	assert.True(t, got.res.Internal, "a glab panic is told apart from a policy service failure")
+	assert.Equal(t, "glab hit an internal error while checking a:b@1.0 and blocked it. Rerun to retry, and report this with the output of GLAB_DEBUG=1.", got.res.Reason)
+	warnedMu.Lock()
+	assert.Equal(t, "warning: glab hit an internal error while checking a:b@1.0. Rerun to retry, and report this with the output of GLAB_DEBUG=1.\n", warned.String(),
+		"the warning names only the checked package: the caller decides the verdict")
+	warnedMu.Unlock()
+	assert.NotContains(t, got.res.Reason, "boom", "the panic value stays out of the reason")
+
+	waiter.once.Do(func() {})
+	assert.Equal(t, verdict.Blocked, waiter.res.Verdict, "a caller waiting on the panicked check must be blocked")
+	assert.True(t, waiter.res.CheckFailed)
+
+	again, err := c.Check(t.Context(), r)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), inner.calls.Load(), "a panicked check must not be cached")
+	assert.Equal(t, "denied", again.Reason)
 }

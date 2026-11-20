@@ -5,10 +5,13 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -74,6 +77,93 @@ func (d *deadlineRecorder) Check(ctx context.Context, _ policy.Request) (policy.
 	defer d.mu.Unlock()
 	d.deadlines = append(d.deadlines, deadline)
 	return policy.Result{}, nil
+}
+
+// panicChecker panics on one coordinate and allows the rest.
+type panicChecker struct{ on string }
+
+func (c panicChecker) Check(_ context.Context, r policy.Request) (policy.Result, error) {
+	if r.Coordinate.Name == c.on {
+		panic("checker bug")
+	}
+	return policy.Result{}, nil
+}
+
+// lateErrChecker fails the check for slow after a delay and blocks fast at
+// once, so a later candidate's verdict arrives before an earlier one's.
+type lateErrChecker struct{ slow, fast string }
+
+func (l lateErrChecker) Check(_ context.Context, r policy.Request) (policy.Result, error) {
+	switch r.Coordinate.Name {
+	case l.slow:
+		time.Sleep(50 * time.Millisecond)
+		return policy.Result{}, errors.New("boom")
+	case l.fast:
+		return policy.Result{Verdict: verdict.Blocked, Reason: "denied"}, nil
+	}
+	return policy.Result{}, nil
+}
+
+// overlapRecorder allows everything and records the most checks in flight at
+// once. Each check stays in flight long enough for checks run together to overlap.
+type overlapRecorder struct {
+	mu                    sync.Mutex
+	calls, inFlight, most int
+}
+
+func (o *overlapRecorder) Check(context.Context, policy.Request) (policy.Result, error) {
+	o.mu.Lock()
+	o.calls++
+	o.inFlight++
+	o.most = max(o.most, o.inFlight)
+	o.mu.Unlock()
+	time.Sleep(50 * time.Millisecond)
+	o.mu.Lock()
+	o.inFlight--
+	o.mu.Unlock()
+	return policy.Result{}, nil
+}
+
+// seenErrChecker fails the check for on, allows the rest, and records every
+// coordinate it checks.
+type seenErrChecker struct {
+	on   string
+	mu   sync.Mutex
+	seen []string
+}
+
+func (e *seenErrChecker) Check(_ context.Context, r policy.Request) (policy.Result, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.seen = append(e.seen, r.Coordinate.Name)
+	if r.Coordinate.Name == e.on {
+		return policy.Result{}, errors.New("boom")
+	}
+	return policy.Result{}, nil
+}
+
+// batchErrChecker allows the primary, fails the check for on and blocks every
+// other alternate, each once a full batch of alternates is in flight.
+type batchErrChecker struct {
+	primary, on string
+	calls       atomic.Int64
+	alternates  atomic.Int64
+	batchIn     chan struct{}
+}
+
+func (b *batchErrChecker) Check(_ context.Context, r policy.Request) (policy.Result, error) {
+	b.calls.Add(1)
+	if r.Coordinate.Name == b.primary {
+		return policy.Result{}, nil
+	}
+	if b.alternates.Add(1) == maxConcurrentChecks {
+		close(b.batchIn)
+	}
+	<-b.batchIn
+	if r.Coordinate.Name == b.on {
+		return policy.Result{}, errors.New("boom")
+	}
+	return policy.Result{Verdict: verdict.Blocked, Reason: "denied"}, nil
 }
 
 func candidateNames(m Match) []string {
@@ -357,6 +447,108 @@ func TestMavenMirrorPolicyMatching(t *testing.T) {
 			"every candidate must share one deadline")
 	})
 
+	t.Run("when there are more candidates than run at once", func(t *testing.T) {
+		t.Parallel()
+		// Sequential checks under the shared deadline turn a slow backend into
+		// a spurious block; a few at a time keeps the endpoint's load bounded.
+		checker := &overlapRecorder{}
+		p, err := New(MavenMatcher{}, checker, "group/proj")
+		require.NoError(t, err)
+
+		m := MavenMatcher{}.Match(mvn(http.MethodGet, "/nexus/content/repositories/maven-central/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar", mirrorHost))
+		require.Greater(t, 1+len(m.Alternates), maxConcurrentChecks)
+		res, _ := p.checkPolicy(t.Context(), m)
+
+		assert.False(t, res.Blocked())
+		assert.Equal(t, 1+len(m.Alternates), checker.calls, "every candidate is checked")
+		assert.GreaterOrEqual(t, checker.most, 2, "candidates must not wait for each other")
+		assert.LessOrEqual(t, checker.most, maxConcurrentChecks)
+	})
+
+	t.Run("when the primary coordinate is blocked", func(t *testing.T) {
+		t.Parallel()
+		checker := &denyChecker{name: "repository.maven-central.org.slf4j:slf4j-api"}
+		p, err := New(MavenMatcher{}, checker, "group/proj")
+		require.NoError(t, err)
+
+		m := MavenMatcher{}.Match(mvn(http.MethodGet, "/repository/maven-central/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar", mirrorHost))
+		require.NotEmpty(t, m.Alternates)
+		res, _ := p.checkPolicy(t.Context(), m)
+
+		require.True(t, res.Blocked())
+		assert.Equal(t, []string{"repository.maven-central.org.slf4j:slf4j-api"}, checker.seen,
+			"a decided primary costs one call, so a failing backend isn't sent every alternate")
+	})
+
+	t.Run("when the primary coordinate's check fails", func(t *testing.T) {
+		t.Parallel()
+		m := MavenMatcher{}.Match(mvn(http.MethodGet, "/repository/maven-central/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar", mirrorHost))
+		require.NotEmpty(t, m.Alternates)
+		checker := &seenErrChecker{on: m.Coordinate.Name}
+		p, err := New(MavenMatcher{}, checker, "group/proj")
+		require.NoError(t, err)
+
+		res, coord := p.checkPolicy(t.Context(), m)
+
+		assert.True(t, res.CheckFailed)
+		assert.Equal(t, m.Coordinate.Name, coord.Name)
+		assert.Equal(t, []string{m.Coordinate.Name}, checker.seen, "a failing primary costs one call")
+	})
+
+	t.Run("when the first alternate's check fails", func(t *testing.T) {
+		t.Parallel()
+		m := MavenMatcher{}.Match(mvn(http.MethodGet, "/nexus/content/repositories/maven-central/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar", mirrorHost))
+		require.Greater(t, len(m.Alternates), maxConcurrentChecks)
+		checker := &batchErrChecker{primary: m.Coordinate.Name, on: m.Alternates[0].Name, batchIn: make(chan struct{})}
+		p, err := New(MavenMatcher{}, checker, "group/proj")
+		require.NoError(t, err)
+
+		res, coord := p.checkPolicy(t.Context(), m)
+
+		assert.True(t, res.CheckFailed, "the first alternate's failure decides, not the later rule blocks")
+		assert.Equal(t, m.Coordinate.Name, coord.Name)
+		assert.Equal(t, int64(1+maxConcurrentChecks), checker.calls.Load(),
+			"the loop starts no alternate once it sees one has decided the verdict")
+	})
+
+	assertPanicBlocks := func(t *testing.T, on string) {
+		t.Helper()
+		m := MavenMatcher{}.Match(mvn(http.MethodGet, "/repository/maven-central/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar", mirrorHost))
+		p, err := New(MavenMatcher{}, panicChecker{on: on}, "group/proj")
+		require.NoError(t, err)
+
+		res, coord := p.checkPolicy(t.Context(), m)
+
+		assert.True(t, res.CheckFailed, "a panicking check fails closed instead of crashing glab")
+		assert.True(t, res.Internal, "a glab panic is told apart from a policy service failure")
+		assert.Contains(t, res.Reason, "glab hit an internal error while checking "+m.Coordinate.Name+"@"+m.Coordinate.Version)
+		assert.Equal(t, m.Coordinate.Name, coord.Name)
+		assert.NotContains(t, res.Reason, "checker bug", "the panic value can hold anything, so it stays out of the block reason")
+	}
+
+	t.Run("when the primary coordinate's check panics", func(t *testing.T) {
+		t.Parallel()
+		assertPanicBlocks(t, "repository.maven-central.org.slf4j:slf4j-api")
+	})
+
+	t.Run("when an alternate's check panics", func(t *testing.T) {
+		t.Parallel()
+		assertPanicBlocks(t, "org.slf4j:slf4j-api")
+	})
+
+	t.Run("when an earlier candidate's check fails after a later one is blocked", func(t *testing.T) {
+		t.Parallel()
+		checker := lateErrChecker{slow: "slf4j:slf4j-api", fast: "org.slf4j:slf4j-api"}
+		p, err := New(MavenMatcher{}, checker, "group/proj")
+		require.NoError(t, err)
+
+		m := MavenMatcher{}.Match(mvn(http.MethodGet, "/repository/maven-central/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar", mirrorHost))
+		res, coord := p.checkPolicy(t.Context(), m)
+
+		assert.True(t, res.CheckFailed, "candidate order decides, not which check returns first")
+		assert.Equal(t, m.Coordinate.Name, coord.Name)
+	})
+
 	t.Run("when the request is an upload to a deploy repository under a path prefix", func(t *testing.T) {
 		t.Parallel()
 		// Maven applies mirrors only to resolution, so a deploy repository
@@ -426,4 +618,43 @@ func TestMavenMirrorThroughTunnel(t *testing.T) {
 		assert.Equal(t, "repository.maven-central.org.slf4j:slf4j-api", verdicts[0].Package,
 			"a failed check is reported under the request's own coordinate, not an invented candidate")
 	})
+}
+
+func TestPanickingCheckBlockResponseNamesTheInternalError(t *testing.T) {
+	t.Parallel()
+	p, err := New(MavenMatcher{}, panicChecker{on: "org.slf4j:slf4j-api"}, "group/proj")
+	require.NoError(t, err)
+	r := mvn(http.MethodGet, "/maven2/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar")
+
+	_, reason, checkFailed, ok := p.admit(t.Context(), r)
+
+	require.False(t, ok)
+	assert.True(t, checkFailed)
+	assert.Equal(t, "Blocked: glab internal error while checking org.slf4j:slf4j-api@2.0.9", reason)
+	assert.Contains(t, blockResponse("maven", reason, checkFailed), "HTTP/1.1 403 Blocked: glab internal error while checking org.slf4j:slf4j-api@2.0.9\r\n")
+}
+
+func TestPanickingAlternateNamesTheRequest(t *testing.T) {
+	t.Parallel()
+	m := MavenMatcher{}.Match(mvn(http.MethodGet, "/repository/maven-central/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar", mirrorHost))
+	require.NotEmpty(t, m.Alternates)
+	var warned strings.Builder
+	var warnedMu sync.Mutex
+	logf := func(format string, a ...any) {
+		warnedMu.Lock()
+		defer warnedMu.Unlock()
+		fmt.Fprintf(&warned, format, a...)
+	}
+	p, err := New(MavenMatcher{}, policy.NewCachingChecker(panicChecker{on: "org.slf4j:slf4j-api"}, logf), "group/proj")
+	require.NoError(t, err)
+
+	res, coord := p.checkPolicy(t.Context(), m)
+
+	assert.True(t, res.Internal)
+	assert.Equal(t, m.Coordinate.Name, coord.Name)
+	assert.Contains(t, res.Reason, "while checking "+m.Coordinate.Name+"@"+m.Coordinate.Version, "the reason names the same package as the CI log row")
+	warnedMu.Lock()
+	defer warnedMu.Unlock()
+	assert.Equal(t, "warning: glab hit an internal error while checking org.slf4j:slf4j-api@2.0.9. Rerun to retry, and report this with the output of GLAB_DEBUG=1.\n", warned.String(),
+		"the warning names the alternate it checked and leaves the verdict to the 403 and CI log")
 }

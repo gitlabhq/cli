@@ -8,6 +8,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
+	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
 // CheckTimeout is the deadline every Checker.Check caller must set, shared
@@ -86,6 +88,39 @@ type Result struct {
 	// CheckFailed marks a block standing in for a decision the policy could
 	// not give, as opposed to one a rule made.
 	CheckFailed bool
+	// Internal marks a CheckFailed block caused by a glab panic.
+	Internal bool
+}
+
+// ErrCheckPanicked is the error a recovered panic in a policy check becomes.
+var ErrCheckPanicked = errors.New("policy check panicked")
+
+// InternalErrorResult is the block for a check that glab itself broke on:
+// failing closed means a glab bug can't let a package skip the policy check.
+func InternalErrorResult(c Coordinate) Result {
+	return Result{
+		Verdict:     verdict.Blocked,
+		Reason:      fmt.Sprintf("glab hit an internal error while checking %s and blocked it. %s", internalErrorSubject(c), internalErrorAdvice),
+		CheckFailed: true,
+		Internal:    true,
+	}
+}
+
+const internalErrorAdvice = "Rerun to retry, and report this with the output of GLAB_DEBUG=1."
+
+// InternalErrorPhrasePrefix starts InternalErrorPhrase.
+const InternalErrorPhrasePrefix = "Blocked: glab internal error while checking "
+
+// InternalErrorPhrase is the short form of InternalErrorResult's reason, for
+// a response status line or body.
+func InternalErrorPhrase(c Coordinate) string {
+	return InternalErrorPhrasePrefix + internalErrorSubject(c)
+}
+
+// internalErrorSubject names the package for a terminal or a status line. Its
+// name can come from a request path, so control characters are dropped.
+func internalErrorSubject(c Coordinate) string {
+	return text.SanitizeInline(c.Name + "@" + c.Version)
 }
 
 // Allowed reports whether the result permits the coordinate.

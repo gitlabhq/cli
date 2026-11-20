@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sync"
 
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/verdict"
 )
 
@@ -94,6 +96,22 @@ func (c *CachingChecker) Check(ctx context.Context, r Request) (Result, error) {
 	c.mu.Unlock()
 
 	e.once.Do(func() {
+		// A panicking inner check leaves this fail-closed result for every
+		// caller of the entry, and the entry is dropped so a retry runs again.
+		e.res = InternalErrorResult(r.Coordinate)
+		defer func() {
+			if v := recover(); v != nil {
+				dbg.Debugf("dependency firewall policy check panicked for %s: %v\n%s", r.Key(), v, debug.Stack())
+				// r can be one of several candidates for a request, and another
+				// candidate may decide the verdict, so the line doesn't claim one.
+				if c.log != nil {
+					c.log("warning: glab hit an internal error while checking %s. %s\n", internalErrorSubject(r.Coordinate), internalErrorAdvice)
+				}
+				c.mu.Lock()
+				delete(c.cache, r)
+				c.mu.Unlock()
+			}
+		}()
 		// The inner check is shared across every caller coalesced onto this
 		// entry, so it must not inherit one caller's cancellation: WithoutCancel
 		// keeps a single participant walking away from killing the shared check

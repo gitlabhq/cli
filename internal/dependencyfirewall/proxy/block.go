@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
 	"gitlab.com/gitlab-org/cli/internal/text"
 )
 
@@ -47,12 +48,17 @@ func blockResponse(ecosystem, reason string, checkFailed bool) string {
 // blockReasonPhrase is a single-line reason phrase: the reason comes from the
 // policy, so a CR or LF in it must not end the status line.
 func blockReasonPhrase(reason string, checkFailed bool) string {
-	if checkFailed {
-		return checkFailedReason
-	}
 	phrase := "Blocked by GitLab Dependency Firewall"
-	if r := text.SanitizeInline(reason); r != "" {
-		phrase += ": " + r
+	switch {
+	case checkFailed && strings.HasPrefix(reason, policy.InternalErrorPhrasePrefix):
+		phrase = text.SanitizeInline(reason)
+	case checkFailed:
+		// A failed check's reason can be the raw API error.
+		return checkFailedReason
+	default:
+		if r := text.SanitizeInline(reason); r != "" {
+			phrase += ": " + r
+		}
 	}
 	if len(phrase) <= maxBlockReasonPhrase {
 		return phrase
