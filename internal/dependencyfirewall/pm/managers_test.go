@@ -200,7 +200,7 @@ func TestRunMergesUserCAIntoOverriddenVar(t *testing.T) {
 
 			assert.NotEqual(t, userPath, lookupEnv(exec.env, c.key))
 			assert.True(t, bytes.HasPrefix(bundle, userPEM), "the child must still trust the user's CA")
-			assert.Equal(t, 2, countPEMBlocks(bundle), "the bundle must hold the user's CA and the proxy CA")
+			assert.Equal(t, 2+len(systemRoots()), countPEMBlocks(bundle), "the bundle must hold the user's CA, the proxy CA and the system roots")
 		})
 	}
 }

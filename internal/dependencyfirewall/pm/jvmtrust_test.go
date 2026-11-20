@@ -171,3 +171,32 @@ func TestEncodeJVMTrustStoreIncludesSystemRoots(t *testing.T) {
 	assert.GreaterOrEqual(t, len(certs), len(sysRoots)+1,
 		"truststore must contain the system roots plus the proxy CA")
 }
+
+func TestEncodeJVMTrustStoreListsEachRootOnce(t *testing.T) {
+	t.Parallel()
+	sysRoots := systemRoots()
+	if len(sysRoots) == 0 {
+		t.Skipf("no system roots available on %s test host", runtime.GOOS)
+	}
+	proxyCA := selfSignedTestCA(t)
+
+	path := filepath.Join(t.TempDir(), "ts.p12")
+	_, err := writeJVMTrustStoreAt(path, append([]*x509.Certificate{proxyCA}, sysRoots...)...)
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	certs, err := pkcs12.DecodeTrustStore(raw, jvmTrustStorePassword)
+	require.NoError(t, err)
+	assert.Len(t, certs, 1+len(sysRoots), "a system root already in the CA bundle must not be added again")
+}
+
+func TestSystemRootsHoldOnlyCAsOnMacOS(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS reads the keychains, which also hold leaf certificates")
+	}
+	for _, c := range systemRoots() {
+		assert.True(t, c.IsCA, "%s is not a CA, so it must not become a trust anchor", c.Subject)
+	}
+}
