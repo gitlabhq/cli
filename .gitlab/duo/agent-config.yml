@@ -10,8 +10,9 @@ image: debian:bookworm-slim
 
 # Bootstrap the development environment before the flow executes.
 setup_script:
-  # Install system dependencies required by mise and the build toolchain
-  - apt-get update && apt-get install -y --no-install-recommends curl git make ca-certificates && rm -rf /var/lib/apt/lists/*
+  # Install system dependencies required by mise and the build toolchain, and ruby,
+  # which the MR Risk Labeler's run_command steps use
+  - apt-get update && apt-get install -y --no-install-recommends curl git make ca-certificates ruby && rm -rf /var/lib/apt/lists/*
   # Install mise — the project's tool version manager
   - curl -fsSL https://mise.run | sh
   - export PATH="$HOME/.local/bin:$PATH"
