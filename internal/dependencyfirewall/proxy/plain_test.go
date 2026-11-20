@@ -846,3 +846,34 @@ func TestProxyPlainHTTPOutboundProxyFromEnvironment(t *testing.T) {
 		assert.Zero(t, via.hits.Load(), "a registry in NO_PROXY is reached directly, not through the outbound proxy")
 	})
 }
+
+// bodyReadingMatcher reads the whole upload before deciding, as upload
+// matchers do, and fails closed a moment after the body can't be read.
+type bodyReadingMatcher struct{ reading chan struct{} }
+
+func (m bodyReadingMatcher) Match(req *http.Request) Match {
+	close(m.reading)
+	if _, err := io.ReadAll(req.Body); err != nil {
+		time.Sleep(200 * time.Millisecond)
+		return Match{Matched: true, Coordinate: policy.Coordinate{Name: "stalled"}, Reason: "upload unreadable"}
+	}
+	return Match{}
+}
+
+func TestProxyStopDrainsPlainHandlerBeforeVerdicts(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(upstream.Close)
+	matcher := bodyReadingMatcher{reading: make(chan struct{})}
+	p, err := New(matcher, verdictChecker{}, "group/proj")
+	require.NoError(t, err)
+	require.NoError(t, p.Start())
+	sendPartialUpload(t, p, upstream)
+	waitFor(t, matcher.reading, "the matcher to start reading the upload")
+
+	p.Stop()
+
+	verdicts := p.Verdicts()
+	require.Len(t, verdicts, 1, "Stop must wait for a plain-HTTP handler that records after Shutdown gives up")
+	assert.Equal(t, verdict.Blocked, verdicts[0].Verdict)
+}

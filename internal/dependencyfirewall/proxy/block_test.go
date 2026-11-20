@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
 )
 
 func TestBlockResponseStatusLineCarriesReason(t *testing.T) {
@@ -112,4 +114,17 @@ func TestBlockResponseNuGetIsJSON(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "blocked by policy")
+}
+
+func TestInternalErrorStatusLineCannotInjectHeaders(t *testing.T) {
+	t.Parallel()
+	phrase := policy.InternalErrorPhrase(policy.Coordinate{Name: "org.evil\r\nX-Injected: yes\r\n\r\nbody:a", Version: "1"})
+	resp := parseBlock(t, blockResponse("maven", phrase, true))
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Empty(t, resp.Header.Get("X-Injected"))
+
+	long := parseBlock(t, blockResponse("maven", policy.InternalErrorPhrase(policy.Coordinate{Name: strings.Repeat("a", 2000), Version: "1"}), true))
+	defer long.Body.Close()
+	assert.LessOrEqual(t, len(long.Status), len("403 ")+maxBlockReasonPhrase)
 }

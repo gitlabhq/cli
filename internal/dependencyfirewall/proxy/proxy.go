@@ -20,6 +20,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -134,12 +135,10 @@ type Proxy struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// tunnels tracks in-flight hijacked MITM tunnel goroutines. http.Server
-	// Shutdown does not wait for hijacked connections, so Stop drains this
-	// (bounded) before the caller reads Verdicts(): a policy check still in
-	// flight when the child exits would otherwise record its verdict after the
-	// snapshot and a late Block would never reach the CI log.
-	tunnels sync.WaitGroup
+	// inflight tracks MITM tunnels and plain-HTTP handlers. Shutdown skips
+	// hijacked connections and Close waits for nothing, so Stop drains this
+	// (bounded) before Verdicts(), or a late Block never reaches the CI log.
+	inflight sync.WaitGroup
 
 	mu       sync.Mutex
 	verdicts []verdict.Entry
@@ -338,20 +337,16 @@ func (p *Proxy) Stop() {
 			_ = p.server.Close()
 		}
 	}
-	// Shutdown does not wait for hijacked MITM tunnels, so drain them here
-	// (bounded) before the caller reads Verdicts(). The cancelled context has
-	// already unblocked any in-flight policy check, so a well-behaved tunnel
-	// records its verdict and returns promptly; the timeout guards against a
-	// hung upstream holding shutdown open forever.
+	// Drain inflight (bounded) before the caller reads Verdicts().
 	done := make(chan struct{})
 	go func() {
-		p.tunnels.Wait()
+		p.inflight.Wait()
 		close(done)
 	}()
 	select {
 	case <-done:
 	case <-time.After(tunnelDrainTimeout):
-		dbg.Debugf("dependency firewall proxy: timed out draining in-flight tunnels")
+		dbg.Debugf("dependency firewall proxy: timed out draining in-flight requests")
 	}
 }
 
@@ -446,6 +441,9 @@ var errUnpromptedSwitch = errors.New("registry switched protocols without being 
 // client sends to its proxy in place of CONNECT, through the same policy
 // check as a tunnelled request.
 func (p *Proxy) handlePlain(w http.ResponseWriter, r *http.Request) {
+	p.inflight.Add(1)
+	defer p.inflight.Done()
+
 	// Drop any upgrade offer rather than refuse it: libcurl offers h2c on every
 	// request. With no Upgrade header ReverseProxy answers an upstream 101 with
 	// 502 instead of splicing the client past the policy check.
@@ -552,8 +550,8 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// snapshots Verdicts(): http.Server.Shutdown does not wait for hijacked
 	// connections, so without this a policy check completing after the child
 	// exits could record a Block that never reaches the CI log.
-	p.tunnels.Add(1)
-	defer p.tunnels.Done()
+	p.inflight.Add(1)
+	defer p.inflight.Done()
 	p.serveTunnel(p.ctx, tlsConn, authority) //nolint:contextcheck // MITM tunnel is bounded by the proxy lifetime, not the CONNECT request
 }
 
@@ -654,7 +652,10 @@ func (p *Proxy) admit(ctx context.Context, req *http.Request) (string, string, b
 			Reason:  res.Reason,
 		}, res.CheckFailed)
 		reason := res.Reason
-		if res.CheckFailed {
+		switch {
+		case res.Internal:
+			reason = policy.InternalErrorPhrase(coordinate)
+		case res.CheckFailed:
 			reason = checkFailedReason
 		}
 		return m.Coordinate.Ecosystem, reason, res.CheckFailed, false
@@ -674,19 +675,67 @@ func (p *Proxy) admit(ctx context.Context, req *http.Request) (string, string, b
 	return "", "", false, true
 }
 
+// maxConcurrentChecks bounds how many of one request's candidate coordinates
+// are checked at once, so enumeration doesn't flood the policy endpoint.
+const maxConcurrentChecks = 4
+
 // checkPolicy checks every candidate coordinate m carries and returns the
 // strongest verdict, with the coordinate it belongs to; a block always wins.
 // All candidates share one overall policy.CheckTimeout deadline so a slow
-// backend bounds total latency instead of compounding per candidate.
+// backend bounds total latency instead of compounding per candidate. The
+// primary coordinate goes first, so a block on it or a failing backend costs
+// one call; the alternates then start in order, a few at a time, and the loop
+// starts no more once it sees one blocked or failed. The verdicts are read in
+// candidate order, so the result doesn't depend on which check returns first.
 func (p *Proxy) checkPolicy(ctx context.Context, m Match) (policy.Result, policy.Coordinate) {
 	ctx, cancel := context.WithTimeout(ctx, policy.CheckTimeout)
 	defer cancel()
 
+	candidates := append([]policy.Coordinate{m.Coordinate}, m.Alternates...)
+	results := make([]policy.Result, len(candidates))
+	errs := make([]error, len(candidates))
+	var decided atomic.Bool
+	check := func(i int) {
+		// An alternate's goroutine is outside net/http's recover, so a panicking
+		// checker would end glab. The value stays out of the block reason.
+		defer func() {
+			if r := recover(); r != nil {
+				dbg.Debugf("dependency firewall policy check panicked for %s: %v\n%s", candidates[i].Key(), r, debug.Stack())
+				errs[i] = policy.ErrCheckPanicked
+			}
+			if errs[i] != nil || results[i].Blocked() {
+				decided.Store(true)
+			}
+		}()
+		results[i], errs[i] = p.checker.Check(ctx, policy.Request{Coordinate: candidates[i], ProjectID: p.projectID, Operation: m.Operation})
+	}
+	check(0)
+	if !decided.Load() {
+		slots := make(chan struct{}, maxConcurrentChecks)
+		var wg sync.WaitGroup
+		for i := 1; i < len(candidates); i++ {
+			slots <- struct{}{}
+			// Candidates start in order, so a decided one is earlier than i
+			// and the read below returns before reaching i.
+			if decided.Load() {
+				break
+			}
+			wg.Go(func() {
+				defer func() { <-slots }()
+				check(i)
+			})
+		}
+		wg.Wait()
+	}
+
 	strongest := policy.Result{}
 	strongestCoordinate := m.Coordinate
 
-	for _, coordinate := range append([]policy.Coordinate{m.Coordinate}, m.Alternates...) {
-		res, err := p.checker.Check(ctx, policy.Request{Coordinate: coordinate, ProjectID: p.projectID, Operation: m.Operation})
+	for i, coordinate := range candidates {
+		res, err := results[i], errs[i]
+		if errors.Is(err, policy.ErrCheckPanicked) {
+			return policy.InternalErrorResult(m.Coordinate), m.Coordinate
+		}
 		if err != nil {
 			// Fail closed, naming the request's own coordinate rather than the
 			// invented candidate that errored.
@@ -699,6 +748,9 @@ func (p *Proxy) checkPolicy(ctx context.Context, m Match) (policy.Result, policy
 		}
 		if res.Blocked() {
 			// A failed check says nothing about the candidate, so name the request.
+			if res.Internal {
+				return policy.InternalErrorResult(m.Coordinate), m.Coordinate
+			}
 			if res.CheckFailed {
 				return res, m.Coordinate
 			}

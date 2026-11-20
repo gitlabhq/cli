@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -205,7 +206,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			Status:    http.StatusForbidden,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
-		writeBlocked(w, req.module, req.version, res.Reason)
+		reason := res.Reason
+		if res.Internal {
+			reason = policy.InternalErrorPhrase(policy.Coordinate{Name: req.module, Version: req.version})
+		}
+		writeBlocked(w, req.module, req.version, reason)
 		return
 	case res.Warned():
 		s.record(verdict.Entry{
@@ -250,6 +255,14 @@ func (s *Server) check(req request) (policy.Result, bool) {
 	}
 	done := make(chan outcome, 1)
 	go func() {
+		// This goroutine is outside net/http's recover, so a panicking checker
+		// would end glab. Block instead; the value stays out of the reason.
+		defer func() {
+			if r := recover(); r != nil {
+				dbg.Debugf("dependency firewall policy check panicked for %s@%s: %v\n%s", req.module, req.version, r, debug.Stack())
+				done <- outcome{err: policy.ErrCheckPanicked}
+			}
+		}()
 		res, err := s.checker.Check(ctx, policy.Request{
 			Coordinate: policy.Coordinate{
 				Ecosystem: "golang",
@@ -272,6 +285,9 @@ func (s *Server) check(req request) (policy.Result, bool) {
 		return policy.Result{}, false
 	}
 	s.checked.Add(1)
+	if errors.Is(out.err, policy.ErrCheckPanicked) {
+		return policy.InternalErrorResult(policy.Coordinate{Name: req.module, Version: req.version}), true
+	}
 	if out.err != nil {
 		return policy.Result{
 			Verdict: verdict.Blocked,

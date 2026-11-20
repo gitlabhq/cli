@@ -545,3 +545,34 @@ func TestStopIsIdempotent(t *testing.T) {
 	assert.NotPanics(t, s2.Stop)
 	assert.NotPanics(t, s2.Stop)
 }
+
+type panickingChecker struct{}
+
+func (panickingChecker) Check(context.Context, policy.Request) (policy.Result, error) {
+	panic("secret-token in a checker bug")
+}
+
+func TestPanickingCheckBlocksInsteadOfCrashing(t *testing.T) {
+	t.Parallel()
+	for name, checker := range map[string]policy.Checker{
+		"when the checker panics":                  panickingChecker{},
+		"when the checker panics behind the cache": policy.NewCachingChecker(panickingChecker{}, nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			backend := &backendStub{}
+			s := startServer(t, checker, backend)
+
+			res := get(t, s, "/github.com/pkg/errors/@v/v0.9.1.zip")
+
+			assert.Equal(t, http.StatusForbidden, res.status)
+			assert.Contains(t, res.body, "Blocked: glab internal error while checking github.com/pkg/errors@v0.9.1")
+			assert.NotContains(t, res.body, "secret-token", "the panic value stays out of the response")
+			assert.Zero(t, backend.count(), "a module whose check panicked must never reach the backend")
+			entries := s.Verdicts()
+			require.Len(t, entries, 1)
+			assert.Equal(t, verdict.Blocked, entries[0].Verdict)
+			assert.Contains(t, entries[0].Reason, "glab hit an internal error while checking github.com/pkg/errors@v0.9.1 and blocked it")
+		})
+	}
+}
