@@ -233,7 +233,25 @@ func TestSyncAll_SkipsDiscoveredSessionsOnOtherHosts(t *testing.T) {
 	assert.Empty(t, env.fake.projectLookups, "a repository on a host glab is not logged in to is not uploaded")
 	_, err = readSessionMeta("th-gh")
 	require.ErrorIs(t, err, errNoSessionMeta)
-	assert.Empty(t, readStatus(t).Errors)
+	status := readStatus(t)
+	assert.Empty(t, status.Errors)
+	assert.Equal(t, []string{withoutRemoteReason("codex")}, status.Skipped)
+}
+
+func TestSyncAll_DoesNotReportIdleDiscoveredSessionOnOtherHost(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
+	path := writeCodexRollout(t, env.home, "th-gh", jsonLines(t,
+		codexSessionMetaLine("th-gh", "/work", "git@github.com:someone/repo.git"),
+		codexItem(recentTimestamp(), map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_1"}),
+	))
+	idle := time.Now().Add(-2 * idleCompleteAfter)
+	require.NoError(t, os.Chtimes(path, idle, idle))
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	assert.Empty(t, readStatus(t).Skipped, "a session discovered on every run is not reported once idle")
 }
 
 func TestSyncAll_SkipsCodexSubagentThreads(t *testing.T) {

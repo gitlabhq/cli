@@ -3,7 +3,9 @@ package sync
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
+	"time"
 
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
@@ -64,6 +66,11 @@ func discoverSessions(ctx context.Context, agents []agent, known map[string]stru
 			host, path, err := gaig.ProjectForRemote(s.remote, hosts, cfg)
 			if err != nil {
 				dbg.Debugf("not syncing %s session %s: %v", a.name(), s.id, err)
+				// Discovery finds such a session on every run, so it is only
+				// reported while active, like one a hook recorded.
+				if info, statErr := os.Stat(s.locator); statErr == nil && time.Since(info.ModTime()) <= idleCompleteAfter {
+					recordSkip(withoutRemoteReason(a.name()))
+				}
 				continue
 			}
 			err = writeSessionMeta(s.id, sessionMeta{
