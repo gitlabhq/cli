@@ -7,65 +7,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
-
-func TestParseID(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		input   string
-		want    int64
-		wantErr string
-	}{
-		{
-			name:  "valid input",
-			input: "123",
-			want:  123,
-		},
-		{
-			name:    "zero",
-			input:   "0",
-			wantErr: "repository ID must be a positive integer",
-		},
-		{
-			name:    "negative",
-			input:   "-1",
-			wantErr: "repository ID must be a positive integer",
-		},
-		{
-			name:    "non-numeric",
-			input:   "abc",
-			wantErr: "repository ID must be a positive integer",
-		},
-		{
-			name:    "empty",
-			input:   "",
-			wantErr: "repository ID must be a positive integer",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := ParseID(tt.input, "repository ID")
-			if tt.wantErr != "" {
-				require.Error(t, err)
-				assert.Equal(t, tt.wantErr, err.Error())
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
 
 func TestDisplayRepositories(t *testing.T) {
 	t.Parallel()

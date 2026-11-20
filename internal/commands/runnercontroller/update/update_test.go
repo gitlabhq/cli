@@ -126,5 +126,5 @@ func TestUpdateInvalidID(t *testing.T) {
 
 	_, err := exec("invalid --description 'Test'")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
+	assert.Contains(t, err.Error(), `invalid runner controller ID: "invalid"`)
 }

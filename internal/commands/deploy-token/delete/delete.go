@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -89,15 +88,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) complete(cmd *cobra.Command, args []string) error {
-	tokenID, err := strconv.ParseInt(args[0], 10, 64)
+	tokenID, err := cmdutils.ParseID(args[0], "deploy token ID")
 	if err != nil {
-		// ExitError renders only the wrapped error, so the rejected value has to
-		// be named here. It must not lead the message: the error handler
-		// capitalizes the first character, which would rewrite the value itself.
-		return cmdutils.WrapError(
-			fmt.Errorf("invalid deploy token ID: %q", args[0]),
-			"invalid deploy token ID",
-		)
+		return err
 	}
 	o.tokenID = tokenID
 

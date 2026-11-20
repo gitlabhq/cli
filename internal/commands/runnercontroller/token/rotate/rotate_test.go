@@ -116,7 +116,7 @@ func TestRotateInvalidControllerID(t *testing.T) {
 
 	_, err := exec("invalid 1 --force")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
+	assert.Contains(t, err.Error(), `invalid runner controller ID: "invalid"`)
 }
 
 func TestRotateInvalidTokenID(t *testing.T) {
@@ -133,7 +133,7 @@ func TestRotateInvalidTokenID(t *testing.T) {
 
 	_, err := exec("42 invalid --force")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
+	assert.Contains(t, err.Error(), `invalid token ID: "invalid"`)
 }
 
 func TestRotateRequiresForceNonInteractive(t *testing.T) {

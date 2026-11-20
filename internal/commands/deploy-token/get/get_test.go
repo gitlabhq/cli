@@ -167,13 +167,6 @@ func TestGet_InvalidID(t *testing.T) {
 
 	_, err := setupExec(t, tc)("not-a-number")
 	require.Error(t, err)
-
-	var exitErr *cmdutils.ExitError
-	require.ErrorAs(t, err, &exitErr)
-	assert.Equal(t, "invalid deploy token ID", exitErr.Details)
-	// ExitError renders only the wrapped error, so that is what the user sees.
-	// The rejected value must not lead the message, because the error handler
-	// capitalizes the first character and would rewrite the value.
 	assert.Equal(t, `invalid deploy token ID: "not-a-number"`, err.Error())
 }
 

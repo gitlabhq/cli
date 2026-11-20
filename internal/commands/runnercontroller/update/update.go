@@ -2,7 +2,6 @@ package update
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -79,9 +78,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) complete(args []string) error {
-	id, err := strconv.ParseInt(args[0], 10, 64)
+	id, err := cmdutils.ParseID(args[0], "runner controller ID")
 	if err != nil {
-		return cmdutils.WrapError(err, "invalid runner controller ID")
+		return err
 	}
 	o.id = id
 	return nil

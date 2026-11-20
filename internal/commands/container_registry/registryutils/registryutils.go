@@ -2,7 +2,6 @@ package registryutils
 
 import (
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -13,15 +12,6 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/tableprinter"
 	"gitlab.com/gitlab-org/cli/internal/utils"
 )
-
-func ParseID(value string, name string) (int64, error) {
-	id, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || id < 1 {
-		return 0, fmt.Errorf("%s must be a positive integer", name)
-	}
-
-	return id, nil
-}
 
 func DisplayRepositories(io *iostreams.IOStreams, repositories []*gitlab.RegistryRepository, showTagsCount bool) string {
 	c := io.Color()

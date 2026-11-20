@@ -142,7 +142,7 @@ func TestRunnerJobs_InvalidRunnerID(t *testing.T) {
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
 	_, err := exec("invalid")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
+	assert.Contains(t, err.Error(), `invalid runner ID: "invalid"`)
 }
 
 func TestRunnerJobs_WithStatus(t *testing.T) {

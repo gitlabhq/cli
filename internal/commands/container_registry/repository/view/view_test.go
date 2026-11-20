@@ -144,7 +144,7 @@ func Test_RepositoryView_InvalidID(t *testing.T) {
 
 	_, err := exec("abc")
 	require.Error(t, err)
-	assert.Equal(t, "repository ID must be a positive integer", err.Error())
+	assert.Equal(t, `invalid repository ID: "abc"`, err.Error())
 }
 
 func Test_RepositoryView_APIError(t *testing.T) {
