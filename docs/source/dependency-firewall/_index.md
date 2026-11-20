@@ -54,7 +54,7 @@ A truststore set in `_JAVA_OPTIONS`, or for Maven in `MAVEN_DEBUG_OPTS` or, on M
 
 The command writes `.gitlab/df/ci-log.json` to the working directory on every run, including local runs. Add `.gitlab/df/` to your `.gitignore` file.
 
-To run a package manager command in a GitLab CI/CD job, set `GLAB_ENABLE_CI_AUTOLOGIN` to `true` so the command signs in with the CI/CD job token. When the firewall blocks a package, the install fails, and so does the job. For more information, see [CI/CD auto-login](https://docs.gitlab.com/cli/authentication/#auto-login).
+To run a package manager command in a GitLab CI/CD job, set `GLAB_ENABLE_CI_AUTOLOGIN` to `true` so the command signs in with the CI/CD job token. The command requires `git` in the job image, unless you set `GITLAB_REPO` to `$CI_PROJECT_PATH`. When the firewall blocks a package, the install fails, and so does the job. For more information, see [CI/CD auto-login](https://docs.gitlab.com/cli/authentication/#auto-login).
 
 ```yaml
 install:

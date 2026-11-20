@@ -22,7 +22,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Docf(`
 			Run a single Dependency Firewall inspection proxy for the length of a CI/CD job and route every tool in the job through it, instead of wrapping each package-manager command with %[1]sglab dependency-firewall npm%[1]s and the like.
 
-			Start it once at the beginning of the job, in %[1]sbefore_script%[1]s, and evaluate its output with %[1]seval%[1]s. The output sets the environment variables that route the job's package managers through the proxy and make them trust its certificate.
+			Start it once at the beginning of the job, in %[1]sbefore_script%[1]s, and evaluate its output with %[1]seval%[1]s. The output sets the environment variables that route the job's package managers through the proxy and make them trust its certificate. The command requires %[1]sgit%[1]s in the job image, unless you set %[1]sGITLAB_REPO%[1]s to %[1]s$CI_PROJECT_PATH%[1]s.
 
 			The proxy checks each package the job downloads or publishes against the policy for the current project, refuses blocked packages, and records blocked and flagged packages in %[1]s.gitlab/df/ci-log.json%[1]s. Run %[1]sglab dependency-firewall ci-summary%[1]s as the last command in %[1]sscript%[1]s, not in %[1]safter_script%[1]s, to fail the job when a package was blocked. GitLab ignores the exit code of %[1]safter_script%[1]s.
 

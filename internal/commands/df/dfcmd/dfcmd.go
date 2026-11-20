@@ -147,7 +147,7 @@ func (o *options) complete() error {
 func (o *options) run(ctx context.Context) error {
 	host, projectID, err := o.baseRepo()
 	if err != nil {
-		return cmdutils.WrapError(err, "failed to resolve GitLab project from the git remote.")
+		return cmdutils.WrapError(cmdutils.WithGitRequiredHint(o.executor, err), "failed to resolve GitLab project from the git remote.")
 	}
 
 	client, err := o.gitlabClient()

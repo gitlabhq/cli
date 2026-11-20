@@ -401,3 +401,32 @@ func TestRunIgnoresClientCertWithoutKeyThatIsNotPKCS12(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "/usr/bin/npm", fe.gotName, "a lone client_cert is ignored, as the API client ignores it")
 }
+
+type noGitExecutor struct{ fakeExecutor }
+
+func (e *noGitExecutor) LookPath(file string) (string, error) { return "", exec.ErrNotFound }
+
+func TestBaseRepoErrorSaysGitIsRequired(t *testing.T) {
+	t.Chdir(t.TempDir())
+	fe := &noGitExecutor{}
+	run := cmdtest.SetupCmdForTest(t, newTestCmd, false,
+		cmdtest.WithExecutor(fe),
+		cmdtest.WithBaseRepoError(errors.New("no GitLab remote found")))
+
+	_, err := run("ci")
+
+	require.EqualError(t, err, "no GitLab remote found. git is required")
+	assert.Empty(t, fe.gotName)
+}
+
+func TestBaseRepoErrorWithGitInstalledHasNoGitHint(t *testing.T) {
+	t.Chdir(t.TempDir())
+	run := cmdtest.SetupCmdForTest(t, newTestCmd, false,
+		cmdtest.WithExecutor(&fakeExecutor{}),
+		cmdtest.WithBaseRepoError(errors.New("no GitLab remote found")))
+
+	_, err := run("ci")
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "git is required")
+}

@@ -98,11 +98,27 @@ func requireExitCodeOne(t *testing.T, err error) *cmdutils.ExitError {
 // cannot be resolved to a project: it must surface as exit 1, not a block.
 func TestPackageBaseRepoErrorExitsOne(t *testing.T) {
 	t.Chdir(t.TempDir())
+	executor := cmdtest.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().LookPath("git").Return("", errors.New("not found"))
 	run := cmdtest.SetupCmdForTest(t, NewCmd, false,
+		cmdtest.WithExecutor(executor),
 		cmdtest.WithBaseRepoError(errors.New("no GitLab remote found")))
 	_, err := run("pkg:npm/left-pad@1.3.0")
 	xerr := requireExitCodeOne(t, err)
 	assert.Contains(t, xerr.Details, "failed to resolve GitLab project")
+	assert.EqualError(t, err, "no GitLab remote found. git is required")
+}
+
+func TestPackageBaseRepoErrorWithGitInstalledHasNoGitHint(t *testing.T) {
+	t.Chdir(t.TempDir())
+	executor := cmdtest.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().LookPath("git").Return("/usr/bin/git", nil)
+	run := cmdtest.SetupCmdForTest(t, NewCmd, false,
+		cmdtest.WithExecutor(executor),
+		cmdtest.WithBaseRepoError(errors.New("no GitLab remote found")))
+	_, err := run("pkg:npm/left-pad@1.3.0")
+	xerr := requireExitCodeOne(t, err)
+	assert.NotContains(t, xerr.Error(), "git is required")
 }
 
 // TestPackageGitLabClientErrorExitsOne covers the branch where the API client
