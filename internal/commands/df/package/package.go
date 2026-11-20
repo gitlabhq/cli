@@ -21,6 +21,7 @@ import (
 
 type options struct {
 	io           *iostreams.IOStreams
+	executor     cmdutils.Executor
 	baseRepo     func() (projectID string, err error)
 	gitlabClient func() (*gitlab.Client, error)
 
@@ -30,7 +31,8 @@ type options struct {
 // NewCmd builds the `glab dependency-firewall package <PURL>` command.
 func NewCmd(f cmdutils.Factory) *cobra.Command {
 	opts := &options{
-		io: f.IO(),
+		io:       f.IO(),
+		executor: f.Executor(),
 		baseRepo: func() (string, error) {
 			r, err := f.BaseRepo()
 			if err != nil {
@@ -125,7 +127,7 @@ func (o *options) run(ctx context.Context) error {
 
 	projectID, err := o.baseRepo()
 	if err != nil {
-		return cmdutils.WrapError(err, "failed to resolve GitLab project from the git remote.")
+		return cmdutils.WrapError(cmdutils.WithGitRequiredHint(o.executor, err), "failed to resolve GitLab project from the git remote.")
 	}
 
 	client, err := o.gitlabClient()

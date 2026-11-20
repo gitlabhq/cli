@@ -3,6 +3,7 @@
 package serve
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +12,9 @@ import (
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
+	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/session"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -79,4 +82,33 @@ func TestServeFailsWhenClientCertForRepoHostCannotBeLoaded(t *testing.T) {
 		t.Fatal("the job-level proxy started without the outbound proxy client certificate")
 	}
 	assert.NoFileExists(t, filepath.Join(stateDir, session.AddrFile), "the job-level proxy must not report ready")
+}
+
+// Not parallel: it clears CI_PROJECT_DIR and changes the working directory.
+func TestServeBaseRepoErrorWithoutGitSaysGitIsRequired(t *testing.T) {
+	t.Setenv("CI_PROJECT_DIR", "")
+	t.Chdir(t.TempDir())
+	executor := cmdtest.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().LookPath("git").Return("", errors.New("not found"))
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
+		cmdtest.WithExecutor(executor),
+		cmdtest.WithBaseRepoError(errors.New("no GitLab remote found")))
+	_, err := exec("--state-dir " + t.TempDir())
+	var xerr *cmdutils.ExitError
+	require.ErrorAs(t, err, &xerr)
+	assert.Contains(t, xerr.Details, "failed to resolve GitLab project")
+	assert.EqualError(t, err, "no GitLab remote found. git is required")
+}
+
+// Not parallel: it clears CI_PROJECT_DIR and changes the working directory.
+func TestServeBaseRepoErrorWithGitInstalledHasNoGitHint(t *testing.T) {
+	t.Setenv("CI_PROJECT_DIR", "")
+	t.Chdir(t.TempDir())
+	executor := cmdtest.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().LookPath("git").Return("/usr/bin/git", nil)
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
+		cmdtest.WithExecutor(executor),
+		cmdtest.WithBaseRepoError(errors.New("no GitLab remote found")))
+	_, err := exec("--state-dir " + t.TempDir())
+	assert.EqualError(t, err, "no GitLab remote found")
 }

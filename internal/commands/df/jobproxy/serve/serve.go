@@ -18,6 +18,7 @@ import (
 
 type options struct {
 	io           *iostreams.IOStreams
+	executor     cmdutils.Executor
 	baseRepo     func() (glrepo.Interface, error)
 	gitlabClient func() (*gitlab.Client, error)
 	config       func() config.Config
@@ -32,6 +33,7 @@ type options struct {
 func NewCmd(f cmdutils.Factory) *cobra.Command {
 	opts := &options{
 		io:           f.IO(),
+		executor:     f.Executor(),
 		baseRepo:     f.BaseRepo,
 		gitlabClient: f.GitLabClient,
 		config:       f.Config,
@@ -70,7 +72,7 @@ func (o *options) complete() error {
 func (o *options) run(ctx context.Context) error {
 	r, err := o.baseRepo()
 	if err != nil {
-		return cmdutils.WrapError(err, "failed to resolve GitLab project from the git remote.")
+		return cmdutils.WrapError(cmdutils.WithGitRequiredHint(o.executor, err), "failed to resolve GitLab project from the git remote.")
 	}
 	client, err := o.gitlabClient()
 	if err != nil {

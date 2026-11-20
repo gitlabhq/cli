@@ -16,7 +16,7 @@ Run one Dependency Firewall proxy for a whole CI/CD job. (EXPERIMENTAL)
 
 Run a single Dependency Firewall inspection proxy for the length of a CI/CD job and route every tool in the job through it, instead of wrapping each package-manager command with `glab dependency-firewall npm` and the like.
 
-Start it once at the beginning of the job, in `before_script`, and evaluate its output with `eval`. The output sets the environment variables that route the job's package managers through the proxy and make them trust its certificate.
+Start it once at the beginning of the job, in `before_script`, and evaluate its output with `eval`. The output sets the environment variables that route the job's package managers through the proxy and make them trust its certificate. The command requires `git` in the job image, unless you set `GITLAB_REPO` to `$CI_PROJECT_PATH`.
 
 The proxy checks each package the job downloads or publishes against the policy for the current project, refuses blocked packages, and records blocked and flagged packages in `.gitlab/df/ci-log.json`. Run `glab dependency-firewall ci-summary` as the last command in `script`, not in `after_script`, to fail the job when a package was blocked. GitLab ignores the exit code of `after_script`.
 

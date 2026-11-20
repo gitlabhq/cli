@@ -71,7 +71,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			The command writes %[1]s.gitlab/df/ci-log.json%[1]s to the working directory on every run, including local runs. Add %[1]s.gitlab/df/%[1]s to your %[1]s.gitignore%[1]s file.
 
-			To run a package manager command in a GitLab CI/CD job, set %[1]sGLAB_ENABLE_CI_AUTOLOGIN%[1]s to %[1]strue%[1]s so the command signs in with the CI/CD job token. When the firewall blocks a package, the install fails, and so does the job. For more information, see [CI/CD auto-login](https://docs.gitlab.com/cli/authentication/#auto-login).
+			To run a package manager command in a GitLab CI/CD job, set %[1]sGLAB_ENABLE_CI_AUTOLOGIN%[1]s to %[1]strue%[1]s so the command signs in with the CI/CD job token. The command requires %[1]sgit%[1]s in the job image, unless you set %[1]sGITLAB_REPO%[1]s to %[1]s$CI_PROJECT_PATH%[1]s. When the firewall blocks a package, the install fails, and so does the job. For more information, see [CI/CD auto-login](https://docs.gitlab.com/cli/authentication/#auto-login).
 
 			%[1]s%[1]s%[1]syaml
 			install:

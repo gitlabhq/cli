@@ -209,3 +209,12 @@ func sshHostHints(remotes glrepo.Remotes, configuredHosts map[string]struct{}) s
 	}
 	return hints.String()
 }
+
+// WithGitRequiredHint adds a hint to err, an error from resolving the
+// repository from the git remote, when git isn't on the PATH.
+func WithGitRequiredHint(executor Executor, err error) error {
+	if _, lookErr := executor.LookPath("git"); lookErr != nil {
+		return fmt.Errorf("%w. git is required", err)
+	}
+	return err
+}
