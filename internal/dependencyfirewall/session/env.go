@@ -137,17 +137,6 @@ func mergeNoProxy(callerNoProxy string) string {
 	return strings.Join(out, ",")
 }
 
-// systemCABundlePaths are the common locations of the OS CA bundle across
-// distributions, tried in order. The first non-empty one seeds the merged
-// bundle so tools pointed at it keep trusting the public roots.
-var systemCABundlePaths = []string{
-	"/etc/ssl/certs/ca-certificates.crt", // Debian, Ubuntu, Alpine
-	"/etc/pki/tls/certs/ca-bundle.crt",   // Fedora, RHEL, CentOS
-	"/etc/ssl/ca-bundle.pem",             // openSUSE
-	"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
-	"/etc/ssl/cert.pem", // Alpine, some BSDs
-}
-
 // WriteMergedBundle writes a CA bundle containing the system roots, any
 // caller-supplied CA bundles (userBundlePaths), and the proxy CA at
 // proxyCAPath, to stateDir/ca-bundle.pem, and returns its path. Tools that
@@ -169,7 +158,7 @@ func WriteMergedBundle(stateDir, proxyCAPath string, userBundlePaths []string, l
 	}
 
 	foundSystem := false
-	for _, p := range systemCABundlePaths {
+	for _, p := range pm.SystemCABundlePaths {
 		if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
 			appendPEM(b)
 			foundSystem = true

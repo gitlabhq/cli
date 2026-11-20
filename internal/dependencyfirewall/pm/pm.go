@@ -176,10 +176,11 @@ func envKeys(env []string) []string {
 // writeCABundle PEM-encodes the proxy CA into a temp file so managers can
 // trust the proxy via CATrustEnviron. For each CA-bundle variable the manager
 // names (ExistingBundleVars) that the parent env sets, those trust anchors are
-// prepended so the user's are preserved. A file already merged (two variables
-// pointing at the same path) is not read twice. Returns the path; the caller
-// removes it.
-func writeCABundle(ios *iostreams.IOStreams, parent []string, bundleVars []string, ca *x509.Certificate) (string, error) {
+// prepended so the user's are preserved. The system roots follow the proxy CA,
+// because most of the variables CATrustEnviron sets replace a tool's default
+// trust instead of extending it. A file already merged (two variables pointing
+// at the same path) is not read twice. Returns the path; the caller removes it.
+func writeCABundle(ios *iostreams.IOStreams, parent []string, bundleVars []string, ca *x509.Certificate, roots []*x509.Certificate) (string, error) {
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw})
 
 	var bundle []byte
@@ -204,6 +205,9 @@ func writeCABundle(ios *iostreams.IOStreams, parent []string, bundleVars []strin
 		}
 	}
 	bundle = append(bundle, pemBytes...)
+	for _, root := range roots {
+		bundle = append(bundle, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: root.Raw})...)
+	}
 
 	f, err := os.CreateTemp("", "glab-df-ca-*.pem")
 	if err != nil {
@@ -392,7 +396,7 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 
 	proxyURL := "http://" + p.Addr()
 
-	caPath, err := writeCABundle(opts.IO, os.Environ(), manager.ExistingBundleVars(), p.CACertificate())
+	caPath, err := writeCABundle(opts.IO, os.Environ(), manager.ExistingBundleVars(), p.CACertificate(), systemRoots())
 	if err != nil {
 		return fmt.Errorf("failed to write proxy CA bundle: %w", err)
 	}

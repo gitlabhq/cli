@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"software.sslmate.com/src/go-pkcs12"
 
@@ -25,9 +26,10 @@ const jvmTrustStorePassword = "df-truststore-not-secret"
 // writeJVMTrustStoreAt builds a PKCS#12 truststore at path containing the
 // given CA certificates (the proxy MITM CA, plus any user CAs prepended into
 // the proxy bundle) and the host's system roots, so the JVM (Maven, Gradle)
-// trusts the proxy while still validating public TLS dependencies. The caller
-// ties the file's lifecycle to a known path it already cleans up. It returns
-// the truststore password.
+// trusts the proxy while still validating public TLS dependencies. On the Run
+// path the proxy bundle already holds the system roots, so a root in cas is
+// not added twice. The caller ties the file's lifecycle to a known path it
+// already cleans up. It returns the truststore password.
 func writeJVMTrustStoreAt(path string, cas ...*x509.Certificate) (string, error) {
 	f, err := os.Create(path)
 	if err != nil {
@@ -46,10 +48,12 @@ func writeJVMTrustStoreAt(path string, cas ...*x509.Certificate) (string, error)
 // truststore and writes it to w.
 func encodeJVMTrustStore(w io.Writer, cas ...*x509.Certificate) error {
 	sysRoots := systemRoots()
-	if len(sysRoots) == 0 {
-		dbg.Debugf("dependency firewall: no system root certificates found for %s; the JVM truststore will trust only the proxy CA, so public TLS dependencies not intercepted by the proxy may fail validation", runtime.GOOS)
+	roots := slices.Clone(cas)
+	for _, r := range sysRoots {
+		if !slices.ContainsFunc(cas, r.Equal) {
+			roots = append(roots, r)
+		}
 	}
-	roots := slices.Concat(cas, sysRoots)
 
 	// pkcs12.Modern.EncodeTrustStore marks the certs with the Java TrustStore
 	// OID (Java 8+). The method form takes (certs, password); the package-level
@@ -100,36 +104,46 @@ func JVMTrustOpts(caPath string) string {
 	return opts
 }
 
-// systemRoots returns the host's trusted root certificates so the JVM
-// truststore keeps validating public TLS dependencies alongside the proxy CA.
-// The JVM's -Djavax.net.ssl.trustStore flag replaces (not augments) the
-// default trust store, so a truststore built from the proxy CA alone would
-// break every connection the proxy does not intercept. The Go standard
-// library's x509.SystemCertPool does not expose the underlying certificates
-// (only DER subjects), so the roots are sourced per platform: PEM CA-bundle
-// files on Linux, the security(1) keychains on macOS, and the LocalMachine
-// certificate stores on Windows. It returns nil when none can be read; the
-// caller warns and proceeds with just the proxy CA.
-func systemRoots() []*x509.Certificate {
+// systemRoots returns the host's trusted root certificates, read once per
+// process. Most CA settings glab points at its bundle, like the JVM's
+// -Djavax.net.ssl.trustStore flag, replace (not augment) a tool's default
+// trust, so a bundle or truststore built from the proxy CA alone would break
+// every connection the proxy does not intercept. The Go standard library's
+// x509.SystemCertPool does not expose the underlying certificates (only DER
+// subjects), so the roots are sourced per platform: PEM CA-bundle files on
+// Linux, the security(1) keychains on macOS, and the LocalMachine certificate
+// stores on Windows. It returns nil when none can be read.
+var systemRoots = sync.OnceValue(func() []*x509.Certificate {
+	var roots []*x509.Certificate
 	switch runtime.GOOS {
 	case "darwin":
-		return darwinSystemRoots()
+		roots = darwinSystemRoots()
 	case "windows":
-		return windowsSystemRoots()
+		roots = windowsSystemRoots()
 	default:
-		return unixSystemRoots()
+		roots = unixSystemRoots()
 	}
+	if len(roots) == 0 {
+		dbg.Debugf("dependency firewall: no system root certificates found for %s; tools that skip the proxy may fail to verify public hosts", runtime.GOOS)
+	}
+	return roots
+})
+
+// SystemCABundlePaths are the common locations of the OS CA bundle across
+// Linux and BSD distributions, tried in order.
+var SystemCABundlePaths = []string{
+	"/etc/ssl/certs/ca-certificates.crt", // Debian, Ubuntu, Alpine
+	"/etc/pki/tls/certs/ca-bundle.crt",   // Fedora, RHEL, CentOS
+	"/etc/ssl/ca-bundle.pem",             // openSUSE
+	"/etc/pki/tls/cacert.pem",
+	"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+	"/etc/ssl/cert.pem", // Alpine, some BSDs
 }
 
-// unixSystemRoots reads the common Linux/BSD CA-bundle file locations and
-// parses the PEM certificates directly.
+// unixSystemRoots reads the first CA bundle in SystemCABundlePaths that holds
+// certificates.
 func unixSystemRoots() []*x509.Certificate {
-	candidates := []string{
-		"/etc/ssl/certs/ca-certificates.crt",
-		"/etc/pki/tls/certs/ca-bundle.crt",
-		"/etc/ssl/cert.pem",
-	}
-	for _, p := range candidates {
+	for _, p := range SystemCABundlePaths {
 		raw, err := os.ReadFile(p)
 		if err != nil {
 			continue
@@ -141,7 +155,7 @@ func unixSystemRoots() []*x509.Certificate {
 	return nil
 }
 
-// darwinSystemRoots exports the trusted roots from the macOS keychains via
+// darwinSystemRoots exports the CA certificates in the macOS keychains via
 // security(1), which prints the certificates as concatenated PEM.
 func darwinSystemRoots() []*x509.Certificate {
 	keychains := []string{
@@ -155,7 +169,11 @@ func darwinSystemRoots() []*x509.Certificate {
 			dbg.Debugf("dependency firewall: security find-certificate failed for %s: %v", kc, err)
 			continue
 		}
-		certs = append(certs, parseCertsPEM(out)...)
+		for _, c := range parseCertsPEM(out) {
+			if c.IsCA {
+				certs = append(certs, c)
+			}
+		}
 	}
 	return certs
 }

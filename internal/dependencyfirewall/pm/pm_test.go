@@ -504,7 +504,7 @@ func testCA(t *testing.T) *x509.Certificate {
 func TestWriteCABundleEmitsValidPEM(t *testing.T) {
 	t.Parallel()
 	ios, _, _, _ := cmdtest.TestIOStreams()
-	path, err := writeCABundle(ios, nil, nil, testCA(t))
+	path, err := writeCABundle(ios, nil, nil, testCA(t), nil)
 	require.NoError(t, err)
 	defer func() { _ = os.Remove(path) }()
 
@@ -540,7 +540,7 @@ func TestWriteCABundlePrependsExistingBundle(t *testing.T) {
 
 	ios, _, _, _ := cmdtest.TestIOStreams()
 	parent := []string{"NODE_EXTRA_CA_CERTS=" + userPath}
-	path, err := writeCABundle(ios, parent, []string{"NODE_EXTRA_CA_CERTS"}, testCA(t))
+	path, err := writeCABundle(ios, parent, []string{"NODE_EXTRA_CA_CERTS"}, testCA(t), nil)
 	require.NoError(t, err)
 	defer func() { _ = os.Remove(path) }()
 
@@ -564,7 +564,7 @@ func TestWriteCABundleMergesMultipleDeclaredVars(t *testing.T) {
 
 	ios, _, _, _ := cmdtest.TestIOStreams()
 	parent := []string{"PIP_CERT=" + pathA, "REQUESTS_CA_BUNDLE=" + pathB}
-	path, err := writeCABundle(ios, parent, []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}, testCA(t))
+	path, err := writeCABundle(ios, parent, []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}, testCA(t), nil)
 	require.NoError(t, err)
 	defer func() { _ = os.Remove(path) }()
 
@@ -582,7 +582,7 @@ func TestWriteCABundleDeduplicatesSharedPath(t *testing.T) {
 
 	ios, _, _, _ := cmdtest.TestIOStreams()
 	parent := []string{"SSL_CERT_FILE=" + userPath, "BUNDLE_SSL_CA_CERT=" + userPath}
-	path, err := writeCABundle(ios, parent, []string{"SSL_CERT_FILE", "BUNDLE_SSL_CA_CERT"}, testCA(t))
+	path, err := writeCABundle(ios, parent, []string{"SSL_CERT_FILE", "BUNDLE_SSL_CA_CERT"}, testCA(t), nil)
 	require.NoError(t, err)
 	defer func() { _ = os.Remove(path) }()
 
@@ -597,7 +597,7 @@ func TestWriteCABundleWarnsOnUnreadableExisting(t *testing.T) {
 	// alone rather than failing the run.
 	ios, _, _, errOut := cmdtest.TestIOStreams()
 	parent := []string{"NODE_EXTRA_CA_CERTS=" + filepath.Join(t.TempDir(), "does-not-exist.pem")}
-	path, err := writeCABundle(ios, parent, []string{"NODE_EXTRA_CA_CERTS"}, testCA(t))
+	path, err := writeCABundle(ios, parent, []string{"NODE_EXTRA_CA_CERTS"}, testCA(t), nil)
 	require.NoError(t, err)
 	defer func() { _ = os.Remove(path) }()
 
@@ -606,6 +606,22 @@ func TestWriteCABundleWarnsOnUnreadableExisting(t *testing.T) {
 	require.NoError(t, err)
 	block, _ := pem.Decode(raw)
 	require.NotNil(t, block, "must still emit the proxy CA")
+}
+
+func TestWriteCABundleAppendsSystemRoots(t *testing.T) {
+	t.Parallel()
+	proxyCA, root := testCA(t), testCA(t)
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	path, err := writeCABundle(ios, nil, nil, proxyCA, []*x509.Certificate{root})
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(path) }()
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	certs := parseCertsPEM(raw)
+	require.Len(t, certs, 2)
+	assert.True(t, certs[0].Equal(proxyCA))
+	assert.True(t, certs[1].Equal(root), "a tool pointed at the bundle must keep trusting the system roots")
 }
 
 func TestWriteLogMergesSequentialRuns(t *testing.T) {

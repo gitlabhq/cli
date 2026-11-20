@@ -34,7 +34,7 @@ If GitLab can't evaluate a package, the command blocks it. If the Dependency Fir
 
 The proxy checks only the requests it recognizes as package downloads and uploads. It forwards every other request to the host the package manager asked for, so it is not an egress filter and does not limit which hosts the package manager can reach.
 
-The command does not change your registry configuration. For the length of the run, it sets environment variables that route the package manager's traffic through the proxy and make the package manager trust the proxy certificate. Your existing CA bundles stay trusted.
+The command does not change your registry configuration. For the length of the run, it sets environment variables that route the package manager's traffic through the proxy and make the package manager trust the proxy certificate. Your existing CA bundles stay trusted. The CA bundle the command gives the package manager also holds your system's trusted certificates.
 
 To reach package registries, the proxy uses the outbound proxy in `HTTPS_PROXY`, including any credentials in its URL. For plain-HTTP registries it uses `HTTP_PROXY` instead, when that's set. For npm and pnpm, `HTTPS_PROXY` takes precedence over `HTTP_PROXY` for plain-HTTP registries too, matching those tools. It connects directly to the hosts listed in `NO_PROXY`. The `proxy` setting in your glab configuration applies only to GitLab API calls.
 
