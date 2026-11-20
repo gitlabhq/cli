@@ -102,7 +102,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 }
 
 func (o *options) complete(cmd *cobra.Command, args []string) error {
-	repositoryID, err := registryutils.ParseID(args[0], "repository ID")
+	repositoryID, err := cmdutils.ParseID(args[0], "repository ID")
 	if err != nil {
 		return &cmdutils.FlagError{Err: err}
 	}

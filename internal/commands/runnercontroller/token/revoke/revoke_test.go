@@ -72,7 +72,7 @@ func TestRevokeInvalidControllerID(t *testing.T) {
 
 	_, err := exec("invalid 1 --force")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
+	assert.Contains(t, err.Error(), `invalid runner controller ID: "invalid"`)
 }
 
 func TestRevokeInvalidTokenID(t *testing.T) {
@@ -89,7 +89,7 @@ func TestRevokeInvalidTokenID(t *testing.T) {
 
 	_, err := exec("42 invalid --force")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
+	assert.Contains(t, err.Error(), `invalid token ID: "invalid"`)
 }
 
 func TestRevokeRequiresForceNonInteractive(t *testing.T) {

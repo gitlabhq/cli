@@ -75,7 +75,7 @@ func TestRunnerUpdate_InvalidID(t *testing.T) {
 
 	_, err := exec("not-a-number --pause")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid syntax")
+	assert.Contains(t, err.Error(), `invalid runner ID: "not-a-number"`)
 }
 
 func TestRunnerUpdate_NeitherPauseNorUnpause(t *testing.T) {

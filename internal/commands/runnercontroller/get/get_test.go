@@ -142,16 +142,22 @@ func TestGetJSON(t *testing.T) {
 func TestGetInvalidID(t *testing.T) {
 	t.Parallel()
 
-	tc := gitlabtesting.NewTestClient(t)
+	for _, arg := range []string{"invalid", "0", "-1"} {
+		t.Run(arg, func(t *testing.T) {
+			t.Parallel()
 
-	exec := cmdtest.SetupCmdForTest(
-		t,
-		NewCmd,
-		false,
-		cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(tc.Client))),
-	)
+			tc := gitlabtesting.NewTestClient(t)
 
-	_, err := exec("invalid")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
+			exec := cmdtest.SetupCmdForTest(
+				t,
+				NewCmd,
+				false,
+				cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(tc.Client))),
+			)
+
+			_, err := exec("-- " + arg)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `invalid runner controller ID: "`+arg+`"`)
+		})
+	}
 }

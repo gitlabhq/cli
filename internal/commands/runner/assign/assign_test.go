@@ -65,7 +65,7 @@ func TestRunnerAssign_InvalidRunnerID(t *testing.T) {
 	_, err := exec("invalid")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
+	assert.Contains(t, err.Error(), `invalid runner ID: "invalid"`)
 }
 
 func TestRunnerAssign_RequiresRepo(t *testing.T) {

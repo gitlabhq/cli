@@ -72,7 +72,7 @@ func TestDeleteInvalidID(t *testing.T) {
 
 	_, err := exec("invalid --force")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
+	assert.Contains(t, err.Error(), `invalid runner controller ID: "invalid"`)
 }
 
 func TestDeleteRequiresForceNonInteractive(t *testing.T) {
