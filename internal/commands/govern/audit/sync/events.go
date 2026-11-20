@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/redact"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
@@ -33,9 +34,6 @@ const (
 	maxDetailsBytes = 10*1024 - 512
 	// errorMessageLimit matches the MCP server's limit.
 	errorMessageLimit = 255
-	// maxEventAge stays inside the 90 days GitLab accepts, because one older
-	// event makes GitLab reject the whole batch.
-	maxEventAge = 89 * 24 * time.Hour
 )
 
 var argumentsOmitted = map[string]string{"omitted": "arguments exceeded size limit"}
@@ -45,7 +43,7 @@ var argumentsOmitted = map[string]string{"omitted": "arguments exceeded size lim
 func auditEvents(agentType string, data *sessionData, now time.Time) []auditEventRequest {
 	var events []auditEventRequest
 	add := func(name, id string, at time.Time, details map[string]any) {
-		if now.Sub(at) > maxEventAge {
+		if now.Sub(at) > gaig.MaxEventAge {
 			dbg.Debugf("dropping %s event %s from %s, older than GitLab accepts", name, id, at)
 			return
 		}

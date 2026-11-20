@@ -3,9 +3,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,56 +56,33 @@ func (cursor) pausedReason() (string, error) {
 	return discoveryPausedReason("cursor")
 }
 
-func cursorProjectsDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".cursor", "projects"), nil
-}
-
-// discover finds transcripts at
-// projects/<workspace slug>/agent-transcripts/<id>/<id>.jsonl. Subagent
-// transcripts, under <id>/subagents, are not synced in this version.
+// discover finds the transcripts of Cursor sessions. Subagent transcripts are
+// not synced in this version.
 func (c cursor) discover(ctx context.Context, known func(string) bool) ([]discoveredSession, error) {
-	root, err := cursorProjectsDir()
-	if err != nil {
+	transcripts, err := gaig.CursorTranscripts()
+	if err != nil && transcripts == nil {
 		return nil, err
 	}
-	projects, err := os.ReadDir(root)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
 	if err != nil {
-		return nil, err
+		// One unreadable workspace must not stop discovery of the others.
+		dbg.Debugf("%v", err)
+	}
+	byWorkspace := map[string][]discoveredSession{}
+	var workspaces []string
+	for _, t := range transcripts {
+		if known(t.ID) {
+			continue
+		}
+		if _, ok := byWorkspace[t.Workspace]; !ok {
+			workspaces = append(workspaces, t.Workspace)
+		}
+		byWorkspace[t.Workspace] = append(byWorkspace[t.Workspace], discoveredSession{id: t.ID, locator: t.Path})
 	}
 
 	var found []discoveredSession
-	for _, project := range projects {
-		if !project.IsDir() {
-			continue
-		}
-		transcripts := filepath.Join(root, project.Name(), "agent-transcripts")
-		entries, err := os.ReadDir(transcripts)
-		if err != nil {
-			continue
-		}
-		var sessions []discoveredSession
-		for _, entry := range entries {
-			id := entry.Name()
-			path := filepath.Join(transcripts, id, id+".jsonl")
-			if !entry.IsDir() || known(id) {
-				continue
-			}
-			if _, err := os.Stat(path); err != nil {
-				continue
-			}
-			sessions = append(sessions, discoveredSession{id: id, locator: path})
-		}
-		if len(sessions) == 0 {
-			continue
-		}
-		remote, skip := c.workspaceRemote(ctx, project.Name(), sessions)
+	for _, workspace := range workspaces {
+		sessions := byWorkspace[workspace]
+		remote, skip := c.workspaceRemote(ctx, workspace, sessions)
 		for i := range sessions {
 			sessions[i].remote = remote
 			sessions[i].skip = skip
@@ -245,7 +220,7 @@ func workspaceCandidates(dir, slug string) []string {
 	var found []string
 	for _, entry := range entries {
 		child := filepath.Join(dir, entry.Name())
-		if !isDir(entry, child) {
+		if ok, err := gaig.IsDir(child); err != nil || !ok {
 			continue
 		}
 		encoded := nonAlphanumeric.ReplaceAllString(entry.Name(), "-")
@@ -258,19 +233,6 @@ func workspaceCandidates(dir, slug string) []string {
 		}
 	}
 	return found
-}
-
-// isDir reports whether entry is a directory or a symlink to one, such as
-// /var and /tmp on macOS.
-func isDir(entry fs.DirEntry, path string) bool {
-	if entry.IsDir() {
-		return true
-	}
-	if entry.Type()&fs.ModeSymlink == 0 {
-		return false
-	}
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }
 
 // cursorTranscript is a Cursor agent transcript. Its cursor is a byte offset.

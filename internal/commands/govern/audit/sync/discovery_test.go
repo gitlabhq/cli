@@ -20,6 +20,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
 )
 
 // writesStdout mocks Executor.ExecWithIO for a command that prints out.
@@ -556,7 +557,7 @@ func TestSyncAll_CompletesOldSyncedSessionOnGitLab(t *testing.T) {
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
 	firstLine := int64(bytes.IndexByte(content, '\n') + 1)
-	require.NoError(t, writeCursor("sess-1", firstLine))
+	require.NoError(t, syncstate.WritePosition("sess-1", firstLine))
 	old := time.Now().Add(-100 * 24 * time.Hour)
 	require.NoError(t, os.Chtimes(path, old, old))
 

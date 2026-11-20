@@ -333,6 +333,57 @@ func TestHookAgents(t *testing.T) {
 	require.NoError(t, ForgetHookAgents(), "forgetting twice is fine")
 }
 
+func TestAgentSetups_RoundTrip(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+
+	setups, err := ReadAgentSetups()
+	require.NoError(t, err)
+	assert.Empty(t, setups, "nothing is recorded before setup")
+
+	at := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	want := AgentSetups{"claude-code": {SetUpAt: at}, "codex": {SetUpAt: at, History: true}}
+	require.NoError(t, SetAgentSetups(want))
+	setups, err = ReadAgentSetups()
+	require.NoError(t, err)
+	assert.Equal(t, want, setups)
+}
+
+func TestAgentSetups_Unreadable(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", dir)
+	path := filepath.Join(dir, "gaig", "agent-setups.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o600))
+
+	_, err := ReadAgentSetups()
+	require.ErrorContains(t, err, "could not parse "+path)
+	assert.Contains(t, AgentsReadFix(err), "--uninstall", "uninstalling removes the file")
+}
+
+func TestAgentSetups_UploadsFrom(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	setups := AgentSetups{"claude-code": {SetUpAt: at}, "codex": {SetUpAt: at, History: true}}
+
+	tests := map[string]struct {
+		setups AgentSetups
+		agent  string
+		want   time.Time
+	}{
+		"set up":                         {setups: setups, agent: "claude-code", want: at},
+		"opted in to history":            {setups: setups, agent: "codex"},
+		"set up before setups were kept": {setups: setups, agent: "cursor"},
+		"nothing recorded":               {agent: "claude-code"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, tc.setups.UploadsFrom(tc.agent))
+		})
+	}
+}
+
 func TestResolvedHookAgents(t *testing.T) {
 	setup := func(t *testing.T) string {
 		t.Helper()

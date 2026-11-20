@@ -20,13 +20,13 @@ The audit events contain the prompts you type, each tool call with its arguments
 
 Before anything is sent, glab replaces common secret formats with a marker such as `[REDACTED:gitlab_token]`: GitLab, GitHub, Slack, npm and PyPI tokens, AWS, Google, Stripe, OpenAI and Anthropic API keys, JWTs, private keys, credentials in Authorization and token headers or under credential-like keys, and passwords in URLs. This is best effort: other secrets in prompts, commands, or file contents are sent as they are.
 
-When glab creates a session on GitLab, it also sends the glab version and the agent's version. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old.
+When glab creates a session on GitLab, it also sends the glab version and the agent's version. A session that has never synced and has had no activity in the last 89 days is not uploaded, because GitLab does not accept events that old. Activity from before an agent was set up with `glab minder setup` is not uploaded either, unless setup was run with `--include-history`.
 
 Some agents record less:
 
 - OpenCode: prompts and responses are not sent, and a tool call's outcome is sent only if the call had finished when it was first synced.
 - Codex: a tool call's outcome is "completed", because Codex does not record whether it succeeded.
-- Cursor: only prompts and tool calls are sent, timed by the transcript's last modification, because Cursor records no results, token usage, timestamps, or version. A Cursor session is not synced if the files its tool calls read or write are outside the workspace glab finds, or if several directories match the workspace's name and those files don't show which, so that it is not uploaded to the wrong project.
+- Cursor: only prompts and tool calls are sent, timed by the transcript's last modification, because Cursor records no results, token usage, timestamps, or version. For a Cursor session that started before Cursor was set up, only what was added after setup is uploaded. A Cursor session is not synced if the files its tool calls read or write are outside the workspace glab finds, or if several directories match the workspace's name and those files don't show which, so that it is not uploaded to the wrong project.
 
 If a GitLab instance does not accept an agent's sessions yet, they are not uploaded, then or after the instance is upgraded. Sessions from after the upgrade are.
 

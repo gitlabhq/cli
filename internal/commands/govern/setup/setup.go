@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/spf13/cobra"
@@ -20,6 +22,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/opencodeplugin"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
@@ -34,6 +37,7 @@ type options struct {
 	goos                 string
 	yes                  bool
 	noFallbackSync       bool
+	includeHistory       bool
 	agents               []string
 	agentsChanged        bool
 	uninstall            bool
@@ -58,17 +62,23 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			- Claude Code (%[1]sclaude-code%[1]s): a Stop hook in %[1]s~/.claude/settings.json%[1]s, which syncs the session after every agent turn, and a SessionEnd hook, which syncs the session and marks it completed.
 			- OpenCode (%[1]sopencode%[1]s), version 1.4 or later: a plugin in %[1]s~/.config/opencode/plugins/glab-govern.js%[1]s (under %[1]s$XDG_CONFIG_HOME%[1]s when it is set), which syncs the session every time it goes idle. OpenCode loads it for all your sessions, in every project. Later setups keep it up to date.
-			- Codex (%[1]scodex%[1]s) and Cursor (%[1]scursor%[1]s): nothing. The fallback periodic sync finds their sessions by scanning their transcripts in %[1]s~/.codex/sessions%[1]s and %[1]s~/.cursor/projects%[1]s, including sessions from before you enabled them, and uploads those from repositories on GitLab hosts you are logged in to with glab. Their sessions are marked completed once they have been idle for 24 hours.
+			- Codex (%[1]scodex%[1]s) and Cursor (%[1]scursor%[1]s): nothing. The fallback periodic sync finds their sessions by scanning their transcripts in %[1]s~/.codex/sessions%[1]s and %[1]s~/.cursor/projects%[1]s, and uploads those from repositories on GitLab hosts you are logged in to with glab. Their sessions are marked completed once they have been idle for 24 hours.
 
 			Setup also installs the fallback periodic sync: a launchd agent (%[1]s~/Library/LaunchAgents/com.gitlab.glab-govern-audit-sync.plist%[1]s) on macOS, or a systemd user timer (%[1]s~/.config/systemd/user/glab-govern-audit-sync.timer%[1]s) on Linux.
 
 			The fallback periodic sync runs %[1]sglab minder audit sync --all%[1]s every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see %[1]sglab minder audit sync --help%[1]s for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. Each session goes to the project and host of the Git repository the agent ran in. It also marks sessions completed once they have been idle for 24 hours. It pauses sessions from agents that use hooks while those hooks are not installed. Pass %[1]s--no-fallback-sync%[1]s to install only the hooks and plugin, which Codex and Cursor cannot be synced without. The fallback periodic sync is not available on Windows.
 
+			By default, glab uploads only what each agent does after you first set it up: not its sessions from before, and not the earlier turns of a session from before that you resume.
+
+			Cursor records no times, so setup notes where each existing Cursor transcript ends, and only what is added to it afterwards is uploaded. A chat that Cursor copies under a new ID, for example when you duplicate it, counts as a new session and is uploaded in full.
+
+			Pass %[1]s--include-history%[1]s to also upload activity from the last 89 days, including those sessions and turns, for the agents this setup sets up for the first time. For Cursor, that is every transcript changed in the last 89 days. An agent set up earlier keeps what it uploads, so to add its history, run %[1]s--uninstall%[1]s first. If you set up an agent with an earlier glab version, which did not record when, its activity from the last 89 days is still uploaded until you run setup again.
+
 			Run setup again with %[1]s--agents%[1]s to add agents. Agents set up by an earlier run stay set up, so to stop syncing an agent, run %[1]s--uninstall%[1]s and then set up the agents you want. Every setup prompt names the agents that are synced.
 
 			Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run %[1]sglab minder doctor%[1]s afterwards to verify the setup.
 
-			Run %[1]sglab minder setup --uninstall%[1]s to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also removes glab's local records of your agent sessions and forgets the agents you set up, so the next setup starts with Claude Code again. Other hooks and settings in %[1]s~/.claude/settings.json%[1]s, and other OpenCode plugins, are left unchanged.
+			Run %[1]sglab minder setup --uninstall%[1]s to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also removes glab's local records of your agent sessions and forgets the agents you set up and when, so the next setup starts with Claude Code again. Other hooks and settings in %[1]s~/.claude/settings.json%[1]s, and other OpenCode plugins, are left unchanged.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Sync Claude Code sessions, or the agents set up earlier
@@ -79,6 +89,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			# Sync Claude Code, OpenCode, and Codex sessions
 			$ glab minder setup --agents claude-code,opencode,codex
+
+			# Also upload activity from the last 89 days, including sessions from before setup
+			$ glab minder setup --include-history
 
 			# Install only the hooks and plugin, without the fallback periodic sync
 			$ glab minder setup --no-fallback-sync
@@ -106,10 +119,12 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	fl := cmd.Flags()
 	fl.BoolVarP(&opts.yes, "yes", "y", false, "Skip the confirmation prompt, and agree to what it would describe: the changes and, for setup, the uploads.")
 	fl.BoolVar(&opts.noFallbackSync, "no-fallback-sync", false, "Install only the hooks and plugin, without the fallback periodic sync job.")
+	fl.BoolVar(&opts.includeHistory, "include-history", false, "Also upload the activity from the last 89 days of the agents set up for the first time, including sessions from before setup and the earlier turns of sessions you resume.")
 	fl.BoolVar(&opts.uninstall, "uninstall", false, "Remove the hooks, the OpenCode plugin, the fallback periodic sync job, and the local session records, and stop syncing Codex and Cursor sessions.")
 	fl.StringSliceVar(&opts.agents, "agents", nil, fmt.Sprintf("Agents to sync sessions from: %s. Added to the agents set up by an earlier run. The OpenCode plugin runs for all your OpenCode sessions. Multiple agents can be comma-separated or specified by repeating the flag.", strings.Join(allAgents(), ", ")))
 	cmd.MarkFlagsMutuallyExclusive("uninstall", "no-fallback-sync")
 	cmd.MarkFlagsMutuallyExclusive("agents", "uninstall")
+	cmd.MarkFlagsMutuallyExclusive("include-history", "uninstall")
 
 	return cmd
 }
@@ -121,6 +136,102 @@ type plan struct {
 	openCodePlugin string
 	// discovered are the agents the fallback periodic sync discovers.
 	discovered []string
+	// recorded are the agent setups recorded by earlier setups.
+	recorded fallbacksync.AgentSetups
+	uploads  uploadScope
+}
+
+// uploadScope groups the agents a setup syncs by how far back their activity
+// is uploaded.
+type uploadScope struct {
+	fromNow []string
+	// fromEarlier are the agents an earlier setup recorded.
+	fromEarlier []string
+	history     []string
+}
+
+// planUploads groups agents by how far back their activity is uploaded after
+// a setup. An agent set up earlier keeps the time it was first set up and its
+// history choice, because a later setup cannot bring back what was skipped.
+func planUploads(recorded fallbacksync.AgentSetups, agents []string, history bool) uploadScope {
+	var scope uploadScope
+	for _, a := range agents {
+		setup, earlier := recorded[a]
+		switch {
+		case setup.History, !earlier && history:
+			scope.history = append(scope.history, a)
+		case earlier:
+			scope.fromEarlier = append(scope.fromEarlier, a)
+		default:
+			scope.fromNow = append(scope.fromNow, a)
+		}
+	}
+	return scope
+}
+
+// setups returns the agent setups to record for a setup at now: recorded, and
+// the agents set up for the first time.
+func (s uploadScope) setups(recorded fallbacksync.AgentSetups, now time.Time) fallbacksync.AgentSetups {
+	setups := maps.Clone(recorded)
+	if setups == nil {
+		setups = fallbacksync.AgentSetups{}
+	}
+	for _, a := range s.fromNow {
+		setups[a] = fallbacksync.AgentSetup{SetUpAt: now}
+	}
+	for _, a := range s.history {
+		if _, earlier := setups[a]; !earlier {
+			setups[a] = fallbacksync.AgentSetup{SetUpAt: now, History: true}
+		}
+	}
+	return setups
+}
+
+// isNew reports whether a setup recording s sets up agent for the first time.
+func (s uploadScope) isNew(recorded fallbacksync.AgentSetups, agent string) bool {
+	_, earlier := recorded[agent]
+	return !earlier && (slices.Contains(s.fromNow, agent) || slices.Contains(s.history, agent))
+}
+
+const (
+	notEarlier  = "not earlier sessions or the earlier turns of sessions you resume"
+	withEarlier = "including earlier sessions and the earlier turns of sessions you resume"
+)
+
+// prompt says what the setup prompt agrees to upload. Agents are named only
+// when they are uploaded from different times.
+func (s uploadScope) prompt() string {
+	groups := 0
+	for _, g := range [][]string{s.fromNow, s.fromEarlier, s.history} {
+		if len(g) > 0 {
+			groups++
+		}
+	}
+	if groups == 1 {
+		switch {
+		case len(s.fromNow) > 0:
+			return ". Only activity from now on will be uploaded, " + notEarlier
+		case len(s.fromEarlier) > 0:
+			return ". Only activity from when you first set up each agent will be uploaded, " + notEarlier
+		default:
+			return ". Activity from the last 89 days and from now on will be uploaded, " + withEarlier
+		}
+	}
+	var prompt string
+	if len(s.fromNow) > 0 {
+		prompt += fmt.Sprintf(". For %s, only activity from now on will be uploaded, %s", joinAnd(s.fromNow), notEarlier)
+	}
+	if len(s.fromEarlier) > 0 {
+		pronoun := "them"
+		if len(s.fromEarlier) == 1 {
+			pronoun = "it"
+		}
+		prompt += fmt.Sprintf(". For %s, only activity from when you first set %s up will be uploaded, %s", joinAnd(s.fromEarlier), pronoun, notEarlier)
+	}
+	if len(s.history) > 0 {
+		prompt += fmt.Sprintf(". For %s, activity from the last 89 days and from now on will be uploaded, %s", joinAnd(s.history), withEarlier)
+	}
+	return prompt
 }
 
 func setupPrompt(goos string, noFallbackSync bool, p plan) string {
@@ -138,9 +249,9 @@ func setupPrompt(goos string, noFallbackSync bool, p plan) string {
 	prompt += ". Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are"
 	prompt += ". glab also keeps a local record of each agent session in its configuration directory, with the session ID, the agent, the transcript path and how far it was synced, including sessions outside GitLab repositories, which are never uploaded"
 	if !noFallbackSync && len(p.discovered) > 0 {
-		prompt += fmt.Sprintf(". The job will also upload your %s sessions the same way, from the last 89 days and from now on", strings.Join(p.discovered, " and "))
+		prompt += fmt.Sprintf(". The job will also upload your %s sessions the same way", strings.Join(p.discovered, " and "))
 	}
-	return prompt + ". Do you wish to continue?"
+	return prompt + p.uploads.prompt() + ". Do you wish to continue?"
 }
 
 func uninstallPrompt(hooks bool, openCodePlugin string, job bool, agents []string, sessionState bool) string {
@@ -241,6 +352,17 @@ func runSetup(ctx context.Context, opts *options) error {
 		return nil
 	}
 
+	if p.uploads.isNew(p.recorded, "cursor") {
+		if err := startCursorSessionsAtEnd(slices.Contains(p.uploads.history, "cursor")); err != nil {
+			return fmt.Errorf("failed to record how far your Cursor sessions go: %w", err)
+		}
+	}
+	// Recorded before anything is installed, so that no hook uploads more
+	// than the user just agreed to.
+	if err := fallbacksync.SetAgentSetups(p.uploads.setups(p.recorded, time.Now())); err != nil {
+		return fmt.Errorf("failed to record when the agents were set up: %w", err)
+	}
+
 	if p.claudeHooks {
 		io.LogInfo("Installing agent session hooks...")
 		if err := installClaudeHooks(opts); err != nil {
@@ -312,6 +434,31 @@ func chosenAgents(opts *options) ([]string, []string, error) {
 	return hookAgents, discovered, nil
 }
 
+// startCursorSessionsAtEnd makes the syncing of each Cursor session start at
+// the end of its transcript as it is now. Cursor records no times, so this is
+// how sync tells a session's turns from before setup from those after. With
+// history, it does so only for transcripts last changed longer ago than glab
+// uploads, whose turns sync would otherwise time by a later change.
+func startCursorSessionsAtEnd(history bool) error {
+	transcripts, err := gaig.CursorTranscripts()
+	if err != nil {
+		return err
+	}
+	for _, t := range transcripts {
+		if history && time.Since(t.ModTime) <= gaig.MaxEventAge {
+			continue
+		}
+		if _, err := syncstate.PositionPath(t.ID); err != nil {
+			dbg.Debugf("skipping %s, which glab cannot sync: %v", t.Path, err)
+			continue
+		}
+		if err := syncstate.StartAt(t.ID, t.Size); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func agentsReadError(err error) error {
 	return fmt.Errorf("could not tell which agents are set up: %w; %s", err, fallbacksync.AgentsReadFix(err))
 }
@@ -330,6 +477,19 @@ func setupPlan(opts *options, hookAgents, discovered []string) (plan, error) {
 	case p.claudeHooks && opts.goos == "windows":
 		return plan{}, errors.New("hook installation is not supported on Windows")
 	}
+	recorded, err := fallbacksync.ReadAgentSetups()
+	if err != nil {
+		return plan{}, agentsReadError(err)
+	}
+	synced := hookAgents
+	if !opts.noFallbackSync {
+		synced = slices.Concat(hookAgents, discovered)
+	}
+	if opts.includeHistory && !slices.ContainsFunc(synced, func(a string) bool { _, earlier := recorded[a]; return !earlier }) {
+		return plan{}, cmdutils.FlagError{Err: fmt.Errorf("--include-history applies only to agents set up for the first time, and every agent this setup syncs (%s) is set up already. To upload history from before an earlier setup, run 'glab minder setup --uninstall', then set up again with --include-history", strings.Join(synced, ", "))}
+	}
+	p.recorded = recorded
+	p.uploads = planUploads(recorded, synced, opts.includeHistory)
 	if !slices.Contains(hookAgents, "opencode") {
 		return p, nil
 	}

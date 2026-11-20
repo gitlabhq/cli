@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +24,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/opencodeplugin"
+	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
@@ -318,12 +321,18 @@ func TestRunUninstall(t *testing.T) {
 	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "daemon-reload"}, nil).Return(nil, nil)
 	opts.executor = mExec
 	writeSessionState(t)
+	setups, err := fallbacksync.ReadAgentSetups()
+	require.NoError(t, err)
+	require.Contains(t, setups, "claude-code")
 
 	require.NoError(t, runUninstall(t.Context(), opts))
 
 	assert.NoFileExists(t, filepath.Join(dir, ".config", "systemd", "user", "glab-govern-audit-sync.timer"))
 	assert.Contains(t, stdout.String(), "Fallback periodic sync removed")
 	assert.NoDirExists(t, gaig.StateDir())
+	setups, err = fallbacksync.ReadAgentSetups()
+	require.NoError(t, err)
+	assert.Empty(t, setups, "the next setup uploads from when it runs")
 	assert.Contains(t, stdout.String(), "Local records of your agent sessions removed")
 
 	raw, err := claudehooks.LoadRawSettings(path)
@@ -524,6 +533,8 @@ func TestRunUninstall_CorruptSettings(t *testing.T) {
 		t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
 		path := writeCorruptSettings(t, dir)
 		require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
+		setups := fallbacksync.AgentSetups{"claude-code": {SetUpAt: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)}}
+		require.NoError(t, fallbacksync.SetAgentSetups(setups))
 
 		ios, _, stdout, stderr := cmdtest.TestIOStreams()
 		err := runUninstall(t.Context(), &options{io: ios, executor: expectNoJob(t), goos: "linux", yes: true, settingsPathOverride: path})
@@ -535,6 +546,9 @@ func TestRunUninstall_CorruptSettings(t *testing.T) {
 		agents, err := fallbacksync.DiscoveredAgents()
 		require.NoError(t, err)
 		assert.Empty(t, agents)
+		kept, err := fallbacksync.ReadAgentSetups()
+		require.NoError(t, err)
+		assert.Equal(t, setups, kept, "hooks that stay installed still upload only from when they were set up")
 	})
 }
 
@@ -859,12 +873,13 @@ func TestSetupPrompt(t *testing.T) {
 	assert.Equal(t,
 		"glab will install agent session hooks in ~/.claude/settings.json and a systemd user timer (~/.config/systemd/user/glab-govern-audit-sync.timer) that syncs sessions in the background every 30 minutes, replacing any existing job. "+
 			"Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are. "+
-			"glab also keeps a local record of each agent session in its configuration directory, with the session ID, the agent, the transcript path and how far it was synced, including sessions outside GitLab repositories, which are never uploaded. Do you wish to continue?",
-		setupPrompt("linux", false, plan{claudeHooks: true}), "every setup says what is uploaded and what is kept, not only --agents")
+			"glab also keeps a local record of each agent session in its configuration directory, with the session ID, the agent, the transcript path and how far it was synced, including sessions outside GitLab repositories, which are never uploaded. "+
+			"Only activity from now on will be uploaded, not earlier sessions or the earlier turns of sessions you resume. Do you wish to continue?",
+		setupPrompt("linux", false, plan{claudeHooks: true, uploads: uploadScope{fromNow: []string{"claude-code"}}}), "every setup says what is uploaded and what is kept, not only --agents")
 
-	withAgents := setupPrompt("linux", false, plan{claudeHooks: true, discovered: []string{"codex", "cursor"}})
+	withAgents := setupPrompt("linux", false, plan{claudeHooks: true, discovered: []string{"codex", "cursor"}, uploads: uploadScope{fromNow: []string{"claude-code", "codex", "cursor"}}})
 	assert.Contains(t, withAgents, "including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are")
-	assert.Contains(t, withAgents, "The job will also upload your codex and cursor sessions the same way, from the last 89 days and from now on")
+	assert.Contains(t, withAgents, "The job will also upload your codex and cursor sessions the same way. Only activity from now on will be uploaded, not earlier sessions or the earlier turns of sessions you resume. Do you wish to continue?")
 
 	hooksOnly := setupPrompt("linux", true, plan{claudeHooks: true, discovered: []string{"codex"}})
 	assert.Contains(t, hooksOnly, "including your prompts and each tool call's arguments")
@@ -1284,4 +1299,428 @@ func TestSetupPrompt_JobOnly(t *testing.T) {
 
 	assert.Contains(t, setupPrompt("linux", false, plan{discovered: []string{"codex"}}),
 		"glab will install a systemd user timer (~/.config/systemd/user/glab-govern-audit-sync.timer) that syncs sessions")
+}
+
+func TestUploadScopePrompt(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		scope uploadScope
+		want  string
+	}{
+		"first setup": {
+			scope: uploadScope{fromNow: []string{"claude-code", "codex"}},
+			want:  ". Only activity from now on will be uploaded, not earlier sessions or the earlier turns of sessions you resume",
+		},
+		"setup again": {
+			scope: uploadScope{fromEarlier: []string{"claude-code"}},
+			want:  ". Only activity from when you first set up each agent will be uploaded, not earlier sessions or the earlier turns of sessions you resume",
+		},
+		"history": {
+			scope: uploadScope{history: []string{"claude-code", "cursor"}},
+			want:  ". Activity from the last 89 days and from now on will be uploaded, including earlier sessions and the earlier turns of sessions you resume",
+		},
+		"agent added to an earlier setup": {
+			scope: uploadScope{fromNow: []string{"codex"}, fromEarlier: []string{"claude-code"}},
+			want: ". For codex, only activity from now on will be uploaded, not earlier sessions or the earlier turns of sessions you resume" +
+				". For claude-code, only activity from when you first set it up will be uploaded, not earlier sessions or the earlier turns of sessions you resume",
+		},
+		"agents added with history to an earlier setup": {
+			scope: uploadScope{fromEarlier: []string{"claude-code", "opencode"}, history: []string{"codex", "cursor"}},
+			want: ". For claude-code and opencode, only activity from when you first set them up will be uploaded, not earlier sessions or the earlier turns of sessions you resume" +
+				". For codex and cursor, activity from the last 89 days and from now on will be uploaded, including earlier sessions and the earlier turns of sessions you resume",
+		},
+		"all three": {
+			scope: uploadScope{fromNow: []string{"codex"}, fromEarlier: []string{"claude-code"}, history: []string{"opencode"}},
+			want: ". For codex, only activity from now on will be uploaded, not earlier sessions or the earlier turns of sessions you resume" +
+				". For claude-code, only activity from when you first set it up will be uploaded, not earlier sessions or the earlier turns of sessions you resume" +
+				". For opencode, activity from the last 89 days and from now on will be uploaded, including earlier sessions and the earlier turns of sessions you resume",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, tc.scope.prompt())
+		})
+	}
+}
+
+func TestPlanUploads(t *testing.T) {
+	t.Parallel()
+
+	earlier := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+
+	tests := map[string]struct {
+		recorded    fallbacksync.AgentSetups
+		agents      []string
+		history     bool
+		wantUploads uploadScope
+		wantSetups  fallbacksync.AgentSetups
+	}{
+		"first setup": {
+			agents:      []string{"claude-code", "codex"},
+			wantUploads: uploadScope{fromNow: []string{"claude-code", "codex"}},
+			wantSetups:  fallbacksync.AgentSetups{"claude-code": {SetUpAt: now}, "codex": {SetUpAt: now}},
+		},
+		"first setup with history": {
+			agents:      []string{"claude-code"},
+			history:     true,
+			wantUploads: uploadScope{history: []string{"claude-code"}},
+			wantSetups:  fallbacksync.AgentSetups{"claude-code": {SetUpAt: now, History: true}},
+		},
+		"setup again keeps when an agent was first set up": {
+			recorded:    fallbacksync.AgentSetups{"claude-code": {SetUpAt: earlier}},
+			agents:      []string{"claude-code", "cursor"},
+			wantUploads: uploadScope{fromNow: []string{"cursor"}, fromEarlier: []string{"claude-code"}},
+			wantSetups:  fallbacksync.AgentSetups{"claude-code": {SetUpAt: earlier}, "cursor": {SetUpAt: now}},
+		},
+		"history opted in to earlier is kept": {
+			recorded:    fallbacksync.AgentSetups{"claude-code": {SetUpAt: earlier, History: true}},
+			agents:      []string{"claude-code"},
+			wantUploads: uploadScope{history: []string{"claude-code"}},
+			wantSetups:  fallbacksync.AgentSetups{"claude-code": {SetUpAt: earlier, History: true}},
+		},
+		"history applies only to agents set up for the first time": {
+			recorded:    fallbacksync.AgentSetups{"claude-code": {SetUpAt: earlier}},
+			agents:      []string{"claude-code", "codex"},
+			history:     true,
+			wantUploads: uploadScope{fromEarlier: []string{"claude-code"}, history: []string{"codex"}},
+			wantSetups:  fallbacksync.AgentSetups{"claude-code": {SetUpAt: earlier}, "codex": {SetUpAt: now, History: true}},
+		},
+		"agents this setup does not sync are kept": {
+			recorded:    fallbacksync.AgentSetups{"codex": {SetUpAt: earlier}},
+			agents:      []string{"claude-code"},
+			wantUploads: uploadScope{fromNow: []string{"claude-code"}},
+			wantSetups:  fallbacksync.AgentSetups{"claude-code": {SetUpAt: now}, "codex": {SetUpAt: earlier}},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			uploads := planUploads(tc.recorded, tc.agents, tc.history)
+			assert.Equal(t, tc.wantUploads, uploads)
+			assert.Equal(t, tc.wantSetups, uploads.setups(tc.recorded, now))
+		})
+	}
+}
+
+func TestSetup_IncludeHistoryOnARerun(t *testing.T) {
+	earlier := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	require.NoError(t, fallbacksync.SetAgentSetups(fallbacksync.AgentSetups{"claude-code": {SetUpAt: earlier}}))
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	opts := hookOnlyOptions(ios, dir)
+	opts.includeHistory = true
+	err := runSetup(t.Context(), opts)
+	require.ErrorContains(t, err, "--include-history applies only to agents set up for the first time, and every agent this setup syncs (claude-code) is set up already")
+	assert.Contains(t, err.Error(), "run 'glab minder setup --uninstall'")
+	assert.NoFileExists(t, filepath.Join(dir, ".claude", "settings.json"), "nothing is installed")
+
+	ios, _, _, _ = cmdtest.TestIOStreams()
+	opts = hookOnlyOptions(ios, dir, "opencode")
+	opts.includeHistory = true
+	require.NoError(t, runSetup(t.Context(), opts))
+	setups, err := fallbacksync.ReadAgentSetups()
+	require.NoError(t, err)
+	assert.Equal(t, fallbacksync.AgentSetup{SetUpAt: earlier}, setups["claude-code"], "an agent set up earlier keeps what it uploads")
+	assert.True(t, setups["opencode"].History)
+}
+
+func TestSetup_RecordsAgentSetups(t *testing.T) {
+	earlier := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+
+	tests := map[string]struct {
+		recorded fallbacksync.AgentSetups
+		// olderGlab installs the Claude Code hooks without recording which
+		// agents are set up, as glab versions before setups were recorded did.
+		olderGlab bool
+		args      string
+		// want lists the agents and whether they upload history. Agents with
+		// a time in wantEarlier keep it, and the others are set up now.
+		want        map[string]bool
+		wantEarlier map[string]time.Time
+	}{
+		"first setup": {
+			args: "",
+			want: map[string]bool{"claude-code": false},
+		},
+		"history": {
+			args: "--include-history",
+			want: map[string]bool{"claude-code": true},
+		},
+		"discovered agents": {
+			args: "--agents codex,cursor",
+			want: map[string]bool{"codex": false, "cursor": false},
+		},
+		"setup again keeps when an agent was first set up": {
+			recorded:    fallbacksync.AgentSetups{"claude-code": {SetUpAt: earlier}},
+			args:        "--agents opencode",
+			want:        map[string]bool{"claude-code": false, "opencode": false},
+			wantEarlier: map[string]time.Time{"claude-code": earlier},
+		},
+		"set up with an older glab": {
+			olderGlab: true,
+			args:      "",
+			want:      map[string]bool{"claude-code": false},
+		},
+		"without the fallback sync, discovered agents are not set up": {
+			recorded:    fallbacksync.AgentSetups{"codex": {SetUpAt: earlier}},
+			args:        "--no-fallback-sync --agents claude-code",
+			want:        map[string]bool{"claude-code": false, "codex": false},
+			wantEarlier: map[string]time.Time{"codex": earlier},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("HOME", dir)
+			t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+			if tc.recorded != nil {
+				require.NoError(t, fallbacksync.SetAgentSetups(tc.recorded))
+			}
+			if tc.olderGlab {
+				require.NoError(t, installClaudeHooks(&options{}))
+			}
+			mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+			mExec.EXPECT().LookPath("glab").Return("", errors.New("not found")).AnyTimes()
+			mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil, nil).AnyTimes()
+			exec := cmdtest.SetupCmdForTest(t, NewCmd, false, cmdtest.WithExecutor(mExec))
+
+			before := time.Now()
+			_, err := exec(strings.TrimSpace("--yes " + tc.args))
+			require.NoError(t, err)
+			after := time.Now()
+
+			setups, err := fallbacksync.ReadAgentSetups()
+			require.NoError(t, err)
+			require.Len(t, setups, len(tc.want))
+			for agent, history := range tc.want {
+				setup, ok := setups[agent]
+				require.True(t, ok, agent)
+				assert.Equal(t, history, setup.History, agent)
+				if at, ok := tc.wantEarlier[agent]; ok {
+					assert.True(t, at.Equal(setup.SetUpAt), "%s keeps when it was first set up", agent)
+					continue
+				}
+				assert.False(t, setup.SetUpAt.Before(before) || setup.SetUpAt.After(after), "%s is set up now, at %s", agent, setup.SetUpAt)
+			}
+		})
+	}
+}
+
+func TestSetup_CancelledRecordsNoAgentSetups(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+
+	// Not a terminal and no --yes, so setup stops at the prompt.
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	require.Error(t, runSetup(t.Context(), &options{io: ios, goos: "linux", includeHistory: true, settingsPathOverride: filepath.Join(dir, ".claude", "settings.json")}))
+
+	setups, err := fallbacksync.ReadAgentSetups()
+	require.NoError(t, err)
+	assert.Empty(t, setups)
+}
+
+func TestSetup_UnreadableAgentSetupsSuggestsUninstall(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	path := filepath.Join(dir, "glab", "gaig", "agent-setups.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o600))
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	err := runSetup(t.Context(), hookOnlyOptions(ios, dir))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "run 'glab minder setup --uninstall' to start again")
+	assert.NoFileExists(t, filepath.Join(dir, ".claude", "settings.json"), "nothing is installed")
+}
+
+func TestSetup_IncludeHistoryConflictsWithUninstall(t *testing.T) {
+	t.Parallel()
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false)
+	_, err := exec("--uninstall --include-history")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "none of the others can be")
+}
+
+// cursorTurn is a line of a Cursor transcript.
+const cursorTurn = `{"role":"user"}` + "\n"
+
+// writeCursorTranscript writes a Cursor transcript with one turn under home,
+// and returns its path.
+func writeCursorTranscript(t *testing.T, home, id string) string {
+	t.Helper()
+	path := filepath.Join(home, ".cursor", "projects", "work-repo", "agent-transcripts", id, id+".jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(cursorTurn), 0o644))
+	return path
+}
+
+func assertSyncStartsAt(t *testing.T, sessionID string, want int64) {
+	t.Helper()
+	cursor, err := syncstate.ReadPosition(sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, want, cursor)
+	uploaded, err := syncstate.HasUploads(sessionID, cursor)
+	require.NoError(t, err)
+	assert.False(t, uploaded)
+}
+
+func TestSetup_RecordsWhereCursorSessionsEnd(t *testing.T) {
+	tests := map[string]struct {
+		runs []string
+		// want is where syncing starts, or 0 when setup records nothing.
+		want int64
+	}{
+		"first setup":               {runs: []string{"--agents cursor"}, want: int64(len(cursorTurn))},
+		"setup again":               {runs: []string{"--agents cursor", "", "--agents codex"}, want: int64(len(cursorTurn))},
+		"history":                   {runs: []string{"--agents cursor --include-history"}},
+		"history, then setup again": {runs: []string{"--agents cursor --include-history", ""}},
+		"added to an earlier setup": {runs: []string{"", "--agents cursor"}, want: int64(2 * len(cursorTurn))},
+		"without the fallback sync": {runs: []string{"--no-fallback-sync"}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("HOME", dir)
+			t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+			path := writeCursorTranscript(t, dir, "conv-1")
+
+			for i, args := range tc.runs {
+				mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+				mExec.EXPECT().LookPath("glab").Return("", errors.New("not found")).AnyTimes()
+				mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil, nil).AnyTimes()
+				exec := cmdtest.SetupCmdForTest(t, NewCmd, false, cmdtest.WithExecutor(mExec))
+				_, err := exec(strings.TrimSpace("--yes " + args))
+				require.NoError(t, err)
+				if i == 0 {
+					// Turns added after the first setup are uploaded, so a
+					// later setup must not skip them.
+					f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+					require.NoError(t, err)
+					_, err = f.WriteString(cursorTurn)
+					require.NoError(t, errors.Join(err, f.Close()))
+				}
+			}
+
+			if tc.want == 0 {
+				cp, err := syncstate.PositionPath("conv-1")
+				require.NoError(t, err)
+				assert.NoFileExists(t, cp, "the whole transcript may be uploaded")
+				return
+			}
+			assertSyncStartsAt(t, "conv-1", tc.want)
+		})
+	}
+}
+
+func TestRunUninstall_RemovesWhereCursorSessionsEnd(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	writeCursorTranscript(t, dir, "conv-1")
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	opts := &options{
+		io:                   ios,
+		executor:             expectLinuxInstall(t, "/usr/bin/glab"),
+		buildInfo:            testBuild,
+		goos:                 "linux",
+		yes:                  true,
+		agents:               []string{"cursor"},
+		agentsChanged:        true,
+		settingsPathOverride: filepath.Join(dir, ".claude", "settings.json"),
+	}
+	require.NoError(t, runSetup(t.Context(), opts))
+	cp, err := syncstate.PositionPath("conv-1")
+	require.NoError(t, err)
+	require.FileExists(t, cp)
+
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "disable", "--now", "glab-govern-audit-sync.timer"}, nil).Return(nil, nil)
+	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "daemon-reload"}, nil).Return(nil, nil)
+	opts.executor = mExec
+	opts.agents, opts.agentsChanged = nil, false
+
+	require.NoError(t, runUninstall(t.Context(), opts))
+
+	assert.NoFileExists(t, cp)
+	start, err := syncstate.StartPath("conv-1")
+	require.NoError(t, err)
+	assert.NoFileExists(t, start)
+}
+
+// setUpCursor runs setup for Cursor, with args added.
+func setUpCursor(t *testing.T, args string) error {
+	t.Helper()
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	mExec.EXPECT().LookPath("glab").Return("", errors.New("not found")).AnyTimes()
+	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil, nil).AnyTimes()
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false, cmdtest.WithExecutor(mExec))
+	_, err := exec(strings.TrimSpace("--yes --agents cursor " + args))
+	return err
+}
+
+func TestSetup_HistoryRecordsWhereOnlyOldCursorSessionsEnd(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	recent := writeCursorTranscript(t, dir, "conv-recent")
+	old := writeCursorTranscript(t, dir, "conv-old")
+	long := time.Now().Add(-100 * 24 * time.Hour)
+	require.NoError(t, os.Chtimes(old, long, long))
+
+	require.NoError(t, setUpCursor(t, "--include-history"))
+
+	cp, err := syncstate.PositionPath("conv-recent")
+	require.NoError(t, err)
+	assert.NoFileExists(t, cp, "the history of %s is uploaded", recent)
+	assertSyncStartsAt(t, "conv-old", int64(len(cursorTurn)))
+}
+
+func TestSetup_FollowsSymlinkedCursorWorkspaces(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	elsewhere := filepath.Join(t.TempDir(), "workspace")
+	path := filepath.Join(elsewhere, "agent-transcripts", "conv-1", "conv-1.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(cursorTurn), 0o644))
+	projects := filepath.Join(dir, ".cursor", "projects")
+	require.NoError(t, os.MkdirAll(projects, 0o755))
+	require.NoError(t, os.Symlink(elsewhere, filepath.Join(projects, "work-repo")))
+
+	require.NoError(t, setUpCursor(t, ""))
+
+	assertSyncStartsAt(t, "conv-1", int64(len(cursorTurn)))
+}
+
+func TestSetup_UnreadableCursorWorkspaceFails(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory that can't be listed")
+	}
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	path := writeCursorTranscript(t, dir, "conv-1")
+	transcripts := filepath.Dir(filepath.Dir(path))
+	require.NoError(t, os.Chmod(transcripts, 0o100))
+	t.Cleanup(func() { _ = os.Chmod(transcripts, 0o755) })
+
+	err := setUpCursor(t, "")
+	require.ErrorContains(t, err, "failed to record how far your Cursor sessions go")
+
+	setups, err := fallbacksync.ReadAgentSetups()
+	require.NoError(t, err)
+	assert.Empty(t, setups, "Cursor is not set up, so a later setup tries again")
+	agents, err := fallbacksync.DiscoveredAgents()
+	require.NoError(t, err)
+	assert.Empty(t, agents, "Cursor sessions are not synced")
 }
