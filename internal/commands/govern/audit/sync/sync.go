@@ -244,6 +244,12 @@ func runSync(ctx context.Context, opts *options) error {
 	return syncSession(ctx, t, sessionID, src, opts)
 }
 
+// withoutRemoteReason is the not-synced reason for an agent's sessions that ran
+// in a folder without a GitLab project.
+func withoutRemoteReason(agentType string) string {
+	return agentType + " sessions in a folder where glab could not identify a GitLab project"
+}
+
 var errEarlierActivityNotSkipped = errors.New("could not skip activity from before the session had a GitLab project")
 
 // recordSessionMeta records the session for --all. A session recorded without a
@@ -595,7 +601,7 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 			continue
 		}
 		if meta.PathWithNamespace == "" {
-			recordSkip(meta.AgentType + " sessions in a folder where glab could not identify a GitLab project")
+			recordSkip(withoutRemoteReason(meta.AgentType))
 			last, err := sessionMetaModTime(sessionID)
 			if err != nil {
 				recordErr(sessionID, err)
