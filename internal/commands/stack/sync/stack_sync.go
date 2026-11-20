@@ -43,6 +43,8 @@ type options struct {
 	labels         []string
 	reviewers      []string
 	reviewerIDs    *[]int64
+	template       string
+	templateBody   string
 }
 
 // max string size for MR title is ~255, but we'll add a "..."
@@ -70,6 +72,7 @@ func NewCmdSyncStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 			Updates GitLab to match your local stack:
 
 			- Creates a merge request for each diff without one, unless %[1]s--skip-mr-creation%[1]s or %[1]s--skip-push%[1]s is set. Each merge request targets the branch of the previous diff, or the base branch for the first diff.
+			- With %[1]s--template%[1]s, uses the template for each new merge request and appends that diff's commit message body. Ignores the template when %[1]s--skip-push%[1]s or %[1]s--skip-mr-creation%[1]s is set.
 			- Pulls changes made on GitLab, such as applied suggestions, into any diff whose branch is behind its remote.
 			- If you amended a diff since the last sync, rebases the diffs after it. Then, unless %[1]s--skip-push%[1]s is set, force-pushes the stack's branches.
 			- Removes diffs with merged merge requests and deletes their local branches. Keeps diffs with closed merge requests.
@@ -84,6 +87,7 @@ func NewCmdSyncStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 			glab stack sync --skip-mr-creation
 			glab stack sync --assignee user1,user2
 			glab stack sync --label bug,priority::high
+			glab stack sync --template Review
 			glab stack sync --reviewer user1 --reviewer user2`),
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
@@ -108,6 +112,7 @@ func NewCmdSyncStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 	fl.StringSliceVarP(&opts.assignees, "assignee", "a", []string{}, "Assign merge request to people by their `usernames`. Multiple usernames can be comma-separated or specified by repeating the flag.")
 	fl.StringSliceVarP(&opts.labels, "label", "l", []string{}, "Add label by `name`. Multiple labels can be comma-separated or specified by repeating the flag.")
 	fl.StringSliceVar(&opts.reviewers, "reviewer", []string{}, "Request review from users by their `usernames`. Multiple usernames can be comma-separated or specified by repeating the flag.")
+	fl.StringVar(&opts.template, "template", "", "Template for new merge requests. A `name` is looked up in '.gitlab/merge_request_templates/' of the local repository, and the '.md' extension is optional. A value that is absolute or contains a path separator is read as a file path.")
 
 	return stackSaveCmd
 }
@@ -115,6 +120,20 @@ func NewCmdSyncStack(f cmdutils.Factory, gr git.GitRunner) *cobra.Command {
 func (o *options) run(ctx context.Context, f cmdutils.Factory, gr git.GitRunner) error {
 	if err := stackutils.CheckNoRebaseInProgress(); err != nil {
 		return err
+	}
+
+	switch {
+	case o.template != "" && (o.skipPush || o.skipMRCreation):
+		o.io.LogError("[Warning] --template is ignored with --skip-push or --skip-mr-creation.")
+	case o.template != "":
+		templateBody, err := cmdutils.LoadGitLabTemplate(cmdutils.MergeRequestTemplate, o.template)
+		if err != nil {
+			return err
+		}
+		if templateBody == "" {
+			return fmt.Errorf("template %q not found in .gitlab/merge_request_templates/", o.template)
+		}
+		o.templateBody = templateBody
 	}
 
 	client, err := auth.GetAuthenticatedClient(f.Config(), f.GitLabClient, f.IO())
@@ -472,6 +491,9 @@ func createMR(client *gitlab.Client, opts *options, ref *git.StackRef, gr git.Gi
 		title = title[:maxMRTitleSize-3] + "..."
 	}
 	description := ref.Body()
+	if opts.templateBody != "" {
+		description = strings.TrimSpace(opts.templateBody + "\n\n" + description)
+	}
 
 	l := &gitlab.CreateMergeRequestOptions{
 		Title:              new(title),

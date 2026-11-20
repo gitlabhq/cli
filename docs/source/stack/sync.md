@@ -17,6 +17,7 @@ Push the stack to GitLab, and create or update its merge requests. (EXPERIMENTAL
 Updates GitLab to match your local stack:
 
 - Creates a merge request for each diff without one, unless `--skip-mr-creation` or `--skip-push` is set. Each merge request targets the branch of the previous diff, or the base branch for the first diff.
+- With `--template`, uses the template for each new merge request and appends that diff's commit message body. Ignores the template when `--skip-push` or `--skip-mr-creation` is set.
 - Pulls changes made on GitLab, such as applied suggestions, into any diff whose branch is behind its remote.
 - If you amended a diff since the last sync, rebases the diffs after it. Then, unless `--skip-push` is set, force-pushes the stack's branches.
 - Removes diffs with merged merge requests and deletes their local branches. Keeps diffs with closed merge requests.
@@ -42,6 +43,7 @@ glab stack sync --skip-push
 glab stack sync --skip-mr-creation
 glab stack sync --assignee user1,user2
 glab stack sync --label bug,priority::high
+glab stack sync --template Review
 glab stack sync --reviewer user1 --reviewer user2
 ```
 
@@ -54,6 +56,7 @@ glab stack sync --reviewer user1 --reviewer user2
       --reviewer usernames   Request review from users by their usernames. Multiple usernames can be comma-separated or specified by repeating the flag.
       --skip-mr-creation     Skip creating merge requests for branches that don't have one yet.
       --skip-push            Rebase the stack locally without pushing branches or creating merge requests. Still fetches from the remote and calls the GitLab API.
+      --template name        Template for new merge requests. A name is looked up in '.gitlab/merge_request_templates/' of the local repository, and the '.md' extension is optional. A value that is absolute or contains a path separator is read as a file path.
       --update-base          Rebase the stack onto the latest version of the base branch.
 ```
 

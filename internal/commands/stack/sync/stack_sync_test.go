@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,6 +42,8 @@ type SyncScenario struct {
 	assignees           []string
 	labels              []string
 	reviewers           []string
+	template            string
+	templateContents    string
 	wantSkippedBranches []string
 }
 
@@ -151,6 +155,15 @@ func TestNewCmdSyncStack_Flags(t *testing.T) {
 	assert.Contains(t, skipPushFlag.Usage, "pushing")
 }
 
+func TestNewCmdSyncStack_MissingTemplate(t *testing.T) {
+	git.InitGitRepoWithCommit(t)
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	cmd := NewCmdSyncStack(cmdtest.NewTestFactory(ios), git.StandardGitCommand{})
+	cmd.SetArgs([]string{"--template", "missing"})
+
+	require.ErrorContains(t, cmd.Execute(), `template "missing" not found`)
+}
+
 func Test_stackSync(t *testing.T) {
 	type args struct {
 		stack SyncScenario
@@ -158,13 +171,101 @@ func Test_stackSync(t *testing.T) {
 
 	forcePushErr := errors.New("pre-push hook rejected force push")
 
+	twoNewBranches := func(template, templateContents string) args {
+		return args{stack: SyncScenario{
+			title:            "my cool stack",
+			template:         template,
+			templateContents: templateContents,
+			refs: map[string]TestRef{
+				"1": {
+					ref:   git.StackRef{SHA: "1", Next: "2", Branch: "Branch1", Description: "first branch\n\nFirst diff details"},
+					state: NothingToCommit,
+				},
+				"2": {
+					ref:   git.StackRef{SHA: "2", Prev: "1", Branch: "Branch2", Description: "second branch"},
+					state: NothingToCommit,
+				},
+			},
+		}}
+	}
+	mockTwoNewMergeRequests := func(firstDescription, secondDescription string) func(*testing.T, *gitlabtesting.TestClient) {
+		return func(t *testing.T, testClient *gitlabtesting.TestClient) {
+			t.Helper()
+			testClient.MockUsers.EXPECT().CurrentUser(gomock.Any()).Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
+
+			requests := []gitlab.BasicMergeRequest{
+				{IID: 43, SourceBranch: "Branch1", TargetBranch: "main", Title: "first branch", Description: firstDescription},
+				{IID: 44, SourceBranch: "Branch2", TargetBranch: "Branch1", Title: "second branch", Description: secondDescription},
+			}
+			for _, want := range requests {
+				testClient.MockMergeRequests.EXPECT().CreateMergeRequest("stack_guy/stackproject", gomock.Any()).
+					DoAndReturn(func(_ any, opts *gitlab.CreateMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+						require.Equal(t, want.SourceBranch, *opts.SourceBranch)
+						require.Equal(t, want.TargetBranch, *opts.TargetBranch)
+						require.Equal(t, want.Title, *opts.Title)
+						require.Equal(t, want.Description, *opts.Description)
+						return &gitlab.MergeRequest{BasicMergeRequest: want}, nil, nil
+					})
+			}
+		}
+	}
+
+	mockCurrentUser := func(t *testing.T, client *gitlabtesting.TestClient) {
+		t.Helper()
+		client.MockUsers.EXPECT().CurrentUser(gomock.Any()).
+			Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
+	}
+	skipMRCreationArgs := func(template string) args {
+		return args{
+			stack: SyncScenario{
+				title:          "skip mr stack",
+				skipMRCreation: true,
+				template:       template,
+				refs: map[string]TestRef{
+					"1": {
+						ref:   git.StackRef{SHA: "1", Prev: "", Next: "2", Branch: "Branch1", MR: "", Description: "first branch"},
+						state: NothingToCommit,
+					},
+					"2": {
+						ref:   git.StackRef{SHA: "2", Prev: "1", Next: "", Branch: "Branch2", MR: "", Description: "second branch"},
+						state: NothingToCommit,
+					},
+				},
+			},
+		}
+	}
+
+	skipPushArgs := func(template string) args {
+		return args{
+			stack: SyncScenario{
+				title:    "skip push no mr",
+				skipPush: true,
+				template: template,
+				refs: map[string]TestRef{
+					"1": {
+						ref: git.StackRef{
+							SHA:         "1",
+							Prev:        "",
+							Next:        "",
+							Branch:      "Branch1",
+							MR:          "",
+							Description: "test branch",
+						},
+						state: NothingToCommit,
+					},
+				},
+			},
+		}
+	}
+
 	tests := []struct {
-		name       string
-		args       args
-		setupMocks func(t *testing.T, testClient *gitlabtesting.TestClient)
-		wantErr    bool
-		wantErrMsg string
-		wantErrIs  error
+		name                string
+		args                args
+		setupMocks          func(t *testing.T, testClient *gitlabtesting.TestClient)
+		wantErr             bool
+		wantErrMsg          string
+		wantErrIs           error
+		wantTemplateWarning bool
 	}{
 		{
 			name: "two branches, 1st branch has MR, 2nd branch behind, stacks are named",
@@ -251,61 +352,14 @@ func Test_stackSync(t *testing.T) {
 		},
 
 		{
-			name: "two branches, no MRs, nothing to commit",
-			args: args{
-				stack: SyncScenario{
-					title: "my cool stack",
-					refs: map[string]TestRef{
-						"1": {
-							ref:   git.StackRef{SHA: "1", Prev: "", Next: "2", Branch: "Branch1", MR: "", Description: "some description"},
-							state: NothingToCommit,
-						},
-						"2": {
-							ref:   git.StackRef{SHA: "2", Prev: "1", Next: "", Branch: "Branch2", MR: ""},
-							state: NothingToCommit,
-						},
-					},
-				},
-			},
-			setupMocks: func(t *testing.T, testClient *gitlabtesting.TestClient) {
-				t.Helper()
-				// MockStackUser
-				testClient.MockUsers.EXPECT().
-					CurrentUser(gomock.Any()).
-					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
-
-				// MockPostStackMR(Source: "Branch1", Target: "main", Title: "some description")
-				testClient.MockMergeRequests.EXPECT().
-					CreateMergeRequest("stack_guy/stackproject", gomock.Any()).
-					DoAndReturn(func(pid any, opts *gitlab.CreateMergeRequestOptions, options ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
-						assert.Equal(t, "Branch1", *opts.SourceBranch)
-						assert.Equal(t, "main", *opts.TargetBranch)
-						assert.Equal(t, "some description", *opts.Title)
-						return &gitlab.MergeRequest{
-							BasicMergeRequest: gitlab.BasicMergeRequest{
-								IID:          43,
-								SourceBranch: "Branch1",
-								TargetBranch: "main",
-								Title:        "some description",
-							},
-						}, nil, nil
-					})
-
-				// MockPostStackMR(Source: "Branch2", Target: "Branch1")
-				testClient.MockMergeRequests.EXPECT().
-					CreateMergeRequest("stack_guy/stackproject", gomock.Any()).
-					DoAndReturn(func(pid any, opts *gitlab.CreateMergeRequestOptions, options ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
-						assert.Equal(t, "Branch2", *opts.SourceBranch)
-						assert.Equal(t, "Branch1", *opts.TargetBranch)
-						return &gitlab.MergeRequest{
-							BasicMergeRequest: gitlab.BasicMergeRequest{
-								IID:          44,
-								SourceBranch: "Branch2",
-								TargetBranch: "Branch1",
-							},
-						}, nil, nil
-					})
-			},
+			name:       "two branches, no MRs, nothing to commit",
+			args:       twoNewBranches("", ""),
+			setupMocks: mockTwoNewMergeRequests("First diff details", ""),
+		},
+		{
+			name:       "two new merge requests use the template and preserve their commit message bodies",
+			args:       twoNewBranches("Review", "## Review\n"),
+			setupMocks: mockTwoNewMergeRequests("## Review\n\nFirst diff details", "## Review"),
 		},
 
 		{
@@ -932,29 +986,15 @@ func Test_stackSync(t *testing.T) {
 		},
 
 		{
-			name: "skip-mr-creation skips MR creation for branches without MRs",
-			args: args{
-				stack: SyncScenario{
-					title:          "skip mr stack",
-					skipMRCreation: true,
-					refs: map[string]TestRef{
-						"1": {
-							ref:   git.StackRef{SHA: "1", Prev: "", Next: "2", Branch: "Branch1", MR: "", Description: "first branch"},
-							state: NothingToCommit,
-						},
-						"2": {
-							ref:   git.StackRef{SHA: "2", Prev: "1", Next: "", Branch: "Branch2", MR: "", Description: "second branch"},
-							state: NothingToCommit,
-						},
-					},
-				},
-			},
-			setupMocks: func(t *testing.T, testClient *gitlabtesting.TestClient) {
-				t.Helper()
-				testClient.MockUsers.EXPECT().
-					CurrentUser(gomock.Any()).
-					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
-			},
+			name:       "skip-mr-creation skips MR creation for branches without MRs",
+			args:       skipMRCreationArgs(""),
+			setupMocks: mockCurrentUser,
+		},
+		{
+			name:                "skip-mr-creation warns and ignores a missing template for branches without MRs",
+			args:                skipMRCreationArgs("missing"),
+			setupMocks:          mockCurrentUser,
+			wantTemplateWarning: true,
 		},
 
 		{
@@ -1082,33 +1122,15 @@ func Test_stackSync(t *testing.T) {
 		},
 
 		{
-			name: "skip-push skips MR creation for branches without MRs",
-			args: args{
-				stack: SyncScenario{
-					title:    "skip push no mr",
-					skipPush: true,
-					refs: map[string]TestRef{
-						"1": {
-							ref: git.StackRef{
-								SHA:         "1",
-								Prev:        "",
-								Next:        "",
-								Branch:      "Branch1",
-								MR:          "",
-								Description: "test branch",
-							},
-							state: NothingToCommit,
-						},
-					},
-				},
-			},
-			setupMocks: func(t *testing.T, testClient *gitlabtesting.TestClient) {
-				t.Helper()
-
-				testClient.MockUsers.EXPECT().
-					CurrentUser(gomock.Any()).
-					Return(&gitlab.User{Username: "stack_guy"}, nil, nil)
-			},
+			name:       "skip-push skips MR creation for branches without MRs",
+			args:       skipPushArgs(""),
+			setupMocks: mockCurrentUser,
+		},
+		{
+			name:                "skip-push warns and ignores a missing template for branches without MRs",
+			args:                skipPushArgs("missing"),
+			setupMocks:          mockCurrentUser,
+			wantTemplateWarning: true,
 		},
 
 		{
@@ -1273,7 +1295,9 @@ func Test_stackSync(t *testing.T) {
 			f, opts := setupTestFactory(t, testClient)
 
 			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
 			opts.io.StdOut = stdout
+			opts.io.StdErr = stderr
 
 			// Set options from test case
 			opts.noVerify = tc.args.stack.noVerify
@@ -1283,6 +1307,12 @@ func Test_stackSync(t *testing.T) {
 			opts.assignees = tc.args.stack.assignees
 			opts.labels = tc.args.stack.labels
 			opts.reviewers = tc.args.stack.reviewers
+			opts.template = tc.args.stack.template
+			if tc.args.stack.templateContents != "" {
+				templateDir := filepath.Join(".gitlab", "merge_request_templates")
+				require.NoError(t, os.MkdirAll(templateDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(templateDir, opts.template+".md"), []byte(tc.args.stack.templateContents), 0o600))
+			}
 
 			err := git.SetCurrentStackTitle(tc.args.stack.title)
 			require.NoError(t, err)
@@ -1380,6 +1410,13 @@ func Test_stackSync(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
+			}
+
+			const templateWarning = "[Warning] --template is ignored with --skip-push or --skip-mr-creation."
+			if tc.wantTemplateWarning {
+				assert.Contains(t, stderr.String(), templateWarning)
+			} else {
+				assert.NotContains(t, stderr.String(), templateWarning)
 			}
 
 			if tc.args.stack.pushNeeded && tc.args.stack.skipPush {
