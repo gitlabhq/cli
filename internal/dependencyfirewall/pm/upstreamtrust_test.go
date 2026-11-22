@@ -164,3 +164,27 @@ func TestUpstreamRootCAsOnlyUnusableFiles(t *testing.T) {
 	assert.Nil(t, pool)
 	assert.Nil(t, caPEM)
 }
+
+func TestUpstreamRootCAsMatchesNPMAndYarnNamesInAnyCase(t *testing.T) {
+	t.Parallel()
+	a, b := newTestAuthority(t), newTestAuthority(t)
+	env := []string{
+		"Yarn_Cafile=" + writeTestFile(t, "a.pem", a.pem()),
+		"Npm_Config_Cafile=" + writeTestFile(t, "b.pem", b.pem()),
+	}
+
+	pool, _, err := upstreamRootCAs(env, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, pool)
+	assertVerifies(t, pool, a.leaf(t, "a.registry.test"))
+	assertVerifies(t, pool, b.leaf(t, "b.registry.test"))
+}
+
+func TestUpstreamRootCAsMatchesOtherNamesExactly(t *testing.T) {
+	t.Parallel()
+	a := newTestAuthority(t)
+
+	pool, _, err := upstreamRootCAs([]string{"ssl_cert_file=" + writeTestFile(t, "ca.pem", a.pem())}, "", nil)
+	require.NoError(t, err)
+	assert.Nil(t, pool, "OpenSSL reads only SSL_CERT_FILE, so a lowercase name must not add trust")
+}

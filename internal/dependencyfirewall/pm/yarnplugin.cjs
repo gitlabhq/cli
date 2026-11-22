@@ -12,6 +12,7 @@ module.exports = {
   name: `@gitlab/plugin-dependency-firewall`,
   factory: require => {
     const {YarnVersion} = require(`@yarnpkg/core`);
+    const {npath} = require(`@yarnpkg/fslib`);
     const [major, minor] = String(YarnVersion).split(`.`).map(Number);
     // wrapNetworkRequest exists from Yarn 3.2. An older or unknown version
     // would load the plugin without ever calling the hook.
@@ -22,6 +23,9 @@ module.exports = {
       hooks: {
         wrapNetworkRequest: async (executor, {configuration}) => {
           configuration.values.set(`networkSettings`, new Map());
+          for (const key of [`httpsCaFilePath`, `caFilePath`])
+            if (configuration.values.get(key))
+              configuration.values.set(key, npath.toPortablePath(process.env.NODE_EXTRA_CA_CERTS));
           return executor;
         },
       },

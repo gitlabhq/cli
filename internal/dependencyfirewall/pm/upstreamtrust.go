@@ -18,6 +18,11 @@ var upstreamCAVars = []string{
 	"PIP_CERT",
 	"TWINE_CERT",
 	"NODE_EXTRA_CA_CERTS",
+	"npm_config_cafile",
+	"NPM_CONFIG_CAFILE",
+	"YARN_CAFILE",
+	"YARN_HTTPS_CA_FILE_PATH",
+	"YARN_CA_FILE_PATH",
 	"BUNDLE_SSL_CA_CERT",
 	"CARGO_HTTP_CAINFO",
 }
@@ -41,7 +46,7 @@ func upstreamRootCAs(env []string, caCertPath string, anchors []*x509.Certificat
 	paths := make([]string, 0, len(upstreamCAVars)+1)
 	paths = append(paths, caCertPath)
 	for _, v := range upstreamCAVars {
-		paths = append(paths, lookupEnv(env, v))
+		paths = append(paths, caVarValues(env, v)...)
 	}
 
 	certs := anchors

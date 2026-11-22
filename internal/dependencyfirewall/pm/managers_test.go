@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,7 +37,11 @@ func TestManagerEnvironAndCATrust(t *testing.T) {
 		assert.Contains(t, env, "npm_config_https_proxy="+proxyURL)
 		assert.Contains(t, env, "npm_config_noproxy=localhost")
 		assert.NotContains(t, env, "npm_config_noproxy=", "empty noproxy is overridden by .npmrc; must be a non-empty sentinel")
-		assert.Equal(t, []string{"NODE_EXTRA_CA_CERTS=" + caPath}, Yarn().CATrustEnviron(caPath))
+		assert.Equal(t, []string{
+			"NODE_EXTRA_CA_CERTS=" + caPath,
+			"npm_config_cafile=" + caPath,
+			"NPM_CONFIG_CAFILE=" + caPath,
+		}, Yarn().CATrustEnviron(caPath))
 	})
 
 	// pip/pipenv/poetry pin PIP_PROXY so pip's trust_env=False path (triggered
@@ -112,25 +117,30 @@ func TestManagerEnvironAndCATrust(t *testing.T) {
 func TestManagerExistingBundleVars(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		m    PackageManager
-		want []string
+		m               PackageManager
+		want            []string
+		notSetByCATrust []string
 	}{
-		{NPM(), []string{"NODE_EXTRA_CA_CERTS"}},
-		{Pnpm(), []string{"NODE_EXTRA_CA_CERTS"}},
-		{Yarn(), []string{"NODE_EXTRA_CA_CERTS"}},
-		{Pip(), []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}},
-		{Pipenv(), []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}},
-		{Uv(), []string{"SSL_CERT_FILE"}},
-		{Poetry(), []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}},
-		{Twine(), []string{"TWINE_CERT", "REQUESTS_CA_BUNDLE"}},
-		{Gem(), []string{"SSL_CERT_FILE"}},
-		{Bundle(), []string{"SSL_CERT_FILE", "BUNDLE_SSL_CA_CERT"}},
+		{NPM(), []string{"NODE_EXTRA_CA_CERTS", "npm_config_cafile", "NPM_CONFIG_CAFILE"}, nil},
+		{Pnpm(), []string{"NODE_EXTRA_CA_CERTS", "npm_config_cafile", "NPM_CONFIG_CAFILE"}, nil},
+		{
+			Yarn(),
+			[]string{"NODE_EXTRA_CA_CERTS", "npm_config_cafile", "NPM_CONFIG_CAFILE", "YARN_CAFILE", "YARN_HTTPS_CA_FILE_PATH", "YARN_CA_FILE_PATH"},
+			[]string{"YARN_CAFILE", "YARN_HTTPS_CA_FILE_PATH", "YARN_CA_FILE_PATH"},
+		},
+		{Pip(), []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}, nil},
+		{Pipenv(), []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}, nil},
+		{Uv(), []string{"SSL_CERT_FILE"}, nil},
+		{Poetry(), []string{"PIP_CERT", "REQUESTS_CA_BUNDLE"}, nil},
+		{Twine(), []string{"TWINE_CERT", "REQUESTS_CA_BUNDLE"}, []string{"REQUESTS_CA_BUNDLE"}},
+		{Gem(), []string{"SSL_CERT_FILE"}, nil},
+		{Bundle(), []string{"SSL_CERT_FILE", "BUNDLE_SSL_CA_CERT"}, nil},
 		// Maven and Gradle preserve no CA bundle var: they trust the proxy
 		// through a generated JVM truststore, not an env-named CA file.
-		{Maven(), nil},
-		{Gradle(), nil},
-		{Cargo(), []string{"CARGO_HTTP_CAINFO"}},
-		{Golang(), []string{"SSL_CERT_FILE"}},
+		{Maven(), nil, nil},
+		{Gradle(), nil, nil},
+		{Cargo(), []string{"CARGO_HTTP_CAINFO"}, nil},
+		{Golang(), []string{"SSL_CERT_FILE"}, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.m.Name(), func(t *testing.T) {
@@ -142,8 +152,8 @@ func TestManagerExistingBundleVars(t *testing.T) {
 			declared := make(map[string]struct{}, len(c.m.ExistingBundleVars()))
 			for _, v := range c.m.ExistingBundleVars() {
 				declared[v] = struct{}{}
-				if v == "REQUESTS_CA_BUNDLE" && c.m.Name() == "twine" {
-					continue // twine reads REQUESTS_CA_BUNDLE but sets only TWINE_CERT
+				if slices.Contains(c.notSetByCATrust, v) {
+					continue
 				}
 				found := false
 				for _, e := range set {
@@ -177,14 +187,17 @@ func TestRunMergesUserCAIntoOverriddenVar(t *testing.T) {
 		key string
 	}{
 		{Poetry(), "PIP_CERT"},
+		{NPM(), "npm_config_cafile"},
+		{NPM(), "NPM_CONFIG_CAFILE"},
+		{Pnpm(), "npm_config_cafile"},
+		{Yarn(), "npm_config_cafile"},
+		{Yarn(), "YARN_CAFILE"},
 	}
 	for _, c := range cases {
 		t.Run(c.m.Name()+"/"+c.key, func(t *testing.T) {
 			t.Setenv("GITLAB_CI", "")
 			t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
-			for _, v := range upstreamCAVars {
-				t.Setenv(v, "")
-			}
+			clearCAVars(t)
 			userPEM := newTestAuthority(t).pem()
 			userPath := filepath.Join(t.TempDir(), "corp-ca.pem")
 			require.NoError(t, os.WriteFile(userPath, userPEM, 0o600))
@@ -201,6 +214,147 @@ func TestRunMergesUserCAIntoOverriddenVar(t *testing.T) {
 			assert.NotEqual(t, userPath, lookupEnv(exec.env, c.key))
 			assert.True(t, bytes.HasPrefix(bundle, userPEM), "the child must still trust the user's CA")
 			assert.Equal(t, 2+len(systemRoots()), countPEMBlocks(bundle), "the bundle must hold the user's CA, the proxy CA and the system roots")
+		})
+	}
+}
+
+func TestRunTrustsNPMAndYarnCAVarsInAnyCase(t *testing.T) {
+	cases := []struct {
+		m        PackageManager
+		key      string
+		childVar string
+	}{
+		{Yarn(), "yarn_cafile", "YARN_CAFILE"},
+		{Yarn(), "Yarn_Cafile", "YARN_CAFILE"},
+		{Yarn(), "YARN_HTTPS_CA_FILE_PATH", ""},
+		{Yarn(), "yarn_https_ca_file_path", ""},
+		{Yarn(), "Yarn_Ca_File_Path", ""},
+		{Yarn(), "Npm_Config_Cafile", "npm_config_cafile"},
+		{NPM(), "Npm_Config_Cafile", "npm_config_cafile"},
+	}
+	for _, c := range cases {
+		t.Run(c.m.Name()+"/"+c.key, func(t *testing.T) {
+			clearCAVars(t)
+			user := newTestAuthority(t)
+			userPath := filepath.Join(t.TempDir(), "corp-ca.pem")
+			require.NoError(t, os.WriteFile(userPath, user.pem(), 0o600))
+			t.Setenv(c.key, userPath)
+
+			env, bundle := runChild(t, c.m)
+			roots, _, err := upstreamRootCAs(os.Environ(), "", nil)
+
+			assert.True(t, bytes.HasPrefix(bundle, user.pem()), "the child must still trust the user's CA")
+			assert.Equal(t, 2+len(systemRoots()), countPEMBlocks(bundle), "the bundle must hold the user's CA, the proxy CA and the system roots")
+			if c.childVar != "" {
+				assert.NotContains(t, valuesAnyCase(env, c.childVar), userPath, "an inherited spelling must not outrank glab's bundle")
+				assert.Contains(t, valuesAnyCase(env, c.childVar), lookupEnv(env, "NODE_EXTRA_CA_CERTS"))
+			}
+			require.NoError(t, err)
+			require.NotNil(t, roots, "registry connections must trust the user's CA")
+			assertVerifies(t, roots, user.leaf(t, "registry.test"))
+		})
+	}
+}
+
+func clearCAVars(t *testing.T) {
+	t.Helper()
+	for _, v := range upstreamCAVars {
+		t.Setenv(v, "")
+	}
+}
+
+func runChild(t *testing.T, m PackageManager) ([]string, []byte) {
+	t.Helper()
+	t.Setenv("GITLAB_CI", "")
+	t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	exec := &fakeExecutor{}
+	var bundle []byte
+	exec.onExec = func() { bundle, _ = os.ReadFile(lookupEnv(exec.env, "NODE_EXTRA_CA_CERTS")) }
+	require.NoError(t, Run(t.Context(), m, RunOptions{
+		IO: ios, Executor: exec, BaseDir: t.TempDir(), ProjectID: "group/proj", Args: []string{"install"},
+	}))
+	return exec.env, bundle
+}
+
+func valuesAnyCase(env []string, key string) []string {
+	var values []string
+	for _, e := range env {
+		if k, v, ok := strings.Cut(e, "="); ok && strings.EqualFold(k, key) {
+			values = append(values, v)
+		}
+	}
+	return values
+}
+
+func TestRunPointsNPMCafileAtBundle(t *testing.T) {
+	for _, m := range []PackageManager{NPM(), Pnpm(), Yarn()} {
+		t.Run(m.Name(), func(t *testing.T) {
+			env, _ := runChild(t, m)
+			bundle := lookupEnv(env, "NODE_EXTRA_CA_CERTS")
+			require.NotEmpty(t, bundle)
+			assert.Equal(t, []string{bundle, bundle}, valuesAnyCase(env, "npm_config_cafile"))
+		})
+	}
+}
+
+func TestRunDropsInheritedNPMInlineCA(t *testing.T) {
+	for _, m := range []PackageManager{NPM(), Pnpm()} {
+		t.Run(m.Name(), func(t *testing.T) {
+			t.Setenv("npm_config_ca", string(newTestAuthority(t).pem()))
+			env, _ := runChild(t, m)
+			for _, v := range valuesAnyCase(env, "npm_config_ca") {
+				assert.Empty(t, v, "an empty value is unset to npm")
+			}
+		})
+	}
+}
+
+func TestRunReplacesInheritedYarnCafileInAnyCase(t *testing.T) {
+	userPath := filepath.Join(t.TempDir(), "corp-ca.pem")
+	require.NoError(t, os.WriteFile(userPath, newTestAuthority(t).pem(), 0o600))
+	t.Setenv("yarn_cafile", userPath)
+
+	env, _ := runChild(t, Yarn())
+
+	assert.Equal(t, []string{lookupEnv(env, "NODE_EXTRA_CA_CERTS")}, valuesAnyCase(env, "YARN_CAFILE"))
+}
+
+func TestRunMergesYarnBerryCAFileIntoBundle(t *testing.T) {
+	for _, key := range []string{"YARN_HTTPS_CA_FILE_PATH", "YARN_CA_FILE_PATH"} {
+		t.Run(key, func(t *testing.T) {
+			clearCAVars(t)
+			userPEM := newTestAuthority(t).pem()
+			userPath := filepath.Join(t.TempDir(), "corp-ca.pem")
+			require.NoError(t, os.WriteFile(userPath, userPEM, 0o600))
+			t.Setenv(key, userPath)
+
+			_, bundle := runChild(t, Yarn())
+
+			assert.True(t, bytes.HasPrefix(bundle, userPEM), "the plugin points %s at this bundle, so it must keep the user's CA", key)
+		})
+	}
+}
+
+func TestYarnSetupSetsYarnCafileOnlyWhenInherited(t *testing.T) {
+	t.Parallel()
+	const caPath = "/tmp/glab-ca.pem"
+	cases := []struct {
+		name   string
+		parent []string
+		want   []string
+	}{
+		{"uppercase", []string{"YARN_CAFILE=/corp.pem"}, []string{caPath}},
+		{"lowercase", []string{"yarn_cafile=/corp.pem"}, []string{caPath}},
+		{"unset", []string{"PATH=/usr/bin"}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			res, err := yarnManager{}.Setup(t.Context(), setupInput{parent: c.parent, caPath: caPath})
+			require.NoError(t, err)
+			t.Cleanup(res.stop)
+			assert.Equal(t, c.want, valuesAnyCase(res.env, "YARN_CAFILE"))
 		})
 	}
 }
