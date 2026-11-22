@@ -67,7 +67,11 @@ func TestManagerMetadata(t *testing.T) {
 
 func TestNPMCATrust(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, []string{"NODE_EXTRA_CA_CERTS=/tmp/ca.pem"}, NPM().CATrustEnviron("/tmp/ca.pem"))
+	assert.Equal(t, []string{
+		"NODE_EXTRA_CA_CERTS=/tmp/ca.pem",
+		"npm_config_cafile=/tmp/ca.pem",
+		"NPM_CONFIG_CAFILE=/tmp/ca.pem",
+	}, NPM().CATrustEnviron("/tmp/ca.pem"))
 }
 
 func TestProxyEnvironStripsInheritedProxyVarsAndSetsHTTPS(t *testing.T) {
@@ -622,6 +626,39 @@ func TestWriteCABundleAppendsSystemRoots(t *testing.T) {
 	require.Len(t, certs, 2)
 	assert.True(t, certs[0].Equal(proxyCA))
 	assert.True(t, certs[1].Equal(root), "a tool pointed at the bundle must keep trusting the system roots")
+}
+
+func TestWriteCABundleSkipsEmptyVariable(t *testing.T) {
+	t.Parallel()
+	ios, _, _, errOut := cmdtest.TestIOStreams()
+	parent := []string{"NODE_EXTRA_CA_CERTS=", "yarn_cafile="}
+	path, err := writeCABundle(ios, parent, []string{"NODE_EXTRA_CA_CERTS", "YARN_CAFILE"}, testCA(t), nil)
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(path) }()
+
+	assert.Empty(t, errOut.String(), "an empty variable is unset, not an unreadable file")
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 1, countPEMBlocks(raw), "the bundle must hold only the proxy CA")
+}
+
+func TestWriteCABundleMergesEverySpelling(t *testing.T) {
+	t.Parallel()
+	upper, lower := newTestAuthority(t).pem(), newTestAuthority(t).pem()
+	parent := []string{
+		"YARN_CAFILE=" + writeTestFile(t, "upper.pem", upper),
+		"yarn_cafile=" + writeTestFile(t, "lower.pem", lower),
+	}
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	path, err := writeCABundle(ios, parent, []string{"YARN_CAFILE"}, testCA(t), nil)
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(path) }()
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.True(t, bytes.Contains(raw, upper), "the uppercase spelling's CA must be merged")
+	assert.True(t, bytes.Contains(raw, lower), "the lowercase spelling's CA must be merged")
+	assert.Equal(t, 3, countPEMBlocks(raw), "the bundle must hold both CAs and the proxy CA")
 }
 
 func TestWriteLogMergesSequentialRuns(t *testing.T) {

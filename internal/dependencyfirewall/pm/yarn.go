@@ -21,7 +21,8 @@ type yarnManager struct{}
 //
 // Berry's per-host networkSettings override the global proxy and cannot be
 // pinned from the environment, so Setup also injects a plugin
-// (yarnplugin.cjs) through YARN_PLUGINS that empties them before each request.
+// (yarnplugin.cjs) through YARN_PLUGINS that empties them before each request
+// and points Berry's CA file setting, when set, at the bundle.
 func Yarn() PackageManager { return yarnManager{} }
 
 func (yarnManager) Name() string   { return "yarn" }
@@ -69,28 +70,52 @@ func (yarnManager) Setup(_ context.Context, in setupInput) (setupResult, error) 
 	}
 
 	// Berry reads yarn_* variables in any case, letting the last one win, and
-	// Run strips every case of YARN_PLUGINS from the child's environment.
+	// Run strips every case of the variables Setup sets from the child's
+	// environment. Classic lowercases them.
 	var existing string
+	var yarnCAFile bool
 	for _, e := range in.parent {
-		if k, v, ok := strings.Cut(e, "="); ok && strings.EqualFold(k, "YARN_PLUGINS") {
+		k, v, ok := strings.Cut(e, "=")
+		switch {
+		case !ok:
+		case strings.EqualFold(k, "YARN_PLUGINS"):
 			existing = v
+		case strings.EqualFold(k, "YARN_CAFILE"):
+			yarnCAFile = true
 		}
 	}
 	plugins := f.Name()
 	if existing != "" {
 		plugins += ";" + existing
 	}
+	env := []string{"YARN_PLUGINS=" + plugins}
+	if yarnCAFile {
+		env = append(env, "YARN_CAFILE="+in.caPath)
+	}
 	return setupResult{
-		env:  []string{"YARN_PLUGINS=" + plugins},
+		env:  env,
 		stop: func() { _ = os.Remove(f.Name()) },
 	}, nil
 }
 
 func (yarnManager) CATrustEnviron(caPath string) []string {
-	return []string{"NODE_EXTRA_CA_CERTS=" + caPath}
+	return []string{
+		"NODE_EXTRA_CA_CERTS=" + caPath,
+		"npm_config_cafile=" + caPath,
+		"NPM_CONFIG_CAFILE=" + caPath,
+	}
 }
 
-func (yarnManager) ExistingBundleVars() []string { return []string{"NODE_EXTRA_CA_CERTS"} }
+func (yarnManager) ExistingBundleVars() []string {
+	return []string{
+		"NODE_EXTRA_CA_CERTS",
+		"npm_config_cafile",
+		"NPM_CONFIG_CAFILE",
+		"YARN_CAFILE",
+		"YARN_HTTPS_CA_FILE_PATH",
+		"YARN_CA_FILE_PATH",
+	}
+}
 
 func (yarnManager) CleanupCAFiles(string) {}
 

@@ -37,14 +37,21 @@ func (m npmManager) Environment(proxyURL string) []string {
 		"NPM_CONFIG_PROXY=" + proxyURL,
 		"NPM_CONFIG_HTTPS_PROXY=" + proxyURL,
 		"NPM_CONFIG_NOPROXY=localhost",
+		"NPM_CONFIG_CA=",
 	}
 }
 
 func (m npmManager) CATrustEnviron(caPath string) []string {
-	return []string{"NODE_EXTRA_CA_CERTS=" + caPath}
+	return []string{
+		"NODE_EXTRA_CA_CERTS=" + caPath,
+		"npm_config_cafile=" + caPath,
+		"NPM_CONFIG_CAFILE=" + caPath,
+	}
 }
 
-func (m npmManager) ExistingBundleVars() []string { return []string{"NODE_EXTRA_CA_CERTS"} }
+func (m npmManager) ExistingBundleVars() []string {
+	return []string{"NODE_EXTRA_CA_CERTS", "npm_config_cafile", "NPM_CONFIG_CAFILE"}
+}
 
 func (m npmManager) CleanupCAFiles(string) {}
 

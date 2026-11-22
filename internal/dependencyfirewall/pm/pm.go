@@ -186,22 +186,23 @@ func writeCABundle(ios *iostreams.IOStreams, parent []string, bundleVars []strin
 	var bundle []byte
 	seen := make(map[string]struct{}, len(bundleVars))
 	for _, bundleVar := range bundleVars {
-		existing := lookupEnv(parent, bundleVar)
-		if bundleVar == "" || existing == "" {
+		if bundleVar == "" {
 			continue
 		}
-		if _, dup := seen[existing]; dup {
-			continue
-		}
-		seen[existing] = struct{}{}
-		userPEM, err := os.ReadFile(existing)
-		if err != nil {
-			ios.LogErrorf("warning: could not read existing %s %q: %v\n", bundleVar, existing, err)
-			continue
-		}
-		bundle = append(bundle, userPEM...)
-		if len(bundle) > 0 && bundle[len(bundle)-1] != '\n' {
-			bundle = append(bundle, '\n')
+		for _, existing := range caVarValues(parent, bundleVar) {
+			if _, dup := seen[existing]; dup {
+				continue
+			}
+			seen[existing] = struct{}{}
+			userPEM, err := os.ReadFile(existing)
+			if err != nil {
+				ios.LogErrorf("warning: could not read existing %s %q: %v\n", bundleVar, existing, err)
+				continue
+			}
+			bundle = append(bundle, userPEM...)
+			if len(bundle) > 0 && bundle[len(bundle)-1] != '\n' {
+				bundle = append(bundle, '\n')
+			}
 		}
 	}
 	bundle = append(bundle, pemBytes...)
@@ -243,6 +244,19 @@ func dedupEnv(env []string) []string {
 		out = append(out, e)
 	}
 	return out
+}
+
+func caVarValues(env []string, key string) []string {
+	lower := strings.ToLower(key)
+	anyCase := strings.HasPrefix(lower, "npm_config_") || strings.HasPrefix(lower, "yarn_")
+	var values []string
+	for _, e := range env {
+		k, v, ok := strings.Cut(e, "=")
+		if ok && v != "" && (k == key || (anyCase && strings.EqualFold(k, key))) {
+			values = append(values, v)
+		}
+	}
+	return values
 }
 
 // lookupEnv returns the value of key in an environment slice ("KEY=value"),
@@ -462,12 +476,13 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	}
 
 	managerEnv := append(manager.Environment(proxyURL), setup.env...)
-	// Strip the manager's own routing keys from the inherited env so they
-	// can't leak an old value the manager's Environment doesn't overwrite;
-	// the manager's values are re-appended immediately below.
-	env := proxyEnviron(os.Environ(), proxyURL, envKeys(managerEnv)...)
+	trustEnv := manager.CATrustEnviron(caPath)
+	// Strip the manager's routing and CA keys from the inherited env in any
+	// case, so an old value or another spelling can't outrank the manager's
+	// values, which are re-appended immediately below.
+	env := proxyEnviron(os.Environ(), proxyURL, append(envKeys(managerEnv), envKeys(trustEnv)...)...)
 	env = append(env, managerEnv...)
-	env = append(env, manager.CATrustEnviron(caPath)...)
+	env = append(env, trustEnv...)
 	// Collapse duplicate keys (last wins) so the proxy/CA-trust values we
 	// append override any conflicting entry inherited from the parent
 	// environment, regardless of how the child runtime parses envp.
