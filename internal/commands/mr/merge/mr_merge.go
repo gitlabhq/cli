@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"charm.land/huh/v2"
@@ -14,6 +15,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
+	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/commands/mr/mrutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
@@ -40,6 +42,7 @@ type options struct {
 	rebaseBeforeMerge  bool
 	removeSourceBranch bool
 	skipPrompts        bool
+	skipCI             bool
 
 	squashMessage      string
 	mergeCommitMessage string
@@ -66,6 +69,13 @@ func NewCmdMerge(f cmdutils.Factory) *cobra.Command {
 			merge immediately. Use %[1]s--squash%[1]s or %[1]s--rebase%[1]s to control
 			the merge strategy, or %[1]s--remove-source-branch%[1]s to delete the
 			source branch after merging.
+
+			Use %[1]s--skip-ci%[1]s to add %[1]s[ci skip]%[1]s to the commit that lands on the target branch, so that commit does not start a pipeline, like the %[1]sci.skip%[1]s push option. The pipelines of the merge request itself still run.
+
+			- The marker is added to the merge commit message, and to the squash commit message with %[1]s--squash%[1]s.
+			- Without %[1]s--message%[1]s, the merge request title replaces the default merge commit message from GitLab, so the project's merge commit template and the %[1]sSee merge request%[1]s line are not added. Pass %[1]s--message%[1]s to use your own message.
+			- In a project that uses fast-forward merges, %[1]s--skip-ci%[1]s requires %[1]s--squash%[1]s and cannot be used with %[1]s--rebase%[1]s, because no merge commit is created.
+			- The marker stays on the commit. If you later push a tag on that commit, the tag pipeline is skipped too.
 		`, "`"),
 		Aliases: []string{"accept"},
 		Annotations: map[string]string{
@@ -77,7 +87,10 @@ func NewCmdMerge(f cmdutils.Factory) *cobra.Command {
 			glab mr accept 235
 
 			# Finds open merge request from current branch
-			glab mr merge`),
+			glab mr merge
+
+			# Merge without running a CI/CD pipeline for the merge commit
+			glab mr merge 235 --skip-ci`),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.validate(); err != nil {
@@ -96,6 +109,7 @@ func NewCmdMerge(f cmdutils.Factory) *cobra.Command {
 	mrMergeCmd.Flags().BoolVarP(&opts.squashBeforeMerge, "squash", "s", false, "Squash commits on merge.")
 	mrMergeCmd.Flags().BoolVarP(&opts.rebaseBeforeMerge, "rebase", "r", false, "Rebase the commits onto the base branch.")
 	mrMergeCmd.Flags().BoolVarP(&opts.skipPrompts, "yes", "y", false, "Skip submission confirmation prompt.")
+	mrMergeCmd.Flags().BoolVarP(&opts.skipCI, "skip-ci", "", false, "Add [ci skip] to the commit that lands on the target branch.")
 
 	mrMergeCmd.Flags().BoolVarP(&opts.setAutoMerge, "when-pipeline-succeeds", "", true, "Merge only when pipeline succeeds")
 	_ = mrMergeCmd.Flags().MarkDeprecated("when-pipeline-succeeds", "use --auto-merge instead.")
@@ -207,6 +221,20 @@ func (o *options) run(x cmdutils.Factory, cmd *cobra.Command, args []string) err
 		}
 	}
 
+	if o.skipCI {
+		project, err := api.GetProject(apiClient, repo.FullName())
+		if err != nil {
+			return err
+		}
+		if err := checkSkipCISupported(project, o.squashBeforeMerge, o.rebaseBeforeMerge); err != nil {
+			return err
+		}
+		o.mergeCommitMessage = withSkipCI(o.mergeCommitMessage, mr.Title)
+		if o.squashBeforeMerge {
+			o.squashMessage = withSkipCI(o.squashMessage, mr.Title)
+		}
+	}
+
 	mergeOpts := &gitlab.AcceptMergeRequestOptions{}
 	if o.mergeCommitMessage != "" {
 		mergeOpts.MergeCommitMessage = new(o.mergeCommitMessage)
@@ -314,6 +342,34 @@ func (o *options) run(x cmdutils.Factory, cmd *cobra.Command, args []string) err
 	}
 	o.io.LogInfo(mrutils.DisplayMR(c, &mr.BasicMergeRequest, o.io.IsaTTY))
 	return nil
+}
+
+var skipCIPattern = regexp.MustCompile(`(?i)\[(ci[ _-]skip|skip[ _-]ci)\]`)
+
+func checkSkipCISupported(project *gitlab.Project, squash, rebase bool) error {
+	if project.MergeMethod != gitlab.FastForwardMerge {
+		return nil
+	}
+	if project.SquashOption == gitlab.SquashOptionNever {
+		return errors.New("--skip-ci is not supported for this project: it uses fast-forward merges and does not allow squashing, so no new commit is created on the target branch")
+	}
+	if rebase {
+		return &cmdutils.FlagError{Err: errors.New("--skip-ci cannot be used with --rebase in a project that uses fast-forward merges, because no merge commit is created: use --squash instead")}
+	}
+	if !squash {
+		return &cmdutils.FlagError{Err: errors.New("--skip-ci requires --squash in a project that uses fast-forward merges, because no merge commit is created")}
+	}
+	return nil
+}
+
+func withSkipCI(message, fallback string) string {
+	if message == "" {
+		message = fallback
+	}
+	if skipCIPattern.MatchString(message) {
+		return message
+	}
+	return message + "\n\n[ci skip]"
 }
 
 // allowRebase is false with --sha, for the same reason the two flags are mutually exclusive.

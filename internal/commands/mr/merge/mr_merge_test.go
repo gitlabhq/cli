@@ -50,6 +50,24 @@ func TestMrMerge(t *testing.T) {
 		Pipeline: &gitlab.PipelineInfo{Status: "success"},
 	}
 
+	expectProject := func(tc *gitlabtesting.TestClient, mergeMethod gitlab.MergeMethodValue, squashOption gitlab.SquashOptionValue) {
+		tc.MockProjects.EXPECT().
+			GetProject("OWNER/REPO", gomock.Any()).
+			Return(&gitlab.Project{MergeMethod: mergeMethod, SquashOption: squashOption}, nil, nil)
+	}
+	openMR := func() *gitlab.MergeRequest {
+		return &gitlab.MergeRequest{
+			BasicMergeRequest: gitlab.BasicMergeRequest{
+				IID:                 123,
+				Title:               "foo",
+				State:               "opened",
+				WebURL:              "https://gitlab.com/OWNER/REPO/-/merge_requests/123",
+				DetailedMergeStatus: "mergeable",
+			},
+			User: gitlab.MergeRequestUser{CanMerge: true},
+		}
+	}
+
 	testCases := []testCase{
 		{
 			name: "Merge MR by ID without pipeline",
@@ -324,6 +342,244 @@ func TestMrMerge(t *testing.T) {
 						assert.Nil(t, opts.AutoMerge)
 						return nil, &gitlab.Response{Response: &http.Response{StatusCode: http.StatusMethodNotAllowed}}, errors.New("Branch cannot be merged")
 					})
+			},
+		},
+		{
+			name:        "Skip CI adds the marker to the merge commit message and keeps auto-merge",
+			cli:         "123 --skip-ci",
+			expectedOut: "! Pipeline status: running\n✓ Auto-merge enabled\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				getMR := &gitlab.MergeRequest{
+					BasicMergeRequest: gitlab.BasicMergeRequest{
+						IID:                 123,
+						Title:               "foo",
+						State:               "opened",
+						WebURL:              "https://gitlab.com/OWNER/REPO/-/merge_requests/123",
+						DetailedMergeStatus: "mergeable",
+					},
+					Pipeline: &gitlab.PipelineInfo{Status: "running"},
+					User:     gitlab.MergeRequestUser{CanMerge: true},
+				}
+				armedMR := &gitlab.MergeRequest{
+					BasicMergeRequest: gitlab.BasicMergeRequest{
+						IID:                       123,
+						State:                     "opened",
+						WebURL:                    "https://gitlab.com/OWNER/REPO/-/merge_requests/123",
+						MergeWhenPipelineSucceeds: true,
+					},
+					Pipeline: &gitlab.PipelineInfo{Status: "running"},
+				}
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(getMR, nil, nil)
+				expectProject(tc, gitlab.NoFastForwardMerge, gitlab.SquashOptionDefaultOff)
+				tc.MockMergeRequests.EXPECT().
+					AcceptMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					DoAndReturn(func(_ any, _ int64, opts *gitlab.AcceptMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+						require.NotNil(t, opts.AutoMerge)
+						assert.True(t, *opts.AutoMerge)
+						require.NotNil(t, opts.MergeCommitMessage)
+						assert.Equal(t, "foo\n\n[ci skip]", *opts.MergeCommitMessage)
+						assert.Nil(t, opts.SquashCommitMessage)
+						return armedMR, nil, nil
+					})
+			},
+		},
+		{
+			name:        "Merge without skip CI sends no commit message",
+			cli:         "123 --auto-merge=false",
+			expectedOut: "✓ Merged!\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				getMR := &gitlab.MergeRequest{
+					BasicMergeRequest: gitlab.BasicMergeRequest{
+						IID:                 123,
+						Title:               "foo",
+						State:               "opened",
+						WebURL:              "https://gitlab.com/OWNER/REPO/-/merge_requests/123",
+						DetailedMergeStatus: "mergeable",
+					},
+					User: gitlab.MergeRequestUser{CanMerge: true},
+				}
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(getMR, nil, nil)
+				tc.MockMergeRequests.EXPECT().
+					AcceptMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					DoAndReturn(func(_ any, _ int64, opts *gitlab.AcceptMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+						assert.Nil(t, opts.MergeCommitMessage)
+						assert.Nil(t, opts.SquashCommitMessage)
+						return mergedMR, nil, nil
+					})
+			},
+		},
+		{
+			name:        "Skip CI with squash adds the marker to both commit messages",
+			cli:         `123 --skip-ci --auto-merge=false --squash --squash-message "squashed" --message "merged"`,
+			expectedOut: "✓ Merged!\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(openMR(), nil, nil)
+				expectProject(tc, gitlab.NoFastForwardMerge, gitlab.SquashOptionDefaultOff)
+				tc.MockMergeRequests.EXPECT().
+					AcceptMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					DoAndReturn(func(_ any, _ int64, opts *gitlab.AcceptMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+						require.NotNil(t, opts.SquashCommitMessage)
+						assert.Equal(t, "squashed\n\n[ci skip]", *opts.SquashCommitMessage)
+						require.NotNil(t, opts.MergeCommitMessage)
+						assert.Equal(t, "merged\n\n[ci skip]", *opts.MergeCommitMessage)
+						return mergedMR, nil, nil
+					})
+			},
+		},
+		{
+			name:        "Skip CI keeps a message that already has the marker",
+			cli:         `123 --skip-ci --auto-merge=false --message "release [skip ci]"`,
+			expectedOut: "✓ Merged!\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(openMR(), nil, nil)
+				expectProject(tc, gitlab.NoFastForwardMerge, gitlab.SquashOptionDefaultOff)
+				tc.MockMergeRequests.EXPECT().
+					AcceptMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					DoAndReturn(func(_ any, _ int64, opts *gitlab.AcceptMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+						require.NotNil(t, opts.MergeCommitMessage)
+						assert.Equal(t, "release [skip ci]", *opts.MergeCommitMessage)
+						return mergedMR, nil, nil
+					})
+			},
+		},
+		{
+			name:        "Skip CI keeps a message with a marker variant GitLab accepts",
+			cli:         `123 --skip-ci --auto-merge=false --message "release [CI-Skip]"`,
+			expectedOut: "✓ Merged!\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(openMR(), nil, nil)
+				expectProject(tc, gitlab.NoFastForwardMerge, gitlab.SquashOptionDefaultOff)
+				tc.MockMergeRequests.EXPECT().
+					AcceptMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					DoAndReturn(func(_ any, _ int64, opts *gitlab.AcceptMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+						require.NotNil(t, opts.MergeCommitMessage)
+						assert.Equal(t, "release [CI-Skip]", *opts.MergeCommitMessage)
+						return mergedMR, nil, nil
+					})
+			},
+		},
+		{
+			name:        "Skip CI with squash in a fast-forward project adds the marker to the squash commit",
+			cli:         "123 --skip-ci --auto-merge=false --squash",
+			expectedOut: "✓ Merged!\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(openMR(), nil, nil)
+				expectProject(tc, gitlab.FastForwardMerge, gitlab.SquashOptionDefaultOff)
+				tc.MockMergeRequests.EXPECT().
+					AcceptMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					DoAndReturn(func(_ any, _ int64, opts *gitlab.AcceptMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+						require.NotNil(t, opts.SquashCommitMessage)
+						assert.Equal(t, "foo\n\n[ci skip]", *opts.SquashCommitMessage)
+						return mergedMR, nil, nil
+					})
+			},
+		},
+		{
+			name:       "Skip CI without squash in a fast-forward project returns an error",
+			cli:        "123 --skip-ci --auto-merge=false",
+			wantErr:    true,
+			wantStderr: "--skip-ci requires --squash in a project that uses fast-forward merges",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(openMR(), nil, nil)
+				expectProject(tc, gitlab.FastForwardMerge, gitlab.SquashOptionDefaultOff)
+			},
+		},
+		{
+			name:       "Skip CI with rebase in a fast-forward project returns an error",
+			cli:        "123 --skip-ci --auto-merge=false --rebase",
+			wantErr:    true,
+			wantStderr: "--skip-ci cannot be used with --rebase in a project that uses fast-forward merges",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(openMR(), nil, nil)
+				expectProject(tc, gitlab.FastForwardMerge, gitlab.SquashOptionDefaultOff)
+			},
+		},
+		{
+			name:       "Skip CI in a fast-forward project that does not allow squash returns an error",
+			cli:        "123 --skip-ci --auto-merge=false --squash",
+			wantErr:    true,
+			wantStderr: "--skip-ci is not supported for this project",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(openMR(), nil, nil)
+				expectProject(tc, gitlab.FastForwardMerge, gitlab.SquashOptionNever)
+			},
+		},
+		{
+			name:        "Skip CI with rebase does not skip the pipeline on the rebase",
+			cli:         "123 --skip-ci --auto-merge=false --rebase",
+			expectedOut: "✓ Rebase successful!\n✓ Merged!\nhttps://gitlab.com/OWNER/REPO/-/merge_requests/123\n",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				getMR := &gitlab.MergeRequest{
+					BasicMergeRequest: gitlab.BasicMergeRequest{
+						IID:                 123,
+						Title:               "foo",
+						State:               "opened",
+						WebURL:              "https://gitlab.com/OWNER/REPO/-/merge_requests/123",
+						DetailedMergeStatus: "mergeable",
+					},
+					User: gitlab.MergeRequestUser{CanMerge: true},
+				}
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(getMR, nil, nil)
+				expectProject(tc, gitlab.NoFastForwardMerge, gitlab.SquashOptionDefaultOff)
+				tc.MockMergeRequests.EXPECT().
+					RebaseMergeRequest("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ any, _ int64, opts *gitlab.RebaseMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.Response, error) {
+						if opts != nil {
+							assert.Nil(t, opts.SkipCI)
+						}
+						return nil, nil
+					})
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any(), gomock.Any()).
+					Return(&gitlab.MergeRequest{
+						BasicMergeRequest: gitlab.BasicMergeRequest{
+							ID:  123,
+							IID: 123,
+						},
+						RebaseInProgress: false,
+						MergeError:       "",
+					}, nil, nil)
+				tc.MockMergeRequests.EXPECT().
+					AcceptMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					DoAndReturn(func(_ any, _ int64, opts *gitlab.AcceptMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+						require.NotNil(t, opts.MergeCommitMessage)
+						assert.Equal(t, "foo\n\n[ci skip]", *opts.MergeCommitMessage)
+						return mergedMR, nil, nil
+					})
+			},
+		},
+		{
+			name:       "Skip CI returns the error when the project cannot be fetched",
+			cli:        "123 --skip-ci --auto-merge=false",
+			wantErr:    true,
+			wantStderr: "project not found",
+			setupMock: func(tc *gitlabtesting.TestClient) {
+				tc.MockMergeRequests.EXPECT().
+					GetMergeRequest("OWNER/REPO", int64(123), gomock.Any()).
+					Return(openMR(), nil, nil)
+				tc.MockProjects.EXPECT().
+					GetProject("OWNER/REPO", gomock.Any()).
+					Return(nil, nil, errors.New("project not found"))
 			},
 		},
 		{
