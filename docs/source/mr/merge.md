@@ -20,6 +20,13 @@ merge immediately. Use `--squash` or `--rebase` to control
 the merge strategy, or `--remove-source-branch` to delete the
 source branch after merging.
 
+Use `--skip-ci` to add `[ci skip]` to the commit that lands on the target branch, so that commit does not start a pipeline, like the `ci.skip` push option. The pipelines of the merge request itself still run.
+
+- The marker is added to the merge commit message, and to the squash commit message with `--squash`.
+- Without `--message`, the merge request title replaces the default merge commit message from GitLab, so the project's merge commit template and the `See merge request` line are not added. Pass `--message` to use your own message.
+- In a project that uses fast-forward merges, `--skip-ci` requires `--squash` and cannot be used with `--rebase`, because no merge commit is created.
+- The marker stays on the commit. If you later push a tag on that commit, the tag pipeline is skipped too.
+
 ```plaintext
 glab mr merge [<id | branch>] [flags]
 ```
@@ -39,6 +46,9 @@ glab mr accept 235
 
 # Finds open merge request from current branch
 glab mr merge
+
+# Merge without running a CI/CD pipeline for the merge commit
+glab mr merge 235 --skip-ci
 ```
 
 ## Options
@@ -49,6 +59,7 @@ glab mr merge
   -r, --rebase                  Rebase the commits onto the base branch.
   -d, --remove-source-branch    Remove source branch on merge.
       --sha string              Merge only if the HEAD of the source branch matches this SHA. Use to ensure that only reviewed commits are merged.
+      --skip-ci                 Add [ci skip] to the commit that lands on the target branch.
   -s, --squash                  Squash commits on merge.
       --squash-message string   Custom squash commit message.
   -y, --yes                     Skip submission confirmation prompt.
