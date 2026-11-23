@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -102,10 +104,8 @@ var listProjectMembers = func(ctx context.Context, client *gitlab.Client, projec
 // GitLab only reads templates directly under `.gitlab/<tmplType>/`, so a name
 // that is absolute or contains a path separator is read as a file path
 // instead, and a missing file is an error.
-//
-// TODO: load from remote repository if repo is overridden by -R flag
 func LoadGitLabTemplate(tmplType, tmplName string) (string, error) {
-	if filepath.IsAbs(tmplName) || strings.ContainsAny(tmplName, "/"+string(filepath.Separator)) {
+	if isTemplatePath(tmplName) {
 		return loadTemplateFile(tmplName)
 	}
 
@@ -133,6 +133,59 @@ func LoadGitLabTemplate(tmplType, tmplName string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(tmpl)), nil
+}
+
+// LoadGitLabTemplateRemote loads a description template of project from the
+// GitLab API, which serves the default branch and templates inherited from
+// groups. Like LoadGitLabTemplate, a file path is read locally, and a missing
+// name returns an empty string.
+func LoadGitLabTemplateRemote(ctx context.Context, client *gitlab.Client, project, tmplType, tmplName string) (string, error) {
+	if isTemplatePath(tmplName) {
+		return loadTemplateFile(tmplName)
+	}
+
+	// The client inserts the name into the path unescaped, and template names
+	// may contain spaces.
+	name := url.PathEscape(strings.TrimSuffix(tmplName, ".md"))
+	tmpl, _, err := client.ProjectTemplates.GetProjectTemplate(project, templateAPIType(tmplType), name, gitlab.WithContext(ctx))
+	if gitlab.HasStatusCode(err, http.StatusNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(tmpl.Content), nil
+}
+
+// ListGitLabTemplatesRemote lists the description templates of project from
+// the GitLab API, including templates inherited from groups.
+func ListGitLabTemplatesRemote(ctx context.Context, client *gitlab.Client, project, tmplType string) ([]string, error) {
+	tmpls, err := gitlab.ScanAndCollect(func(p gitlab.PaginationOptionFunc) ([]*gitlab.ProjectTemplate, *gitlab.Response, error) {
+		return client.ProjectTemplates.ListTemplates(project, templateAPIType(tmplType), &gitlab.ListProjectTemplatesOptions{}, p, gitlab.WithContext(ctx))
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(tmpls))
+	for _, tmpl := range tmpls {
+		names = append(names, tmpl.Name)
+	}
+	slices.Sort(names)
+	// A project and one of its groups can both define a template of the same name.
+	return slices.Compact(names), nil
+}
+
+func templateAPIType(tmplType string) string {
+	if tmplType == MergeRequestTemplate {
+		return "merge_requests"
+	}
+	return "issues"
+}
+
+func isTemplatePath(tmplName string) bool {
+	return filepath.IsAbs(tmplName) || strings.ContainsAny(tmplName, "/"+string(filepath.Separator))
 }
 
 func loadTemplateFile(path string) (string, error) {

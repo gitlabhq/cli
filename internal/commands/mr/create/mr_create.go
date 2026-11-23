@@ -71,6 +71,11 @@ type options struct {
 	// Unexported, so a recovery file keeps the description the user wrote.
 	body string
 
+	repoOverridden bool
+	// templateProject is set when the repository is overridden, so templates
+	// come from that project rather than the local checkout.
+	templateProject string
+
 	io              *iostreams.IOStreams             `json:"-"`
 	branch          func() (string, error)           `json:"-"`
 	remotes         func() (glrepo.Remotes, error)   `json:"-"`
@@ -140,10 +145,13 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			glab mr create -t "Fix login bug" --template bug_fix
 			glab mr create -t "Security patch" --template security_fix.md --yes
 
+			# Use a template of another project, from its default branch
+			glab mr create -R group/project -t "Fix login bug" --template bug_fix
+
 			# Use a template file from outside the repository
 			glab mr create -t "Fix login bug" --template ~/team-templates/bug_fix.md
 
-			# Create against another project without a local clone. All inputs must be passed as flags; no --push, --fill, or --template.
+			# Create against another project without a local clone. All inputs must be passed as flags; no --push or --fill.
 			glab mr create --repo group/project --source-branch feature-branch --target-branch main --title "Add feature" --description "Details..." --yes
 
 			# Create a fork merge request from your fork into the upstream project, without a local clone.
@@ -242,7 +250,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	_ = mrCreateCmd.Flags().MarkHidden("target-project")
 	_ = mrCreateCmd.Flags().MarkDeprecated("target-project", "Use --repo instead.")
 
-	mrCreateCmd.Flags().StringVar(&opts.Template, "template", "", "Template to pre-populate the description. A name is looked up in '.gitlab/merge_request_templates/' of the local repository, and the '.md' extension is optional. A value that is absolute or contains a path separator is read as a file path, for example '~/templates/feature.md'.")
+	mrCreateCmd.Flags().StringVar(&opts.Template, "template", "", "Template to pre-populate the description. A name is looked up in '.gitlab/merge_request_templates/' of the local repository or, with --repo, among the templates of that project on its default branch. The '.md' extension is optional. A value that is absolute or contains a path separator is read as a local file path, for example '~/templates/feature.md'.")
 	cmdutils.AddDescriptionFileFlag(mrCreateCmd, "merge request")
 	cmdutils.AddAttachFlag(mrCreateCmd, &opts.Attach, "description")
 	mrCreateCmd.MarkFlagsMutuallyExclusive("template", "description")
@@ -281,6 +289,7 @@ func (o *options) complete(cmd *cobra.Command) {
 	}
 
 	o.pushSet = cmd.Flags().Changed("push")
+	o.repoOverridden = cmdutils.RepoOverrideValue(cmd) != ""
 }
 
 func (o *options) validate(cmd *cobra.Command) error {
@@ -323,8 +332,22 @@ func parseIssue(apiClientFunc func(repoHost string) (*api.Client, error), gitlab
 	return issue, nil
 }
 
+func (o *options) listTemplates(ctx context.Context, client *gitlab.Client) ([]string, error) {
+	if o.templateProject == "" {
+		return cmdutils.ListGitLabTemplates(cmdutils.MergeRequestTemplate)
+	}
+	return cmdutils.ListGitLabTemplatesRemote(ctx, client, o.templateProject, cmdutils.MergeRequestTemplate)
+}
+
+func (o *options) loadTemplate(ctx context.Context, client *gitlab.Client, name string) (string, error) {
+	if o.templateProject == "" {
+		return cmdutils.LoadGitLabTemplate(cmdutils.MergeRequestTemplate, name)
+	}
+	return cmdutils.LoadGitLabTemplateRemote(ctx, client, o.templateProject, cmdutils.MergeRequestTemplate, name)
+}
+
 func (o *options) selectTemplate(ctx context.Context, client *gitlab.Client, getBaseRepoRemote func() (*glrepo.Remote, error)) (string, error) {
-	templateNames, err := cmdutils.ListGitLabTemplates(cmdutils.MergeRequestTemplate)
+	templateNames, err := o.listTemplates(ctx, client)
 	if err != nil {
 		return "", fmt.Errorf("error getting templates: %w", err)
 	}
@@ -372,7 +395,7 @@ func (o *options) selectTemplate(ctx context.Context, client *gitlab.Client, get
 			templateContents += "Signed-off-by: " + u.Name + " <" + u.Email + ">"
 		}
 	default:
-		templateContents, err = cmdutils.LoadGitLabTemplate(cmdutils.MergeRequestTemplate, templateName)
+		templateContents, err = o.loadTemplate(ctx, client, templateName)
 		if err != nil {
 			return "", fmt.Errorf("failed to get template contents: %w", err)
 		}
@@ -408,6 +431,9 @@ func (o *options) run(ctx context.Context) error {
 	baseRepo, err := o.baseRepo()
 	if err != nil {
 		return err
+	}
+	if o.repoOverridden {
+		o.templateProject = baseRepo.FullName()
 	}
 
 	headRepo, err := o.headRepo()
@@ -558,9 +584,12 @@ func (o *options) run(ctx context.Context) error {
 		}
 
 		if o.Template != "" && o.Description == "" {
-			content, err := cmdutils.LoadGitLabTemplate(cmdutils.MergeRequestTemplate, o.Template)
+			content, err := o.loadTemplate(ctx, client, o.Template)
 			if err != nil {
 				return err
+			}
+			if content == "" && o.templateProject != "" {
+				return fmt.Errorf("template %q not found in project %s", o.Template, o.templateProject)
 			}
 			if content == "" {
 				return fmt.Errorf("template %q not found in .gitlab/merge_request_templates/", o.Template)

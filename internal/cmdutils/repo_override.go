@@ -6,15 +6,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// RepoOverrideValue returns the repository set with -R/--repo or, failing
+// that, GITLAB_REPO. It is empty when the repository is not overridden.
+func RepoOverrideValue(cmd *cobra.Command) string {
+	if flag := cmd.Flags().Lookup("repo"); flag != nil && flag.Value.String() != "" {
+		return flag.Value.String()
+	}
+	return os.Getenv("GITLAB_REPO")
+}
+
 func ApplyRepoOverride(cmd *cobra.Command, f Factory) error {
-	repoOverride, err := cmd.Flags().GetString("repo")
-	if err != nil {
-		return err
-	}
-	if repoFromEnv := os.Getenv("GITLAB_REPO"); repoOverride == "" && repoFromEnv != "" {
-		repoOverride = repoFromEnv
-	}
-	if repoOverride != "" {
+	if repoOverride := RepoOverrideValue(cmd); repoOverride != "" {
 		return f.RepoOverride(repoOverride)
 	}
 	return nil

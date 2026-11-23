@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,8 +21,10 @@ import (
 	"github.com/acarl005/stripansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	gitlabtesting "gitlab.com/gitlab-org/api/client-go/v3/testing"
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/git"
@@ -1498,5 +1501,114 @@ func TestLoadGitLabTemplate(t *testing.T) {
 			_, err := LoadGitLabTemplate(IssueTemplate, file)
 			assert.ErrorContains(t, err, "is empty")
 		}
+	})
+}
+
+func TestListGitLabTemplatesRemote(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns sorted names without duplicates", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockProjectTemplates.EXPECT().
+			ListTemplates("group/project", "merge_requests", gomock.Any(), gomock.Any()).
+			Return([]*gitlab.ProjectTemplate{{Name: "group default"}, {Name: "Default"}, {Name: "group default"}}, &gitlab.Response{}, nil)
+
+		got, err := ListGitLabTemplatesRemote(t.Context(), tc.Client, "group/project", MergeRequestTemplate)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Default", "group default"}, got)
+	})
+
+	t.Run("project without templates returns empty list", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockProjectTemplates.EXPECT().
+			ListTemplates("group/project", "issues", gomock.Any(), gomock.Any()).
+			Return([]*gitlab.ProjectTemplate{}, &gitlab.Response{}, nil)
+
+		got, err := ListGitLabTemplatesRemote(t.Context(), tc.Client, "group/project", IssueTemplate)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("API error is returned", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockProjectTemplates.EXPECT().
+			ListTemplates("group/project", "issues", gomock.Any(), gomock.Any()).
+			Return(nil, nil, &gitlab.ErrorResponse{StatusCode: http.StatusForbidden})
+
+		_, err := ListGitLabTemplatesRemote(t.Context(), tc.Client, "group/project", IssueTemplate)
+		assert.True(t, gitlab.HasStatusCode(err, http.StatusForbidden))
+	})
+}
+
+func TestLoadGitLabTemplateRemote(t *testing.T) {
+	t.Parallel()
+
+	t.Run("name is escaped and extension stripped", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockProjectTemplates.EXPECT().
+			GetProjectTemplate("group/project", "issues", "Feature%20Request", gomock.Any()).
+			Return(&gitlab.ProjectTemplate{Name: "Feature Request", Content: "\nremote template\n"}, nil, nil)
+
+		got, err := LoadGitLabTemplateRemote(t.Context(), tc.Client, "group/project", IssueTemplate, "Feature Request.md")
+		require.NoError(t, err)
+		assert.Equal(t, "remote template", got)
+	})
+
+	t.Run("merge request template uses merge request type", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockProjectTemplates.EXPECT().
+			GetProjectTemplate("group/project", "merge_requests", "Default", gomock.Any()).
+			Return(&gitlab.ProjectTemplate{Name: "Default", Content: "mr template"}, nil, nil)
+
+		got, err := LoadGitLabTemplateRemote(t.Context(), tc.Client, "group/project", MergeRequestTemplate, "Default")
+		require.NoError(t, err)
+		assert.Equal(t, "mr template", got)
+	})
+
+	t.Run("missing template returns empty string", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockProjectTemplates.EXPECT().
+			GetProjectTemplate("group/project", "issues", "nonexistent", gomock.Any()).
+			Return(nil, nil, &gitlab.ErrorResponse{StatusCode: http.StatusNotFound})
+
+		got, err := LoadGitLabTemplateRemote(t.Context(), tc.Client, "group/project", IssueTemplate, "nonexistent")
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("API error is returned", func(t *testing.T) {
+		t.Parallel()
+
+		tc := gitlabtesting.NewTestClient(t)
+		tc.MockProjectTemplates.EXPECT().
+			GetProjectTemplate("group/project", "issues", "bug", gomock.Any()).
+			Return(nil, nil, &gitlab.ErrorResponse{StatusCode: http.StatusForbidden})
+
+		_, err := LoadGitLabTemplateRemote(t.Context(), tc.Client, "group/project", IssueTemplate, "bug")
+		assert.True(t, gitlab.HasStatusCode(err, http.StatusForbidden))
+	})
+
+	t.Run("path is read locally without calling the API", func(t *testing.T) {
+		t.Parallel()
+
+		file := filepath.Join(t.TempDir(), "bug.md")
+		require.NoError(t, os.WriteFile(file, []byte("local template"), 0o644))
+		tc := gitlabtesting.NewTestClient(t)
+
+		got, err := LoadGitLabTemplateRemote(t.Context(), tc.Client, "group/project", IssueTemplate, file)
+		require.NoError(t, err)
+		assert.Equal(t, "local template", got)
 	})
 }
