@@ -43,7 +43,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "delete [<id> | <branch>] <draft-note-id>",
+		// fang moves bracketed args to the end unless one trails them
+		Use:   "delete [<id> | <branch>] <draft-note-id> [-R <repo>]",
 		Short: "Delete one of your pending review comments from a merge request. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`
 			Discard a pending review comment before you publish the review. %[1]s<draft-note-id>%[1]s is the ID printed by %[1]sglab mr note draft create%[1]s or listed by %[1]sglab mr note draft list%[1]s.

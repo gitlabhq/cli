@@ -66,7 +66,8 @@ func newResolveCmd(f cmdutils.Factory, resolve bool) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   fmt.Sprintf("%s [<id> | <branch>] <discussion-id>", action),
+		// fang moves bracketed args to the end unless one trails them
+		Use:   fmt.Sprintf("%s [<id> | <branch>] <discussion-id> [-R <repo>]", action),
 		Short: fmt.Sprintf("%s a discussion on a merge request. (EXPERIMENTAL)", capitalize(action)),
 		Long: heredoc.Docf(`
 			%s a discussion on a merge request.

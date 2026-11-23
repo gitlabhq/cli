@@ -46,7 +46,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "update [<id> | <branch>] <draft-note-id>",
+		// fang moves bracketed args to the end unless one trails them
+		Use:   "update [<id> | <branch>] <draft-note-id> [-R <repo>]",
 		Short: "Update the body of one of your pending review comments. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`
 			Replace the body of a pending review comment before you publish the review. %[1]s<draft-note-id>%[1]s is the ID printed by %[1]sglab mr note draft create%[1]s or listed by %[1]sglab mr note draft list%[1]s.
