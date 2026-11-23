@@ -3,7 +3,6 @@
 package view
 
 import (
-	"regexp"
 	"testing"
 	"time"
 
@@ -142,9 +141,7 @@ func Test_ReleaseView(t *testing.T) {
 			require.NoError(t, err)
 
 			// Normalize the time in the output
-			outStr := out.String()
-			timeRE := regexp.MustCompile(`\d+ years`)
-			outStr = timeRE.ReplaceAllString(outStr, "X years")
+			outStr := cmdtest.NormalizeRelativeYears(out.String())
 
 			assert.Equal(t, expectedOut, outStr)
 			assert.Empty(t, out.Stderr())

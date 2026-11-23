@@ -4,7 +4,6 @@ package issues
 
 import (
 	"net/http"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -74,9 +73,7 @@ func TestMergeRequestClosesIssues_byID(t *testing.T) {
 	// THEN
 	require.NoError(t, err)
 
-	out := output.String()
-	timeRE := regexp.MustCompile(`\d+ years`)
-	out = timeRE.ReplaceAllString(out, "X years")
+	out := cmdtest.NormalizeRelativeYears(output.String())
 
 	assert.Contains(t, out, "Showing 2 issues in OWNER/REPO that match your search.")
 	assert.Contains(t, out, "#11\tnew issue")
@@ -152,9 +149,7 @@ func TestMergeRequestClosesIssues_currentBranch(t *testing.T) {
 	// THEN
 	require.NoError(t, err)
 
-	out := output.String()
-	timeRE := regexp.MustCompile(`\d+ years`)
-	out = timeRE.ReplaceAllString(out, "X years")
+	out := cmdtest.NormalizeRelativeYears(output.String())
 
 	assert.Contains(t, out, "Showing 2 issues in OWNER/REPO that match your search.")
 	assert.Contains(t, out, "#11\tnew issue")
