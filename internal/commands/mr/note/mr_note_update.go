@@ -47,7 +47,8 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "update [<id> | <branch>] <note-id>",
+		// fang moves bracketed args to the end unless one trails them
+		Use:   "update [<id> | <branch>] <note-id> [-R <repo>]",
 		Short: "Update the body of a note on a merge request. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`
 			Replace the body of an existing note on a merge request.

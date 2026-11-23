@@ -31,7 +31,7 @@ For more information, see
 <https://docs.gitlab.com/policy/development_stages_support/>.
 
 ```plaintext
-glab mr note resolve [<id> | <branch>] <discussion-id> [flags]
+glab mr note resolve [<id> | <branch>] <discussion-id> [-R <repo>] [flags]
 ```
 
 ## Examples

@@ -45,7 +45,8 @@ func NewCmdDelete(f cmdutils.Factory) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "delete [<id> | <branch>] <note-id>",
+		// fang moves bracketed args to the end unless one trails them
+		Use:   "delete [<id> | <branch>] <note-id> [-R <repo>]",
 		Short: "Delete a note from a merge request. (EXPERIMENTAL)",
 		Long: heredoc.Docf(`
 			Permanently delete a note from a merge request.

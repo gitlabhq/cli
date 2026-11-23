@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/fang/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
@@ -187,6 +188,45 @@ func TestAnnotatedCommandHelpShowsAnnotationSections(t *testing.T) {
 			for _, s := range help.AnnotationSections(c) {
 				assert.Contains(t, stdout.String(), strings.ToUpper(s.Title))
 			}
+		})
+	}
+}
+
+// fang's help renderer moves bracketed args after required ones unless a
+// bracketed token trails them.
+func TestMRNoteHelpKeepsMergeRequestBeforeID(t *testing.T) {
+	tests := []struct {
+		args []string
+		id   string
+	}{
+		{args: []string{"mr", "note", "update"}, id: "<note-id>"},
+		{args: []string{"mr", "note", "delete"}, id: "<note-id>"},
+		{args: []string{"mr", "note", "resolve"}, id: "<discussion-id>"},
+		{args: []string{"mr", "note", "reopen"}, id: "<discussion-id>"},
+		{args: []string{"mr", "note", "draft", "update"}, id: "<draft-note-id>"},
+		{args: []string{"mr", "note", "draft", "delete"}, id: "<draft-note-id>"},
+	}
+
+	for _, tc := range tests {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			ios, _, stdout, _ := cmdtest.TestIOStreams()
+			rootCmd := NewCmdRoot(cmdtest.NewTestFactory(ios))
+			rootCmd.SetOut(stdout)
+			rootCmd.SetArgs(append(tc.args, "--help"))
+
+			require.NoError(t, fang.Execute(t.Context(), rootCmd, fang.WithoutCompletions(), fang.WithoutManpage()))
+
+			var usage string
+			for line := range strings.Lines(stdout.String()) {
+				if strings.Contains(line, "glab "+strings.Join(tc.args, " ")+" ") {
+					usage = line
+					break
+				}
+			}
+			require.NotEmpty(t, usage, "usage line not found in:\n%s", stdout.String())
+			mr := strings.Index(usage, "[<id> | <branch>]")
+			require.GreaterOrEqual(t, mr, 0, usage)
+			assert.Less(t, mr, strings.Index(usage, tc.id), usage)
 		})
 	}
 }
