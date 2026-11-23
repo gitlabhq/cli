@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"git.sr.ht/~timofurrer/ugh"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,6 +227,124 @@ func TestIssueCreate_TemplateNotFound(t *testing.T) {
 
 	_, err := exec(`--title "Test Issue" --template nonexistent --yes`)
 	assert.ErrorContains(t, err, `template "nonexistent" not found in .gitlab/issue_templates/`)
+}
+
+// newCmdWithRepoOverride registers -R/--repo, which production code inherits
+// from the parent command.
+func newCmdWithRepoOverride(f cmdutils.Factory) *cobra.Command {
+	cmd := NewCmdCreate(f)
+	cmdutils.EnableRepoOverride(cmd, f)
+	return cmd
+}
+
+// stubLocalIssueTemplate makes a local "bug" template available, so tests can
+// assert that an overridden repository does not use it.
+func stubLocalIssueTemplate(t *testing.T) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	templateDir := filepath.Join(tmpDir, ".gitlab", "issue_templates")
+	require.NoError(t, os.MkdirAll(templateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(templateDir, "bug.md"), []byte("local template"), 0o644))
+
+	origToplevelDir := git.ToplevelDir
+	git.ToplevelDir = func() (string, error) { return tmpDir, nil }
+	t.Cleanup(func() { git.ToplevelDir = origToplevelDir })
+}
+
+func expectRemoteIssueCreate(t *testing.T, tc *gitlabtesting.TestClient, wantDescription string) {
+	t.Helper()
+	tc.MockProjects.EXPECT().
+		GetProject("group/project", gomock.Any()).
+		Return(&gitlab.Project{ID: 1, PathWithNamespace: "group/project", IssuesEnabled: true}, nil, nil)
+	tc.MockIssues.EXPECT().
+		CreateIssue("group/project", gomock.Any()).
+		DoAndReturn(func(_ any, opts *gitlab.CreateIssueOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.Issue, *gitlab.Response, error) {
+			assert.Equal(t, wantDescription, *opts.Description)
+			return &gitlab.Issue{IID: 1, Title: "Test Issue", WebURL: "https://gitlab.com/group/project/-/issues/1"}, nil, nil
+		})
+}
+
+func TestIssueCreate_TemplateFromRepoOverride(t *testing.T) {
+	// Cannot use t.Parallel(): test mutates git.ToplevelDir, a package-level variable.
+	t.Setenv("GITLAB_REPO", "")
+	stubLocalIssueTemplate(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjectTemplates.EXPECT().
+		GetProjectTemplate("group/project", "issues", "bug", gomock.Any()).
+		Return(&gitlab.ProjectTemplate{Name: "bug", Content: "remote template"}, nil, nil)
+	expectRemoteIssueCreate(t, tc, "remote template")
+
+	exec := cmdtest.SetupCmdForTest(t, newCmdWithRepoOverride, false, cmdtest.WithGitLabClient(tc.Client))
+
+	output, err := exec(`-R group/project --title "Test Issue" --template bug --yes`)
+	require.NoError(t, err)
+	assert.Contains(t, output.String(), "https://gitlab.com/group/project/-/issues/1")
+}
+
+func TestIssueCreate_TemplateFromRepoEnvironmentVariable(t *testing.T) {
+	// Cannot use t.Parallel(): test mutates git.ToplevelDir, a package-level variable.
+	t.Setenv("GITLAB_REPO", "group/project")
+	stubLocalIssueTemplate(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjectTemplates.EXPECT().
+		GetProjectTemplate("group/project", "issues", "bug", gomock.Any()).
+		Return(&gitlab.ProjectTemplate{Name: "bug", Content: "remote template"}, nil, nil)
+	expectRemoteIssueCreate(t, tc, "remote template")
+
+	exec := cmdtest.SetupCmdForTest(t, newCmdWithRepoOverride, false, cmdtest.WithGitLabClient(tc.Client))
+
+	_, err := exec(`--title "Test Issue" --template bug --yes`)
+	require.NoError(t, err)
+}
+
+func TestIssueCreate_TemplateFromRepoOverrideNotFound(t *testing.T) {
+	// Cannot use t.Parallel(): test mutates git.ToplevelDir, a package-level variable.
+	t.Setenv("GITLAB_REPO", "")
+	stubLocalIssueTemplate(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjects.EXPECT().
+		GetProject("group/project", gomock.Any()).
+		Return(&gitlab.Project{ID: 1, PathWithNamespace: "group/project", IssuesEnabled: true}, nil, nil)
+	tc.MockProjectTemplates.EXPECT().
+		GetProjectTemplate("group/project", "issues", "bug", gomock.Any()).
+		Return(nil, nil, &gitlab.ErrorResponse{StatusCode: http.StatusNotFound})
+
+	exec := cmdtest.SetupCmdForTest(t, newCmdWithRepoOverride, false, cmdtest.WithGitLabClient(tc.Client))
+
+	_, err := exec(`-R group/project --title "Test Issue" --template bug --yes`)
+	assert.EqualError(t, err, `template "bug" not found in project group/project`)
+}
+
+func TestIssueCreate_SelectTemplateFromRepoOverride(t *testing.T) {
+	// Cannot use t.Parallel(): test mutates git.ToplevelDir, a package-level variable.
+	t.Setenv("GITLAB_REPO", "")
+	stubLocalIssueTemplate(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjectTemplates.EXPECT().
+		ListTemplates("group/project", "issues", gomock.Any(), gomock.Any()).
+		Return([]*gitlab.ProjectTemplate{{Name: "Feature Request"}, {Name: "Bug"}}, &gitlab.Response{}, nil)
+	tc.MockProjectTemplates.EXPECT().
+		GetProjectTemplate("group/project", "issues", "Feature%20Request", gomock.Any()).
+		Return(&gitlab.ProjectTemplate{Name: "Feature Request", Content: "remote feature template"}, nil, nil)
+	expectRemoteIssueCreate(t, tc, "remote feature template")
+
+	c := ugh.New(t)
+	c.Expect(ugh.Select("Choose a template")).
+		Do(ugh.SelectOption("Feature Request"))
+	c.Expect(ugh.Text("Description")).
+		Do(ugh.PressEnter)
+
+	exec := cmdtest.SetupCmdForTest(t, newCmdWithRepoOverride, true,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithConsole(t, c),
+	)
+
+	_, err := exec(`-R group/project --title "Test Issue" --yes`)
+	require.NoError(t, err)
 }
 
 func TestIssueCreate_TemplateMutuallyExclusiveWithDescription(t *testing.T) {

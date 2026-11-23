@@ -1985,6 +1985,152 @@ func TestMRCreate_TemplateDirectoryError(t *testing.T) {
 	assert.ErrorContains(t, err, "error getting templates")
 }
 
+// newCmdWithRepoOverride runs mr create without a local clone, with
+// -R/--repo registered as the parent command does in production.
+func newCmdWithRepoOverride(t *testing.T) func(f cmdutils.Factory) *cobra.Command {
+	t.Helper()
+	return func(f cmdutils.Factory) *cobra.Command {
+		tf, ok := f.(*cmdtest.Factory)
+		require.True(t, ok, "expected cmdtest.Factory")
+		tf.RemotesStub = func() (glrepo.Remotes, error) {
+			return nil, fmt.Errorf("%w: fatal: not a git repository (or any of the parent directories): .git", git.ErrNotAGitRepository)
+		}
+		tf.BranchStub = func() (string, error) {
+			return "", errors.New("fatal: not a git repository (or any of the parent directories): .git")
+		}
+
+		cmd := NewCmdCreate(f)
+		cmdutils.EnableRepoOverride(cmd, f)
+		return cmd
+	}
+}
+
+// stubLocalMRTemplate makes a local "bug_fix" template available, so tests
+// can assert that an overridden repository does not use it.
+func stubLocalMRTemplate(t *testing.T) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	templateDir := filepath.Join(tmpDir, ".gitlab", "merge_request_templates")
+	require.NoError(t, os.MkdirAll(templateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(templateDir, "bug_fix.md"), []byte("local template"), 0o644))
+
+	origToplevelDir := git.ToplevelDir
+	git.ToplevelDir = func() (string, error) { return tmpDir, nil }
+	t.Cleanup(func() { git.ToplevelDir = origToplevelDir })
+}
+
+func expectRemoteProject(tc *gitlabtesting.TestClient) {
+	tc.MockProjects.EXPECT().
+		GetProject("group/project", gomock.Any()).
+		Return(&gitlab.Project{
+			ID:                   1,
+			DefaultBranch:        "main",
+			WebURL:               "https://gitlab.com/group/project",
+			MergeRequestsEnabled: true,
+			PathWithNamespace:    "group/project",
+		}, nil, nil).AnyTimes()
+}
+
+func expectRemoteMRCreate(t *testing.T, tc *gitlabtesting.TestClient, wantDescription string) {
+	t.Helper()
+	expectRemoteProject(tc)
+	tc.MockMergeRequests.EXPECT().
+		CreateMergeRequest("group/project", gomock.Any()).
+		DoAndReturn(func(_ any, opts *gitlab.CreateMergeRequestOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, *gitlab.Response, error) {
+			assert.Equal(t, wantDescription, *opts.Description)
+			return &gitlab.MergeRequest{
+				BasicMergeRequest: gitlab.BasicMergeRequest{
+					IID:          12,
+					Title:        "Fix the bug",
+					SourceBranch: "feature",
+					TargetBranch: "main",
+					WebURL:       "https://gitlab.com/group/project/-/merge_requests/12",
+				},
+			}, nil, nil
+		})
+}
+
+func TestMRCreate_TemplateFromRepoOverride(t *testing.T) {
+	// Cannot use t.Parallel(): test mutates git.ToplevelDir, a package-level variable.
+	t.Setenv("GITLAB_REPO", "")
+	stubLocalMRTemplate(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjectTemplates.EXPECT().
+		GetProjectTemplate("group/project", "merge_requests", "bug_fix", gomock.Any()).
+		Return(&gitlab.ProjectTemplate{Name: "bug_fix", Content: "remote template"}, nil, nil)
+	expectRemoteMRCreate(t, tc, "remote template")
+
+	exec := cmdtest.SetupCmdForTest(t, newCmdWithRepoOverride(t), false, cmdtest.WithGitLabClient(tc.Client))
+
+	output, err := exec(`-R group/project --source-branch feature --target-branch main --title "Fix the bug" --template bug_fix --yes`)
+	require.NoError(t, err)
+	assert.Contains(t, output.String(), "https://gitlab.com/group/project/-/merge_requests/12")
+}
+
+func TestMRCreate_TemplateFromRepoEnvironmentVariable(t *testing.T) {
+	// Cannot use t.Parallel(): test mutates git.ToplevelDir, a package-level variable.
+	t.Setenv("GITLAB_REPO", "group/project")
+	stubLocalMRTemplate(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjectTemplates.EXPECT().
+		GetProjectTemplate("group/project", "merge_requests", "bug_fix", gomock.Any()).
+		Return(&gitlab.ProjectTemplate{Name: "bug_fix", Content: "remote template"}, nil, nil)
+	expectRemoteMRCreate(t, tc, "remote template")
+
+	exec := cmdtest.SetupCmdForTest(t, newCmdWithRepoOverride(t), false, cmdtest.WithGitLabClient(tc.Client))
+
+	_, err := exec(`--source-branch feature --target-branch main --title "Fix the bug" --template bug_fix --yes`)
+	require.NoError(t, err)
+}
+
+func TestMRCreate_TemplateFromRepoOverrideNotFound(t *testing.T) {
+	// Cannot use t.Parallel(): test mutates git.ToplevelDir, a package-level variable.
+	t.Setenv("GITLAB_REPO", "")
+	stubLocalMRTemplate(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	expectRemoteProject(tc)
+	tc.MockProjectTemplates.EXPECT().
+		GetProjectTemplate("group/project", "merge_requests", "bug_fix", gomock.Any()).
+		Return(nil, nil, &gitlab.ErrorResponse{StatusCode: http.StatusNotFound})
+
+	exec := cmdtest.SetupCmdForTest(t, newCmdWithRepoOverride(t), false, cmdtest.WithGitLabClient(tc.Client))
+
+	_, err := exec(`-R group/project --source-branch feature --target-branch main --title "Fix the bug" --template bug_fix --yes`)
+	assert.EqualError(t, err, `template "bug_fix" not found in project group/project`)
+}
+
+func TestMRCreate_SelectTemplateFromRepoOverride(t *testing.T) {
+	// Cannot use t.Parallel(): test mutates git.ToplevelDir, a package-level variable.
+	t.Setenv("GITLAB_REPO", "")
+	stubLocalMRTemplate(t)
+
+	tc := gitlabtesting.NewTestClient(t)
+	tc.MockProjectTemplates.EXPECT().
+		ListTemplates("group/project", "merge_requests", gomock.Any(), gomock.Any()).
+		Return([]*gitlab.ProjectTemplate{{Name: "Security Fix"}, {Name: "Default"}}, &gitlab.Response{}, nil)
+	tc.MockProjectTemplates.EXPECT().
+		GetProjectTemplate("group/project", "merge_requests", "Security%20Fix", gomock.Any()).
+		Return(&gitlab.ProjectTemplate{Name: "Security Fix", Content: "remote security template"}, nil, nil)
+	expectRemoteMRCreate(t, tc, "remote security template")
+
+	c := ugh.New(t)
+	c.Expect(ugh.Select("Choose a template:")).
+		Do(ugh.SelectOption("Security Fix"))
+	c.Expect(ugh.Text("Description")).
+		Do(ugh.PressEnter)
+
+	exec := cmdtest.SetupCmdForTest(t, newCmdWithRepoOverride(t), true,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithConsole(t, c),
+	)
+
+	_, err := exec(`-R group/project --source-branch feature --target-branch main --title "Fix the bug" --yes`)
+	require.NoError(t, err)
+}
+
 func TestNewCmdCreate_WithTemplate(t *testing.T) {
 	// Cannot use t.Parallel(): test mutates git.ToplevelDir, a package-level variable.
 	t.Setenv("NO_COLOR", "true")

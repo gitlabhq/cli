@@ -62,6 +62,10 @@ type options struct {
 	// Unexported, so a recovery file keeps the description the user wrote.
 	body string
 
+	// templateProject is set when the repository is overridden, so templates
+	// come from that project rather than the local checkout.
+	templateProject string
+
 	noEditor    bool
 	needsPrompt bool
 	yes         bool
@@ -110,6 +114,9 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 			glab issue create -t "Bug Report" --template bug
 			glab issue create -t "Feature Request" --template feature_proposal.md --yes
 
+			# Use a template of another project, from its default branch
+			glab issue create -R group/project -t "Bug Report" --template bug
+
 			# Use a template file from outside the repository
 			glab issue create -t "Bug Report" --template ~/team-templates/bug.md
 
@@ -139,6 +146,10 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 
 			if err := cmdutils.ResolveDescriptionFile(opts.io, cmd); err != nil {
 				return err
+			}
+
+			if cmdutils.RepoOverrideValue(cmd) != "" {
+				opts.templateProject = repo.FullName()
 			}
 
 			hasTitle := cmd.Flags().Changed("title")
@@ -204,7 +215,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	issueCreateCmd.Flags().BoolVar(&opts.recover, "recover", false, "Save the options to a file if the issue fails to be created. If the file exists, the options will be loaded from the recovery file. (EXPERIMENTAL)")
 	issueCreateCmd.Flags().Int64VarP(&opts.EpicID, "epic", "", 0, "ID of the epic to add the issue to.")
 	issueCreateCmd.Flags().StringVarP(&opts.DueDate, "due-date", "", "", "A date in 'YYYY-MM-DD' format.")
-	issueCreateCmd.Flags().StringVar(&opts.Template, "template", "", "Template to pre-populate the description. A name is looked up in '.gitlab/issue_templates/' of the local repository, and the '.md' extension is optional. A value that is absolute or contains a path separator is read as a file path, for example '~/templates/bug.md'.")
+	issueCreateCmd.Flags().StringVar(&opts.Template, "template", "", "Template to pre-populate the description. A name is looked up in '.gitlab/issue_templates/' of the local repository or, with --repo, among the templates of that project on its default branch. The '.md' extension is optional. A value that is absolute or contains a path separator is read as a local file path, for example '~/templates/bug.md'.")
 	cmdutils.AddDescriptionFileFlag(issueCreateCmd, "issue")
 	issueCreateCmd.MarkFlagsMutuallyExclusive("template", "description")
 	issueCreateCmd.MarkFlagsMutuallyExclusive("template", "description-file")
@@ -212,8 +223,22 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	return issueCreateCmd
 }
 
-func (o *options) selectTemplate(ctx context.Context) (string, error) {
-	templateNames, err := cmdutils.ListGitLabTemplates(cmdutils.IssueTemplate)
+func (o *options) listTemplates(ctx context.Context, client *gitlab.Client) ([]string, error) {
+	if o.templateProject == "" {
+		return cmdutils.ListGitLabTemplates(cmdutils.IssueTemplate)
+	}
+	return cmdutils.ListGitLabTemplatesRemote(ctx, client, o.templateProject, cmdutils.IssueTemplate)
+}
+
+func (o *options) loadTemplate(ctx context.Context, client *gitlab.Client, name string) (string, error) {
+	if o.templateProject == "" {
+		return cmdutils.LoadGitLabTemplate(cmdutils.IssueTemplate, name)
+	}
+	return cmdutils.LoadGitLabTemplateRemote(ctx, client, o.templateProject, cmdutils.IssueTemplate, name)
+}
+
+func (o *options) selectTemplate(ctx context.Context, client *gitlab.Client) (string, error) {
+	templateNames, err := o.listTemplates(ctx, client)
 	if err != nil {
 		return "", fmt.Errorf("error getting templates: %w", err)
 	}
@@ -230,7 +255,7 @@ func (o *options) selectTemplate(ctx context.Context) (string, error) {
 		return "", nil // Return empty string for blank issue
 	}
 
-	templateContents, err := cmdutils.LoadGitLabTemplate(cmdutils.IssueTemplate, selectedTemplate)
+	templateContents, err := o.loadTemplate(ctx, client, selectedTemplate)
 	if err != nil {
 		return "", fmt.Errorf("failed to get template contents: %w", err)
 	}
@@ -273,16 +298,19 @@ var createRun = func(ctx context.Context, opts *options) error {
 
 	// Handle -d- flag: show template selection first, then open editor
 	err = cmdutils.HandleDescriptionEditor(ctx, &opts.Description, opts.io, opts.config, func(ctx context.Context) (string, error) {
-		return opts.selectTemplate(ctx)
+		return opts.selectTemplate(ctx, apiClient)
 	})
 	if err != nil {
 		return err
 	}
 
 	if opts.Template != "" && opts.Description == "" {
-		content, err := cmdutils.LoadGitLabTemplate(cmdutils.IssueTemplate, opts.Template)
+		content, err := opts.loadTemplate(ctx, apiClient, opts.Template)
 		if err != nil {
 			return err
+		}
+		if content == "" && opts.templateProject != "" {
+			return fmt.Errorf("template %q not found in project %s", opts.Template, opts.templateProject)
 		}
 		if content == "" {
 			return fmt.Errorf("template %q not found in .gitlab/issue_templates/", opts.Template)
@@ -293,7 +321,7 @@ var createRun = func(ctx context.Context, opts *options) error {
 	if opts.needsPrompt {
 		// Step 1: Template selection (if not using --no-editor and description is empty)
 		if opts.Description == "" && !opts.noEditor {
-			templateContents, err = opts.selectTemplate(ctx)
+			templateContents, err = opts.selectTemplate(ctx, apiClient)
 			if err != nil {
 				return err
 			}
