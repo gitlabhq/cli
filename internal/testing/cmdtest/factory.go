@@ -2,6 +2,8 @@ package cmdtest
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	io "io"
 	"runtime"
 	"testing"
@@ -79,6 +81,7 @@ func NewTestFactory(ios *iostreams.IOStreams, opts ...FactoryOption) *Factory {
 		BuildInfoStub:       api.BuildInfo{Version: "test", Commit: "test", Platform: runtime.GOOS, Architecture: runtime.GOARCH},
 		DefaultHostnameStub: glinstance.DefaultHostname,
 		GitRunnerStub:       git.StandardGitCommand{},
+		ExecutorStub:        failingExecutor{},
 	}
 
 	// Apply all options
@@ -307,6 +310,24 @@ func WithIOStreamsOverride(ios *iostreams.IOStreams) FactoryOption {
 	return func(f *Factory) {
 		f.IOStub = ios
 	}
+}
+
+var errNoExecutor = errors.New("no executor configured in the test factory; use cmdtest.WithExecutor")
+
+// failingExecutor is the default Executor, so a test that forgot
+// WithExecutor fails with an error instead of a nil pointer panic.
+type failingExecutor struct{}
+
+func (failingExecutor) LookPath(string) (string, error) { return "", errNoExecutor }
+
+func (failingExecutor) Exec(context.Context, string, []string, []string) error { return errNoExecutor }
+
+func (failingExecutor) ExecWithCombinedOutput(context.Context, string, []string, []string) ([]byte, error) {
+	return nil, errNoExecutor
+}
+
+func (failingExecutor) ExecWithIO(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return errNoExecutor
 }
 
 func WithExecutor(exec cmdutils.Executor) FactoryOption {
