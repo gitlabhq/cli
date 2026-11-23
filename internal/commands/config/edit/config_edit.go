@@ -1,6 +1,7 @@
 package edit
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/MakeNowJust/heredoc/v2"
@@ -67,6 +68,9 @@ func (o *options) run() error {
 
 	if o.isLocal {
 		configPath = config.LocalConfigFile()
+		if configPath == "" {
+			return errors.New("not a Git repository")
+		}
 	} else {
 		configPath = fmt.Sprintf("%s/config.yml", config.ConfigDir())
 	}

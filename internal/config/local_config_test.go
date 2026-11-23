@@ -31,11 +31,11 @@ func Test_InMemoryConfig_LocalSetDoesNotPersist(t *testing.T) {
 }
 
 func Test_GitDir(t *testing.T) {
-	gotRelative := filepath.Join(GitDir(true)...)
-	gotAbsolute := filepath.Join(GitDir(false)...)
-	absRelative, err := filepath.Abs(gotRelative)
+	gotRelative, _ := GitDir(true)
+	gotAbsolute, _ := GitDir(false)
+	absRelative, err := filepath.Abs(filepath.Join(gotRelative...))
 	require.NoError(t, err)
-	assert.Equal(t, gotAbsolute, absRelative)
+	assert.Equal(t, filepath.Join(gotAbsolute...), absRelative)
 }
 
 // chdirTwoLevelsIntoNewRepo keeps the expected relative paths independent of the
@@ -108,7 +108,9 @@ func newRepoWithWorktree(t *testing.T) (string, string) {
 func Test_GitCommonDir_MatchesGitDirInANormalCheckout(t *testing.T) {
 	chdirTwoLevelsIntoNewRepo(t)
 
-	assert.Equal(t, filepath.Join(GitDir(true)...), filepath.Join(GitCommonDir(true)...),
+	gitDir, _ := GitDir(true)
+	commonDir, _ := GitCommonDir(true)
+	assert.Equal(t, filepath.Join(gitDir...), filepath.Join(commonDir...),
 		"outside a worktree the two directories are the same")
 }
 
@@ -137,7 +139,8 @@ func Test_LocalConfigFile_HonoursAnExistingPerWorktreeFile(t *testing.T) {
 	repo, worktree := newRepoWithWorktree(t)
 
 	t.Chdir(worktree)
-	perWorktreeDir := filepath.Join(GitDir(false)...)
+	gitDir, _ := GitDir(false)
+	perWorktreeDir := filepath.Join(gitDir...)
 	require.NotEqual(t, filepath.Join(repo, ".git"), perWorktreeDir,
 		"a linked worktree must have its own git dir for this case to mean anything")
 
@@ -148,4 +151,23 @@ func Test_LocalConfigFile_HonoursAnExistingPerWorktreeFile(t *testing.T) {
 	got, err := filepath.Abs(LocalConfigFile())
 	require.NoError(t, err)
 	assert.Equal(t, own, got)
+}
+
+func Test_LocalConfigFile_SkipsLocalConfigWhenGitRevParseFails(t *testing.T) {
+	repo, worktree := newRepoWithWorktree(t)
+
+	movedRepo := repo + "-moved"
+	require.NoError(t, os.Rename(repo, movedRepo))
+
+	t.Chdir(worktree)
+
+	got := LocalConfigFile()
+	assert.Empty(t, got, "should skip local config when git rev-parse fails")
+
+	configDir := t.TempDir()
+	t.Setenv("GLAB_CONFIG_DIR", configDir)
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yml"), []byte("editor: vim\n"), 0o600))
+
+	_, err := ParseDefaultConfig()
+	require.NoError(t, err, "config loading must succeed when git rev-parse fails")
 }
