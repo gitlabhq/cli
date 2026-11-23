@@ -230,12 +230,7 @@ func (o *options) run(ctx context.Context) error {
 	// Use terminal default colors instead of tview's hardcoded white-on-black theme.
 	tview.Styles = tview.Theme{}
 
-	root := tview.NewPages()
-	root.
-		SetBackgroundColor(tcell.ColorDefault).
-		SetBorderPadding(1, 1, 2, 2).
-		SetBorder(true).
-		SetTitle(fmt.Sprintf(" Pipeline #%d triggered %s by %s ", pipeline.ID, utils.TimeToPrettyTimeAgo(*pipeline.CreatedAt), pipeline.User.Name))
+	root := newPipelineViewRoot(pipeline)
 
 	boxes = make(map[string]*tview.TextView)
 	jobsCh := make(chan []*ViewJob)
@@ -269,6 +264,16 @@ func (o *options) run(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func newPipelineViewRoot(pipeline *gitlab.Pipeline) *tview.Pages {
+	root := tview.NewPages()
+	root.
+		SetBackgroundColor(tcell.ColorDefault).
+		SetBorderPadding(1, 1, 2, 2).
+		SetBorder(true).
+		SetTitle(fmt.Sprintf(" Pipeline #%d triggered %s by %s ", pipeline.ID, utils.TimeToPrettyTimeAgo(*pipeline.CreatedAt), pipeline.User.Name))
+	return root
 }
 
 // Styles for making the focused button visible

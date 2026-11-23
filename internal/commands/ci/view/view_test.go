@@ -1674,6 +1674,29 @@ func Test_bridgeWithoutDownstreamPipeline(t *testing.T) {
 	}
 }
 
+func TestPipelineViewHeaderShowsPipelineCreator(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Now().Add(-2 * time.Hour)
+	pipeline := &gitlab.Pipeline{
+		ID:        225,
+		CreatedAt: &createdAt,
+		User:      &gitlab.BasicUser{Name: "Pipeline Creator", Username: "pipeline-creator"},
+	}
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	require.NoError(t, screen.Init())
+	t.Cleanup(screen.Fini)
+	screen.SetSize(100, 10)
+	root := newPipelineViewRoot(pipeline)
+	root.SetRect(0, 0, 100, 10)
+	root.Draw(screen)
+
+	header, _, _ := strings.Cut(screenText(screen), "\n")
+	assert.Contains(t, header, "Pipeline #225 triggered")
+	assert.Contains(t, header, "by Pipeline Creator")
+}
+
 func TestCIView(t *testing.T) {
 	createdAt, _ := time.Parse(time.RFC3339, "2025-10-28T16:52:39.000+01:00")
 
