@@ -6,9 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 )
 
 type LocalConfig struct {
@@ -18,24 +21,25 @@ type LocalConfig struct {
 }
 
 // for later use we might prefer relative paths
-// GitDir will find a directory or just return ".git"
-func GitDir(preferRelative bool) []string {
+// GitDir returns the git directory path and whether git rev-parse succeeded.
+// When git cannot resolve the directory, it returns []string{".git"} and false.
+func GitDir(preferRelative bool) ([]string, bool) {
 	// `git rev-parse --git-dir` since git v1.2.2
 	return revParseDir("--git-dir", preferRelative)
 }
 
-// GitCommonDir will find the directory every linked worktree of a repository has
-// in common, or just return ".git". In a normal checkout it is the same directory
-// GitDir returns; in a linked worktree GitDir is .git/worktrees/<name> while this
-// is the main repository's .git. A submodule keeps its own, .git/modules/<name>.
-func GitCommonDir(preferRelative bool) []string {
+// GitCommonDir returns the shared git directory and whether git rev-parse succeeded.
+// In a normal checkout it equals GitDir; in a linked worktree GitDir is
+// .git/worktrees/<name> while this is the main .git. A submodule keeps its own.
+// When git cannot resolve the directory, it returns []string{".git"} and false.
+func GitCommonDir(preferRelative bool) ([]string, bool) {
 	// `git rev-parse --git-common-dir` since git v2.5, which introduced worktrees
 	return revParseDir("--git-common-dir", preferRelative)
 }
 
 // revParseDir resolves one `git rev-parse` directory flag to the caller's
 // preferred path form, falling back to ".git" when git cannot answer.
-func revParseDir(revParseFlag string, preferRelative bool) []string {
+func revParseDir(revParseFlag string, preferRelative bool) ([]string, bool) {
 	var err error
 	var out strings.Builder
 
@@ -44,8 +48,8 @@ func revParseDir(revParseFlag string, preferRelative bool) []string {
 	cmd.Stdout = &out
 	err = cmd.Run()
 	if err != nil {
-		// should fail
-		return []string{".git"}
+		dbg.Debugf("config: git rev-parse %s failed: %v", revParseFlag, err)
+		return []string{".git"}, false
 	}
 
 	gitDir := strings.TrimSpace(out.String())
@@ -56,11 +60,11 @@ func revParseDir(revParseFlag string, preferRelative bool) []string {
 			// but we prefer absolute
 			workDir, err := os.Getwd()
 			if err == nil {
-				return []string{workDir, gitDir}
+				return []string{workDir, gitDir}, true
 			}
 		}
 		// relative should work, cleaned because git answers with forward slashes
-		return []string{filepath.Clean(gitDir)}
+		return []string{filepath.Clean(gitDir)}, true
 	} else {
 		// gitDir is absolute
 		if preferRelative {
@@ -71,16 +75,16 @@ func revParseDir(revParseFlag string, preferRelative bool) []string {
 				relativeDir, err = filepath.Rel(workDir, gitDir)
 			}
 			if err == nil {
-				return []string{relativeDir}
+				return []string{relativeDir}, true
 			}
 		}
 		// absolute should work
-		return []string{gitDir}
+		return []string{gitDir}, true
 	}
 }
 
-// LocalConfigDir returns the local config path in map
-// which must be joined for complete path.
+// LocalConfigDir returns the local config path components, which must be joined
+// for the complete path. Returns nil when not in a valid Git repository.
 //
 // The shared git directory is used, so one repository has one local config that
 // every linked worktree reads and writes. Git itself shares .git/config the same
@@ -91,18 +95,30 @@ func revParseDir(revParseFlag string, preferRelative bool) []string {
 // before this change is still found. In a normal checkout the two directories are
 // the same and nothing changes.
 func LocalConfigDir() []string {
-	perWorktree := append(GitDir(true), "glab-cli")
-	if CheckFileExists(filepath.Join(append(perWorktree, "config.yml")...)) {
+	gitDir, ok := GitDir(true)
+	if !ok {
+		return nil // no valid repo, skip local config
+	}
+
+	perWorktree := slices.Concat(gitDir, []string{"glab-cli"})
+	configPath := filepath.Join(slices.Concat(perWorktree, []string{"config.yml"})...)
+	if CheckFileExists(configPath) {
 		return perWorktree
 	}
 
-	return append(GitCommonDir(true), "glab-cli")
+	commonDir, _ := GitCommonDir(true)
+
+	return append(commonDir, "glab-cli")
 }
 
-// LocalConfigFile returns the config file name with full path
+// LocalConfigFile returns the local config file path.
+// Returns an empty string when not in a valid Git repository.
 func LocalConfigFile() string {
-	configFile := append(LocalConfigDir(), "config.yml")
-	return filepath.Join(configFile...)
+	dir := LocalConfigDir()
+	if dir == nil {
+		return ""
+	}
+	return filepath.Join(append(dir, "config.yml")...)
 }
 
 func (a *LocalConfig) Get(key string) (string, bool) {
@@ -143,7 +159,8 @@ func (a *LocalConfig) Write() error {
 	}
 
 	// Check if it's a Git repository
-	if !CheckPathExists(filepath.Join(GitDir(true)...)) {
+	gitDir, ok := GitDir(true)
+	if !ok || !CheckPathExists(filepath.Join(gitDir...)) {
 		return errors.New("not a Git repository")
 	}
 

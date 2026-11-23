@@ -102,3 +102,17 @@ func TestConfigEdit_Options(t *testing.T) {
 		assert.False(t, localFlag)
 	})
 }
+
+func Test_ConfigEditLocal_ReturnsErrorOutsideRepo(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	io, _, _, _ := cmdtest.TestIOStreams()
+	f := cmdtest.NewTestFactory(io)
+
+	cmd := NewCmdEdit(f)
+	cmd.SetArgs([]string{"--local"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Equal(t, "not a Git repository", err.Error())
+}

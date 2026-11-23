@@ -124,8 +124,9 @@ func runCreateProject(cmd *cobra.Command, args []string, f cmdutils.Factory) err
 	readme, _ := cmd.Flags().GetBool("readme")
 
 	// Check if directory is already git initialized
-	gitDir := path.Join(config.GitDir(false)...)
-	stat, statErr := os.Stat(gitDir)
+	gitDir, _ := config.GitDir(false)
+	stat, statErr := os.Stat(path.Join(gitDir...))
+
 	isGitInitialized := statErr == nil && stat.Mode().IsDir()
 
 	// Determine if we need to set up a local repository in the current directory
@@ -351,8 +352,9 @@ func runCreateProject(cmd *cobra.Command, args []string, f cmdutils.Factory) err
 }
 
 func initGit() error {
-	gitDir := path.Join(config.GitDir(false)...)
-	if stat, err := os.Stat(gitDir); err == nil && stat.Mode().IsDir() {
+	gitDir, _ := config.GitDir(false)
+	stat, statErr := os.Stat(path.Join(gitDir...))
+	if statErr == nil && stat.Mode().IsDir() {
 		return nil
 	}
 
