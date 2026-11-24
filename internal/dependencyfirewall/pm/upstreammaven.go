@@ -1,7 +1,6 @@
 package pm
 
 import (
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"net"
@@ -29,26 +28,25 @@ func mavenUpstreamProxy(environ []string, dir string, args []string) (upstreamPr
 	cli := append(strings.Fields(lookupEnv(environ, "MAVEN_ARGS")), args...)
 	props := mavenProperties(environ, cli)
 
-	userFile, userSet := mavenOption(cli, "-s", "--settings", true)
-	if !userSet {
-		userFile = jvmJoin(javaUserHome(environ, props), ".m2", "settings.xml")
-	}
+	// Setup's lookup without .mvn/maven.config: a project must not choose the
+	// file that supplies proxy credentials.
+	base := mavenBaseDir(environ, dir, args)
+	userFile, _ := mavenUserSettingsFrom(environ, dir, args, base, nil)
 	globalFile, globalSet := mavenOption(cli, "-gs", "--global-settings", false)
-	if !globalSet {
+	if globalSet {
+		globalFile = expandMavenExpressions(globalFile, environ, dir, base, props)
+	} else {
 		globalFile = mavenGlobalSettings(environ, props)
 	}
 
 	files := newConfigFiles(dir)
 	var proxies []mavenProxy
 	ids := map[string]struct{}{}
-	for _, f := range []struct {
-		path     string
-		explicit bool
-	}{{userFile, userSet}, {globalFile, globalSet}} {
-		if f.path == "" {
+	for _, path := range []string{userFile, globalFile} {
+		if path == "" {
 			continue
 		}
-		fileProxies, err := readMavenSettings(files, f.path, f.explicit, environ, props)
+		fileProxies, err := readMavenSettings(files, path, environ, props)
 		if err != nil {
 			return upstreamProxy{}, false, err
 		}
@@ -146,12 +144,9 @@ func (p mavenProxy) upstream() (upstreamProxy, error) {
 }
 
 // readMavenSettings returns the <proxy> entries of the settings file at path,
-// or none when it is missing or inside the project. A file named with -s or
-// -gs must exist, as Maven requires.
-func readMavenSettings(files configFiles, path string, explicit bool, environ []string, props map[string]string) ([]mavenProxy, error) {
-	if explicit && !exists(path) {
-		return nil, fmt.Errorf("the settings file %s does not exist", path)
-	}
+// or none when it is missing or inside the project. Whether a missing -s stops
+// the run is Setup's decision, and mvn itself stops on a missing -gs.
+func readMavenSettings(files configFiles, path string, environ []string, props map[string]string) ([]mavenProxy, error) {
 	data, ok, err := files.read(path)
 	if !ok {
 		return nil, err
@@ -165,7 +160,11 @@ func mavenProxiesIn(path string, data []byte, environ []string, props map[string
 			Proxy []mavenProxy `xml:"proxy"`
 		} `xml:"proxies"`
 	}
-	if err := xml.Unmarshal(data, &settings); err != nil {
+	dec, err := newMavenXMLDecoder(data)
+	if err == nil {
+		err = dec.Decode(&settings)
+	}
+	if err != nil {
 		return nil, parseError(path, err)
 	}
 	if len(settings.Proxies) > 1 {

@@ -60,17 +60,17 @@ func TestMavenJobArgsEnvRejectsABadProxyURL(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Not parallel: it sets PATH, MAVEN_BASEDIR and changes the working directory.
+// Not parallel: it sets environment variables and changes the working directory.
 func TestMavenJobArgsEnvWarnsWhenTheGlobalSettingsCantBeResolved(t *testing.T) {
 	withSystemMavenRC(t)
 	mvn := fakeMavenInstall(t, filepath.Join(t.TempDir(), "maven"))
 	t.Setenv("PATH", filepath.Dir(mvn))
 	t.Setenv("MAVEN_ARGS", "")
-	// glab can't tell which .mvn/maven.config the launcher reads from here.
-	t.Setenv("MAVEN_BASEDIR", t.TempDir())
-	// Pin Maven's user.home (not HOME) so the user-proxy check can't read the
-	// dev's real ~/.m2/settings.xml and add a second warning.
-	t.Setenv("MAVEN_OPTS", "-Duser.home="+t.TempDir())
+	t.Setenv("MAVEN_BASEDIR", "")
+	// A moved maven.conf means the install's conf/settings.xml isn't the one
+	// mvn reads. Pinning Maven's user.home (not HOME) keeps the user-proxy
+	// check off the dev's real ~/.m2/settings.xml, which would add a warning.
+	t.Setenv("MAVEN_OPTS", "-Dmaven.conf=/srv/conf -Duser.home="+t.TempDir())
 	t.Chdir(t.TempDir())
 
 	var warned []string

@@ -164,9 +164,30 @@ func TestMavenUpstreamProxyFromSettings(t *testing.T) {
 			wantErr: "the proxy password is encrypted, which glab does not support",
 		},
 		{
-			name:    "a settings file named with -s must exist",
-			args:    []string{"-s", "$ROOT/missing.xml"},
-			wantErr: "missing.xml does not exist",
+			name: "a missing settings file named with -s is left to Setup",
+			args: []string{"-s", "$ROOT/missing.xml"},
+		},
+		{
+			name:   "-s expands ${env.NAME} as Maven does",
+			files:  map[string]string{"ci/settings.xml": mavenSettingsXML(corp)},
+			env:    []string{"CI_SETTINGS=$ROOT/ci"},
+			args:   []string{"-s", "${env.CI_SETTINGS}/settings.xml"},
+			want:   upstreamProxy{Source: "$ROOT/ci/settings.xml (proxy corp)", URL: "http://corp:3128"},
+			wantOK: true,
+		},
+		{
+			name:   "-gs expands ${env.NAME} as Maven does",
+			files:  map[string]string{"ci/global.xml": mavenSettingsXML(corp)},
+			env:    []string{"CI_GLOBAL=$ROOT/ci"},
+			args:   []string{"-gs", "${env.CI_GLOBAL}/global.xml"},
+			want:   upstreamProxy{Source: "$ROOT/ci/global.xml (proxy corp)", URL: "http://corp:3128"},
+			wantOK: true,
+		},
+		{
+			name:   "a settings file declared Latin-1 with ASCII content is read",
+			files:  map[string]string{"home/.m2/settings.xml": strings.Replace(mavenSettingsXML(corp), "<settings", "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n<settings", 1)},
+			want:   upstreamProxy{Source: "$ROOT/home/.m2/settings.xml (proxy corp)", URL: "http://corp:3128"},
+			wantOK: true,
 		},
 		{
 			name:    "malformed XML fails as in Maven",
@@ -383,7 +404,7 @@ func TestJVMConfigPathsThatResolveInsideTheProjectAreNotRead(t *testing.T) {
 			manager: Maven(),
 			env:     []string{userHome},
 			args:    []string{"-s", filepath.FromSlash("../../outside.xml")},
-			want:    upstreamProxy{Source: filepath.FromSlash("../../outside.xml") + " (proxy outside)", URL: "http://outside:2"},
+			want:    upstreamProxy{Source: filepath.Join(root, "outside.xml") + " (proxy outside)", URL: "http://outside:2"},
 			wantOK:  true,
 		},
 		{
@@ -669,4 +690,19 @@ func (m *mavenFetchExecutor) ExecWithIO(ctx context.Context, _ string, _ []strin
 		return fmt.Errorf("registry returned %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func TestMavenUpstreamProxyIgnoresMavenConfig(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	writeConfigFiles(t, root, map[string]string{
+		"proj/.git/HEAD":         "",
+		"proj/.mvn/maven.config": "-s\n" + filepath.Join(root, "outside.xml") + "\n",
+		"outside.xml":            mavenSettingsXML("<proxy><id>outside</id><host>outside</host><port>2</port></proxy>"),
+	}, func(s string) string { return s })
+
+	_, ok, err := mavenUpstreamProxy([]string{"MAVEN_OPTS=-Duser.home=" + filepath.Join(root, "home")}, filepath.Join(root, "proj"), []string{"verify"})
+
+	require.NoError(t, err)
+	assert.False(t, ok, "a project's maven.config must not choose the file that supplies proxy credentials")
 }
