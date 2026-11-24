@@ -33,16 +33,17 @@ type CmdFunc func(cmdutils.Factory) *cobra.Command
 type FactoryOption func(f *Factory)
 
 type Factory struct {
-	ApiClientStub    func(repoHost string) (*api.Client, error)
-	GitLabClientStub func() (*gitlab.Client, error)
-	BaseRepoStub     func() (glrepo.Interface, error)
-	RemotesStub      func() (glrepo.Remotes, error)
-	ConfigStub       func() config.Config
-	BranchStub       func() (string, error)
-	IOStub           *iostreams.IOStreams
-	BuildInfoStub    api.BuildInfo
-	ExecutorStub     cmdutils.Executor
-	GitRunnerStub    git.GitRunner
+	ApiClientStub       func(repoHost string) (*api.Client, error)
+	GitLabComClientStub func() (*api.Client, error)
+	GitLabClientStub    func() (*gitlab.Client, error)
+	BaseRepoStub        func() (glrepo.Interface, error)
+	RemotesStub         func() (glrepo.Remotes, error)
+	ConfigStub          func() config.Config
+	BranchStub          func() (string, error)
+	IOStub              *iostreams.IOStreams
+	BuildInfoStub       api.BuildInfo
+	ExecutorStub        cmdutils.Executor
+	GitRunnerStub       git.GitRunner
 
 	// DefaultHostnameStub is what the real factory resolves from GITLAB_HOST
 	// and the config before any command runs.
@@ -66,6 +67,9 @@ func NewTestFactory(ios *iostreams.IOStreams, opts ...FactoryOption) *Factory {
 	f := &Factory{
 		IOStub: ios,
 		ApiClientStub: func(repoHost string) (*api.Client, error) {
+			return &api.Client{}, nil
+		},
+		GitLabComClientStub: func() (*api.Client, error) {
 			return &api.Client{}, nil
 		},
 		GitLabClientStub: func() (*gitlab.Client, error) {
@@ -156,6 +160,10 @@ func (f *Factory) ApiClient(repoHost string) (*api.Client, error) {
 	return f.ApiClientStub(repoHost)
 }
 
+func (f *Factory) GitLabComClient() (*api.Client, error) {
+	return f.GitLabComClientStub()
+}
+
 func (f *Factory) GitLabClient() (*gitlab.Client, error) {
 	return f.GitLabClientStub()
 }
@@ -203,6 +211,15 @@ func (f *Factory) GitRunner() git.GitRunner {
 func WithApiClient(client *api.Client) FactoryOption {
 	return func(f *Factory) {
 		f.ApiClientStub = func(repoHost string) (*api.Client, error) {
+			return client, nil
+		}
+	}
+}
+
+// WithGitLabComClient configures the Factory with a specific unauthenticated gitlab.com API client
+func WithGitLabComClient(client *api.Client) FactoryOption {
+	return func(f *Factory) {
+		f.GitLabComClientStub = func() (*api.Client, error) {
 			return client, nil
 		}
 	}

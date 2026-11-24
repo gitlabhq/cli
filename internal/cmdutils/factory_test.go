@@ -385,3 +385,19 @@ func TestFactory_ApiClientEnvTokenWarning(t *testing.T) {
 		assert.Contains(t, stderr.String(), `"attacker.example.com"`)
 	})
 }
+
+func TestFactory_GitLabComClient(t *testing.T) {
+	isolateHost(t)
+	t.Setenv("GITLAB_TOKEN", "env-token")
+	t.Setenv("GITLAB_API_HOST", "gitlab.example.com")
+	cfg := config.NewBlankConfig()
+	f := NewFactory(nil, false, cfg, api.BuildInfo{Version: "1.0.0"})
+
+	client, err := f.GitLabComClient()
+	require.NoError(t, err)
+	require.NotNil(t, client)
+	assert.Equal(t, "https://gitlab.com/api/v4/", client.BaseURL())
+
+	_, _, err = client.AuthSource().Header(t.Context())
+	require.ErrorContains(t, err, "unauthenticated")
+}

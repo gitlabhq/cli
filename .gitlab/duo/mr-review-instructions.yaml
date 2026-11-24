@@ -47,6 +47,21 @@ instructions:
          Eating the error and substituting a default is a debugging
          dead-end.
 
+  - name: No mutable package-level globals
+    fileFilters:
+      - '**/*.go'
+      - '!**/*_test.go'
+    instructions: |
+      Do not introduce mutable package-level globals. Mutable state hides
+      dependencies and blocks `t.Parallel()` during tests.
+      Permitted package-level variables are limited to:
+      1. Sentinel errors: `var ErrNotFound = errors.New(...)`.
+      2. Immutable pre-compiled regexes / templates: `var myRe = regexp.MustCompile(...)`.
+      3. Embedded file roots: `//go:embed ...` followed by `var content embed.FS`.
+      4. Read-only lookup tables (slices/maps/heredoc not mutated after init).
+      Route external services and test seams (API clients, I/O streams, config, runners)
+      through `cmdutils.Factory` or constructor parameters.
+
   - name: Go idioms (Go 1.26+)
     fileFilters:
       - '**/*.go'

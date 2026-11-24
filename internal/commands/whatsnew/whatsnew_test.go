@@ -3,7 +3,6 @@
 package whatsnew
 
 import (
-	"net/http"
 	"testing"
 
 	"github.com/acarl005/stripansi"
@@ -29,22 +28,9 @@ func newTestConfig(t *testing.T, kvs map[string]string) config.Config {
 	return cfg
 }
 
-// Tests that exercise the API client install per-test mocks via this
-// helper; they can't run with t.Parallel() because the package-level
-// clientCreator var is mutated for the duration of each test (same
-// pattern as internal/commands/update/check_update_test.go).
-func stubClientCreator(t *testing.T, testClient *gitlabtesting.TestClient) {
+func mockGitLabComClient(t *testing.T, tc *gitlabtesting.TestClient) cmdtest.FactoryOption {
 	t.Helper()
-	old := clientCreator
-	clientCreator = func(userAgent string, options ...api.ClientOption) (*api.Client, error) {
-		return api.NewClient(
-			func(*http.Client) (gitlab.AuthSource, error) {
-				return gitlab.AccessTokenAuthSource{Token: ""}, nil
-			},
-			api.WithGitLabClient(testClient.Client),
-		)
-	}
-	t.Cleanup(func() { clientCreator = old })
+	return cmdtest.WithGitLabComClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(tc.Client)))
 }
 
 func release(tag, description string) *gitlab.Release {
@@ -52,14 +38,16 @@ func release(tag, description string) *gitlab.Release {
 }
 
 func TestWhatsnew_specificVersion(t *testing.T) {
+	t.Parallel()
+
 	tc := gitlabtesting.NewTestClient(t)
 	tc.MockReleases.EXPECT().
 		GetRelease("gitlab-org/cli", "v1.85.0", gomock.Any()).
 		Return(release("v1.85.0", "## Highlights\n\n- thing one"), nil, nil)
-	stubClientCreator(t, tc)
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.85.0"}),
+		mockGitLabComClient(t, tc),
 	)
 	out, err := exec("v1.85.0")
 	require.NoError(t, err)
@@ -69,20 +57,24 @@ func TestWhatsnew_specificVersion(t *testing.T) {
 }
 
 func TestWhatsnew_versionArgWithoutVPrefix(t *testing.T) {
+	t.Parallel()
+
 	tc := gitlabtesting.NewTestClient(t)
 	tc.MockReleases.EXPECT().
 		GetRelease("gitlab-org/cli", "v1.85.0", gomock.Any()).
 		Return(release("v1.85.0", "notes"), nil, nil)
-	stubClientCreator(t, tc)
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.85.0"}),
+		mockGitLabComClient(t, tc),
 	)
 	_, err := exec("1.85.0")
 	require.NoError(t, err)
 }
 
 func TestWhatsnew_latestFlag(t *testing.T) {
+	t.Parallel()
+
 	tc := gitlabtesting.NewTestClient(t)
 	tc.MockReleases.EXPECT().
 		ListReleases("gitlab-org/cli", gomock.Any(), gomock.Any()).
@@ -90,10 +82,10 @@ func TestWhatsnew_latestFlag(t *testing.T) {
 			assert.Equal(t, int64(1), opts.PerPage)
 			return []*gitlab.Release{release("v1.85.0", "latest notes")}, nil, nil
 		})
-	stubClientCreator(t, tc)
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.80.0"}),
+		mockGitLabComClient(t, tc),
 	)
 	out, err := exec("--latest")
 	require.NoError(t, err)
@@ -103,6 +95,8 @@ func TestWhatsnew_latestFlag(t *testing.T) {
 }
 
 func TestWhatsnew_sinceFlagFiltersReleases(t *testing.T) {
+	t.Parallel()
+
 	tc := gitlabtesting.NewTestClient(t)
 	tc.MockReleases.EXPECT().
 		ListReleases("gitlab-org/cli", gomock.Any(), gomock.Any()).
@@ -112,10 +106,10 @@ func TestWhatsnew_sinceFlagFiltersReleases(t *testing.T) {
 			release("v1.83.0", "skipped"),
 			release("v1.82.0", "also skipped"),
 		}, nil, nil)
-	stubClientCreator(t, tc)
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.85.0"}),
+		mockGitLabComClient(t, tc),
 	)
 	out, err := exec("--since v1.83.0")
 	require.NoError(t, err)
@@ -127,6 +121,8 @@ func TestWhatsnew_sinceFlagFiltersReleases(t *testing.T) {
 }
 
 func TestWhatsnew_defaultInvocationUsesLastWhatsnewAndAdvancesMarker(t *testing.T) {
+	t.Parallel()
+
 	tc := gitlabtesting.NewTestClient(t)
 	tc.MockReleases.EXPECT().
 		ListReleases("gitlab-org/cli", gomock.Any(), gomock.Any()).
@@ -134,13 +130,13 @@ func TestWhatsnew_defaultInvocationUsesLastWhatsnewAndAdvancesMarker(t *testing.
 			release("v1.85.0", "newest"),
 			release("v1.84.0", "skipped"),
 		}, nil, nil)
-	stubClientCreator(t, tc)
 
 	cfg := newTestConfig(t, map[string]string{LastWhatsnewVersionKey: "v1.84.0"})
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.85.0"}),
 		cmdtest.WithConfig(cfg),
+		mockGitLabComClient(t, tc),
 	)
 	out, err := exec("")
 	require.NoError(t, err)
@@ -153,17 +149,19 @@ func TestWhatsnew_defaultInvocationUsesLastWhatsnewAndAdvancesMarker(t *testing.
 }
 
 func TestWhatsnew_explicitInvocationDoesNotAdvanceMarker(t *testing.T) {
+	t.Parallel()
+
 	tc := gitlabtesting.NewTestClient(t)
 	tc.MockReleases.EXPECT().
 		ListReleases("gitlab-org/cli", gomock.Any(), gomock.Any()).
 		Return([]*gitlab.Release{release("v1.85.0", "latest")}, nil, nil)
-	stubClientCreator(t, tc)
 
 	cfg := newTestConfig(t, map[string]string{LastWhatsnewVersionKey: "v1.80.0"})
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.85.0"}),
 		cmdtest.WithConfig(cfg),
+		mockGitLabComClient(t, tc),
 	)
 	_, err := exec("--latest")
 	require.NoError(t, err)
@@ -173,17 +171,19 @@ func TestWhatsnew_explicitInvocationDoesNotAdvanceMarker(t *testing.T) {
 }
 
 func TestWhatsnew_noNewReleases(t *testing.T) {
+	t.Parallel()
+
 	tc := gitlabtesting.NewTestClient(t)
 	tc.MockReleases.EXPECT().
 		ListReleases("gitlab-org/cli", gomock.Any(), gomock.Any()).
 		Return([]*gitlab.Release{release("v1.85.0", "")}, nil, nil)
-	stubClientCreator(t, tc)
 
 	cfg := newTestConfig(t, map[string]string{LastWhatsnewVersionKey: "v1.85.0"})
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.85.0"}),
 		cmdtest.WithConfig(cfg),
+		mockGitLabComClient(t, tc),
 	)
 	out, err := exec("")
 	require.NoError(t, err)
@@ -191,14 +191,16 @@ func TestWhatsnew_noNewReleases(t *testing.T) {
 }
 
 func TestWhatsnew_emptyReleaseDescription(t *testing.T) {
+	t.Parallel()
+
 	tc := gitlabtesting.NewTestClient(t)
 	tc.MockReleases.EXPECT().
 		GetRelease("gitlab-org/cli", "v1.85.0", gomock.Any()).
 		Return(release("v1.85.0", ""), nil, nil)
-	stubClientCreator(t, tc)
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.85.0"}),
+		mockGitLabComClient(t, tc),
 	)
 	out, err := exec("v1.85.0")
 	require.NoError(t, err)
@@ -250,11 +252,11 @@ func TestWhatsnew_bannerNudgeThenWhatsnew(t *testing.T) {
 	tc.MockReleases.EXPECT().
 		ListReleases("gitlab-org/cli", gomock.Any(), gomock.Any()).
 		Return([]*gitlab.Release{release("v1.101.0", "## Highlights\n\n- the feature")}, nil, nil)
-	stubClientCreator(t, tc)
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmd, false,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: currentVersion}),
 		cmdtest.WithConfig(cfg),
+		mockGitLabComClient(t, tc),
 	)
 	out, err := exec("")
 	require.NoError(t, err)

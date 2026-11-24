@@ -27,23 +27,6 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
 
-// mockClientCreator sets up the clientCreator with a test client and returns a cleanup function.
-func mockClientCreator(t *testing.T, testClient *gitlabtesting.TestClient) {
-	t.Helper()
-	oldCreator := clientCreator
-	clientCreator = func(userAgent string, options ...api.ClientOption) (*api.Client, error) {
-		return api.NewClient(
-			func(*http.Client) (gitlab.AuthSource, error) {
-				return gitlab.AccessTokenAuthSource{Token: ""}, nil
-			},
-			api.WithGitLabClient(testClient.Client),
-		)
-	}
-	t.Cleanup(func() {
-		clientCreator = oldCreator
-	})
-}
-
 // stubInstallMethod swaps the package-level install-method detector so tests
 // don't depend on the filesystem path of the running test binary.
 func stubInstallMethod(t *testing.T, method InstallMethod) {
@@ -130,12 +113,12 @@ func TestNewCheckUpdateCmd(t *testing.T) {
 					}, nil, nil
 				})
 
-			mockClientCreator(t, testClient)
 			stubInstallMethod(t, tc.installMethod)
 			stubNoInstalledSkills(t)
 
 			exec := cmdtest.SetupCmdForTest(t, NewCheckUpdateCmd, true,
 				cmdtest.WithBuildInfo(api.BuildInfo{Version: tc.version, CodingAgent: tc.codingAgent}),
+				cmdtest.WithGitLabComClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
 			)
 			output, err := exec("")
 
@@ -157,10 +140,9 @@ func TestNewCheckUpdateCmd_error(t *testing.T) {
 		ListReleases("gitlab-org/cli", gomock.Any()).
 		Return(nil, notFoundResp, errors.New("404 Not Found"))
 
-	mockClientCreator(t, testClient)
-
 	exec := cmdtest.SetupCmdForTest(t, NewCheckUpdateCmd, true,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.11.0"}),
+		cmdtest.WithGitLabComClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
 	)
 	output, err := exec("")
 
@@ -185,10 +167,9 @@ func TestCheckUpdate_GitLabDown(t *testing.T) {
 		ListReleases("gitlab-org/cli", gomock.Any()).
 		Return(nil, &gitlab.Response{Response: errResp.Response}, errResp)
 
-	mockClientCreator(t, testClient)
-
 	exec := cmdtest.SetupCmdForTest(t, NewCheckUpdateCmd, true,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.11.0"}),
+		cmdtest.WithGitLabComClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
 	)
 	output, err := exec("")
 
@@ -207,10 +188,9 @@ func TestNewCheckUpdateCmd_no_release(t *testing.T) {
 		ListReleases("gitlab-org/cli", gomock.Any()).
 		Return([]*gitlab.Release{}, nil, nil)
 
-	mockClientCreator(t, testClient)
-
 	exec := cmdtest.SetupCmdForTest(t, NewCheckUpdateCmd, true,
 		cmdtest.WithBuildInfo(api.BuildInfo{Version: "1.11.0"}),
+		cmdtest.WithGitLabComClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
 	)
 	output, err := exec("")
 
