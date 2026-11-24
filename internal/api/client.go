@@ -364,6 +364,24 @@ func WithTransportCache(cache *TransportCache) FromConfigOption {
 	}
 }
 
+// organizationIDHeader is spelled as it goes out on the wire. GitLab's
+// documentation writes it X-GitLab-Organization-ID; http.Header.Set
+// canonicalizes to this form, and header names are case-insensitive.
+const organizationIDHeader = "X-Gitlab-Organization-Id"
+
+// validateOrganizationID accepts the positive int64 the Cells HTTP router parses
+// the header with. Anything else, including a path or slug, makes the router
+// drop the claim and fall back to its other routing rules without reporting
+// anything, so rejecting it here is the only place a typo surfaces. Restricting
+// the value to digits also keeps a header value from carrying a line break.
+func validateOrganizationID(id string) error {
+	value, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || value <= 0 {
+		return fmt.Errorf("invalid GITLAB_ORGANIZATION_ID %q: it must be the positive integer that identifies a GitLab organization", id)
+	}
+	return nil
+}
+
 // NewClientFromConfig initializes the global api with the config data
 func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, userAgent string, opts ...FromConfigOption) (*Client, error) {
 	fromCfg := fromConfigOptions{searchEnvForIdentity: true}
@@ -433,6 +451,20 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 		return nil, fmt.Errorf("failed to resolve custom headers: %w", err)
 	}
 
+	// GITLAB_ORGANIZATION_ID is read directly rather than through KeySchema
+	// because it has no config-file equivalent: a config key and a flag wait on
+	// usage data about how people actually configure a cell. See
+	// https://gitlab.com/gitlab-org/cli/-/merge_requests/4385#note_4298775863
+	if orgID := os.Getenv("GITLAB_ORGANIZATION_ID"); orgID != "" {
+		if err := validateOrganizationID(orgID); err != nil {
+			return nil, err
+		}
+		if headers == nil {
+			headers = make(map[string]string, 1)
+		}
+		headers[organizationIDHeader] = orgID
+	}
+
 	// DUO_WORKFLOW_WORKFLOW_ID is an internal contract intentionally not in user-facing
 	// env-var docs. Set by GitLab's Workflow service so the API server can correlate
 	// CLI traffic back to the originating workflow. Takes precedence over the same
@@ -441,7 +473,7 @@ func NewClientFromConfig(repoHost string, cfg config.Config, isGraphQL bool, use
 	// on malformed input (CR/LF/NUL).
 	if duoWorkflowID := os.Getenv("DUO_WORKFLOW_WORKFLOW_ID"); duoWorkflowID != "" && !strings.ContainsAny(duoWorkflowID, "\r\n\x00") {
 		if headers == nil {
-			headers = make(map[string]string)
+			headers = make(map[string]string, 1)
 		}
 		headers["X-Gitlab-Duo-Workflow-Id"] = duoWorkflowID
 	}

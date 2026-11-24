@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -183,7 +184,7 @@ func (c *fileConfig) ResolveCustomHeaders(hostname string) (map[string]string, e
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve header %q: %w", header.Name, err)
 		}
-		resolved[header.Name] = value
+		resolved[http.CanonicalHeaderKey(header.Name)] = value
 	}
 
 	return resolved, nil
