@@ -34,6 +34,7 @@ type EnvVarDoc struct {
 var nonSchemaEnvVars = []EnvVarDoc{
 	{Name: "FORCE_HYPERLINKS", ConfigKey: "display_hyperlinks", Description: "Set to 1 to force terminal hyperlinks when not writing to a TTY. A falsy value falls through to 'display_hyperlinks'.", Group: GroupBehaviour},
 	{Name: "GITLAB_GROUP", Description: "Default group for commands that list merge requests, issues, and variables. Used only when '--group' is not given.", Group: GroupAccess},
+	{Name: "GITLAB_ORGANIZATION_ID", Description: "Numeric ID of the GitLab organization that glab's requests belong to. Sent as an HTTP header so a GitLab Cells deployment can route the request.", Group: GroupAccess},
 	{Name: "GITLAB_HEAD_REPO", Description: "Source repository for 'glab mr create'. Used only when '--head' is not given.", Group: GroupAccess},
 	{Name: "GITLAB_RELEASE_ASSETS_USE_PACKAGE_REGISTRY", Description: "Set to true or 1 to upload release assets to the generic package registry of the project. The '--use-package-registry' flag takes precedence.", Group: GroupBehaviour},
 	{Name: "GITLAB_REPO", Description: "Default repository for commands that accept '--repo'. Used only when '--repo' is not given.", Group: GroupAccess},

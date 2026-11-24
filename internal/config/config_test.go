@@ -1200,3 +1200,18 @@ func Test_GetWithSource_OrdinaryKeyStillPrefersLocalConfig(t *testing.T) {
 	assert.Equal(t, "https", value)
 	assert.Equal(t, LocalConfigFile(), source)
 }
+
+func TestResolveCustomHeaders_CanonicalizesNames(t *testing.T) {
+	cfg := NewFromString(`
+hosts:
+  gitlab.com:
+    custom_headers:
+      - name: x-gitlab-organization-id
+        value: "1"
+`)
+
+	headers, err := ResolveCustomHeaders(cfg, "gitlab.com")
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"X-Gitlab-Organization-Id": "1"}, headers)
+}

@@ -92,6 +92,7 @@ For more information, see
 | `GITLAB_HOST` | `host` | `gitlab.com` | Default GitLab hostname to use. Inside a repository, a Git remote on another host takes precedence over the config key. A host from an environment variable, such as `GITLAB_HOST`, always wins, and glab errors if no remote matches it. |
 | `GITLAB_URI` | `host` | `gitlab.com` | Alternative name for `GITLAB_HOST`, checked after it. |
 | `GL_HOST` | `host` | `gitlab.com` | Alternative name for `GITLAB_HOST`, checked after it. |
+| `GITLAB_ORGANIZATION_ID` | - | - | Numeric ID of the GitLab organization that glab's requests belong to. Sent as an HTTP header so a GitLab Cells deployment can route the request. |
 | `GITLAB_REPO` | - | - | Default repository for commands that accept `--repo`. Used only when `--repo` is not given. |
 | `GITLAB_SSH_HOST` | `ssh_host` | - | Alternate hostname for SSH Git operations (e.g., `ssh.example.com` or `git.example.com`). Use this when SSH uses a different hostname than HTTP/API operations. Only affects SSH cloning and Git operations. |
 | `GITLAB_SUBFOLDER` | `subfolder` | - | Subfolder where GitLab is installed (e.g., `gitlab` for <https://example.com/gitlab/>). Use this when GitLab is hosted at a subfolder rather than domain root. Supports nested paths (e.g., `apps/gitlab` for <https://example.com/apps/gitlab/>). Slashes are automatically trimmed, so `gitlab`, `/gitlab`, and `gitlab/` are equivalent. Only applies to HTTP/HTTPS operations (API and Git clone). |
