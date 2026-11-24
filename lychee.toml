@@ -1,0 +1,2 @@
+# Argo translation templates link to {{placeholders}} filled in at render time.
+exclude_path = ['^\.gitlab/\.argo/']
