@@ -114,7 +114,7 @@ glab mr create -t "Fix login bug" -d "Before and after:" --attach ./before.png -
       --template string           Template to pre-populate the description. A name is looked up in '.gitlab/merge_request_templates/' of the local repository, and the '.md' extension is optional. A value that is absolute or contains a path separator is read as a file path, for example '~/templates/feature.md'.
   -t, --title string              Supply a title for the merge request.
   -w, --web                       Continue merge request creation in a browser.
-      --wip                       Mark merge request as a draft. Alternative to --draft.
+      --wip                       Alias for --draft.
   -y, --yes                       Skip submission confirmation prompt. Use --fill to skip all optional prompts.
 ```
 

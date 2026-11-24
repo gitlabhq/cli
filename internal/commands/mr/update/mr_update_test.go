@@ -172,9 +172,14 @@ func TestUpdateMergeRequest(t *testing.T) {
 			ExpectedMsg: []string{"✓ already a Draft", "2 Draft: mrTitle"},
 		},
 		{
-			Name:        "Set WIP",
+			Name:        "Set draft with WIP alias",
 			Args:        "1 --wip",
-			ExpectedMsg: []string{"marked as WIP", "!1 WIP: mrTitle"},
+			ExpectedMsg: []string{"marked as Draft", "!1 Draft: mrTitle"},
+		},
+		{
+			Name:        "Don't set draft twice with WIP alias",
+			Args:        "2 --wip",
+			ExpectedMsg: []string{"✓ already a Draft", "2 Draft: mrTitle"},
 		},
 		{
 			Name:        "Set ready",

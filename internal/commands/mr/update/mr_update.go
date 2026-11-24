@@ -220,20 +220,11 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 			}
 			if isDraft || isWIP {
 				var alreadyPresent bool
-				if isDraft {
-					mergeTitle, alreadyPresent = cmdutils.EnsureTitlePrefix(mergeTitle, "Draft:")
-					if alreadyPresent {
-						actions = append(actions, "already a Draft")
-					} else {
-						actions = append(actions, "marked as Draft")
-					}
+				mergeTitle, alreadyPresent = cmdutils.EnsureTitlePrefix(mergeTitle, "Draft:")
+				if alreadyPresent {
+					actions = append(actions, "already a Draft")
 				} else {
-					mergeTitle, alreadyPresent = cmdutils.EnsureTitlePrefix(mergeTitle, "WIP:")
-					if alreadyPresent {
-						actions = append(actions, "already a WIP")
-					} else {
-						actions = append(actions, "marked as WIP")
-					}
+					actions = append(actions, "marked as Draft")
 				}
 			} else if isReady, _ := cmd.Flags().GetBool("ready"); isReady {
 				actions = append(actions, "marked as ready")
@@ -381,7 +372,7 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 	mrUpdateCmd.Flags().Var(cmdutils.NewEnumValue([]string{"opened", "closed", "merged", "locked", "any"}, "any", &state), "state", "Filter by state when selecting a merge request by branch: opened, closed, merged, locked, any. Ignored for IDs and URLs.")
 	mrUpdateCmd.Flags().BoolP("draft", "", false, "Mark merge request as a draft.")
 	mrUpdateCmd.Flags().BoolP("ready", "r", false, "Mark merge request as ready to be reviewed and merged.")
-	mrUpdateCmd.Flags().BoolP("wip", "", false, "Mark merge request as a work in progress. Alternative to --draft.")
+	mrUpdateCmd.Flags().BoolP("wip", "", false, "Alias for --draft.")
 	mrUpdateCmd.Flags().StringP("title", "t", "", "Title of merge request.")
 	mrUpdateCmd.Flags().BoolP("lock-discussion", "", false, "Lock discussion on merge request.")
 	mrUpdateCmd.Flags().BoolP("unlock-discussion", "", false, "Unlock discussion on merge request.")
