@@ -165,7 +165,7 @@ func TestMavenGlobalSettingsFile(t *testing.T) {
 	t.Run("when -gs names it", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "g.xml"), []byte("<settings/>"), 0o600))
-		for _, args := range [][]string{{"-gs", "g.xml", "verify"}, {"-gs=g.xml", "verify"}, {"--global-settings=g.xml", "verify"}} {
+		for _, args := range [][]string{{"-gs", "g.xml", "verify"}, {"-gs=g.xml", "verify"}, {"--global-settings=g.xml", "verify"}, {"-global-settings", "g.xml", "verify"}, {"-global-settings=g.xml", "verify"}} {
 			got, err := mavenGlobalSettingsFile(nil, dir, args, mvn)
 			require.NoError(t, err)
 			assert.Equal(t, filepath.Join(dir, "g.xml"), got, args)
@@ -209,6 +209,30 @@ func TestMavenGlobalSettingsFile(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, filepath.Join(want, "conf", "settings.xml"), got, "the launcher resolves its own symlinks to find its install")
+	})
+
+	t.Run("when -gs uses a property or sits in a -f project's maven.config", func(t *testing.T) {
+		dir := t.TempDir()
+		proj := filepath.Join(dir, "services", "api")
+		require.NoError(t, os.MkdirAll(filepath.Join(proj, ".mvn"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(proj, ".mvn", "maven.config"), []byte("-gs\n${maven.multiModuleProjectDirectory}/.mvn/global.xml\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(proj, ".mvn", "global.xml"), []byte("<settings/>"), 0o600))
+
+		got, err := mavenGlobalSettingsFile(nil, dir, []string{"-f", filepath.Join(proj, "pom.xml"), "verify"}, mvn)
+
+		require.NoError(t, err)
+		wantProj, err := filepath.EvalSymlinks(proj)
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(wantProj, ".mvn", "global.xml"), got)
+
+		_, err = mavenGlobalSettingsFile(nil, dir, []string{"-gs", "${no.such.property}/g.xml", "verify"}, mvn)
+		require.Error(t, err, "Maven reads an unresolved expression literally, and no such file exists")
+
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "${no.such.property}"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "${no.such.property}", "g.xml"), []byte("<settings/>"), 0o600))
+		got, err = mavenGlobalSettingsFile(nil, dir, []string{"-gs", "${no.such.property}/g.xml", "verify"}, mvn)
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(dir, "${no.such.property}", "g.xml"), got, "a file with the literal name is the one Maven reads")
 	})
 
 	t.Run("when mvn is Homebrew's wrapper", func(t *testing.T) {
@@ -349,18 +373,28 @@ func TestMavenGlobalSettingsFile(t *testing.T) {
 		assert.Equal(t, filepath.Join(install, "conf", "settings.xml"), got)
 	})
 
-	t.Run("when the launcher could pick another project directory", func(t *testing.T) {
+	t.Run("when -f, --file or MAVEN_BASEDIR picks the project directory", func(t *testing.T) {
+		proj := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(proj, ".mvn"), 0o700))
+		team := filepath.Join(t.TempDir(), "team.xml")
+		require.NoError(t, os.WriteFile(team, []byte("<settings/>"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(proj, ".mvn", "maven.config"), []byte("-gs\n"+team+"\n"), 0o600))
 		for _, tc := range []struct {
 			environ []string
 			args    []string
 		}{
-			{nil, []string{"-f", "other/pom.xml", "verify"}},
-			{nil, []string{"--file", "other", "verify"}},
-			{[]string{"MAVEN_BASEDIR=/srv/other"}, []string{"verify"}},
+			{nil, []string{"-f", filepath.Join(proj, "pom.xml"), "verify"}},
+			{nil, []string{"--file", proj, "verify"}},
+			{[]string{"MAVEN_BASEDIR=" + proj}, []string{"verify"}},
 		} {
-			_, err := mavenGlobalSettingsFile(tc.environ, t.TempDir(), tc.args, mvn)
-			assert.Error(t, err, "%v %v: that project's .mvn could name another -gs", tc.environ, tc.args)
+			got, err := mavenGlobalSettingsFile(tc.environ, t.TempDir(), tc.args, mvn)
+			require.NoError(t, err)
+			assert.Equal(t, team, got, "%v %v: the launcher reads that project's .mvn/maven.config", tc.environ, tc.args)
 		}
+
+		got, err := mavenGlobalSettingsFile(nil, proj, []string{"-f", filepath.Join(t.TempDir(), "pom.xml"), "verify"}, mvn)
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(install, "conf", "settings.xml"), got, "-f moves the launcher away from the working directory's .mvn")
 	})
 
 	t.Run("when an argument is quoted", func(t *testing.T) {
@@ -518,6 +552,18 @@ func TestMavenManagerKnownMirrors(t *testing.T) {
 		assert.Equal(t, "<settings/>\n", pinned(t), "with no global settings, Maven must read none")
 	})
 
+	for name, global := range map[string]string{
+		"when the global settings declare ISO-8859-1": `<?xml version="1.0" encoding="ISO-8859-1"?>` + "\n" +
+			`<settings><mirrors><mirror><id>corp</id><mirrorOf>*</mirrorOf><url>${env.NEXUS_URL}</url></mirror></mirrors></settings>`,
+		"when the global settings use &nbsp;": `<settings><mirrors><mirror><id>corp</id><name>Corp&nbsp;Nexus</name><mirrorOf>*</mirrorOf><url>${env.NEXUS_URL}</url></mirror></mirrors></settings>`,
+	} {
+		t.Run(name+" and a catch-all URL from a variable", func(t *testing.T) {
+			t.Setenv("NEXUS_URL", "https://nexus.example.com/repository/public/")
+
+			assert.Equal(t, []string{"org.apache.logging.log4j:log4j"}, run(t, []byte(global)))
+		})
+	}
+
 	t.Run("when the install's global settings have it", func(t *testing.T) {
 		global := mirrorsXML(mirrorXML("corp", "*", "https://nexus.example.com/repository/public/"))
 		t.Setenv("_JAVA_OPTIONS", "-Dclassworlds.conf=/srv/m2.conf -Dmaven.multiModuleProjectDirectory=/srv/other")
@@ -551,6 +597,17 @@ func TestMavenManagerKnownMirrors(t *testing.T) {
 
 		assert.Equal(t, []string{"org.apache.logging.log4j:log4j"}, run(t, global))
 		assert.Contains(t, pinned(t), "<url>https://nexus.example.com/repository/public/</url>", "Maven must fetch from the URL glab matches under")
+	})
+
+	t.Run("when -f names a project whose .mvn/maven.config holds the settings", func(t *testing.T) {
+		proj := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(proj, ".mvn"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(proj, "pom.xml"), nil, 0o600))
+		user := writeUserSettings(t, string(mirrorsXML(mirrorXML("corp", "*", "https://nexus.example.com/repository/public/"))))
+		require.NoError(t, os.WriteFile(filepath.Join(proj, ".mvn", "maven.config"), []byte("--settings="+user+"\n"), 0o600))
+
+		assert.Equal(t, []string{"org.apache.logging.log4j:log4j"}, run(t, nil, "-f", filepath.Join(proj, "pom.xml")))
+		assert.Equal(t, "<settings/>\n", pinned(t), "Maven reads the project's settings and no global ones")
 	})
 
 	t.Run("when the caller's catch-all URL comes from an environment variable", func(t *testing.T) {

@@ -2,6 +2,7 @@ package pm
 
 import (
 	"bytes"
+	"context"
 	"crypto/x509"
 	"encoding/xml"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"strings"
 
 	"gitlab.com/gitlab-org/cli/internal/dbg"
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/proxy"
 )
 
@@ -24,6 +26,7 @@ import (
 type mavenManager struct {
 	proxyURL string
 	args     []string
+	warnf    policy.Logf
 	// mirrors is shared with the matcher Run hands the proxy before
 	// CATrustEnviron runs, and filled once the settings Maven reads are known.
 	mirrors  *proxy.MavenMirrors
@@ -43,14 +46,70 @@ func (m *mavenManager) Binary() string { return "mvn" }
 // settings file into the firewall's.
 func (m *mavenManager) SetArgs(args []string) { m.args = args }
 
-// userSettingsFile resolves the settings.xml mvn would read on its own.
-func (m *mavenManager) userSettingsFile() string {
+// SetWarn sets where CATrustEnviron reports a caller's settings file it had to
+// leave out of the merge.
+func (m *mavenManager) SetWarn(warnf policy.Logf) { m.warnf = warnf }
+
+// userSettingsFile resolves the settings.xml mvn would read on its own, and
+// whether -s or --settings named it.
+func (m *mavenManager) userSettingsFile() (string, bool) {
 	dir, err := os.Getwd()
 	if err != nil {
 		dbg.Debugf("dependency firewall: could not get the working directory to resolve the maven settings file: %v; treating the caller as having no settings file", err)
-		return ""
+		return "", false
 	}
 	return mavenUserSettingsFile(os.Environ(), dir, m.args)
+}
+
+// mavenInfoOnly reports whether arg makes mvn print its version or help and
+// exit: a single-dash cluster starting with v or h, or --version, --help, --v
+// or --h, with any double quotes Maven strips.
+func mavenInfoOnly(arg string) bool {
+	arg = strings.TrimSuffix(strings.TrimPrefix(arg, `"`), `"`)
+	if name, ok := strings.CutPrefix(arg, "--"); ok {
+		name, _, _ = strings.Cut(name, "=")
+		return slices.Contains([]string{"v", "h", "version", "help"}, name)
+	}
+	return len(arg) > 1 && arg[0] == '-' && (arg[1] == 'v' || arg[1] == 'h')
+}
+
+// mavenArgs returns MAVEN_ARGS, the command line and the project's
+// .mvn/maven.config in the order mvn reads them, or nil without a working
+// directory.
+func (m *mavenManager) mavenArgs() []string {
+	dir, err := os.Getwd()
+	if err != nil {
+		dbg.Debugf("dependency firewall: could not get the working directory to read .mvn/maven.config: %v", err)
+		return nil
+	}
+	environ := os.Environ()
+	cli := append(strings.Fields(lookupEnv(environ, "MAVEN_ARGS")), m.args...)
+	return append(cli, mavenConfigArgs(mavenBaseDir(environ, dir, m.args))...)
+}
+
+// mavenPlainSettingsValue reports whether a -s value names its file
+// literally. Maven may resolve ${...}, quotes or a glob (the launcher expands
+// MAVEN_ARGS unquoted) to a file glab can't predict.
+func mavenPlainSettingsValue(value string) bool {
+	return !strings.Contains(value, "${") && !strings.ContainsAny(value, "\"'*?[")
+}
+
+// Setup stops the run, as mvn would, when -s or --settings names a plain path
+// whose file doesn't exist. Any other missing file only gets the warning.
+func (m *mavenManager) Setup(context.Context, setupInput) (setupResult, error) {
+	args := m.mavenArgs()
+	// mvn prints its version or help before it reads any settings.
+	if slices.ContainsFunc(args, mavenInfoOnly) {
+		return setupResult{stop: func() {}}, nil
+	}
+	path, explicit := m.userSettingsFile()
+	if value, _ := mavenOption(args, "-s", "--settings", true); explicit && mavenPlainSettingsValue(value) {
+		// Like Maven's isFile check, a directory counts as missing.
+		if !isFile(path) {
+			return setupResult{}, fmt.Errorf("the Maven settings file %q named with -s or --settings doesn't exist", path)
+		}
+	}
+	return setupResult{stop: func() {}}, nil
 }
 
 // Environment stashes the proxy URL; the settings.xml and truststore are
@@ -69,7 +128,13 @@ func (m *mavenManager) CATrustEnviron(caPath string) []string {
 	// ignores HTTP(S)_PROXY and the JVM proxy properties, so this file is the
 	// only thing routing mvn through the proxy: surface a failure via dbg so a
 	// silent firewall bypass is diagnosable rather than fail-open unnoticed.
-	settingsPath, userSettings, ok := writeMavenProxySettings(caPath+".settings.xml", m.proxyURL, m.userSettingsFile(), os.Environ())
+	userPath, explicit := m.userSettingsFile()
+	warnf := m.warnf
+	if slices.ContainsFunc(m.mavenArgs(), mavenInfoOnly) {
+		// mvn prints its version or help without reading the settings file.
+		warnf = nil
+	}
+	settingsPath, userSettings, ok := writeMavenProxySettings(caPath+".settings.xml", m.proxyURL, userPath, explicit, os.Environ(), warnf)
 	if !ok {
 		dbg.Debugf("dependency firewall: failed to write maven proxy settings.xml at %s; maven traffic will not be routed through the proxy", caPath+".settings.xml")
 	} else {
@@ -210,7 +275,7 @@ func MavenJobArgsEnv(path, proxyURL string, warnf func(format string, args ...an
 	if err != nil {
 		warnf("dependency firewall: could not resolve the maven global settings (%v); mvn will not use the install's conf/settings.xml\n", err)
 	}
-	settings, merged, ok := writeMavenProxySettings(path, proxyURL, global, os.Environ())
+	settings, merged, ok := writeMavenProxySettings(path, proxyURL, global, false, os.Environ(), nil)
 	if !ok {
 		return "", fmt.Errorf("could not write maven proxy settings at %s", path)
 	}
@@ -224,7 +289,8 @@ func MavenJobArgsEnv(path, proxyURL string, warnf func(format string, args ...an
 	// firewall. We cannot merge ours in first without seeing a job's future -s,
 	// so warn rather than silently leave mvn unproxied.
 	dir, _ := os.Getwd()
-	if mavenUserSettingsHasActiveProxy(mavenUserSettingsFile(os.Environ(), dir, nil)) {
+	userPath, _ := mavenUserSettingsFile(os.Environ(), dir, nil)
+	if mavenUserSettingsHasActiveProxy(userPath) {
 		warnf("dependency firewall: your Maven user settings define a <proxy> that Maven prefers over the firewall's global (-gs) settings; mvn may bypass the firewall\n")
 	}
 	return mavenArgsEnv("-gs " + settings), nil
@@ -247,7 +313,11 @@ func mavenUserSettingsHasActiveProxy(settingsPath string) bool {
 			Active string `xml:"active"`
 		} `xml:"proxies>proxy"`
 	}
-	if err := xml.Unmarshal(raw, &parsed); err != nil {
+	dec, err := newMavenXMLDecoder(raw)
+	if err == nil {
+		err = dec.Decode(&parsed)
+	}
+	if err != nil {
 		return false
 	}
 	for _, p := range parsed.Proxies {
@@ -287,12 +357,17 @@ func mavenJobGlobalSettings() (string, error) {
 // settings file, the <proxy> entries are merged into a copy of it so the
 // caller's mirrors, credentials and profiles still apply, with the variables
 // in its repository URLs expanded from environ; otherwise the file holds only
-// those entries. It also returns the caller's settings when they were merged,
-// and ok=false when proxyURL cannot be parsed.
-func writeMavenProxySettings(path, proxyURL, userPath string, environ []string) (string, []byte, bool) {
+// those entries, and warnf reports a settings file that exists but couldn't be
+// merged, or an explicit one (named with -s or --settings) that doesn't exist.
+// It also returns the caller's settings when they were merged, and ok=false
+// when proxyURL cannot be parsed.
+func writeMavenProxySettings(path, proxyURL, userPath string, explicit bool, environ []string, warnf policy.Logf) (string, []byte, bool) {
 	u, err := url.Parse(proxyURL)
 	if err != nil || u.Hostname() == "" || u.Port() == "" {
 		return "", nil, false
+	}
+	if warnf == nil {
+		warnf = func(string, ...any) {}
 	}
 	proxies := mavenProxyElem("df-https", "https", u.Hostname(), u.Port()) +
 		mavenProxyElem("df-http", "http", u.Hostname(), u.Port())
@@ -302,6 +377,15 @@ func writeMavenProxySettings(path, proxyURL, userPath string, environ []string) 
 		settings, err = mergeMavenProxies(userPath, proxies)
 		if err != nil {
 			dbg.Debugf("dependency firewall: could not merge the maven settings at %s: %s; using the firewall's own settings instead", userPath, mavenSettingsError(err))
+			switch {
+			case !errors.Is(err, fs.ErrNotExist):
+				// The cause stays in the debug log: the decoder's message can quote
+				// the file's content.
+				warnf("warning: could not merge the Dependency Firewall proxy into the Maven settings at %q, so mvn runs with the firewall's own settings and that file's mirrors, credentials and profiles don't apply\n", userPath)
+			case explicit:
+				// A missing default ~/.m2/settings.xml is common, so that stays quiet.
+				warnf("warning: could not find the Maven settings file %q named with -s or --settings, so mvn runs with the firewall's own settings and that file's mirrors, credentials and profiles don't apply\n", userPath)
+			}
 		}
 		settings = mavenExpandEnvURLs(settings, environ)
 	}
@@ -349,7 +433,10 @@ func mergeMavenProxies(path, proxies string) ([]byte, error) {
 // Offsets come from the XML parser rather than a text search, so a <proxies>
 // inside a comment or a CDATA section cannot be mistaken for the real one.
 func mavenProxiesInsertion(raw []byte, proxies string) (int, int, string, error) {
-	dec := xml.NewDecoder(bytes.NewReader(raw))
+	dec, err := newMavenXMLDecoder(raw)
+	if err != nil {
+		return 0, 0, "", err
+	}
 	depth, prevEnd := 0, 0
 	for {
 		tok, err := dec.Token()
@@ -400,7 +487,11 @@ var mavenEnvExpression = regexp.MustCompile(`\$\{env\.[^}]*\}`)
 // URLs from environ, so Maven fetches from the URL glab checks. A URL it can't
 // expand fully, and raw that doesn't parse, are left as they are.
 func mavenExpandEnvURLs(raw []byte, environ []string) []byte {
-	dec := xml.NewDecoder(bytes.NewReader(raw))
+	dec, err := newMavenXMLDecoder(raw)
+	if err != nil {
+		dbg.Debugf("dependency firewall: not expanding maven mirror URLs: %v", err)
+		return raw
+	}
 	var path []string
 	var text strings.Builder
 	var out []byte

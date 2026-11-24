@@ -94,6 +94,13 @@ type argsRewriter interface {
 	rewriteArgs(args []string) []string
 }
 
+// warnManager receives the function Run reports warnings through, for managers
+// that can fall back in a way the caller should hear about (Maven, when it
+// can't merge the proxy into the caller's settings file).
+type warnManager interface {
+	SetWarn(warnf policy.Logf)
+}
+
 type setupInput struct {
 	parent      []string // the environment the child would otherwise inherit
 	caPath      string
@@ -262,13 +269,7 @@ func caVarValues(env []string, key string) []string {
 // lookupEnv returns the value of key in an environment slice ("KEY=value"),
 // or "" if absent. The last occurrence wins.
 func lookupEnv(env []string, key string) string {
-	value := ""
-	for _, e := range env {
-		k, v, ok := strings.Cut(e, "=")
-		if ok && k == key {
-			value = v
-		}
-	}
+	value, _ := envValue(env, key)
 	return value
 }
 
@@ -453,6 +454,9 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	}
 	if a, ok := manager.(argsManager); ok {
 		a.SetArgs(args)
+	}
+	if w, ok := manager.(warnManager); ok {
+		w.SetWarn(opts.IO.LogErrorf)
 	}
 
 	var setup setupResult

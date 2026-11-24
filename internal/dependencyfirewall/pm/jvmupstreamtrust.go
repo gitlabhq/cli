@@ -263,31 +263,6 @@ func splitQuotedArgs(line string) ([]string, bool) {
 	return args, quote == 0
 }
 
-// mavenBaseDir returns the directory mvn reads .mvn/jvm.config and
-// .mvn/maven.config from. Like Maven 3's launcher (Maven 4 ignores it), it
-// uses MAVEN_BASEDIR when set, else the nearest .mvn directory from the
-// -f/--file argument's directory or from dir.
-func mavenBaseDir(env []string, dir string, args []string) string {
-	if base := lookupEnv(env, "MAVEN_BASEDIR"); base != "" {
-		return base
-	}
-	start := dir
-	for i, arg := range args {
-		if (arg != "-f" && arg != "--file") || i+1 == len(args) {
-			continue
-		}
-		start = args[i+1]
-		if !filepath.IsAbs(start) {
-			start = filepath.Join(dir, start)
-		}
-		if info, err := os.Stat(start); err == nil && !info.IsDir() {
-			start = filepath.Dir(start)
-		}
-		break
-	}
-	return mavenProjectBaseDir(start)
-}
-
 // mavenJVMConfig returns the contents of the .mvn/jvm.config that the mvn
 // launcher adds to MAVEN_OPTS, or "" when there is none. Like Maven 4's
 // launcher (Maven 3 substitutes nothing), it strips comments before it
