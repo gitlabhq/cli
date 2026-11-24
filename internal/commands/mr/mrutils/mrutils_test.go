@@ -91,6 +91,79 @@ func Test_DisplayMR(t *testing.T) {
 	}
 }
 
+func TestAutofillMRFromCommitsWithMetadata(t *testing.T) {
+	historyErr := errors.New("git history unavailable")
+	tests := []struct {
+		name                string
+		requireHistory      bool
+		commits             []*git.Commit
+		commitErr           error
+		wantTitle           string
+		wantBody            string
+		wantTitleFromCommit bool
+		wantError           bool
+	}{
+		{
+			name:      "legacy fill falls back when git fails",
+			commitErr: historyErr,
+			wantTitle: "feature branch",
+		},
+		{
+			name:           "selective fill reports git failure",
+			requireHistory: true,
+			commitErr:      historyErr,
+			wantError:      true,
+		},
+		{
+			name:           "zero commits retain branch title fallback",
+			requireHistory: true,
+			commits:        []*git.Commit{},
+			wantTitle:      "feature branch",
+		},
+		{
+			name:                "single commit provides commit-derived title",
+			requireHistory:      true,
+			commits:             []*git.Commit{{Title: "Fix login", Sha: "badcommitsha"}},
+			wantTitle:           "Fix login",
+			wantBody:            "Fix login",
+			wantTitleFromCommit: true,
+		},
+		{
+			name:           "multiple commits use branch name, not a commit title",
+			requireHistory: true,
+			commits: []*git.Commit{
+				{Title: "First change", Sha: "badcommitsha1"},
+				{Title: "Second change", Sha: "badcommitsha2"},
+			},
+			wantTitle: "feature branch",
+			wantBody:  "- Second change  \n- First change  \n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			title, body, fromCommit, err := autofillMRFromCommitsWithMetadata(
+				"main", "feature-branch", false, tc.requireHistory,
+				func(target, source string) ([]*git.Commit, error) {
+					assert.Equal(t, "main", target)
+					assert.Equal(t, "feature-branch", source)
+					return tc.commits, tc.commitErr
+				},
+			)
+			if tc.wantError {
+				require.ErrorContains(t, err, "cannot read commits for source branch \"feature-branch\"")
+				require.ErrorIs(t, err, historyErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantTitle, title)
+			assert.Equal(t, tc.wantBody, body)
+			assert.Equal(t, tc.wantTitleFromCommit, fromCommit)
+		})
+	}
+}
+
 func TestGenerateMRTitleAndBody(t *testing.T) {
 	tests := []struct {
 		name           string

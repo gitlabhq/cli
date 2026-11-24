@@ -13,6 +13,7 @@ import (
 	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/acarl005/stripansi"
 	"github.com/google/shlex"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -208,6 +209,18 @@ func TestUpdateMergeRequest(t *testing.T) {
 			ExpectedMsg: []string{"- Updating merge request !1", "updated title with commit info", "updated body with commit info"},
 		},
 		{
+			Name:        "Title-only fill cannot request commit bodies",
+			Args:        "1 --fill-title --fill-commit-body --yes",
+			ExpectedMsg: []string{"--fill-commit-body should be used with --fill or --fill-description"},
+			wantErr:     true,
+		},
+		{
+			Name:        "Explicitly disabled fill does not authorize commit bodies",
+			Args:        "1 --fill=false --fill-commit-body --yes",
+			ExpectedMsg: []string{"--fill-commit-body should be used with --fill or --fill-description"},
+			wantErr:     true,
+		},
+		{
 			Name:        "Update with yes flag skips confirmation",
 			Args:        "1 --fill --yes",
 			ExpectedMsg: []string{"- Updating merge request !1"},
@@ -271,6 +284,170 @@ func TestUpdateMergeRequest(t *testing.T) {
 	}
 
 	api.UpdateMR = oldUpdateMr
+}
+
+// TestUpdateMergeRequest_SelectiveFill validates the actual API payload rather
+// than depending on the repository-wide test fixture having commit bodies.
+func TestUpdateMergeRequest_SelectiveFill(t *testing.T) {
+	oldUpdateMR, oldGetMR := api.UpdateMR, api.GetMR
+	t.Cleanup(func() { api.UpdateMR, api.GetMR = oldUpdateMR, oldGetMR })
+
+	tests := []struct {
+		name             string
+		args             string
+		wantTitle        *string
+		wantDescription  *string
+		wantCommitBodies bool
+	}{
+		{
+			name:            "description only",
+			args:            "1 --fill-description --yes",
+			wantDescription: new("Generated description"),
+		},
+		{
+			name:      "title only",
+			args:      "1 --fill-title --yes",
+			wantTitle: new("Generated title"),
+		},
+		{
+			name:             "description and commit bodies",
+			args:             "1 --fill-description --fill-commit-body --yes",
+			wantDescription:  new("Generated description"),
+			wantCommitBodies: true,
+		},
+		{
+			name:            "description and draft",
+			args:            "1 --fill-description --draft --yes",
+			wantTitle:       new("Draft: Original title"),
+			wantDescription: new("Generated description"),
+		},
+		{
+			name:            "description with explicit title",
+			args:            "1 --fill-description --title 'Manual title' --yes",
+			wantTitle:       new("Manual title"),
+			wantDescription: new("Generated description"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotOptions *gitlab.UpdateMergeRequestOptions
+			api.GetMR = func(_ *gitlab.Client, _ any, id int64, _ *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error) {
+				return &gitlab.MergeRequest{
+					BasicMergeRequest: gitlab.BasicMergeRequest{
+						ID:           id,
+						IID:          id,
+						Title:        "Original title",
+						Description:  "Previous description",
+						SourceBranch: "feature/test-branch",
+						TargetBranch: "main",
+						State:        "opened",
+					},
+				}, nil
+			}
+			api.UpdateMR = func(_ *gitlab.Client, _ any, id int64, opts *gitlab.UpdateMergeRequestOptions) (*gitlab.MergeRequest, error) {
+				gotOptions = opts
+				title := "Original title"
+				if opts.Title != nil {
+					title = *opts.Title
+				}
+				return &gitlab.MergeRequest{
+					BasicMergeRequest: gitlab.BasicMergeRequest{
+						ID:    id,
+						IID:   id,
+						Title: title,
+						State: "opened",
+					},
+				}, nil
+			}
+
+			seenBodies := false
+			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				return newCmdUpdateWithAutofill(f, func(_, _ string, withBodies, requireHistory bool) (string, string, bool, error) {
+					seenBodies = withBodies
+					assert.True(t, requireHistory)
+					return "Generated title", "Generated description", true, nil
+				})
+			}, false, cmdtest.WithBaseRepo("OWNER", "REPO", ""))
+
+			_, err := exec(tc.args)
+			require.NoError(t, err)
+			require.NotNil(t, gotOptions)
+			assert.Equal(t, tc.wantTitle, gotOptions.Title)
+			assert.Equal(t, tc.wantDescription, gotOptions.Description)
+			assert.Equal(t, tc.wantCommitBodies, seenBodies)
+		})
+	}
+}
+
+// TestUpdateMergeRequest_SelectiveFillGuardrails ensures that invalid selective
+// autofill fails before prompting or updating the remote merge request.
+func TestUpdateMergeRequest_SelectiveFillGuardrails(t *testing.T) {
+	oldUpdateMR, oldGetMR := api.UpdateMR, api.GetMR
+	t.Cleanup(func() { api.UpdateMR, api.GetMR = oldUpdateMR, oldGetMR })
+
+	tests := []struct {
+		name            string
+		args            string
+		title           string
+		body            string
+		titleFromCommit bool
+		autofillErr     error
+		wantErr         string
+		plainError      bool
+	}{
+		{
+			name:    "multiple commits cannot overwrite a handwritten title",
+			args:    "1 --fill-title --yes",
+			title:   "feature branch",
+			body:    "- One commit\n- Another commit\n",
+			wantErr: "--fill-title requires exactly one commit",
+		},
+		{
+			name:        "git failure identifies the missing source branch",
+			args:        "1 --fill-description --yes",
+			autofillErr: fmt.Errorf("cannot read commits for source branch %q: branch not found", "feature/test-branch"),
+			wantErr:     "cannot read commits for source branch \"feature/test-branch\"",
+		},
+		{
+			name:            "empty description rejects before confirmation",
+			args:            "1 --fill-description",
+			title:           "Single commit title",
+			titleFromCommit: true,
+			wantErr:         "no commit content available to fill merge request description",
+			plainError:      true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			api.GetMR = func(_ *gitlab.Client, _ any, id int64, _ *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error) {
+				return &gitlab.MergeRequest{BasicMergeRequest: gitlab.BasicMergeRequest{
+					ID: id, IID: id, Title: "Original title", Description: "Original description",
+					SourceBranch: "feature/test-branch", TargetBranch: "main", State: "opened",
+				}}, nil
+			}
+			updated := false
+			api.UpdateMR = func(_ *gitlab.Client, _ any, _ int64, _ *gitlab.UpdateMergeRequestOptions) (*gitlab.MergeRequest, error) {
+				updated = true
+				return nil, fmt.Errorf("unexpected API update")
+			}
+			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				return newCmdUpdateWithAutofill(f, func(_, _ string, _, requireHistory bool) (string, string, bool, error) {
+					assert.True(t, requireHistory)
+					return tc.title, tc.body, tc.titleFromCommit, tc.autofillErr
+				})
+			}, false, cmdtest.WithBaseRepo("OWNER", "REPO", ""))
+
+			_, err := exec(tc.args)
+			require.ErrorContains(t, err, tc.wantErr)
+			assert.False(t, updated)
+			if tc.plainError {
+				var flagErr *cmdutils.FlagError
+				assert.NotErrorAs(t, err, &flagErr)
+			}
+		})
+	}
 }
 
 func TestUpdateMergeRequest_DescriptionFile(t *testing.T) {

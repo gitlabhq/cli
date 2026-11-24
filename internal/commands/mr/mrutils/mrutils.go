@@ -513,15 +513,31 @@ func PrintMRApprovalState(ios *iostreams.IOStreams, mrApprovals *gitlab.MergeReq
 	}
 }
 
-// AutofillMRFromCommits generates title and body from commit information between two branches
-func AutofillMRFromCommits(targetBranch, sourceBranch string, fillCommitBody bool) (string, string, error) {
-	commits, err := git.Commits(targetBranch, sourceBranch)
+// AutofillMRFromCommitsWithMetadata records whether the title came from a
+// single commit. Unlike legacy --fill, selective flags can require local history.
+func AutofillMRFromCommitsWithMetadata(
+	targetBranch, sourceBranch string, fillCommitBody, requireHistory bool,
+) (string, string, bool, error) {
+	return autofillMRFromCommitsWithMetadata(targetBranch, sourceBranch, fillCommitBody, requireHistory, git.Commits)
+}
+
+// autofillMRFromCommitsWithMetadata accepts a commit loader so callers can
+// test missing local history and branch-name fallbacks without global stubs.
+func autofillMRFromCommitsWithMetadata(
+	targetBranch, sourceBranch string, fillCommitBody, requireHistory bool,
+	loadCommits func(string, string) ([]*git.Commit, error),
+) (string, string, bool, error) {
+	commits, err := loadCommits(targetBranch, sourceBranch)
 	if err != nil {
-		// If git fails, create a simple title from branch name
-		return utils.Humanize(sourceBranch), "", nil //nolint:nilerr // intentional fallback: branch-name title when git history is unavailable
+		if requireHistory {
+			return "", "", false, fmt.Errorf("cannot read commits for source branch %q: %w", sourceBranch, err)
+		}
+		// Keep the existing --fill fallback when the local Git history is unavailable.
+		return utils.Humanize(sourceBranch), "", false, nil
 	}
 
-	return GenerateMRTitleAndBody(commits, sourceBranch, fillCommitBody)
+	title, body, err := GenerateMRTitleAndBody(commits, sourceBranch, fillCommitBody)
+	return title, body, len(commits) == 1, err
 }
 
 // GenerateMRTitleAndBody creates title and body from commits
