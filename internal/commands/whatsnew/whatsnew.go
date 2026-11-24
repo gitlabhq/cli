@@ -15,7 +15,6 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
-	"gitlab.com/gitlab-org/cli/internal/commands/update"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -32,24 +31,24 @@ const (
 	LastWhatsnewVersionKey = "last_whatsnew_version"
 )
 
-var clientCreator = update.CreateUnauthenticatedClient
-
 type options struct {
 	tagName      string
 	sinceVersion string
 	showLatest   bool
 	isDefault    bool
 
-	io        *iostreams.IOStreams
-	cfg       func() config.Config
-	buildInfo api.BuildInfo
+	io              *iostreams.IOStreams
+	cfg             func() config.Config
+	buildInfo       api.BuildInfo
+	gitLabComClient func() (*api.Client, error)
 }
 
 func NewCmd(f cmdutils.Factory) *cobra.Command {
 	opts := &options{
-		io:        f.IO(),
-		cfg:       f.Config,
-		buildInfo: f.BuildInfo(),
+		io:              f.IO(),
+		cfg:             f.Config,
+		buildInfo:       f.BuildInfo(),
+		gitLabComClient: f.GitLabComClient,
 	}
 
 	cmd := &cobra.Command{
@@ -115,7 +114,7 @@ func (o *options) validate() error {
 }
 
 func (o *options) run(ctx context.Context) error {
-	client, err := clientCreator(o.buildInfo.UserAgent())
+	client, err := o.gitLabComClient()
 	if err != nil {
 		return err
 	}

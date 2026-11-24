@@ -515,6 +515,10 @@ func (f *factory) RepoOverride(repo string) error {
 	return nil
 }
 
+func (f *factory) GitLabComClient() (*api.Client, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (f *factory) ApiClient(repoHost string) (*api.Client, error) {
 	return nil, errors.New("not implemented")
 }

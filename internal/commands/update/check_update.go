@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -16,7 +15,6 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
-	"gitlab.com/gitlab-org/cli/internal/api"
 	"gitlab.com/gitlab-org/cli/internal/binarymgr"
 	"gitlab.com/gitlab-org/cli/internal/binarymgr/binaries"
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
@@ -74,9 +72,6 @@ func NewCheckUpdateCmd(f cmdutils.Factory) *cobra.Command {
 	return cmd
 }
 
-// clientCreator is a variable that can be overridden for testing
-var clientCreator = CreateUnauthenticatedClient
-
 // installMethodDetector is overridable for tests so we don't depend on the
 // filesystem path of the running test binary.
 var installMethodDetector = DetectInstallMethod
@@ -117,7 +112,7 @@ func checkUpdate(f cmdutils.Factory, silentSuccess bool, forceCheck bool) error 
 	// 1. The releases endpoint is public and doesn't require authentication
 	// 2. Using user credentials (especially from GITLAB_TOKEN env var) can cause issues
 	//    when users have tokens for self-hosted instances that aren't valid for gitlab.com
-	apiClient, err := clientCreator(f.BuildInfo().UserAgent())
+	apiClient, err := f.GitLabComClient()
 	if err != nil {
 		return err
 	}
@@ -192,27 +187,6 @@ func writeHumanUpdateBlock(io *iostreams.IOStreams, currentVersion, latestVersio
 		io.LogErrorf("  Run: %s\n", method.UpgradeCommand)
 	}
 	io.LogErrorf("  Release notes: %s\n", releaseURL)
-}
-
-// CreateUnauthenticatedClient creates an API client without authentication for accessing
-// public endpoints on gitlab.com. This avoids issues where user credentials (especially
-// from environment variables like GITLAB_TOKEN) might be for self-hosted instances
-// and invalid for gitlab.com.
-func CreateUnauthenticatedClient(userAgent string, options ...api.ClientOption) (*api.Client, error) {
-	// Create a client with an empty token for unauthenticated requests
-	opts := []api.ClientOption{
-		api.WithBaseURL(glinstance.APIEndpoint(glinstance.DefaultHostname, glinstance.DefaultProtocol, "", "")),
-		api.WithUserAgent(userAgent),
-	}
-	opts = append(opts, options...)
-
-	return api.NewClient(
-		func(c *http.Client) (gitlab.AuthSource, error) {
-			// Use AccessTokenAuthSource with empty token for public API access
-			return gitlab.AccessTokenAuthSource{Token: ""}, nil
-		},
-		opts...,
-	)
 }
 
 // ShouldSkipUpdate decides whether to suppress the post-command update

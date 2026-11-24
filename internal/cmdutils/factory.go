@@ -3,6 +3,7 @@ package cmdutils
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -23,6 +24,8 @@ import (
 // Safe for concurrent use.
 type Factory interface {
 	RepoOverride(repo string) error
+	// GitLabComClient returns an unauthenticated API client targeting gitlab.com.
+	GitLabComClient() (*api.Client, error)
 	ApiClient(repoHost string) (*api.Client, error)
 	// GitLabClient returns an HTTP client that is initialize with the host from BaseRepo.
 	// You must only use GitLabClient if your command is tied to a single repository,
@@ -108,6 +111,20 @@ func (f *DefaultFactory) RepoOverride(repo string) error {
 	}
 	f.cachedBaseRepo = baseRepo
 	return nil
+}
+
+func (f *DefaultFactory) GitLabComClient() (*api.Client, error) {
+	opts := []api.ClientOption{
+		api.WithBaseURL(glinstance.APIEndpoint(glinstance.DefaultHostname, glinstance.DefaultProtocol, "", "")),
+		api.WithUserAgent(f.buildInfo.UserAgent()),
+	}
+
+	return api.NewClient(
+		func(*http.Client) (gitlab.AuthSource, error) {
+			return gitlab.Unauthenticated{}, nil
+		},
+		opts...,
+	)
 }
 
 func (f *DefaultFactory) ApiClient(repoHost string) (*api.Client, error) {
