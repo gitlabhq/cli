@@ -16,6 +16,7 @@ Update a merge request.
 
 Defaults to the currently checked-out branch. Use `--fill` to
 automatically fill the title and description from the commit history.
+Use `--fill-title` or `--fill-description` to update only one field.
 
 `--attach` uploads a file and references it at the end of the description. Repeat the flag for more than one file, or pass `-` to read the file from standard input. Without `--description` the references are added to the description the merge request already has, instead of replacing it.
 
@@ -46,6 +47,12 @@ glab mr update feature-branch --state opened --ready
 # Update merge request with commit information
 glab mr update 23 --fill --fill-commit-body --yes
 
+# Update only the description with commit information
+glab mr update 23 --fill-description --yes
+
+# Update only the title from a single commit
+glab mr update 23 --fill-title --yes
+
 # Read the description from a file
 glab mr update 23 --description-file description.md
 
@@ -65,7 +72,9 @@ glab mr update 23 --attach ./screenshot.png
       --description-file string   Read the merge request description from a file. Use "-" to read from standard input.
       --draft                     Mark merge request as a draft.
   -f, --fill                      Do not prompt for title or body, and just use commit info.
-      --fill-commit-body          Fill body with each commit body when multiple commits. Can only be used with --fill.
+      --fill-commit-body          Fill body with each commit body when multiple commits. Requires --fill or --fill-description.
+      --fill-description          Fill only the description from commit info.
+      --fill-title                Fill only the title from commit info (requires exactly one commit).
   -l, --label strings             Add labels.
       --lock-discussion           Lock discussion on merge request.
   -m, --milestone string          Title of the milestone to assign. Set to "" or 0 to unassign.

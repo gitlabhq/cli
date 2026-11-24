@@ -23,6 +23,14 @@ import (
 )
 
 func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
+	return newCmdUpdateWithAutofill(f, mrutils.AutofillMRFromCommitsWithMetadata)
+}
+
+// newCmdUpdateWithAutofill keeps test inputs independent of local Git history.
+func newCmdUpdateWithAutofill(
+	f cmdutils.Factory,
+	autofillFromCommits func(string, string, bool, bool) (string, string, bool, error),
+) *cobra.Command {
 	var attach []string
 	var state string
 
@@ -32,6 +40,7 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Docf(`
 			Defaults to the currently checked-out branch. Use %[1]s--fill%[1]s to
 			automatically fill the title and description from the commit history.
+			Use %[1]s--fill-title%[1]s or %[1]s--fill-description%[1]s to update only one field.
 
 			%[1]s--attach%[1]s uploads a file and references it at the end of the description. Repeat the flag for more than one file, or pass %[1]s-%[1]s to read the file from standard input. Without %[1]s--description%[1]s the references are added to the description the merge request already has, instead of replacing it.
 			%[2]s`, "`", fmt.Sprintf(text.ExperimentalFlagString, "`--attach`")),
@@ -50,6 +59,12 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 
 		# Update merge request with commit information
 		glab mr update 23 --fill --fill-commit-body --yes
+
+		# Update only the description with commit information
+		glab mr update 23 --fill-description --yes
+
+		# Update only the title from a single commit
+		glab mr update 23 --fill-title --yes
 
 		# Read the description from a file
 		glab mr update 23 --description-file description.md
@@ -70,12 +85,17 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 			var ur *cmdutils.UserAssignments // reviewers
 			c := f.IO().Color()
 
-			// Check for autofill flags
+			// --fill keeps its existing behavior; the selective flags enable only
+			// the requested field. A --fill=false flag must not count as enabled.
 			autofill, _ := cmd.Flags().GetBool("fill")
+			fillTitleFlag, _ := cmd.Flags().GetBool("fill-title")
+			fillDescriptionFlag, _ := cmd.Flags().GetBool("fill-description")
 			fillCommitBody, _ := cmd.Flags().GetBool("fill-commit-body")
+			fillTitle := autofill || fillTitleFlag
+			fillDescription := autofill || fillDescriptionFlag
 
-			if !autofill && fillCommitBody {
-				return &cmdutils.FlagError{Err: errors.New("--fill-commit-body should be used with --fill")}
+			if fillCommitBody && !fillDescription {
+				return &cmdutils.FlagError{Err: errors.New("--fill-commit-body should be used with --fill or --fill-description")}
 			}
 
 			if cmd.Flags().Changed("unassign") && cmd.Flags().Changed("assignee") {
@@ -134,11 +154,22 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 			var mergeTitle string
 			var mergeBody string
 
-			// Handle autofill functionality
-			if autofill {
-				title, body, err := mrutils.AutofillMRFromCommits(mr.TargetBranch, mr.SourceBranch, fillCommitBody)
+			// Preserve --fill fallbacks, but require usable commit history
+			// when only the title or description should change.
+			if fillTitle || fillDescription {
+				selective := !autofill && (fillTitleFlag || fillDescriptionFlag)
+				title, body, titleFromCommit, err := autofillFromCommits(
+					mr.TargetBranch, mr.SourceBranch, fillCommitBody, selective,
+				)
 				if err != nil {
 					return fmt.Errorf("failed to autofill MR content: %w", err)
+				}
+				if selective && fillTitleFlag && !cmd.Flags().Changed("title") && !titleFromCommit {
+					return fmt.Errorf("--fill-title requires exactly one commit between %q and %q; use --title to set it explicitly or --fill to allow the branch-name fallback", mr.TargetBranch, mr.SourceBranch)
+				}
+				// Fail before preview or confirmation in interactive mode.
+				if selective && fillDescriptionFlag && !cmd.Flags().Changed("description") && strings.TrimSpace(body) == "" {
+					return errors.New("no commit content available to fill merge request description")
 				}
 
 				// Check if --yes flag is provided to skip confirmation
@@ -147,38 +178,35 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 				// Validate that we can prompt if confirmation is needed
 				if !skipConfirmation && !f.IO().IsInteractive() {
 					return &cmdutils.FlagError{
-						Err: errors.New("--yes required with --fill for non-interactive mode"),
+						Err: errors.New("--yes required with --fill, --fill-title or --fill-description for non-interactive mode"),
 					}
 				}
 
 				// Show preview and ask for confirmation unless --yes is provided
 				if !skipConfirmation {
-					// Determine what title will be applied
-					var proposedTitle string
+					// Show the existing MR fields for any selective mode that does
+					// not change them, rather than previewing an unsent value.
+					proposedTitle := mr.Title
 					if cmd.Flags().Changed("title") {
-						var err error
 						proposedTitle, err = cmd.Flags().GetString("title")
 						if err != nil {
 							return err
 						}
-					} else {
-						proposedTitle = title // from autofill
+					} else if fillTitle {
+						proposedTitle = title
 					}
 
-					// Determine what description will be applied
-					var proposedDescription string
+					proposedDescription := mr.Description
 					if cmd.Flags().Changed("description") {
-						var err error
 						proposedDescription, err = cmd.Flags().GetString("description")
 						if err != nil {
 							return err
 						}
-						// Special case for editor mode
 						if proposedDescription == "-" {
 							proposedDescription = "(from editor)"
 						}
-					} else {
-						proposedDescription = body // from autofill
+					} else if fillDescription {
+						proposedDescription = body
 					}
 
 					writeUpdatePreview(f.IO().StdOut, proposedTitle, proposedDescription)
@@ -198,12 +226,12 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 					}
 				}
 
-				// Only set title and body if not explicitly provided by user
-				if !cmd.Flags().Changed("title") {
+				// Explicit title/description flags take precedence over autofill.
+				if fillTitle && !cmd.Flags().Changed("title") {
 					mergeTitle = title
 					actions = append(actions, "updated title with commit info")
 				}
-				if !cmd.Flags().Changed("description") {
+				if fillDescription && !cmd.Flags().Changed("description") {
 					mergeBody = body
 					actions = append(actions, "updated body with commit info")
 				}
@@ -211,14 +239,21 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 
 			isDraft, _ := cmd.Flags().GetBool("draft")
 			isWIP, _ := cmd.Flags().GetBool("wip")
+			// Keep the existing request shape for other update modes.
+			// Selective description autofill must not resend a stale title.
+			titleChanged := !fillDescriptionFlag || fillTitle
 			if m, _ := cmd.Flags().GetString("title"); m != "" {
+				titleChanged = true
 				actions = append(actions, fmt.Sprintf("updated title to %q", m))
 				mergeTitle = m
 			}
+			// Draft, WIP and ready need the existing title as their base,
+			// even when no new title was generated or explicitly requested.
 			if mergeTitle == "" {
 				mergeTitle = mr.Title
 			}
 			if isDraft || isWIP {
+				titleChanged = true
 				var alreadyPresent bool
 				mergeTitle, alreadyPresent = cmdutils.EnsureTitlePrefix(mergeTitle, "Draft:")
 				if alreadyPresent {
@@ -227,11 +262,14 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 					actions = append(actions, "marked as Draft")
 				}
 			} else if isReady, _ := cmd.Flags().GetBool("ready"); isReady {
+				titleChanged = true
 				actions = append(actions, "marked as ready")
 				mergeTitle = cmdutils.StripTitlePrefixes(mergeTitle)
 			}
 
-			l.Title = new(mergeTitle)
+			if titleChanged {
+				l.Title = new(mergeTitle)
+			}
 			if m, _ := cmd.Flags().GetBool("lock-discussion"); m {
 				actions = append(actions, "locked discussion")
 				l.DiscussionLocked = new(m)
@@ -392,7 +430,9 @@ func NewCmdUpdate(f cmdutils.Factory) *cobra.Command {
 
 	// Add new autofill flags
 	mrUpdateCmd.Flags().BoolP("fill", "f", false, "Do not prompt for title or body, and just use commit info.")
-	mrUpdateCmd.Flags().Bool("fill-commit-body", false, "Fill body with each commit body when multiple commits. Can only be used with --fill.")
+	mrUpdateCmd.Flags().Bool("fill-title", false, "Fill only the title from commit info (requires exactly one commit).")
+	mrUpdateCmd.Flags().Bool("fill-description", false, "Fill only the description from commit info.")
+	mrUpdateCmd.Flags().Bool("fill-commit-body", false, "Fill body with each commit body when multiple commits. Requires --fill or --fill-description.")
 	mrUpdateCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt.")
 	cmdutils.AddDescriptionFileFlag(mrUpdateCmd, "merge request")
 	cmdutils.AddAttachFlag(mrUpdateCmd, &attach, "description")
