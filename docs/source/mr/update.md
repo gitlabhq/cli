@@ -79,7 +79,7 @@ glab mr update 23 --attach ./screenshot.png
       --unassign                  Unassign all users.
   -u, --unlabel strings           Remove labels.
       --unlock-discussion         Unlock discussion on merge request.
-      --wip                       Mark merge request as a work in progress. Alternative to --draft.
+      --wip                       Alias for --draft.
   -y, --yes                       Skip confirmation prompt.
 ```
 

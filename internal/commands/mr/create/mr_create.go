@@ -222,7 +222,7 @@ func NewCmdCreate(f cmdutils.Factory) *cobra.Command {
 	mrCreateCmd.Flags().BoolVarP(&opts.Autofill, "fill", "f", false, "Do not prompt for title or description, and just use commit info. Pushes the branch unless --push=false is set.")
 	mrCreateCmd.Flags().BoolVarP(&opts.FillCommitBody, "fill-commit-body", "", false, "Fill description with each commit body when multiple commits. Can only be used with --fill.")
 	mrCreateCmd.Flags().BoolVarP(&opts.IsDraft, "draft", "", false, "Mark merge request as a draft.")
-	mrCreateCmd.Flags().BoolVarP(&opts.IsWIP, "wip", "", false, "Mark merge request as a draft. Alternative to --draft.")
+	mrCreateCmd.Flags().BoolVarP(&opts.IsWIP, "wip", "", false, "Alias for --draft.")
 	mrCreateCmd.Flags().BoolVarP(&opts.ShouldPush, "push", "", false, "Push committed changes before creating the merge request. Make sure you have committed changes. Defaults to true with --fill. Use --push=false to skip the push.")
 	mrCreateCmd.Flags().StringVarP(&opts.Title, "title", "t", "", "Supply a title for the merge request.")
 	mrCreateCmd.Flags().StringVarP(&opts.Description, "description", "d", "", "Supply a description for the merge request. Set to \"-\" to open an editor.")
@@ -696,10 +696,8 @@ func (o *options) run(ctx context.Context) error {
 		return fmt.Errorf("title can't be blank")
 	}
 
-	if o.IsDraft {
+	if o.IsDraft || o.IsWIP {
 		o.Title, _ = cmdutils.EnsureTitlePrefix(o.Title, "Draft:")
-	} else if o.IsWIP {
-		o.Title, _ = cmdutils.EnsureTitlePrefix(o.Title, "WIP:")
 	}
 	mrCreateOpts.Title = &o.Title
 	mrCreateOpts.Description = &o.Description

@@ -711,16 +711,16 @@ func TestNewCmdCreate_DoesNotDoublePrefixTitle(t *testing.T) {
 			wantTitle: "(Draft) my custom MR title",
 		},
 		{
-			name:      "--wip prepends when prefix is absent",
+			name:      "--wip prepends Draft when prefix is absent",
 			title:     "my custom MR title",
 			extraArgs: []string{"--wip"},
-			wantTitle: "WIP: my custom MR title",
+			wantTitle: "Draft: my custom MR title",
 		},
 		{
-			name:      "--wip leaves an existing WIP prefix alone",
-			title:     "WIP: my custom MR title",
+			name:      "--wip leaves an existing Draft prefix alone",
+			title:     "Draft: my custom MR title",
 			extraArgs: []string{"--wip"},
-			wantTitle: "WIP: my custom MR title",
+			wantTitle: "Draft: my custom MR title",
 		},
 		{
 			name:         "--related-issue implies draft and does not double-prefix",
