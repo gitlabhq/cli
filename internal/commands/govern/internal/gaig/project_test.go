@@ -77,3 +77,25 @@ func TestProjectForDir(t *testing.T) {
 		require.ErrorContains(t, err, "could not read the origin remote of /tmp")
 	})
 }
+
+func TestTopLevel(t *testing.T) {
+	t.Parallel()
+
+	executor := cmdtest.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().
+		ExecWithIO(gomock.Any(), "git", []string{"-C", "/work/project/internal", "rev-parse", "--show-toplevel"}, nil, nil, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _, _ []string, _ io.Reader, stdout, _ io.Writer) error {
+			_, err := io.WriteString(stdout, "/work/project\n")
+			return err
+		})
+	executor.EXPECT().
+		ExecWithIO(gomock.Any(), "git", []string{"-C", "/tmp", "rev-parse", "--show-toplevel"}, nil, nil, gomock.Any(), gomock.Any()).
+		Return(errors.New("exit status 128"))
+
+	top, err := TopLevel(t.Context(), executor, "/work/project/internal")
+	require.NoError(t, err)
+	assert.Equal(t, "/work/project", top)
+
+	_, err = TopLevel(t.Context(), executor, "/tmp")
+	require.ErrorContains(t, err, "could not find the repository of /tmp")
+}

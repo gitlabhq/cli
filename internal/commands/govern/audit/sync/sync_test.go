@@ -13,8 +13,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	gosync "sync"
 	"testing"
 	"time"
 
@@ -399,6 +401,76 @@ func TestWriteReadSessionMeta(t *testing.T) {
 	assert.Equal(t, "claude-code", got.AgentType)
 	assert.Equal(t, "my-group/my-project", got.PathWithNamespace)
 	assert.Equal(t, "gitlab.com", got.Host)
+}
+
+func TestUpdateSessionMeta_KeepsConcurrentChanges(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	require.NoError(t, writeSessionMeta("sess-1", sessionMeta{AgentType: "claude-code"}))
+	at := time.Now()
+
+	var wg gosync.WaitGroup
+	for i := range 20 {
+		wg.Go(func() {
+			if i%2 == 0 {
+				assert.NoError(t, updateSessionMeta("sess-1", func(m *sessionMeta) { m.Transcript = "/t.jsonl" }))
+			} else {
+				assert.NoError(t, updateSessionMeta("sess-1", func(m *sessionMeta) { m.CompletedAt = &at }))
+			}
+		})
+	}
+	wg.Wait()
+
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.Equal(t, "/t.jsonl", meta.Transcript)
+	assert.NotNil(t, meta.CompletedAt)
+}
+
+func TestRecordSessionMeta_WaitsForAChangeInProgress(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the record lock is a no-op on Windows")
+	}
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "sess-1.jsonl")
+	require.NoError(t, os.WriteFile(path, claudeTranscriptLines(t, "sess-1", "toolu_1"), 0o644))
+	require.NoError(t, writeSessionMeta("sess-1", sessionMeta{AgentType: "claude-code", Transcript: path}))
+	opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) {
+		return glrepo.NewWithHost("my-group", "my-project", "gitlab.com"), nil
+	}}
+	recordedWithProject := func() bool {
+		meta, err := readSessionMeta("sess-1")
+		return err == nil && meta.PathWithNamespace != ""
+	}
+
+	// --all changes the record, which it read without a project, while the
+	// hook records the session with one.
+	changing, release := make(chan struct{}), make(chan struct{})
+	changed, recorded := make(chan error, 1), make(chan error, 1)
+	go func() {
+		changed <- updateSessionMeta("sess-1", func(m *sessionMeta) {
+			close(changing)
+			<-release
+			m.Transcript = path
+		})
+	}()
+	<-changing
+	go func() { recorded <- recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", path) }()
+	assert.Never(t, recordedWithProject, 200*time.Millisecond, 10*time.Millisecond, "the hook waits for the change in progress")
+	close(release)
+	require.NoError(t, <-changed)
+	require.NoError(t, <-recorded)
+
+	assert.True(t, recordedWithProject(), "the change in progress does not write back the record without the project")
+}
+
+func TestUpdateSessionMeta_WithoutRecord(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+
+	require.NoError(t, updateSessionMeta("sess-1", func(m *sessionMeta) { m.Transcript = "/t.jsonl" }))
+
+	_, err := readSessionMeta("sess-1")
+	require.ErrorIs(t, err, errNoSessionMeta, "a session the hooks never recorded is not recorded by a change")
 }
 
 func TestReadSessionMeta_NotFound(t *testing.T) {

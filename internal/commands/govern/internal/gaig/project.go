@@ -51,6 +51,16 @@ func OriginRemote(ctx context.Context, executor cmdutils.Executor, dir string) (
 	return strings.TrimSpace(out.String()), nil
 }
 
+// TopLevel returns the top-level folder of the Git work tree that dir is in.
+func TopLevel(ctx context.Context, executor cmdutils.Executor, dir string) (string, error) {
+	var out bytes.Buffer
+	err := executor.ExecWithIO(ctx, "git", []string{"-C", dir, "rev-parse", "--show-toplevel"}, nil, nil, &out, io.Discard)
+	if err != nil {
+		return "", fmt.Errorf("could not find the repository of %s: %w", dir, err)
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
 // ProjectForDir returns the GitLab host and project path of the origin remote
 // of the repository at dir, which need not be the working directory.
 func ProjectForDir(ctx context.Context, executor cmdutils.Executor, cfg config.Config, dir string) (string, string, error) {

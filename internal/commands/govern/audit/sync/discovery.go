@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -73,11 +74,18 @@ func discoverSessions(ctx context.Context, agents []agent, known map[string]stru
 				}
 				continue
 			}
-			err = writeSessionMeta(s.id, sessionMeta{
+			meta := sessionMeta{
 				AgentType:         a.name(),
 				PathWithNamespace: path,
 				Host:              host,
 				Transcript:        s.locator,
+			}
+			err = withSessionMetaLock(func() error {
+				// A hook may have recorded the session since discovery listed it.
+				if _, err := readSessionMeta(s.id); !errors.Is(err, errNoSessionMeta) {
+					return err
+				}
+				return writeSessionMeta(s.id, meta)
 			})
 			if err != nil {
 				recordErr(fmt.Errorf("session %s: %w", s.id, err))

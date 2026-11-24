@@ -2,6 +2,7 @@ package sync
 
 import (
 	"bufio"
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -204,8 +205,109 @@ func (t codexTranscript) read(_ context.Context, cursor int64) (*sessionData, in
 		goalFound: cursor > 0,
 		calls:     map[string]toolCall{},
 	}
+	if cursor > 0 {
+		if r.cwd, err = codexFolderAt(t.path, cursor); err != nil {
+			return nil, cursor, err
+		}
+		if r.cwd == "" {
+			r.cwd = unknownFolder
+		}
+	}
 	offset, err := scanJSONL(t.path, cursor, r.parseLine)
 	return r.data, offset, err
+}
+
+// codexFolderAt returns the folder in effect at offset, a line boundary, in
+// the rollout at path: that of the last turn_context line before it, or of the
+// session_meta line. It reads backwards from offset, because the turn that is
+// in progress usually started shortly before, and returns "" when it does not
+// find one within maxCodexFolderReadBack.
+func codexFolderAt(path string, offset int64) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	// A cursor past the end of a rollout that was replaced reads no entries,
+	// so it needs no folder either.
+	return codexFolderBefore(f, min(offset, info.Size()), maxCodexFolderReadBack)
+}
+
+const (
+	// maxCodexFolderReadBack bounds how far back codexFolderAt reads, so that
+	// a rollout with huge lines, such as compacted history or images, cannot
+	// hold up a hook.
+	maxCodexFolderReadBack = 64 << 20
+	// maxCodexFolderLine is longer than any turn_context or session_meta line,
+	// so longer lines are skipped without reading them again.
+	maxCodexFolderLine = 1 << 20
+)
+
+// codexFolderBefore finds the folder in effect at end in r, reading back at
+// most maxReadBack bytes. It finds each line's start by scanning backwards
+// for newlines once, and reads only lines short enough to set a folder, so
+// its cost grows with the bytes it reads back, however long the lines are.
+func codexFolderBefore(r io.ReaderAt, end, maxReadBack int64) (string, error) {
+	limit := max(0, end-maxReadBack)
+	check := func(start, stop int64) (string, error) {
+		if stop <= start || stop-start > maxCodexFolderLine {
+			return "", nil
+		}
+		line := make([]byte, stop-start)
+		if _, err := r.ReadAt(line, start); err != nil {
+			return "", err
+		}
+		return codexLineFolder(line), nil
+	}
+
+	const chunkSize = 64 * 1024
+	chunk := make([]byte, chunkSize)
+	// lineEnd is where the line being looked for ends: at its newline, or at
+	// end for a last line that has none.
+	lineEnd := end
+	for pos := end; pos > limit; {
+		n := min(chunkSize, pos-limit)
+		pos -= n
+		if _, err := r.ReadAt(chunk[:n], pos); err != nil {
+			return "", err
+		}
+		for i := int(n); ; {
+			nl := bytes.LastIndexByte(chunk[:i], '\n')
+			if nl < 0 {
+				break
+			}
+			dir, err := check(pos+int64(nl)+1, lineEnd)
+			if dir != "" || err != nil {
+				return dir, err
+			}
+			lineEnd, i = pos+int64(nl), nl
+		}
+	}
+	if limit > 0 {
+		return "", nil
+	}
+	return check(0, lineEnd)
+}
+
+// codexLineFolder returns the folder a turn_context or session_meta line sets.
+func codexLineFolder(line []byte) string {
+	if !bytes.Contains(line, []byte(`"turn_context"`)) && !bytes.Contains(line, []byte(`"session_meta"`)) {
+		return ""
+	}
+	var entry struct {
+		Type    string `json:"type"`
+		Payload struct {
+			CWD string `json:"cwd"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(line, &entry) != nil || (entry.Type != "turn_context" && entry.Type != "session_meta") {
+		return ""
+	}
+	return cleanCWD(entry.Payload.CWD)
 }
 
 func (t codexTranscript) lastActivity(context.Context) (time.Time, error) {
@@ -235,9 +337,8 @@ type codexReader struct {
 	calls     map[string]toolCall
 	model     string
 	// cwd is the folder of the current turn, from the session_meta and
-	// turn_context lines. A read that starts mid-rollout has none until the
-	// next turn, rather than a possibly stale one from session_meta, so the
-	// caller fills in the folder it last saw for those entries.
+	// turn_context lines, or for a read that starts mid-rollout, from the last
+	// of them before the cursor, or unknownFolder if that is not found.
 	cwd string
 }
 
@@ -395,8 +496,8 @@ func (r *codexReader) callCWD(input json.RawMessage) string {
 		return r.cwd
 	case filepath.IsAbs(dir):
 		return cleanCWD(dir)
-	case r.cwd == "":
-		return ""
+	case r.cwd == "" || r.cwd == unknownFolder:
+		return r.cwd
 	default:
 		return filepath.Join(r.cwd, dir)
 	}

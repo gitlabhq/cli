@@ -21,6 +21,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/fallbacksync"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
+	"gitlab.com/gitlab-org/cli/internal/config"
 )
 
 // writesStdout mocks Executor.ExecWithIO for a command that prints out.
@@ -198,6 +199,26 @@ func TestSyncAll_DiscoversCodexSession(t *testing.T) {
 	_, err = env.exec("--all")
 	require.NoError(t, err)
 	assert.Len(t, env.fake.sessionsCreated, 1, "a discovered session is synced once")
+}
+
+func TestDiscoverSessions_KeepsTheRecordOfAHook(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
+	path := writeCodexRollout(t, env.home, "th-1", jsonLines(t,
+		codexSessionMetaLine("th-1", "/work", "git@"+testHost+":my-group/my-project.git"),
+	))
+	// What the Codex hook recorded after discovery listed the known sessions.
+	hooked := sessionMeta{AgentType: "codex", PathWithNamespace: "my-group/other", Host: testHost, Transcript: path}
+	require.NoError(t, writeSessionMeta("th-1", hooked))
+	cfg := config.NewFromString("hosts:\n  " + testHost + ":\n    token: test-token\n")
+
+	found := discoverSessions(t.Context(), supportedAgents(env.mExec), map[string]struct{}{}, cfg,
+		func(err error) { t.Error(err) }, func(string) {})
+
+	assert.Equal(t, []string{"th-1"}, found)
+	meta, err := readSessionMeta("th-1")
+	require.NoError(t, err)
+	assert.Equal(t, hooked, *meta, "discovery does not replace the record a hook wrote")
 }
 
 func TestSyncAll_CodexSessionWithoutRemoteUsesGit(t *testing.T) {
@@ -486,23 +507,113 @@ func TestCodexTranscript_Dirs(t *testing.T) {
 	assert.Equal(t, "/work/b", data.Responses[0].CWD)
 }
 
-func TestCodexTranscript_DirUnknownBeforeTurnWhenReadingMidRollout(t *testing.T) {
+func TestCodexTranscript_DirAtCursorWhenReadingMidRollout(t *testing.T) {
+	t.Parallel()
+
+	turn := func(dir string) map[string]any {
+		return map[string]any{"timestamp": "2026-10-09T01:00:00Z", "type": "turn_context", "payload": map[string]any{"model": "m", "cwd": dir}}
+	}
+	// Output lines longer than a chunk read, so the folder is found across chunks.
+	long := codexItem("2026-10-09T01:00:00Z", map[string]any{"type": "function_call_output", "call_id": "call_0", "output": strings.Repeat("x", 100*1024)})
+	tests := []struct {
+		name string
+		head string
+		want string
+	}{
+		{name: "the session's folder before any turn", head: jsonLines(t, codexSessionMetaLine("th-1", "/work/a", "")), want: "/work/a"},
+		{name: "the folder of the turn in progress", head: jsonLines(t, codexSessionMetaLine("th-1", "/work/a", ""), turn("/work/b"), long, long, turn("/home/me/"), long), want: "/home/me"},
+		{name: "a turn before long output", head: jsonLines(t, codexSessionMetaLine("th-1", "/work/a", ""), turn("/work/b"), long, long), want: "/work/b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "rollout.jsonl")
+			require.NoError(t, os.WriteFile(path, []byte(tt.head+jsonLines(t,
+				map[string]any{"timestamp": "2026-10-09T01:00:01Z", "type": "event_msg", "payload": map[string]any{"type": "user_message", "message": "go on"}},
+				codexItem("2026-10-09T01:00:02Z", map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_1", "arguments": `{"cmd":"ls","workdir":"sub"}`}),
+			)), 0o644))
+
+			data, _, err := codexTranscript{sessionID: "th-1", path: path}.read(t.Context(), int64(len(tt.head)))
+			require.NoError(t, err)
+
+			require.Len(t, data.Prompts, 1)
+			assert.Equal(t, tt.want, data.Prompts[0].CWD)
+			require.Len(t, data.ToolCalls, 1)
+			assert.Equal(t, filepath.Join(tt.want, "sub"), data.ToolCalls[0].CWD, "a relative workdir is in the folder at the cursor")
+		})
+	}
+}
+
+func TestCodexTranscript_CursorPastTheEnd(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
-	head := jsonLines(t, codexSessionMetaLine("th-1", "/work/a", ""))
+	content := jsonLines(t, codexSessionMetaLine("th-1", "/work/a", ""))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	data, offset, err := codexTranscript{sessionID: "th-1", path: path}.read(t.Context(), int64(len(content))+100)
+
+	require.NoError(t, err, "a rollout that was cut short or replaced is not an error")
+	assert.True(t, data.empty())
+	assert.Equal(t, int64(len(content))+100, offset)
+}
+
+func TestCodexTranscript_DirAtCursorAfterAHugeLine(t *testing.T) {
+	t.Parallel()
+
+	// Compacted history and images make lines of many megabytes. A read-back
+	// that copied what it had read for every chunk would take hours here.
+	huge := codexItem("2026-10-09T01:00:00Z", map[string]any{"type": "compacted", "message": strings.Repeat("x", 32<<20)})
+	head := jsonLines(t,
+		codexSessionMetaLine("th-1", "/work/a", ""),
+		map[string]any{"timestamp": "2026-10-09T01:00:00Z", "type": "turn_context", "payload": map[string]any{"model": "m", "cwd": "/work/b"}},
+		huge,
+	)
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte(head), 0o644))
+
+	dir, err := codexFolderAt(path, int64(len(head)))
+
+	require.NoError(t, err)
+	assert.Equal(t, "/work/b", dir)
+}
+
+func TestCodexTranscript_DirUnknownWhenNotFoundBeforeTheCursor(t *testing.T) {
+	t.Parallel()
+
+	// A session_meta without a folder stands in for one too far back to read.
+	head := jsonLines(t, codexSessionMetaLine("th-1", "", ""))
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
 	require.NoError(t, os.WriteFile(path, []byte(head+jsonLines(t,
-		map[string]any{"timestamp": "2026-10-09T01:00:01Z", "type": "event_msg", "payload": map[string]any{"type": "user_message", "message": "go on"}},
-		codexItem("2026-10-09T01:00:02Z", map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_1", "arguments": `{"cmd":"ls","workdir":"sub"}`}),
+		codexItem("2026-10-09T01:00:02Z", map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_rel", "arguments": `{"cmd":"ls","workdir":"sub"}`}),
+		codexItem("2026-10-09T01:00:03Z", map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_abs", "arguments": `{"cmd":"ls","workdir":"/work/b"}`}),
 	)), 0o644))
 
 	data, _, err := codexTranscript{sessionID: "th-1", path: path}.read(t.Context(), int64(len(head)))
-	require.NoError(t, err)
 
-	require.Len(t, data.Prompts, 1)
-	assert.Empty(t, data.Prompts[0].CWD)
-	require.Len(t, data.ToolCalls, 1)
-	assert.Empty(t, data.ToolCalls[0].CWD, "a relative workdir without the turn's folder is no folder")
+	require.NoError(t, err)
+	require.Len(t, data.ToolCalls, 2)
+	assert.Equal(t, unknownFolder, data.ToolCalls[0].CWD, "not the session's project, as an entry without a folder would go to")
+	assert.Equal(t, "/work/b", data.ToolCalls[1].CWD, "an absolute workdir is known")
+}
+
+func TestCodexFolderBefore_ReadsBackAtMostTheLimit(t *testing.T) {
+	t.Parallel()
+
+	content := jsonLines(t,
+		map[string]any{"timestamp": "2026-10-09T01:00:00Z", "type": "turn_context", "payload": map[string]any{"model": "m", "cwd": "/work/b"}},
+		codexItem("2026-10-09T01:00:00Z", map[string]any{"type": "function_call_output", "call_id": "call_0", "output": strings.Repeat("x", 4096)}),
+	)
+	r := strings.NewReader(content)
+	end := int64(len(content))
+
+	dir, err := codexFolderBefore(r, end, end)
+	require.NoError(t, err)
+	assert.Equal(t, "/work/b", dir)
+
+	dir, err = codexFolderBefore(r, end, 1024)
+	require.NoError(t, err)
+	assert.Empty(t, dir, "a folder further back than the limit is not looked for")
 }
 
 func TestCodexTranscript_PaginatedPrompts(t *testing.T) {
