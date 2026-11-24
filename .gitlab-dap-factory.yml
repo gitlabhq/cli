@@ -3,5 +3,9 @@ status:
   plan: Planning breakdown
   build: In dev
   review: In review
+  plan_approved: Ready for development
 review:
   max_fix_runs: 3
+triage:
+  plan_check:
+    max_age_hours: 48
