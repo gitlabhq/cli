@@ -267,14 +267,17 @@ func recordSessionMeta(ctx context.Context, opts *options, ag agent, sessionID, 
 		// ResolveProject reports err. Recording the session lets --all report
 		// it as not synced, and every hook call rewrites the record, which
 		// --all reads as the session's last activity.
-		switch {
-		case errors.Is(readErr, errNoSessionMeta):
-		case readErr != nil:
-			return readErr
-		case meta.PathWithNamespace != "":
-			return nil
-		}
-		return writeSessionMeta(sessionID, sessionMeta{AgentType: opts.agentType, Transcript: locator})
+		return withSessionMetaLock(func() error {
+			latest, err := readSessionMeta(sessionID)
+			switch {
+			case errors.Is(err, errNoSessionMeta):
+			case err != nil:
+				return err
+			case latest.PathWithNamespace != "":
+				return nil
+			}
+			return writeSessionMeta(sessionID, sessionMeta{AgentType: opts.agentType, Transcript: locator})
+		})
 	}
 	if recordedWithoutProject {
 		// The recorded transcript, not the hook's: the hook's path follows its
@@ -287,11 +290,13 @@ func recordSessionMeta(ctx context.Context, opts *options, ag agent, sessionID, 
 			return fmt.Errorf("%w: %w", errEarlierActivityNotSkipped, err)
 		}
 	}
-	return writeSessionMeta(sessionID, sessionMeta{
-		AgentType:         opts.agentType,
-		PathWithNamespace: repo.FullName(),
-		Host:              repo.RepoHost(),
-		Transcript:        locator,
+	return withSessionMetaLock(func() error {
+		return writeSessionMeta(sessionID, sessionMeta{
+			AgentType:         opts.agentType,
+			PathWithNamespace: repo.FullName(),
+			Host:              repo.RepoHost(),
+			Transcript:        locator,
+		})
 	})
 }
 
@@ -585,7 +590,8 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 		}
 		if locator != meta.Transcript {
 			meta.Transcript = locator
-			if err := writeSessionMeta(sessionID, *meta); err != nil {
+			err := updateSessionMeta(sessionID, func(m *sessionMeta) { m.Transcript = locator })
+			if err != nil {
 				recordErr(sessionID, err)
 			}
 		}

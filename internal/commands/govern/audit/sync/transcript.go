@@ -20,6 +20,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/redact"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/fsx"
 )
 
 // claudeProjectsDir returns the base directory for Claude Code project transcripts.
@@ -168,6 +169,12 @@ type llmResponse struct {
 	Timestamp time.Time
 	CWD       string
 }
+
+// unknownFolder is the folder of an entry that the transcript recorded in a
+// folder glab could not find, such as one too far back in a Codex rollout.
+// Unlike an entry that records no folder, it does not go to the session's
+// project, because it may have run anywhere. No path can hold a NUL byte.
+const unknownFolder = "\x00unknown"
 
 // cleanCWD cleans a recorded folder, so the same folder always compares equal
 // whichever agent or line recorded it.
@@ -440,6 +447,8 @@ func metaPath(sessionID string) (string, error) {
 	return cp + ".meta", nil
 }
 
+// writeSessionMeta replaces the record by a rename, so that a concurrent read
+// never sees a partly written file.
 func writeSessionMeta(sessionID string, meta sessionMeta) error {
 	path, err := metaPath(sessionID)
 	if err != nil {
@@ -452,7 +461,31 @@ func writeSessionMeta(sessionID string, meta sessionMeta) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("could not create meta directory: %w", err)
 	}
-	return os.WriteFile(path, data, 0o600)
+	return gaig.WriteFileAtomic(path, data)
+}
+
+// withSessionMetaLock runs fn while no other glab changes a session record.
+// The hooks and --all can change the same record at once, so a change reads
+// and writes the record under this lock. One lock covers every session,
+// because its file is never removed, and a change holds it only briefly.
+func withSessionMetaLock(fn func() error) error {
+	return fsx.WithLock(filepath.Join(gaig.StateDir(), "cursors", "records.lock"), fn)
+}
+
+// updateSessionMeta applies change to the recorded metadata of a session, if
+// it has any.
+func updateSessionMeta(sessionID string, change func(*sessionMeta)) error {
+	return withSessionMetaLock(func() error {
+		meta, err := readSessionMeta(sessionID)
+		if errors.Is(err, errNoSessionMeta) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		change(meta)
+		return writeSessionMeta(sessionID, *meta)
+	})
 }
 
 // errNoSessionMeta is returned by readSessionMeta when the session has no metadata.
@@ -527,15 +560,9 @@ func sessionMetaModTime(sessionID string) (time.Time, error) {
 }
 
 func markSessionCompleted(sessionID string, at time.Time) error {
-	meta, err := readSessionMeta(sessionID)
-	if errors.Is(err, errNoSessionMeta) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	meta.CompletedAt = &at
-	return writeSessionMeta(sessionID, *meta)
+	return updateSessionMeta(sessionID, func(meta *sessionMeta) {
+		meta.CompletedAt = &at
+	})
 }
 
 // errTranscriptNotFound is returned when a session's transcript does not exist.
