@@ -20,7 +20,7 @@ For the full review workflow documentation, see the [Translation MR Review Workf
 - [ ] Check the review app for all impacted pages (Duo can help produce a list of URLs)
 - [ ] Remove the MR from Draft mode (this triggers the first review by GitLab Duo)
 - [ ] If the Duo review identified translation errors requiring review by language content maintainers, ping and add **one** maintainer as a reviewer.
-   - Reviewers can be seen here: [French](https://gitlab.com/groups/gitlab-com/localization/maintainers/french/-/group_members?with_inherited_permissions=exclude&sort=last_joined), [Japanese](https://gitlab.com/groups/gitlab-com/localization/maintainers/japanese/-/group_members?with_inherited_permissions=exclude&sort=last_joined), [Korean](https://gitlab.com/groups/gitlab-com/localization/maintainers/korean/-/group_members?with_inherited_permissions=exclude&sort=last_joined)
+  - Reviewers can be seen here: [French](https://gitlab.com/groups/gitlab-com/localization/maintainers/french/-/group_members?with_inherited_permissions=exclude&sort=last_joined), [Japanese](https://gitlab.com/groups/gitlab-com/localization/maintainers/japanese/-/group_members?with_inherited_permissions=exclude&sort=last_joined), [Korean](https://gitlab.com/groups/gitlab-com/localization/maintainers/korean/-/group_members?with_inherited_permissions=exclude&sort=last_joined)
 - [ ] Hand off for review to a [tech docs maintainer](https://gitlab.com/groups/gitlab-com/localization/maintainers/tech-docs/-/group_members?with_inherited_permissions=exclude&sort=last_joined). The MR should be ready to merge at this point
 
 ### Review App
