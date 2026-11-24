@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 
@@ -131,4 +132,57 @@ func TestReadLimitExceeded(t *testing.T) {
 	err = readZip(reader, t.TempDir(), false, 50, defaultZIPFileLimit, io.Discard)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "extracted zip too large")
+}
+
+func TestReadZipDropsSpecialModeBits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix mode bits are not applied on Windows")
+	}
+
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
+
+	dirHeader := &zip.FileHeader{Name: "dir/"}
+	dirHeader.SetMode(os.ModeDir | os.ModeSticky | 0o755)
+	_, err := zipWriter.CreateHeader(dirHeader)
+	require.NoError(t, err)
+
+	fileHeader := &zip.FileHeader{Name: "dir/bin", Method: zip.Store}
+	fileHeader.SetMode(os.ModeSetuid | os.ModeSetgid | 0o755)
+	w, err := zipWriter.CreateHeader(fileHeader)
+	require.NoError(t, err)
+	_, err = w.Write([]byte("content"))
+	require.NoError(t, err)
+
+	require.NoError(t, zipWriter.Close())
+
+	targetDir := t.TempDir()
+	err = readZip(bytes.NewReader(buf.Bytes()), targetDir, false, defaultZIPReadLimit, defaultZIPFileLimit, io.Discard)
+	require.NoError(t, err)
+
+	special := os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+	for _, name := range []string{"dir", filepath.Join("dir", "bin")} {
+		info, err := os.Stat(filepath.Join(targetDir, name))
+		require.NoError(t, err)
+		require.Zero(t, info.Mode()&special, "%s has special mode bits: %s", name, info.Mode())
+	}
+}
+
+func TestSafeMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     os.FileMode
+		fallback os.FileMode
+		want     os.FileMode
+	}{
+		{"plain file", 0o644, 0o600, 0o644},
+		{"setuid file", os.ModeSetuid | 0o755, 0o644, 0o755},
+		{"setgid sticky dir", os.ModeDir | os.ModeSetgid | os.ModeSticky | 0o775, 0o755, 0o775},
+		{"no perm bits", os.ModeSetuid, 0o644, 0o644},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, safeMode(tc.mode, tc.fallback))
+		})
+	}
 }

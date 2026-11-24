@@ -35,6 +35,14 @@ func ensurePathIsCreated(filename string) error {
 	return nil
 }
 
+// safeMode drops setuid, setgid, and sticky bits from an archive entry's mode.
+func safeMode(mode, fallback os.FileMode) os.FileMode {
+	if perm := mode.Perm(); perm != 0 {
+		return perm
+	}
+	return fallback
+}
+
 func readZip(artifact *bytes.Reader, path string, listPaths bool, zipReadLimit int64, zipFileLimit int, out io.Writer) error {
 	zipReader, err := zip.NewReader(artifact, artifact.Size())
 	if err != nil {
@@ -71,7 +79,7 @@ func readZip(artifact *bytes.Reader, path string, listPaths bool, zipReadLimit i
 		dbg.Debug("Writing:", destPath)
 
 		if v.FileInfo().IsDir() {
-			if err := os.MkdirAll(destPath, v.Mode()); err != nil {
+			if err := os.MkdirAll(destPath, safeMode(v.Mode(), 0o755)); err != nil {
 				return err
 			}
 			continue
@@ -109,7 +117,7 @@ func extractZipEntry(zipReader *zip.Reader, v *zip.File, destPath string, zipRea
 		return 0, fmt.Errorf("can't extract: a file in the artifact would overwrite a symbolic link")
 	}
 
-	dstFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, v.Mode())
+	dstFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, safeMode(v.Mode(), 0o644))
 	if err != nil {
 		return 0, err
 	}
