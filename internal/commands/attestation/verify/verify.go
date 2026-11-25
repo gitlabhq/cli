@@ -52,8 +52,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		This command checks the artifact's signed attestation against the expected
 		GitLab project and pipeline.
 
-		This command requires the cosign binary. To install it, see
-		[Cosign installation](https://docs.sigstore.dev/cosign/system_config/installation/).
+		This command requires Cosign 3.0.6 or later. To install it, see [Cosign installation](https://docs.sigstore.dev/cosign/system_config/installation/).
 
 		This command works with any GitLab instance. It finds the project and its attestations on the instance from your current context: the %[1]sGITLAB_HOST%[1]s variable, your Git remote, or your glab configuration.
 
@@ -205,7 +204,6 @@ func (o *options) verify(ctx context.Context, filename, projectURL, issuer strin
 
 	args := []string{
 		"verify-blob-attestation",
-		"--new-bundle-format",
 		"--bundle",
 		bundlePath,
 		"--type",
