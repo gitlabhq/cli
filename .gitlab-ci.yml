@@ -234,7 +234,7 @@ docs hugo_build:
     # See https://gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/-/merge_requests/1554#note_2901887344
     - rm -f ../docs/index.rst ../docs/*.md
     # Test that Hugo will build
-    - hugo --gc --printPathWarnings --environment test
+    - hugo --gc --printPathWarnings --panicOnWarning --environment test
     # Test for invalid index pages
     # See https://gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/-/blob/main/scripts/check-index-filenames.sh
     - make check-index-pages SEARCH_DIR="../docs/source"
