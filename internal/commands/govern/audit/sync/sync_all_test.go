@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	gosync "sync"
 	"testing"
@@ -47,18 +48,30 @@ const testHost = "gitlab.example.com"
 // It is an HTTP server rather than a client-go mock because the governance
 // endpoints are raw requests that client-go has no service for.
 type fakeGitLab struct {
-	mu               gosync.Mutex
-	projects         map[string]int64
-	projectLookups   map[string]int
-	sessionsCreated  []string
-	sessionRequests  []sessionRequest
-	agentTypes       []string
-	syncTypes        []string
-	identityRequests int
-	eventBatches     []int
-	events           []auditEventRequest
-	eventsPosted     int
-	completed        int
+	mu             gosync.Mutex
+	projects       map[string]int64
+	projectLookups map[string]int
+	// sessionsCreated holds the agent session of each session request, the
+	// parent key that its parts share.
+	sessionsCreated []string
+	// sessions holds the GitLab sessions created, by ID.
+	sessions map[int]fakeSession
+	// eventsBySession holds the posted events by GitLab session ID.
+	eventsBySession map[int][]auditEventRequest
+	// completedSessions holds the IDs of the completed sessions.
+	completedSessions []int
+	// sessionStatusFor and identityStatusFor, when set, answer those
+	// endpoints of a project, by ID, with that HTTP status.
+	sessionStatusFor  map[int64]int
+	identityStatusFor map[int64]int
+	sessionRequests   []sessionRequest
+	agentTypes        []string
+	syncTypes         []string
+	identityRequests  int
+	eventBatches      []int
+	events            []auditEventRequest
+	eventsPosted      int
+	completed         int
 	// noSessionID makes session creation succeed without returning an ID.
 	noSessionID bool
 	// identityStatus and sessionStatus, when set, answer those endpoints with
@@ -127,6 +140,15 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "path_with_namespace": name})
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/ai_agent/identities"):
 		f.identityRequests++
+		if status := f.identityStatusFor[projectID(path)]; status != 0 {
+			if f.identityBody != "" {
+				w.WriteHeader(status)
+				_, _ = io.WriteString(w, f.identityBody)
+				return
+			}
+			writeStatus(w, status)
+			return
+		}
 		if f.identityStatus != 0 {
 			if f.identityBody != "" {
 				w.WriteHeader(f.identityStatus)
@@ -141,13 +163,17 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if f.failWithBadGateway(w, "session") {
 			return
 		}
+		if status := f.sessionStatusFor[projectID(path)]; status != 0 {
+			writeStatus(w, status)
+			return
+		}
 		if f.sessionStatus != 0 {
 			writeStatus(w, f.sessionStatus)
 			return
 		}
 		var body sessionRequest
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		f.sessionsCreated = append(f.sessionsCreated, body.IdempotencyKey)
+		f.sessionsCreated = append(f.sessionsCreated, body.ParentIdempotencyKey)
 		f.sessionRequests = append(f.sessionRequests, body)
 		f.agentTypes = append(f.agentTypes, body.AgentType)
 		f.syncTypes = append(f.syncTypes, body.SyncType)
@@ -155,7 +181,7 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, `{}`)
 			return
 		}
-		_, _ = io.WriteString(w, `{"id": 99}`)
+		_, _ = fmt.Fprintf(w, `{"id": %d}`, f.session(projectID(path), body))
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/ai_agent/audit_events"):
 		f.auditRequests++
 		if f.failWithBadGateway(w, "audit") {
@@ -183,17 +209,59 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.eventBatches = append(f.eventBatches, len(body.Events))
 		f.events = append(f.events, body.Events...)
+		f.eventsBySession[body.SessionID] = append(f.eventsBySession[body.SessionID], body.Events...)
 		f.eventsPosted += len(body.Events)
 		_, _ = io.WriteString(w, `{}`)
-	case r.Method == http.MethodPatch && strings.HasSuffix(path, "/ai_agent/sessions/99"):
+	case r.Method == http.MethodPatch && strings.Contains(path, "/ai_agent/sessions/"):
 		if f.failWithBadGateway(w, "complete") {
 			return
 		}
+		id, _ := strconv.Atoi(path[strings.LastIndex(path, "/")+1:])
+		f.completedSessions = append(f.completedSessions, id)
 		f.completed++
 		_, _ = io.WriteString(w, `{}`)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+// fakeSession is a GitLab session the fake created.
+type fakeSession struct {
+	projectID int64
+	request   sessionRequest
+}
+
+// session returns the ID of the session with the request's idempotency key in
+// the project, creating it if there is none. The first session is 99.
+func (f *fakeGitLab) session(project int64, req sessionRequest) int {
+	for id, s := range f.sessions {
+		if s.projectID == project && s.request.IdempotencyKey == req.IdempotencyKey {
+			return id
+		}
+	}
+	id := 99 + len(f.sessions)
+	f.sessions[id] = fakeSession{projectID: project, request: req}
+	return id
+}
+
+// sessionIn returns the ID of the session with idempotency key key in the
+// project, or 0.
+func (f *fakeGitLab) sessionIn(project int64, key string) int {
+	for id, s := range f.sessions {
+		if s.projectID == project && s.request.IdempotencyKey == key {
+			return id
+		}
+	}
+	return 0
+}
+
+// projectID returns the project ID in an API path such as
+// /api/v4/projects/42/ai_agent/sessions.
+func projectID(path string) int64 {
+	rest, _ := strings.CutPrefix(path, "/api/v4/projects/")
+	id, _, _ := strings.Cut(rest, "/")
+	n, _ := strconv.ParseInt(id, 10, 64)
+	return n
 }
 
 // exceededJSONLimit returns the error GitLab's JSON validation answers an
@@ -216,6 +284,15 @@ func (f *fakeGitLab) exceededJSONLimit(raw []byte, body auditEventsRequest) stri
 		return "Hash parameter too large"
 	}
 	return ""
+}
+
+func newFakeGitLab(projects map[string]int64) *fakeGitLab {
+	return &fakeGitLab{
+		projects:        projects,
+		projectLookups:  map[string]int{},
+		sessions:        map[int]fakeSession{},
+		eventsBySession: map[int][]auditEventRequest{},
+	}
 }
 
 func toolIDs(n int) []string {
@@ -268,7 +345,7 @@ func newSyncAllEnvWithConfig(t *testing.T, hooksInstalled bool, cfg string) *syn
 		installClaudeStopHook(t)
 	}
 
-	fake := &fakeGitLab{projects: map[string]int64{"my-group/my-project": 42}, projectLookups: map[string]int{}}
+	fake := newFakeGitLab(map[string]int64{"my-group/my-project": 42})
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
 
@@ -973,6 +1050,7 @@ func TestRunSync_GovernanceNotEnabled(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	env.fake.identityStatus = http.StatusNotFound
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+	writeHookTranscript(t, "toolu_1")
 
 	out, err := env.exec("-R my-group/my-project")
 	require.NoError(t, err)
@@ -985,7 +1063,7 @@ func TestRunSync_GovernanceNotEnabledSilent(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	env.fake.identityStatus = http.StatusNotFound
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
-	writeHookTranscript(t, "sess-1", "toolu_1")
+	writeHookTranscript(t, "toolu_1")
 
 	out, err := env.exec("-R my-group/my-project --silent")
 	require.NoError(t, err)
@@ -995,10 +1073,11 @@ func TestRunSync_GovernanceNotEnabledSilent(t *testing.T) {
 	assert.Empty(t, env.fake.sessionsCreated, "no session is created without an identity")
 }
 
-// writeHookTranscript writes a Claude Code transcript where a hook run from
-// the current directory looks for it.
-func writeHookTranscript(t *testing.T, sessionID string, toolIDs ...string) {
+// writeHookTranscript writes the Claude Code transcript of session sess-1
+// where a hook run from the current directory looks for it.
+func writeHookTranscript(t *testing.T, toolIDs ...string) {
 	t.Helper()
+	const sessionID = "sess-1"
 
 	cwd, err := currentCWD()
 	require.NoError(t, err)
@@ -1034,7 +1113,7 @@ func claudeTranscriptLines(t *testing.T, sessionID string, toolIDs ...string) []
 func TestRunSync_SendsGlabAndAgentVersions(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
-	writeHookTranscript(t, "sess-1", "toolu_1")
+	writeHookTranscript(t, "toolu_1")
 
 	_, err := env.exec("-R my-group/my-project --silent")
 	require.NoError(t, err)
@@ -1057,6 +1136,7 @@ func TestRunSync_IdentityErrorStillWarns(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	env.fake.identityStatus = http.StatusForbidden
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+	writeHookTranscript(t, "toolu_1")
 
 	out, err := env.exec("-R my-group/my-project")
 	require.NoError(t, err)
@@ -1616,7 +1696,8 @@ func TestSyncSession_ByCaller(t *testing.T) {
 			t.Setenv("HOME", dir)
 			t.Setenv("GLAB_CONFIG_DIR", dir)
 
-			fake := &fakeGitLab{projects: map[string]int64{}, projectLookups: map[string]int{}, rateLimited: 7}
+			fake := newFakeGitLab(map[string]int64{})
+			fake.rateLimited = 7
 			server := httptest.NewServer(fake)
 			t.Cleanup(server.Close)
 			gl, err := gitlab.NewClient("test-token", gitlab.WithBaseURL(server.URL+"/api/v4"))
@@ -1638,8 +1719,10 @@ func TestSyncSession_ByCaller(t *testing.T) {
 			ios, _, _, _ := cmdtest.TestIOStreams()
 			opts := &options{io: ios, silent: tt.silent, agentType: "claude-code"}
 			recordWaits(opts)
-			dest := target{client: client, project: &gitlab.Project{ID: 42}}
-			require.NoError(t, syncSession(t.Context(), dest, "sess-1", claudeTranscript{path: path}, opts))
+			s := newSyncer(opts)
+			project := projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}
+			s.targets[project.key()] = targetLookup{target: target{client: client, project: &gitlab.Project{ID: 42}}}
+			require.NoError(t, syncSession(t.Context(), s, "sess-1", claudeTranscript{path: path}, project))
 
 			assert.Equal(t, []string{tt.want}, fake.syncTypes)
 			assert.Equal(t, tt.wantPosted, fake.eventsPosted)
@@ -1668,7 +1751,8 @@ func TestAuditEventPoster_RateLimit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			waits := recordWaits(&tt.opts)
-			fake := &fakeGitLab{rateLimited: tt.limited, retryAfter: tt.retryAfter}
+			fake := newFakeGitLab(nil)
+			fake.rateLimited, fake.retryAfter = tt.limited, tt.retryAfter
 			poster := newTestPoster(t, fake, &tt.opts)
 			_, err := poster.post(t.Context(), []auditEventRequest{{EventName: eventToolInvoked}})
 
@@ -1702,7 +1786,8 @@ func TestAuditEventPoster_SplitsOnlyOutsideHooks(t *testing.T) {
 			if tt.fallbackInstalled {
 				installFakeFallbackSync(t, home)
 			}
-			fake := &fakeGitLab{maxElements: 30}
+			fake := newFakeGitLab(nil)
+			fake.maxElements = 30
 			poster := newTestPoster(t, fake, &tt.opts)
 
 			events := make([]auditEventRequest, 4)

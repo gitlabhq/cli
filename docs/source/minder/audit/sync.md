@@ -30,15 +30,22 @@ Some agents record less:
 
 If a GitLab instance does not accept an agent's sessions yet, they are not uploaded, then or after the instance is upgraded. Sessions from after the upgrade are.
 
-Called by the Claude Code Stop hook after every agent turn. Also used by its SessionEnd hook (with `--complete`) to mark the session as complete. The hooks also record the session's project, host, and transcript location so that `--all` can sync it later.
+Called by the Claude Code Stop hook after every agent turn. Also used by its SessionEnd hook (with `--complete`) to mark the session as complete. The hooks also record the session's project, host, folder, and transcript location so that `--all` can sync it later.
 
 With `--hook codex` or `--hook cursor`, reads the session from the JSON that a Codex Stop hook, or a Cursor stop or sessionEnd hook, gets on stdin, and syncs it with a glab started in the background, so the agent does not wait for the upload. It prints nothing, because the agent reads a hook's output as a reason to continue. The project is resolved from the session's directory, or for Cursor from the workspace folder that the transcript belongs to.
 
 In a Cursor workspace with several folders, glab uses the folder the workspace is named after, unless the session's tool calls point elsewhere, or otherwise the one folder the tool calls used. Until a turn shows which, the session is not synced. Cursor's sessionEnd hook does not mark a session as complete. A Cursor session is completed once it has been inactive for 24 hours.
 
-Project is resolved from the Git remote of the current directory, or overridden with `-R/--repo`.
+A session that works in several GitLab projects becomes one GitLab session in each of them, and each holds only the activity from its project. glab sends each prompt, tool call, and response to the project of the folder the agent was working in when it recorded it:
 
-With `--all`, syncs every session the hooks have recorded, each to the project and host it was recorded with. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them, including an agent session that was already open and still runs them. The fallback periodic sync installed by `glab minder setup` runs this, and `glab minder doctor` shows the result of its last run.
+- Claude Code records the folder of every entry, and follows a `cd`. Codex records it for every turn and shell call. OpenCode and Cursor record one folder for a session, so their sessions go to one project.
+- The folder is where the agent's shell was, not always the project it acted on. A command such as `cd ../other && git push`, `git -C`, an absolute path, or an API call counts towards the project of the folder the shell was in.
+- A folder the hooks ran in, and its subfolders in the same Git repository, go to the project the hooks resolved for it. Another folder goes to the project of its `origin` remote. Activity that records no folder goes to the project of the folder the hooks last ran in, or of `-R/--repo`.
+- Activity goes only to projects on the same GitLab host and in the same top-level group as the first project the session was recorded with, which does not change. Activity in other projects is not uploaded, so a session does not upload to another organization's project because the agent worked in a clone of it, even if its hooks ran there.
+- Activity in a folder without a GitLab project, such as your home folder, is not uploaded, then or later.
+- If a project does not accept the session, for example because AI governance is off there, while another project does, the activity in that project is not uploaded, then or later. If no project accepts the session, it is retried, so it uploads once governance is turned on.
+
+With `--all`, syncs every session the hooks have recorded, each to the projects of the folders it worked in. Sessions inactive for 24 hours are marked completed. Sessions from agents that use hooks are skipped while the glab hooks are missing, so removing the hooks pauses them, including an agent session that was already open and still runs them. The fallback periodic sync installed by `glab minder setup` runs this, and `glab minder doctor` shows the result of its last run.
 
 Supports Claude Code, OpenCode, Codex, and Cursor sessions. OpenCode sessions are read with `opencode session export`, or `opencode export` before OpenCode 2. With `--all`, it also finds and syncs the sessions of Codex and Cursor, when they are enabled with `glab minder setup --agents`, by scanning their transcripts, for repositories on GitLab hosts glab is logged in to.
 

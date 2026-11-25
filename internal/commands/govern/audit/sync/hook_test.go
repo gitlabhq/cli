@@ -223,11 +223,22 @@ func TestRunHook_IgnoresInputWithoutSession(t *testing.T) {
 	}
 }
 
+// chdirToSessionFolder moves to a new folder, as the glab a Codex or Cursor
+// hook starts runs in the session's folder, and returns the folder.
+func chdirToSessionFolder(t *testing.T) string {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	dir, err := currentCWD()
+	require.NoError(t, err)
+	return dir
+}
+
 func TestRunSync_CodexHookSession(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
+	dir := chdirToSessionFolder(t)
 	path := writeCodexRollout(t, env.home, "th-1", jsonLines(t,
-		codexSessionMetaLine("th-1", "/work", ""),
+		codexSessionMetaLine("th-1", dir, ""),
 		codexItem(recentTimestamp(), map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_1"}),
 	))
 	t.Setenv(hookAgentEnv, "codex")
@@ -244,14 +255,25 @@ func TestRunSync_CodexHookSession(t *testing.T) {
 	assert.Equal(t, 1, env.fake.eventsPosted)
 	meta, err := readSessionMeta("th-1")
 	require.NoError(t, err)
-	assert.Equal(t, sessionMeta{AgentType: "codex", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: path}, *meta)
+	project := projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}
+	assert.Equal(t, sessionMeta{
+		AgentType: "codex", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: path,
+		Parts:        []sessionPart{{projectRef: project, Key: "th-1-42"}},
+		FirstProject: project,
+		Folders:      map[string]projectRef{dir: project},
+		PendingCalls: map[string]projectRef{"call_1": project},
+	}, *meta, "a call without its result is remembered, so its result goes to the same project")
+	require.Len(t, env.fake.sessionRequests, 1)
+	assert.Equal(t, "th-1-42", env.fake.sessionRequests[0].IdempotencyKey)
+	assert.Equal(t, "th-1", env.fake.sessionRequests[0].ParentIdempotencyKey)
 }
 
 func TestSyncAll_CodexHookSessionIsNotDiscoveredAgain(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"codex"}))
+	dir := chdirToSessionFolder(t)
 	path := writeCodexRollout(t, env.home, "th-1", jsonLines(t,
-		codexSessionMetaLine("th-1", "/work", "git@"+testHost+":my-group/my-project.git"),
+		codexSessionMetaLine("th-1", dir, "git@"+testHost+":my-group/my-project.git"),
 		codexItem(recentTimestamp(), map[string]any{"type": "function_call", "name": "exec_command", "call_id": "call_1"}),
 	))
 	t.Setenv(hookAgentEnv, "codex")
@@ -326,6 +348,7 @@ func writeCursorTranscript(t *testing.T, home, id string) string {
 func TestRunSync_CursorHookSession(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	require.NoError(t, fallbacksync.SetDiscoveredAgents([]string{"cursor"}))
+	dir := chdirToSessionFolder(t)
 	path := writeCursorTranscript(t, env.home, "conv-1")
 	t.Setenv(hookAgentEnv, "cursor")
 	t.Setenv(hookSessionEnv, "conv-1")
@@ -342,7 +365,13 @@ func TestRunSync_CursorHookSession(t *testing.T) {
 	assert.Zero(t, env.fake.completed, "sessionEnd fires after every cursor-agent -p run, so the session stays open")
 	meta, err := readSessionMeta("conv-1")
 	require.NoError(t, err)
-	assert.Equal(t, sessionMeta{AgentType: "cursor", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: path}, *meta)
+	project := projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}
+	assert.Equal(t, sessionMeta{
+		AgentType: "cursor", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: path,
+		Parts:        []sessionPart{{projectRef: project, Key: "conv-1-42"}},
+		FirstProject: project,
+		Folders:      map[string]projectRef{dir: project},
+	}, *meta)
 }
 
 func TestRunSync_CursorHookSkipsSubagentTranscripts(t *testing.T) {

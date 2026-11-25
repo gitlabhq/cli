@@ -194,7 +194,14 @@ func TestSyncAll_DiscoversCodexSession(t *testing.T) {
 	assert.Equal(t, 1, env.fake.eventsPosted)
 	meta, err := readSessionMeta("th-1")
 	require.NoError(t, err)
-	assert.Equal(t, sessionMeta{AgentType: "codex", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: path}, *meta)
+	project := projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}
+	assert.Equal(t, sessionMeta{
+		AgentType: "codex", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: path,
+		Parts:        []sessionPart{{projectRef: project, Key: "th-1-42"}},
+		FirstProject: project,
+		Folders:      map[string]projectRef{"/work": project},
+		PendingCalls: map[string]projectRef{"call_1": project},
+	}, *meta, "the session's folder is recorded, so its entries are not looked up again")
 
 	_, err = env.exec("--all")
 	require.NoError(t, err)

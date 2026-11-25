@@ -202,7 +202,7 @@ func TestRunSync_UploadsClaudeCodeActivityFromSetup(t *testing.T) {
 func TestRunSync_UnreadableAgentSetupsUploadNothing(t *testing.T) {
 	env := newSyncAllEnv(t, true)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
-	writeHookTranscript(t, "sess-1", "toolu_1")
+	writeHookTranscript(t, "toolu_1")
 	path := filepath.Join(env.home, "glab", "gaig", "agent-setups.json")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte("{not json"), 0o600))
@@ -474,6 +474,12 @@ func TestRunSync_CompleteOnlySessionsWithUploads(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, []byte(line), 0o644))
 			if tc.uploaded {
 				require.NoError(t, syncstate.WritePosition("sess-1", int64(len(line))))
+				// What a glab from before sessions were split by project
+				// recorded for a session it uploaded.
+				mp, err := metaPath("sess-1")
+				require.NoError(t, err)
+				require.NoError(t, os.MkdirAll(filepath.Dir(mp), 0o755))
+				require.NoError(t, os.WriteFile(mp, []byte(`{"agent_type":"claude-code","path_with_namespace":"my-group/my-project","host":"`+testHost+`","transcript":"`+path+`"}`), 0o600))
 			}
 
 			_, err = env.exec("-R my-group/my-project --silent --complete")

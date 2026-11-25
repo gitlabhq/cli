@@ -66,7 +66,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Setup also installs the fallback periodic sync: a launchd agent (%[1]s~/Library/LaunchAgents/com.gitlab.glab-govern-audit-sync.plist%[1]s) on macOS, or a systemd user timer (%[1]s~/.config/systemd/user/glab-govern-audit-sync.timer%[1]s) on Linux.
 
-			The fallback periodic sync runs %[1]sglab minder audit sync --all%[1]s every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see %[1]sglab minder audit sync --help%[1]s for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. Each session goes to the project and host of the Git repository the agent ran in. It also marks sessions completed once they have been idle for 24 hours. It pauses sessions from agents that use hooks while those hooks are not installed. Pass %[1]s--no-fallback-sync%[1]s to install only the hooks and plugin, which Codex and Cursor cannot be synced without. The fallback periodic sync is not available on Windows.
+			The fallback periodic sync runs %[1]sglab minder audit sync --all%[1]s every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see %[1]sglab minder audit sync --help%[1]s for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. It also marks sessions completed once they have been idle for 24 hours. It pauses sessions from agents that use hooks while those hooks are not installed. Pass %[1]s--no-fallback-sync%[1]s to install only the hooks and plugin, which Codex and Cursor cannot be synced without. The fallback periodic sync is not available on Windows.
+
+			Each session goes to the project of the Git repository the agent runs in, split across projects in the same top-level group when it works in more than one.
 
 			By default, glab uploads only what each agent does after you first set it up: not its sessions from before, and not the earlier turns of a session from before that you resume.
 
@@ -246,8 +248,8 @@ func setupPrompt(goos string, noFallbackSync bool, p plan) string {
 		items = append(items, fmt.Sprintf("%s that syncs sessions in the background every %d minutes, replacing any existing job", fallbacksync.Description(goos), int(fallbacksync.Interval.Minutes())))
 	}
 	prompt := "glab will install " + joinAnd(items)
-	prompt += ". Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are"
-	prompt += ". glab also keeps a local record of each agent session in its configuration directory, with the session ID, the agent, the transcript path and how far it was synced, including sessions outside GitLab repositories, which are never uploaded"
+	prompt += ". Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. When the agent works in more than one repository, a session is split across their projects that are on the same GitLab instance and in the same top-level group as the project the session started in, and its activity in other repositories is not uploaded. Common token and key formats are replaced first, but other secrets in them are uploaded as they are"
+	prompt += ". glab also keeps a local record of each agent session in its configuration directory, with the session ID, the agent, the transcript path, how far it was synced, and the folders the hooks ran in and their projects, including sessions outside GitLab repositories, which are never uploaded"
 	if !noFallbackSync && len(p.discovered) > 0 {
 		prompt += fmt.Sprintf(". The job will also upload your %s sessions the same way", strings.Join(p.discovered, " and "))
 	}

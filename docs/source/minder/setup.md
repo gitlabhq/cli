@@ -24,7 +24,9 @@ Choose the agents to sync with `--agents`. Without it, setup syncs the agents se
 
 Setup also installs the fallback periodic sync: a launchd agent (`~/Library/LaunchAgents/com.gitlab.glab-govern-audit-sync.plist`) on macOS, or a systemd user timer (`~/.config/systemd/user/glab-govern-audit-sync.timer`) on Linux.
 
-The fallback periodic sync runs `glab minder audit sync --all` every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see `glab minder audit sync --help` for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. Each session goes to the project and host of the Git repository the agent ran in. It also marks sessions completed once they have been idle for 24 hours. It pauses sessions from agents that use hooks while those hooks are not installed. Pass `--no-fallback-sync` to install only the hooks and plugin, which Codex and Cursor cannot be synced without. The fallback periodic sync is not available on Windows.
+The fallback periodic sync runs `glab minder audit sync --all` every 30 minutes, and on Linux also 5 minutes after boot, until you remove it. It uploads anything the hooks missed for sessions they have already recorded (see `glab minder audit sync --help` for what is uploaded), using your stored glab credentials and the glab configuration directory in use when you run setup. It also marks sessions completed once they have been idle for 24 hours. It pauses sessions from agents that use hooks while those hooks are not installed. Pass `--no-fallback-sync` to install only the hooks and plugin, which Codex and Cursor cannot be synced without. The fallback periodic sync is not available on Windows.
+
+Each session goes to the project of the Git repository the agent runs in, split across projects in the same top-level group when it works in more than one.
 
 By default, glab uploads only what each agent does after you first set it up: not its sessions from before, and not the earlier turns of a session from before that you resume.
 

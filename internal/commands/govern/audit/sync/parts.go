@@ -32,6 +32,12 @@ func (p projectRef) key() string {
 	return strings.ToLower(p.String())
 }
 
+// group returns the host and top-level group of p.
+func (p projectRef) group() string {
+	top, _, _ := strings.Cut(p.PathWithNamespace, "/")
+	return strings.ToLower(p.Host + "/" + top)
+}
+
 // folderProjects finds the GitLab project of the folders that agents work in,
 // from each folder's origin remote. A folder is looked up once per run.
 type folderProjects struct {
@@ -200,9 +206,9 @@ func splitByProject(data *sessionData, projectOf func(dir string) projectRef, pe
 	})
 	for _, part := range sorted {
 		part.data.Goal = partGoal(data, part.data)
-		part.data.StartedAt = part.data.earliest()
-		if len(sorted) == 1 && !data.StartedAt.IsZero() {
-			part.data.StartedAt = data.StartedAt
+		part.data.StartedAt = data.StartedAt
+		if len(sorted) > 1 {
+			part.data.StartedAt = part.data.earliest()
 		}
 		split.parts = append(split.parts, *part)
 	}

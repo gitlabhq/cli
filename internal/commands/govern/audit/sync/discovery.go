@@ -22,6 +22,9 @@ type discoveredSession struct {
 	// remote is the Git remote URL of the repository the session ran in, or
 	// empty when it is unknown.
 	remote string
+	// dir is the folder whose repository remote belongs to, if the agent
+	// records it.
+	dir string
 	// skip explains why the session must not be synced, for example because
 	// its repository cannot be identified with certainty.
 	skip string
@@ -79,6 +82,10 @@ func discoverSessions(ctx context.Context, agents []agent, known map[string]stru
 				PathWithNamespace: path,
 				Host:              host,
 				Transcript:        s.locator,
+			}
+			meta.FirstProject = meta.project()
+			if s.dir != "" {
+				meta.recordFolder(s.dir, meta.project())
 			}
 			err = withSessionMetaLock(func() error {
 				// A hook may have recorded the session since discovery listed it.

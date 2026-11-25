@@ -274,7 +274,7 @@ func TestSyncSession_NoTranscript(t *testing.T) {
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
 	opts := &options{io: ios}
 
-	err := syncSession(t.Context(), target{}, "test-session", claudeTranscript{path: filepath.Join(dir, "nonexistent.jsonl")}, opts)
+	err := syncSession(t.Context(), newSyncer(opts), "test-session", claudeTranscript{path: filepath.Join(dir, "nonexistent.jsonl")}, projectRef{})
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "No transcript found")
 }
@@ -289,7 +289,7 @@ func TestSyncSession_NoNewEntries(t *testing.T) {
 	ios, _, stdout, _ := cmdtest.TestIOStreams()
 	opts := &options{io: ios}
 
-	err := syncSession(t.Context(), target{}, "test-session", claudeTranscript{path: path}, opts)
+	err := syncSession(t.Context(), newSyncer(opts), "test-session", claudeTranscript{path: path}, projectRef{})
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "No new entries to sync")
 }
@@ -314,11 +314,12 @@ func TestSyncSession_CursorNotAdvancedOnSessionFailure(t *testing.T) {
 	data, _ := json.Marshal(entry)
 	require.NoError(t, os.WriteFile(path, append(data, '\n'), 0o644))
 
-	// nil client will cause ensureSession to fail
 	ios, _, _, _ := cmdtest.TestIOStreams()
-	opts := &options{io: ios, silent: true}
+	s := newSyncer(&options{io: ios, silent: true, agentType: "claude-code"})
+	project := projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}
+	s.targets[project.key()] = targetLookup{err: errors.New("could not reach GitLab")}
 
-	_ = syncSession(t.Context(), target{}, "sess-test", claudeTranscript{path: path}, opts)
+	require.NoError(t, syncSession(t.Context(), s, "sess-test", claudeTranscript{path: path}, project))
 
 	// Cursor should NOT have advanced since session creation failed
 	cursor, err := syncstate.ReadPosition("sess-test")
@@ -603,7 +604,14 @@ func TestRecordSessionMeta_RemoteReplacesSessionWithoutProject(t *testing.T) {
 
 	meta, err := readSessionMeta("sess-1")
 	require.NoError(t, err)
-	assert.Equal(t, sessionMeta{AgentType: "claude-code", PathWithNamespace: "my-group/my-project", Host: "gitlab.com", Transcript: path}, *meta)
+	cwd, err := currentCWD()
+	require.NoError(t, err)
+	project := projectRef{Host: "gitlab.com", PathWithNamespace: "my-group/my-project"}
+	assert.Equal(t, sessionMeta{
+		AgentType: "claude-code", PathWithNamespace: "my-group/my-project", Host: "gitlab.com", Transcript: path,
+		FirstProject: project,
+		Folders:      map[string]projectRef{cwd: project},
+	}, *meta)
 	assertCursorAt(t, "sess-1", int64(len(content)))
 }
 
@@ -623,6 +631,33 @@ func TestRecordSessionMeta_KeepsSessionWithoutProjectWhenSkipFails(t *testing.T)
 	require.NoError(t, err)
 	assert.Empty(t, meta.PathWithNamespace, "the next hook call retries the skip")
 	assertCursorAt(t, "sess-1", 0)
+}
+
+func TestRecordSessionMeta_KeepsTheFirstProject(t *testing.T) {
+	t.Setenv("GLAB_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	// What an earlier glab recorded, without parts or a first project.
+	mp, err := metaPath("sess-1")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(mp), 0o755))
+	require.NoError(t, os.WriteFile(mp, []byte(`{"agent_type":"claude-code","path_with_namespace":"my-group/my-project","host":"gitlab.com","transcript":"/t.jsonl"}`), 0o600))
+	record := func(group string) {
+		t.Helper()
+		opts := &options{agentType: "claude-code", baseRepo: func() (glrepo.Interface, error) {
+			return glrepo.NewWithHost(group, "project", "gitlab.com"), nil
+		}}
+		require.NoError(t, recordSessionMeta(t.Context(), opts, claudeCode{}, "sess-1", "/t.jsonl"))
+	}
+
+	record("other-org")
+	record("third-org")
+
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.Equal(t, "third-org/project", meta.PathWithNamespace)
+	assert.Equal(t, projectRef{Host: "gitlab.com", PathWithNamespace: "my-group/my-project"}, meta.FirstProject,
+		"the project the earlier glab recorded stays the first, whatever later hooks record")
+	assert.Equal(t, []sessionPart{{projectRef: meta.FirstProject, Key: "sess-1"}}, meta.Parts, "and its GitLab session stays allowed")
 }
 
 func TestRecordSessionMeta_NewSessionWithRemoteUploadsFromTheStart(t *testing.T) {
