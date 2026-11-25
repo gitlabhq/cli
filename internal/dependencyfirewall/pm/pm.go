@@ -129,6 +129,18 @@ type upstreamTrustManager interface {
 	upstreamTrustAnchors(env []string, dir string, args []string) ([]*x509.Certificate, error)
 }
 
+func logWarnings(logf func(string, ...any), err error) {
+	warnings := []error{err}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		warnings = joined.Unwrap()
+	}
+	for _, w := range warnings {
+		if w != nil {
+			logf("warning: %v\n", w)
+		}
+	}
+}
+
 // proxyEnviron returns parent with any caller-supplied proxy variables removed
 // and the inspection proxy set for HTTPS traffic only. managerKeys are the
 // env-var names the manager's own Environment sets (e.g. NPM_CONFIG_HTTPS_PROXY
@@ -377,15 +389,7 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	var anchors []*x509.Certificate
 	if m, ok := manager.(upstreamTrustManager); ok {
 		anchors, err = m.upstreamTrustAnchors(os.Environ(), opts.BaseDir, opts.Args)
-		warnings := []error{err}
-		if joined, ok := err.(interface{ Unwrap() []error }); ok {
-			warnings = joined.Unwrap()
-		}
-		for _, w := range warnings {
-			if w != nil {
-				opts.IO.LogErrorf("warning: %v\n", w)
-			}
-		}
+		logWarnings(opts.IO.LogErrorf, err)
 	}
 	roots, upstreamCAs, err := upstreamRootCAs(os.Environ(), opts.CACertPath, anchors)
 	if err != nil {

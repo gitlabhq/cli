@@ -79,7 +79,7 @@ func Serve(ctx context.Context, cfg ServeConfig) error {
 		}),
 		proxy.WithUpstreamFailureWarning(cfg.IO.LogErrorf),
 	}
-	roots, err := pm.UpstreamRootCAs(os.Environ(), cfg.CACertPath)
+	roots, err := pm.UpstreamRootCAs(os.Environ(), cfg.BaseDir, cfg.CACertPath, cfg.IO.LogErrorf)
 	if err != nil {
 		return fmt.Errorf("failed to load registry CA certificates: %w", err)
 	}

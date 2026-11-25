@@ -22,7 +22,7 @@ The proxy checks each package the job downloads or publishes against the policy 
 
 Unlike the per-command wrappers, the job-level proxy also covers tools that are not package managers (for example a raw `curl` of a tarball), because the whole job's HTTP and HTTPS traffic is routed through it. Traffic that isn't a package download, such as a call to a service container, is forwarded unchanged.
 
-The command preserves your existing configuration. It keeps your `NO_PROXY` and, when a corporate egress proxy is configured through `HTTPS_PROXY`, chains to it. It adds the proxy certificate to your trust rather than replacing it: it installs the certificate into the system trust store and, for tools that read a CA bundle instead, writes a bundle that is your existing trust plus the proxy certificate.
+The command preserves your existing configuration. It keeps your `NO_PROXY` and, when a corporate egress proxy is configured through `HTTPS_PROXY`, chains to it. It adds the proxy certificate to your trust rather than replacing it: it installs the certificate into the system trust store and, for tools that read a CA bundle instead, writes a bundle that is your existing trust plus the proxy certificate. Maven and Gradle get a truststore of their own instead, so the proxy's connections to registries trust the JVM truststore they would have loaded, as `glab dependency-firewall maven` and `glab dependency-firewall gradle` do. Like those commands, it warns when a truststore option that Maven or Gradle applies later, such as one in `_JAVA_OPTIONS`, would replace the truststore it gives them.
 
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.

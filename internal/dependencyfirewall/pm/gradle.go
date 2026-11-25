@@ -96,12 +96,16 @@ func (m *gradleManager) CleanupCAFiles(caPath string) {
 // on the gradle command line, which gradle applies over GRADLE_OPTS, so it
 // replaces glab's in the child.
 func (m *gradleManager) upstreamTrustAnchors(env []string, dir string, args []string) ([]*x509.Certificate, error) {
-	certs, err := jvmTrustAnchors(env, dir, nil,
-		lookupEnv(env, "JAVA_TOOL_OPTIONS"), lookupEnv(env, "JDK_JAVA_OPTIONS"), lookupEnv(env, "JAVA_OPTS"),
-		lookupEnv(env, "GRADLE_OPTS"), lookupEnv(env, "_JAVA_OPTIONS"))
+	certs, err := jvmTrustAnchors(env, dir, gradleTrustProps(env))
 	return certs, errors.Join(err,
 		jvmTrustStoreOverride(env, "gradle", "GRADLE_OPTS", "_JAVA_OPTIONS"),
 		argTrustStoreOverride(gradleArgProperties(args), "-D%s in the gradle arguments replaces glab's truststore, so gradle cannot trust the dependency firewall proxy; set it in GRADLE_OPTS instead"))
+}
+
+func gradleTrustProps(env []string) map[string]string {
+	return jvmTrustProps(nil,
+		lookupEnv(env, "JAVA_TOOL_OPTIONS"), lookupEnv(env, "JDK_JAVA_OPTIONS"), lookupEnv(env, "JAVA_OPTS"),
+		lookupEnv(env, "GRADLE_OPTS"), lookupEnv(env, "_JAVA_OPTIONS"))
 }
 
 // gradleArgProperties returns the system properties the gradle command line
