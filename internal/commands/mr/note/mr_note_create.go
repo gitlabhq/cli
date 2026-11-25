@@ -247,8 +247,8 @@ func (o *createOptions) validate() error {
 	if strings.TrimSpace(o.body) == "" && len(o.attach) == 0 {
 		return fmt.Errorf("aborted: note has an empty message")
 	}
-	if o.reply != "" && len(o.reply) < 8 {
-		return fmt.Errorf("discussion ID prefix must be at least 8 characters, got %d", len(o.reply))
+	if o.reply != "" && len(o.reply) < mrutils.MinDiscussionPrefixLen {
+		return fmt.Errorf("discussion ID prefix must be at least %d characters, got %d", mrutils.MinDiscussionPrefixLen, len(o.reply))
 	}
 	if (o.line.Start != 0 || o.oldLine != 0) && o.filePath == "" {
 		return fmt.Errorf("--line and --old-line require --file")

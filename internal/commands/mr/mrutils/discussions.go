@@ -17,6 +17,9 @@ import (
 // and should not report the latter as "not found".
 var ErrNoteNotFound = errors.New("note not found")
 
+// MinDiscussionPrefixLen is the shortest discussion ID prefix accepted in place of a full discussion ID.
+const MinDiscussionPrefixLen = 8
+
 // ListAllDiscussions fetches all discussions for a merge request, paginating automatically.
 var ListAllDiscussions = func(ctx context.Context, client *gitlab.Client, projectID any, mrIID int64, opts *gitlab.ListMergeRequestDiscussionsOptions) ([]*gitlab.Discussion, error) {
 	if opts == nil {
@@ -189,8 +192,8 @@ func ResolveDiscussionID(ctx context.Context, client *gitlab.Client, projectID a
 // Returns an error if the prefix is ambiguous or not found.
 func ResolveDiscussion(ctx context.Context, client *gitlab.Client, projectID any, mrIID int64, prefix string) (*gitlab.Discussion, error) {
 	prefixLen := len(prefix)
-	if prefixLen < 8 {
-		return nil, fmt.Errorf("discussion ID prefix must be at least 8 characters, got %d", len(prefix))
+	if prefixLen < MinDiscussionPrefixLen {
+		return nil, fmt.Errorf("discussion ID prefix must be at least %d characters, got %d", MinDiscussionPrefixLen, len(prefix))
 	}
 	discussions, err := ListAllDiscussions(ctx, client, projectID, mrIID, &gitlab.ListMergeRequestDiscussionsOptions{})
 	if err != nil {

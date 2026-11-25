@@ -21,6 +21,8 @@ The identifier can be one of the following:
 - Discussion ID: full 40-character hex string or an 8+ character prefix
 - Note ID: integer note ID (looks up the parent discussion automatically)
 
+An all-digit value of 8 or more characters that matches no note is tried as a discussion ID prefix.
+
 The merge request comes first, then the discussion. Without a merge request, the merge request for the current branch is used. With --repo, the merge request is required.
 
 If a prefix matches multiple discussions, an error is returned with the ambiguous matches.
