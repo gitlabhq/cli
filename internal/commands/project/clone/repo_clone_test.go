@@ -4,7 +4,10 @@ package clone
 
 import (
 	"errors"
+	"path"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -42,6 +45,21 @@ func TestNewCmdClone(t *testing.T) {
 			name:    "no arguments",
 			args:    "",
 			wantErr: "specify repository argument, or use the --group flag to specify a group to clone all repos from the group",
+		},
+		{
+			name:     "group clone rooted at leaf",
+			args:     "-g 123 -p --leaf-group",
+			wantOpts: options{groupName: "123", preserveNamespace: true, leafGroup: true, gitFlags: []string{}},
+		},
+		{
+			name:    "leaf group without namespace preservation",
+			args:    "-g 123 --leaf-group",
+			wantErr: "--leaf-group requires --group and --preserve-namespace",
+		},
+		{
+			name:    "leaf group without group flag",
+			args:    "group/project -p --leaf-group",
+			wantErr: "--leaf-group requires --group and --preserve-namespace",
 		},
 		{
 			name: "repo argument",
@@ -250,6 +268,7 @@ func TestNewCmdClone(t *testing.T) {
 			assert.Equal(t, tt.wantOpts.activeSet, opts.activeSet)
 			assert.Equal(t, tt.wantOpts.dir, opts.dir)
 			assert.Equal(t, tt.wantOpts.preserveNamespace, opts.preserveNamespace)
+			assert.Equal(t, tt.wantOpts.leafGroup, opts.leafGroup)
 			assert.Equal(t, tt.wantOpts.wiki, opts.wiki)
 			assert.Equal(t, tt.wantOpts.excludeSubgroups, opts.excludeSubgroups)
 		})
@@ -714,6 +733,88 @@ func TestGroupCloneExcludeSubgroup(t *testing.T) {
 			require.Len(t, cs.Calls, len(tc.wantClones))
 			for i, want := range tc.wantClones {
 				assert.Equal(t, want, strings.Join(cs.Calls[i].Args, " "))
+			}
+		})
+	}
+}
+
+func TestGroupCloneLeafGroup(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		group      string
+		fullPath   string
+		sharedPath string
+		wantRoot   string
+		wantErr    string
+	}{
+		{
+			name:       "numeric group ID",
+			group:      "123",
+			fullPath:   "org/platform/backend",
+			sharedPath: "org/platform/frontend/shared",
+			wantRoot:   "checkout/backend",
+		},
+		{
+			name:       "nested group path",
+			group:      "org/platform/backend",
+			fullPath:   "org/platform/backend",
+			sharedPath: "org/platform/frontend/shared",
+			wantRoot:   "checkout/backend",
+		},
+		{
+			name:       "top-level group",
+			group:      "org",
+			fullPath:   "org",
+			sharedPath: "shared-org/platform/frontend/shared",
+			wantRoot:   "checkout/org",
+		},
+		{
+			name:       "colliding shared project aborts before cloning",
+			group:      "org/platform/backend",
+			fullPath:   "org/platform/backend",
+			sharedPath: "backend/services/api",
+			wantErr:    "both clone to " + strconv.Quote(filepath.FromSlash("checkout/backend/services/api")),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testClient := gitlabtesting.NewTestClient(t)
+			testClient.MockUsers.EXPECT().CurrentUser().Return(&gitlab.User{Username: "OWNER"}, nil, nil)
+			testClient.MockGroups.EXPECT().GetGroup(tc.group, gomock.Any()).Return(&gitlab.Group{FullPath: tc.fullPath}, nil, nil)
+			testClient.MockGroups.EXPECT().ListGroupProjects(tc.group, gomock.Any()).Return([]*gitlab.Project{
+				{Path: "api", PathWithNamespace: tc.fullPath + "/api", SSHURLToRepo: "git@gitlab.com:" + tc.fullPath + "/api.git"},
+				{Path: "api", PathWithNamespace: tc.fullPath + "/services/api", SSHURLToRepo: "git@gitlab.com:" + tc.fullPath + "/services/api.git"},
+				{Path: path.Base(tc.sharedPath), PathWithNamespace: tc.sharedPath, SSHURLToRepo: "git@gitlab.com:" + tc.sharedPath + ".git"},
+			}, nil, nil)
+
+			cs, restore := test.InitCmdStubber()
+			defer restore()
+			cs.Stub("")
+			cs.Stub("")
+			cs.Stub("")
+			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				return NewCmdClone(f, nil)
+			}, false,
+				cmdtest.WithApiClient(cmdtest.NewTestApiClient(t, nil, "", "", api.WithGitLabClient(testClient.Client))),
+				cmdtest.WithConfig(config.NewFromString("git_protocol: ssh\n")),
+			)
+
+			_, err := exec("-g " + tc.group + " --preserve-namespace --leaf-group checkout")
+
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				require.ErrorContains(t, err, tc.fullPath+"/services/api")
+				require.ErrorContains(t, err, tc.sharedPath)
+				assert.Empty(t, cs.Calls)
+				return
+			}
+
+			require.NoError(t, err)
+			wantDirs := []string{tc.wantRoot + "/api", tc.wantRoot + "/services/api", "checkout/" + tc.sharedPath}
+			require.Len(t, cs.Calls, len(wantDirs))
+			for i, wantDir := range wantDirs {
+				args := cs.Calls[i].Args
+				require.NotEmpty(t, args)
+				assert.Equal(t, filepath.FromSlash(wantDir), args[len(args)-1])
 			}
 		})
 	}

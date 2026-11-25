@@ -3,6 +3,7 @@ package clone
 import (
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -26,6 +27,8 @@ import (
 
 type options struct {
 	groupName         string
+	leafGroup         bool
+	leafGroupPath     string
 	includeSubgroups  bool
 	excludeSubgroups  []string
 	preserveNamespace bool
@@ -100,6 +103,9 @@ func NewCmdClone(f cmdutils.Factory, runE func(*options, *ContextOpts) error) *c
 			# Clones all repos in a group
 			glab repo clone -g everyonecancontribute --paginate
 
+			# Clone the repositories in a nested group into a directory named after that group
+			glab repo clone -g org/platform/backend --preserve-namespace --leaf-group --paginate
+
 			# Clones all repos in a group, except those in one subgroup
 			glab repo clone -g mygroup --exclude-subgroup domain/backend --paginate
 
@@ -148,6 +154,9 @@ func NewCmdClone(f cmdutils.Factory, runE func(*options, *ContextOpts) error) *c
 			}
 			dbg.Debug("Dir:", opts.dir)
 
+			if opts.leafGroup && (opts.groupName == "" || !opts.preserveNamespace) {
+				return &cmdutils.FlagError{Err: errors.New("--leaf-group requires --group and --preserve-namespace")}
+			}
 			if ctxOpts.Repo == "" && opts.groupName == "" {
 				return &cmdutils.FlagError{Err: errors.New("specify repository argument, or use the --group flag to specify a group to clone all repos from the group")}
 			}
@@ -208,6 +217,7 @@ func NewCmdClone(f cmdutils.Factory, runE func(*options, *ContextOpts) error) *c
 
 	repoCloneCmd.Flags().StringVarP(&opts.groupName, "group", "g", "", "Specify the group to clone repositories from.")
 	repoCloneCmd.Flags().BoolVarP(&opts.preserveNamespace, "preserve-namespace", "p", false, "Clone the repository in a subdirectory based on namespace.")
+	repoCloneCmd.Flags().BoolVar(&opts.leafGroup, "leaf-group", false, "Clone into a directory named after the selected group instead of its full namespace path. Shared projects outside the group keep their full namespace. Requires --group and --preserve-namespace.")
 	repoCloneCmd.Flags().BoolVarP(&opts.active, "active", "", false, "Limit by project status. When true, returns active projects. When false, returns projects that are archived or marked for deletion. Used with the --group flag.")
 	repoCloneCmd.Flags().BoolVarP(&opts.archived, "archived", "a", false, "Limit by archived status. Use with '-a=false' to exclude archived repositories. Used with the --group flag.")
 	repoCloneCmd.Flags().BoolVarP(&opts.includeSubgroups, "include-subgroups", "G", true, "Include projects in subgroups of this group. Default is true. Used with the --group flag.")
@@ -302,12 +312,17 @@ func groupClone(opts *options, ctxOpts *ContextOpts) error {
 	}
 
 	groupPath := opts.groupName
-	if _, parseErr := strconv.ParseInt(opts.groupName, 10, 64); parseErr == nil && len(opts.excludeSubgroups) > 0 {
+	_, parseErr := strconv.ParseInt(opts.groupName, 10, 64)
+	isGroupID := parseErr == nil
+	if opts.leafGroup || (isGroupID && len(opts.excludeSubgroups) > 0) {
 		group, _, err := opts.apiClient.Lab().Groups.GetGroup(opts.groupName, nil)
 		if err != nil {
 			return err
 		}
 		groupPath = group.FullPath
+		if opts.leafGroup {
+			opts.leafGroupPath = groupPath
+		}
 	}
 
 	var projects []*gitlab.Project
@@ -334,6 +349,21 @@ func groupClone(opts *options, ctxOpts *ContextOpts) error {
 		if len(projects) == 0 {
 			opts.io.LogErrorf("No projects left to clone in group %q after applying --exclude-subgroup.\n", opts.groupName)
 			return cmdutils.SilentError
+		}
+	}
+
+	if opts.leafGroup {
+		destinations := make(map[string]string, len(projects))
+		for _, project := range projects {
+			fullPath := project.PathWithNamespace
+			dir, err := opts.namespacedCloneDir(fullPath)
+			if err != nil {
+				return err
+			}
+			if other, found := destinations[dir]; found {
+				return fmt.Errorf("projects %q and %q both clone to %q with --leaf-group. Rerun without --leaf-group or set --with-shared=false", other, fullPath, dir)
+			}
+			destinations[dir] = fullPath
 		}
 	}
 
@@ -370,6 +400,16 @@ func validateAPIPath(p string) error {
 		}
 	}
 	return nil
+}
+
+func (opts *options) namespacedCloneDir(projectPath string) (string, error) {
+	if err := validateAPIPath(projectPath); err != nil {
+		return "", err
+	}
+	if rel, ok := strings.CutPrefix(projectPath, opts.leafGroupPath+"/"); ok && opts.leafGroupPath != "" {
+		projectPath = path.Join(path.Base(opts.leafGroupPath), rel)
+	}
+	return filepath.Join(opts.dir, filepath.FromSlash(projectPath)), nil
 }
 
 func isExcludedSubgroup(pathWithNamespace, groupPath string, excludes []string) bool {
@@ -414,10 +454,10 @@ func cloneRun(opts *options, ctxOpts *ContextOpts) error {
 		}
 		ctxOpts.Repo = repoURL
 		if opts.preserveNamespace {
-			if err := validateAPIPath(ctxOpts.Project.PathWithNamespace); err != nil {
+			localDir, err = opts.namespacedCloneDir(ctxOpts.Project.PathWithNamespace)
+			if err != nil {
 				return err
 			}
-			localDir = filepath.Join(opts.dir, filepath.FromSlash(ctxOpts.Project.PathWithNamespace))
 		} else if opts.dir != "" && opts.groupName != "" {
 			if err := validateAPIPath(ctxOpts.Project.Path); err != nil {
 				return err

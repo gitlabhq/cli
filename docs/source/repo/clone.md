@@ -62,6 +62,9 @@ glab repo clone gitlab-org/cli -- --branch main --single-branch --depth 1
 # Clones all repos in a group
 glab repo clone -g everyonecancontribute --paginate
 
+# Clone the repositories in a nested group into a directory named after that group
+glab repo clone -g org/platform/backend --preserve-namespace --leaf-group --paginate
+
 # Clones all repos in a group, except those in one subgroup
 glab repo clone -g mygroup --exclude-subgroup domain/backend --paginate
 
@@ -80,6 +83,7 @@ GITLAB_HOST=salsa.debian.org glab repo clone myrepo
 ```plaintext
   -g, --group string               Specify the group to clone repositories from.
   -p, --preserve-namespace         Clone the repository in a subdirectory based on namespace.
+      --leaf-group                 Clone into a directory named after the selected group instead of its full namespace path. Shared projects outside the group keep their full namespace. Requires --group and --preserve-namespace.
       --active                     Limit by project status. When true, returns active projects. When false, returns projects that are archived or marked for deletion. Used with the --group flag.
   -a, --archived                   Limit by archived status. Use with '-a=false' to exclude archived repositories. Used with the --group flag.
   -G, --include-subgroups          Include projects in subgroups of this group. Default is true. Used with the --group flag. (default true)
