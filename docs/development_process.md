@@ -11,9 +11,13 @@ read [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ## Who can make changes?
 
-**Anyone** can make changes. If you are planning larger changes that affect the
-CLI architecture or dependencies,
-[create an issue first](https://gitlab.com/gitlab-org/cli/-/issues/new?issuable_template=Feature%20Request).
+**Anyone** can make changes. For anything more than a trivial fix, such as a typo or a
+small bug fix, create an issue first. Use the
+[Feature Request](https://gitlab.com/gitlab-org/cli/-/issues/new?issuable_template=Feature%20Request)
+or [Bug](https://gitlab.com/gitlab-org/cli/-/issues/new?issuable_template=Bug) template.
+To report a security vulnerability, use the confidential
+[Vulnerability Disclosure](https://gitlab.com/gitlab-org/cli/-/issues/new?issuable_template=Vulnerability%20Disclosure)
+template.
 
 ## Who reviews the changes?
 
