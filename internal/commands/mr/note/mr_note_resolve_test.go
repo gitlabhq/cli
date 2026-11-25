@@ -251,6 +251,86 @@ func Test_resolve_subcommand(t *testing.T) {
 		assert.NotContains(t, err.Error(), "not found", "a real API failure must not be reported as note-not-found")
 	})
 
+	t.Run("resolve by all-digit prefix when no note has that ID", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		makeMRMock(t, testClient)
+
+		digitID := "428736269e25094ae8737206d5af19a5f7ebc8ab"
+		discussions := append(makeDiscussions(), &gitlab.Discussion{
+			ID:    digitID,
+			Notes: []*gitlab.Note{{ID: 300}},
+		})
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return(discussions, &gitlab.Response{Response: &http.Response{StatusCode: http.StatusOK}}, nil).
+			Times(2)
+
+		testClient.MockDiscussions.EXPECT().
+			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), digitID, gomock.Any(), gomock.Any()).
+			Return(&gitlab.Discussion{ID: digitID}, nil, nil)
+
+		exec := cmdtest.SetupCmdForTest(t, newNoteCmdWithRepo, true,
+			cmdtest.WithGitLabClient(testClient.Client),
+			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		)
+
+		output, err := exec(`resolve 1 42873626`)
+		require.NoError(t, err)
+		assert.Contains(t, output.String(), "✓ Discussion resolved (42873626… in !1)")
+	})
+
+	t.Run("note ID wins over an all-digit discussion prefix", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		makeMRMock(t, testClient)
+
+		noteThreadID := "abc12345deadbeef1234567890abcdef12345678"
+		discussions := []*gitlab.Discussion{
+			{ID: noteThreadID, Notes: []*gitlab.Note{{ID: 42873626}}},
+			{ID: "428736269e25094ae8737206d5af19a5f7ebc8ab", Notes: []*gitlab.Note{{ID: 300}}},
+		}
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return(discussions, nil, nil)
+
+		testClient.MockDiscussions.EXPECT().
+			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), noteThreadID, gomock.Any(), gomock.Any()).
+			Return(&gitlab.Discussion{ID: noteThreadID}, nil, nil)
+
+		exec := cmdtest.SetupCmdForTest(t, newNoteCmdWithRepo, true,
+			cmdtest.WithGitLabClient(testClient.Client),
+			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		)
+
+		output, err := exec(`resolve 1 42873626`)
+		require.NoError(t, err)
+		assert.Contains(t, output.String(), "✓ Discussion resolved (abc12345… in !1)")
+	})
+
+	t.Run("all-digit value matching neither a note nor a discussion", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		makeMRMock(t, testClient)
+
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return(makeDiscussions(), &gitlab.Response{Response: &http.Response{StatusCode: http.StatusOK}}, nil).
+			Times(2)
+
+		exec := cmdtest.SetupCmdForTest(t, newNoteCmdWithRepo, true,
+			cmdtest.WithGitLabClient(testClient.Client),
+			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		)
+
+		_, err := exec(`resolve 1 12345678`)
+		require.Error(t, err)
+		assert.Equal(t, `no note 12345678 in merge request !1, and no discussion found matching prefix "12345678"`, err.Error())
+	})
+
 	t.Run("prefix too short", func(t *testing.T) {
 		t.Parallel()
 
@@ -343,6 +423,36 @@ func Test_reopen_subcommand(t *testing.T) {
 		output, err := exec(`reopen 1 def67890`)
 		require.NoError(t, err)
 		assert.Contains(t, output.String(), "✓ Discussion reopened (def67890… in !1)")
+	})
+
+	t.Run("reopen by all-digit prefix when no note has that ID", func(t *testing.T) {
+		t.Parallel()
+
+		testClient := gitlabtesting.NewTestClient(t)
+		makeMRMock(t, testClient)
+
+		digitID := "428736269e25094ae8737206d5af19a5f7ebc8ab"
+		discussions := append(makeDiscussions(), &gitlab.Discussion{
+			ID:    digitID,
+			Notes: []*gitlab.Note{{ID: 300}},
+		})
+		testClient.MockDiscussions.EXPECT().
+			ListMergeRequestDiscussions("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return(discussions, &gitlab.Response{Response: &http.Response{StatusCode: http.StatusOK}}, nil).
+			Times(2)
+
+		testClient.MockDiscussions.EXPECT().
+			ResolveMergeRequestDiscussion("OWNER/REPO", int64(1), digitID, gomock.Any(), gomock.Any()).
+			Return(&gitlab.Discussion{ID: digitID}, nil, nil)
+
+		exec := cmdtest.SetupCmdForTest(t, newNoteCmdWithRepo, true,
+			cmdtest.WithGitLabClient(testClient.Client),
+			cmdtest.WithBaseRepo("OWNER", "REPO", ""),
+		)
+
+		output, err := exec(`reopen 1 42873626`)
+		require.NoError(t, err)
+		assert.Contains(t, output.String(), "✓ Discussion reopened (42873626… in !1)")
 	})
 
 	t.Run("reopen API error", func(t *testing.T) {

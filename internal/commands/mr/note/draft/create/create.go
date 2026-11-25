@@ -150,8 +150,8 @@ func (o *options) complete(cmd *cobra.Command, args []string) error {
 // validate checks only flag values, so it runs before complete to reject bad
 // input before any API call or editor prompt.
 func (o *options) validate() error {
-	if o.reply != "" && len(o.reply) < 8 {
-		return fmt.Errorf("discussion ID prefix must be at least 8 characters, got %d", len(o.reply))
+	if o.reply != "" && len(o.reply) < mrutils.MinDiscussionPrefixLen {
+		return fmt.Errorf("discussion ID prefix must be at least %d characters, got %d", mrutils.MinDiscussionPrefixLen, len(o.reply))
 	}
 	if (o.line.Start != 0 || o.oldLine != 0) && o.filePath == "" {
 		return errors.New("--line and --old-line require --file")

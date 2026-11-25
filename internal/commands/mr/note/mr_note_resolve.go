@@ -77,6 +77,8 @@ func newResolveCmd(f cmdutils.Factory, resolve bool) *cobra.Command {
 			- Discussion ID: full 40-character hex string or an 8+ character prefix
 			- Note ID: integer note ID (looks up the parent discussion automatically)
 
+			An all-digit value of 8 or more characters that matches no note is tried as a discussion ID prefix.
+
 			The merge request comes first, then the discussion. Without a merge request, the merge request for the current branch is used. With --repo, the merge request is required.
 
 			If a prefix matches multiple discussions, an error is returned with the ambiguous matches.
@@ -152,22 +154,27 @@ func (o *resolveOptions) lookup(ctx context.Context) error {
 	o.mr = mr
 	o.repo = repo
 
-	// Resolve the discussion ID from the prefix or note ID.
-	if noteID, parseErr := strconv.ParseInt(o.discussionPrefix, 10, 64); parseErr == nil {
-		o.discussionID, _, err = mrutils.FindNoteInDiscussionPaginated(ctx, client, repo.FullName(), mr.IID, noteID)
-		if err != nil {
-			if errors.Is(err, mrutils.ErrNoteNotFound) {
-				return fmt.Errorf("note %d not found in merge request !%d", noteID, mr.IID)
-			}
-			return fmt.Errorf("failed to look up note %d in merge request !%d: %w", noteID, mr.IID, err)
-		}
-	} else {
+	noteID, parseErr := strconv.ParseInt(o.discussionPrefix, 10, 64)
+	if parseErr != nil {
 		o.discussionID, err = mrutils.ResolveDiscussionID(ctx, client, repo.FullName(), mr.IID, o.discussionPrefix)
-		if err != nil {
-			return err
-		}
+		return err
 	}
 
+	o.discussionID, _, err = mrutils.FindNoteInDiscussionPaginated(ctx, client, repo.FullName(), mr.IID, noteID)
+	switch {
+	case err == nil:
+		return nil
+	case !errors.Is(err, mrutils.ErrNoteNotFound):
+		return fmt.Errorf("failed to look up note %d in merge request !%d: %w", noteID, mr.IID, err)
+	case len(o.discussionPrefix) < mrutils.MinDiscussionPrefixLen:
+		return fmt.Errorf("note %d not found in merge request !%d", noteID, mr.IID)
+	}
+
+	// Discussion IDs are hex, so a prefix can be all digits and parse as a note ID.
+	o.discussionID, err = mrutils.ResolveDiscussionID(ctx, client, repo.FullName(), mr.IID, o.discussionPrefix)
+	if err != nil {
+		return fmt.Errorf("no note %d in merge request !%d, and %w", noteID, mr.IID, err)
+	}
 	return nil
 }
 
