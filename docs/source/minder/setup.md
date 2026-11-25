@@ -38,6 +38,8 @@ Safe to run multiple times: existing hooks are not duplicated, and an existing f
 
 Run `glab minder setup --uninstall` to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also removes glab's local records of your agent sessions and forgets the agents you set up and when, so the next setup starts with Claude Code again. Other hooks and settings in `~/.claude/settings.json`, and other OpenCode plugins, are left unchanged.
 
+Setup and uninstall are for a person to confirm. When glab detects that a coding agent runs it, setup and uninstall refuse to run, with or without `--yes`, and the user must run them in their own terminal. glab detects agents from the environment variables they set, so it does not detect an agent that sets none.
+
 This feature is an experiment and is not ready for production use.
 It might be unstable or removed at any time.
 For more information, see

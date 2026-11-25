@@ -2,6 +2,7 @@ package api
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -290,25 +291,62 @@ func TestDetectCodingAgent(t *testing.T) {
 		},
 	}
 
-	allAgentVars := []string{
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setAgentEnv(t, tt.envVars)
+
+			result := DetectCodingAgent()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// setAgentEnv clears every variable agent detection reads, then sets env.
+func setAgentEnv(t *testing.T, env map[string]string) {
+	t.Helper()
+	for _, key := range []string{
 		"AI_AGENT", "CLAUDECODE", "CODEX_THREAD_ID", "COPILOT_CLI",
 		"OPENCODE", "CURSOR_AGENT", "GEMINI_CLI", "KILO",
 		"CLINE_ACTIVE", "GOOSE_TERMINAL", "KIRO_CLI_IS_CHILD_PROCESS", "QWEN_CODE", "ROO_ACTIVE", "AWS_EXECUTION_ENV", "JUNIE_SHIM_PATH", "OZ_RUN_ID", "KIRO_SESSION_ID",
 		"ROO_CLI_RUNTIME", "TERM_PROGRAM", "PAGER", "GIT_PAGER",
+	} {
+		t.Setenv(key, "") // restores the original value after the test
+		_ = os.Unsetenv(key)
 	}
+	for key, value := range env {
+		t.Setenv(key, value)
+	}
+}
 
+func TestDetectRunningAgent(t *testing.T) {
+	tests := []struct {
+		name    string
+		envVars map[string]string
+		want    string
+	}{
+		{name: "no agent", envVars: map[string]string{}, want: ""},
+		{name: "an explicit agent", envVars: map[string]string{"CLAUDECODE": "1"}, want: "claude-code"},
+		{name: "Zed's agent terminal", envVars: map[string]string{"TERM_PROGRAM": "zed", "PAGER": "", "GIT_PAGER": "cat"}, want: "zed"},
+		{name: "an IDE terminal", envVars: map[string]string{"TERM_PROGRAM": "cursor"}, want: ""},
+		{name: "Zed's user terminal", envVars: map[string]string{"TERM_PROGRAM": "zed"}, want: ""},
+		{name: "an AI_AGENT ending in -terminal", envVars: map[string]string{"AI_AGENT": "my-agent-terminal"}, want: "my-agent-terminal"},
+		{name: "AI_AGENT=1", envVars: map[string]string{"AI_AGENT": "1"}, want: "unknown"},
+		{name: "AI_AGENT=true in an IDE terminal", envVars: map[string]string{"AI_AGENT": "true", "TERM_PROGRAM": "cursor"}, want: "unknown"},
+		{name: "AI_AGENT=YES", envVars: map[string]string{"AI_AGENT": "YES"}, want: "unknown"},
+		{name: "AI_AGENT=1 with an explicit agent", envVars: map[string]string{"AI_AGENT": "1", "CODEX_THREAD_ID": "abc"}, want: "codex"},
+		{name: "AI_AGENT=0", envVars: map[string]string{"AI_AGENT": "0"}, want: ""},
+		{name: "AI_AGENT=false", envVars: map[string]string{"AI_AGENT": "false"}, want: ""},
+		{name: "AI_AGENT=No", envVars: map[string]string{"AI_AGENT": "No"}, want: ""},
+		{name: "AI_AGENT=FALSE in an IDE terminal", envVars: map[string]string{"AI_AGENT": "FALSE", "TERM_PROGRAM": "cursor"}, want: ""},
+		{name: "AI_AGENT with a slash", envVars: map[string]string{"AI_AGENT": "claude-code/2.1"}, want: "unknown"},
+		{name: "AI_AGENT with spaces", envVars: map[string]string{"AI_AGENT": "My Agent"}, want: "unknown"},
+		{name: "AI_AGENT over 64 characters", envVars: map[string]string{"AI_AGENT": strings.Repeat("a", 65)}, want: "unknown"},
+		{name: "a malformed AI_AGENT with an explicit agent", envVars: map[string]string{"AI_AGENT": "My Agent", "CLAUDECODE": "1"}, want: "claude-code"},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, key := range allAgentVars {
-				t.Setenv(key, "") // restores the original value after the test
-				_ = os.Unsetenv(key)
-			}
-			for key, value := range tt.envVars {
-				t.Setenv(key, value)
-			}
-
-			result := DetectCodingAgent()
-			assert.Equal(t, tt.expected, result)
+			setAgentEnv(t, tt.envVars)
+			assert.Equal(t, tt.want, DetectRunningAgent())
 		})
 	}
 }

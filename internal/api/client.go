@@ -31,7 +31,11 @@ type ClientOption func(*Client) error
 
 type BuildInfo struct {
 	Version, Commit, Platform, Architecture string
-	CodingAgent                             string
+	// CodingAgent is DetectCodingAgent's result, for telemetry.
+	CodingAgent string
+	// RunningAgent is DetectRunningAgent's result: a coding agent that runs
+	// glab, not an IDE terminal.
+	RunningAgent string
 }
 
 func (i BuildInfo) UserAgent() string {

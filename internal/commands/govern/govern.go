@@ -3,7 +3,10 @@
 // tools' session transcripts, so they keep to these rules:
 //
 //   - Nothing installs, upgrades, or re-enables them without the user running
-//     glab minder setup. No other glab command or upgrade runs setup.
+//     glab minder setup. No other glab command or upgrade runs setup, and
+//     setup refuses to run for a detected coding agent, so that it cannot
+//     confirm setup for the user. Detection reads the environment variables
+//     agents set, so it misses an agent that sets none or removes them.
 //   - Setup never writes trust or approval state into an agent's
 //     configuration, such as Codex's hooks.state or trusted_hash.
 //   - Hooks and plugins never inject instructions or context into an agent's

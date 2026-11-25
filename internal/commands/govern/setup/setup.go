@@ -79,6 +79,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run %[1]sglab minder doctor%[1]s afterwards to verify the setup.
 
 			Run %[1]sglab minder setup --uninstall%[1]s to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also removes glab's local records of your agent sessions and forgets the agents you set up and when, so the next setup starts with Claude Code again. Other hooks and settings in %[1]s~/.claude/settings.json%[1]s, and other OpenCode plugins, are left unchanged.
+
+			Setup and uninstall are for a person to confirm. When glab detects that a coding agent runs it, setup and uninstall refuse to run, with or without %[1]s--yes%[1]s, and the user must run them in their own terminal. glab detects agents from the environment variables they set, so it does not detect an agent that sets none.
 		`, "`") + text.ExperimentalString,
 		Example: heredoc.Doc(`
 			# Sync Claude Code sessions, or the agents set up earlier
@@ -107,6 +109,9 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.agentsChanged = cmd.Flags().Changed("agents")
 			if err := validateAgents(opts.agents, opts.agentsChanged, opts.noFallbackSync); err != nil {
+				return err
+			}
+			if err := refuseAgent(opts); err != nil {
 				return err
 			}
 			if opts.uninstall {
@@ -313,6 +318,21 @@ func validateAgents(agents []string, changed, noFallbackSync bool) error {
 		}
 	}
 	return nil
+}
+
+// refuseAgent keeps a coding agent from setting up or uninstalling for the
+// user, so that only a person can confirm either. Uninstall counts too,
+// because it stops recording agent sessions.
+func refuseAgent(opts *options) error {
+	agent := opts.buildInfo.RunningAgent
+	if agent == "" {
+		return nil
+	}
+	command := "glab minder setup"
+	if opts.uninstall {
+		command += " --uninstall"
+	}
+	return fmt.Errorf("%s must be confirmed by a person, and a coding agent (%s) is running glab. Ask the user to run '%s' in their own terminal", command, agent, command)
 }
 
 func confirm(ctx context.Context, opts *options, prompt string) (bool, error) {
