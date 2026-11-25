@@ -8,7 +8,6 @@ import (
 	"encoding/pem"
 	"log"
 	"maps"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -103,14 +102,9 @@ func requireBasicAuth(next http.Handler) http.Handler {
 	})
 }
 
-func closedAddr(t *testing.T) string {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	addr := l.Addr().String()
-	require.NoError(t, l.Close())
-	return addr
-}
+// refusedAddr is below the ephemeral range, so no parallel test server can be
+// bound there and every dial is refused.
+const refusedAddr = "127.0.0.1:1"
 
 func countFetcherEgress(t *testing.T, addr string) {
 	t.Helper()
@@ -215,7 +209,7 @@ func TestRunUpstreamDown(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.sep, func(t *testing.T) {
 			isolateGo(t, "")
-			t.Setenv("GOPROXY", "http://"+closedAddr(t)+c.sep+"direct")
+			t.Setenv("GOPROXY", "http://"+refusedAddr+c.sep+"direct")
 			t.Setenv("GOSUMDB", "off")
 			t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
 
@@ -309,7 +303,7 @@ func TestRunUpstreamFailureHidesURLCredentials(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			isolateGo(t, "")
 			debugLog := captureDebugLog(t)
-			t.Setenv("GOPROXY", "https://"+userinfo+"@"+closedAddr(t))
+			t.Setenv("GOPROXY", "https://"+userinfo+"@"+refusedAddr)
 			t.Setenv("GOSUMDB", "off")
 			t.Setenv("GLAB_DF_FAKE_DEFAULT", "allow")
 
