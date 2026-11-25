@@ -76,7 +76,6 @@ func Test_AttestationVerify(t *testing.T) {
 	mockExec.EXPECT().LookPath(gomock.Any()).Return("/usr/bin/cosign", nil)
 	mockExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "/usr/bin/cosign", cmdtest.SliceMatch[string](
 		"verify-blob-attestation",
-		"--new-bundle-format",
 		"--bundle",
 		gomock.Any(),
 		"--type",
@@ -144,7 +143,6 @@ func Test_AttestationVerify_SelfManaged(t *testing.T) {
 			mockExec.EXPECT().LookPath(gomock.Any()).Return("/usr/bin/cosign", nil)
 			mockExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), "/usr/bin/cosign", cmdtest.SliceMatch[string](
 				"verify-blob-attestation",
-				"--new-bundle-format",
 				"--bundle",
 				gomock.Any(),
 				"--type",
