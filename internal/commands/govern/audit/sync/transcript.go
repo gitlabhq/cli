@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -194,6 +195,73 @@ type sessionMeta struct {
 	// Transcript is the agent's locator for the session transcript.
 	Transcript  string     `json:"transcript,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	// Parts are the GitLab sessions created for the session, one for each
+	// project it worked in. The key is written even when there are none, so
+	// that a record from a glab that created one GitLab session per agent
+	// session can be told apart.
+	Parts []sessionPart `json:"parts"`
+	// FirstProject is the first project the session was recorded with. Its
+	// host and top-level group bound where the session's activity goes, and it
+	// never changes, even when a later hook runs in another project.
+	FirstProject projectRef `json:"first_project,omitzero"`
+	// Folders maps the folders the hooks ran in to the project they resolved.
+	Folders map[string]projectRef `json:"folders,omitempty"`
+	// PendingCalls maps the tool calls synced without their result to the
+	// project their result goes to.
+	PendingCalls map[string]projectRef `json:"pending_calls,omitempty"`
+}
+
+// project returns the project the session was last recorded in, which entries
+// that record no folder go to.
+func (m *sessionMeta) project() projectRef {
+	return projectRef{Host: m.Host, PathWithNamespace: m.PathWithNamespace}
+}
+
+// anchor returns the project whose host and top-level group bound where the
+// session's activity goes: its first project, or for a record from an earlier
+// glab, the project it was recorded with.
+func (m *sessionMeta) anchor() projectRef {
+	if m.FirstProject.PathWithNamespace != "" {
+		return m.FirstProject
+	}
+	return m.project()
+}
+
+func (m *sessionMeta) part(p projectRef) (sessionPart, bool) {
+	i := slices.IndexFunc(m.Parts, func(part sessionPart) bool { return part.key() == p.key() })
+	if i < 0 {
+		return sessionPart{}, false
+	}
+	return m.Parts[i], true
+}
+
+// recordPart adds p, or replaces the part for its project.
+func (m *sessionMeta) recordPart(p sessionPart) {
+	i := slices.IndexFunc(m.Parts, func(part sessionPart) bool { return part.key() == p.key() })
+	if i < 0 {
+		m.Parts = append(m.Parts, p)
+		return
+	}
+	m.Parts[i] = p
+}
+
+func (m *sessionMeta) recordFolder(dir string, p projectRef) {
+	if m.Folders == nil {
+		m.Folders = map[string]projectRef{}
+	}
+	m.Folders[cleanCWD(dir)] = p
+}
+
+// sessionPart is the GitLab session created for an agent session in one
+// project.
+type sessionPart struct {
+	projectRef
+	// Key is the idempotency key the GitLab session was created with.
+	Key string `json:"key,omitempty"`
+	// Unsupported reports that the project's GitLab instance does not accept
+	// the agent type, so the session's activity there is never uploaded, not
+	// even after an upgrade.
+	Unsupported bool `json:"unsupported,omitempty"`
 }
 
 // extractPrompt returns the text the user typed in a user message, or an
@@ -454,6 +522,9 @@ func writeSessionMeta(sessionID string, meta sessionMeta) error {
 	if err != nil {
 		return err
 	}
+	if meta.Parts == nil {
+		meta.Parts = []sessionPart{}
+	}
 	data, err := json.Marshal(meta) //nolint:forbidigo // writing to disk, not stdout
 	if err != nil {
 		return err
@@ -503,9 +574,23 @@ func readSessionMeta(sessionID string) (*sessionMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	var meta sessionMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
+	var recorded struct {
+		sessionMeta
+		Parts *[]sessionPart `json:"parts"`
+	}
+	if err := json.Unmarshal(data, &recorded); err != nil {
 		return nil, err
+	}
+	meta := recorded.sessionMeta
+	switch {
+	case recorded.Parts != nil:
+		if len(*recorded.Parts) > 0 {
+			meta.Parts = *recorded.Parts
+		}
+	case meta.PathWithNamespace != "":
+		// An earlier glab keyed the GitLab session with the agent session's
+		// ID, so the session goes on in the GitLab session it already has.
+		meta.Parts = []sessionPart{{projectRef: meta.project(), Key: sessionID}}
 	}
 	return &meta, nil
 }

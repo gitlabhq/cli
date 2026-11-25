@@ -872,13 +872,16 @@ func TestSetupPrompt(t *testing.T) {
 
 	assert.Equal(t,
 		"glab will install agent session hooks in ~/.claude/settings.json and a systemd user timer (~/.config/systemd/user/glab-govern-audit-sync.timer) that syncs sessions in the background every 30 minutes, replacing any existing job. "+
-			"Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are. "+
-			"glab also keeps a local record of each agent session in its configuration directory, with the session ID, the agent, the transcript path and how far it was synced, including sessions outside GitLab repositories, which are never uploaded. "+
+			"Agent sessions will be uploaded to the GitLab project of the repository they run in, including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. "+
+			"When the agent works in more than one repository, a session is split across their projects that are on the same GitLab instance and in the same top-level group as the project the session started in, and its activity in other repositories is not uploaded. "+
+			"Common token and key formats are replaced first, but other secrets in them are uploaded as they are. "+
+			"glab also keeps a local record of each agent session in its configuration directory, with the session ID, the agent, the transcript path, how far it was synced, and the folders the hooks ran in and their projects, including sessions outside GitLab repositories, which are never uploaded. "+
 			"Only activity from now on will be uploaded, not earlier sessions or the earlier turns of sessions you resume. Do you wish to continue?",
 		setupPrompt("linux", false, plan{claudeHooks: true, uploads: uploadScope{fromNow: []string{"claude-code"}}}), "every setup says what is uploaded and what is kept, not only --agents")
 
 	withAgents := setupPrompt("linux", false, plan{claudeHooks: true, discovered: []string{"codex", "cursor"}, uploads: uploadScope{fromNow: []string{"claude-code", "codex", "cursor"}}})
-	assert.Contains(t, withAgents, "including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. Common token and key formats are replaced first, but other secrets in them are uploaded as they are")
+	assert.Contains(t, withAgents, "including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. When the agent works in more than one repository, a session is split across their projects that are on the same GitLab instance and in the same top-level group as the project the session started in, and its activity in other repositories is not uploaded. Common token and key formats are replaced first, but other secrets in them are uploaded as they are")
+	assert.Contains(t, withAgents, "with the session ID, the agent, the transcript path, how far it was synced, and the folders the hooks ran in and their projects,")
 	assert.Contains(t, withAgents, "The job will also upload your codex and cursor sessions the same way. Only activity from now on will be uploaded, not earlier sessions or the earlier turns of sessions you resume. Do you wish to continue?")
 
 	hooksOnly := setupPrompt("linux", true, plan{claudeHooks: true, discovered: []string{"codex"}})

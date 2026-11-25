@@ -137,7 +137,7 @@ func (c codex) discover(ctx context.Context, known func(string) bool) ([]discove
 		if meta.ParentThreadID != "" {
 			return nil
 		}
-		s := discoveredSession{id: meta.ID, locator: path}
+		s := discoveredSession{id: meta.ID, locator: path, dir: meta.CWD}
 		if meta.Git != nil && meta.Git.RepositoryURL != "" {
 			s.remote = meta.Git.RepositoryURL
 		} else if meta.CWD != "" {

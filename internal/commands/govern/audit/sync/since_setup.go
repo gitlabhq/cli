@@ -127,3 +127,13 @@ func (d *sessionData) dropUnmatchedResults() {
 		return !ok
 	})
 }
+
+// uploadedTo reports whether glab has uploaded any of the session, to any of
+// the GitLab sessions meta records for it. The part recorded for a session
+// from an earlier glab, keyed by the session ID alone, says nothing about
+// uploads, which the sync position does.
+func (p pending) uploadedTo(meta *sessionMeta, sessionID string) bool {
+	return p.uploaded || slices.ContainsFunc(meta.Parts, func(part sessionPart) bool {
+		return part.Key != "" && part.Key != sessionID
+	})
+}

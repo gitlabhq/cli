@@ -115,7 +115,7 @@ func TestSplitByProject(t *testing.T) {
 				ToolCalls: []toolCall{{ID: "toolu_1", Timestamp: at(0), CWD: "/work/a"}, {ID: "toolu_2", Timestamp: at(1), CWD: "/work/A"}},
 			},
 			want: []want{
-				{project: projectA, calls: []string{"toolu_1", "toolu_2"}, startedAt: at(0)},
+				{project: projectA, calls: []string{"toolu_1", "toolu_2"}},
 			},
 			wantPending: map[string]projectRef{"toolu_1": projectA, "toolu_2": folders["/work/A"]},
 		},
