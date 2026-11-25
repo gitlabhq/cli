@@ -1059,6 +1059,37 @@ func TestMergeMavenProxiesReadsWhatMavenReads(t *testing.T) {
 		})
 	}
 
+	for _, prolog := range []string{
+		"<?xm\nl version=\"1.0\" encoding=\"ISO-2022-JP\"?>",
+		"<?xm\rl version=\"1.0\" encoding=\"ISO-2022-JP\"?>",
+		"<?xm\r\nl version=\"1.0\" encoding=\"ISO-2022-JP\"?>",
+		"<?xm\nl version=\"1.0\" encoding\v=\v\"ISO-2022-JP\"?>",
+		"<?xm\nl version=\"1.0\" encoding\f=\f\"ISO-2022-JP\"?>",
+	} {
+		t.Run(fmt.Sprintf("when Maven joins the lines of %q into one declaration", prolog), func(t *testing.T) {
+			_, err := mergeMavenProxies(writeUserSettings(t, prolog+
+				"\n<settings>\n<!--\x1b$B--><proxies></proxies><!--\x1b(B-->\n</settings>\n"), proxies)
+
+			assert.ErrorContains(t, err, "unsupported encoding")
+		})
+	}
+
+	for _, prolog := range []string{
+		"<?xm\nl version=\"1.0\" encoding=\"UTF-8\"?>",
+		"<?xml version=\"1.0\"\nencoding=\"ISO-8859-1\"?>",
+		"<?xml version=\"1.0\"\r\nencoding=\"UTF-8\"?>\r",
+	} {
+		t.Run(fmt.Sprintf("when Maven joins the lines of %q into an ASCII-compatible declaration", prolog), func(t *testing.T) {
+			head := prolog + "\n<settings>\r\n  <proxies>"
+			tail := "\r\n  </proxies>\r\n</settings>\r\n"
+
+			got, err := mergeMavenProxies(writeUserSettings(t, head+tail), proxies)
+
+			require.NoError(t, err)
+			assert.Equal(t, head+proxies+tail, string(got))
+		})
+	}
+
 	t.Run("when the declaration hides its encoding from glab's own check", func(t *testing.T) {
 		// The ">" inside standalone ends the prolog glab reads, so Go's charset
 		// hook is what refuses the encoding.

@@ -558,10 +558,10 @@ func javaUserHome(environ []string, props map[string]string) string {
 // markup Go sees as part of a comment.
 var mavenASCIICharset = regexp.MustCompile(`(?i)^(utf-?8|us-ascii|ascii|iso[-_]?8859[-_]\d{1,2}|latin\d{1,2}|windows-125\d|cp125\d)$`)
 
-// mavenDeclaredEncoding matches an encoding in an XML declaration as Maven's
-// reader does, with spaces around "=" allowed. Go's decoder only sees
-// encoding="...", so glab checks the declaration itself.
-var mavenDeclaredEncoding = regexp.MustCompile(`encoding\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+// mavenDeclaredEncoding finds each encoding in a prolog whose lines are joined,
+// with Java's \s (which includes \v) around "=", as Maven's reader does. Go's
+// decoder only sees encoding="...", so glab checks the declaration itself.
+var mavenDeclaredEncoding = regexp.MustCompile(`encoding[ \t\n\v\f\r]*=[ \t\n\v\f\r]*(?:"([^"]*)"|'([^']*)')`)
 
 // newMavenXMLDecoder reads a settings file as Maven's parser does. A declared
 // encoding that mavenASCIICharset matches passes through untranscoded, which
@@ -569,6 +569,7 @@ var mavenDeclaredEncoding = regexp.MustCompile(`encoding\s*=\s*(?:"([^"]*)"|'([^
 // entities such as &nbsp; resolve.
 func newMavenXMLDecoder(raw []byte) (*xml.Decoder, error) {
 	prolog, _, _ := bytes.Cut(raw, []byte(">"))
+	prolog = bytes.ReplaceAll(bytes.ReplaceAll(prolog, []byte("\r"), nil), []byte("\n"), nil)
 	if bytes.Contains(prolog, []byte("<?xml")) {
 		for _, m := range mavenDeclaredEncoding.FindAllSubmatch(prolog, -1) {
 			if enc := string(m[1]) + string(m[2]); !mavenASCIICharset.MatchString(enc) {
