@@ -1,0 +1,103 @@
+{
+  "target": "file",
+  "operations": [
+    "read"
+  ],
+  "path_patterns": [
+    "(^|/)\\.env(\\.(local|development|production|staging|test|dev|prod))?$",
+    "(^|/)[^/]+\\.env$",
+    "(^|/)\\.dev\\.vars$",
+    "(^|/)secrets/",
+    "(^|/)config/database\\.yml$",
+    "(^|/)\\.netrc$",
+    "(^|/)[^/]*(secret|secrets|credential|credentials)$",
+    "(^|/)(credentials\\.json|secrets\\.(ya?ml|json))$"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/repo/.env",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.env.production",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/config/prod.env",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.dev.vars",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/secrets/api_key.txt",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/config/database.yml",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.netrc",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/aws_credentials",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.secrets",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/config/credentials.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/spec/fixtures/secrets/token.txt",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/repo/.env",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.env.example",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/config/database.yml.example",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/app/models/credential.rb",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/docs/secrets-management.md",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/lib/secret_detection/scanner.rb",
+      "matches": false
+    }
+  ]
+}

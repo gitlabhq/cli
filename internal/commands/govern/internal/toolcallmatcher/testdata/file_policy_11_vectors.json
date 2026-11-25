@@ -1,0 +1,37 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "(^|/)\\.terraformrc$",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.terraform\\.d(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.terraformrc",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.terraform.d/credentials.tfrc.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/main.tf",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.terraform/providers/registry.json",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.terraform.lock.hcl",
+      "matches": false
+    }
+  ]
+}

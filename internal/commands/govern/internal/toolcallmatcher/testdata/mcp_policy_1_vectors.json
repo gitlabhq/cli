@@ -1,0 +1,100 @@
+{
+  "target": "mcp",
+  "server_patterns": [
+    "(?i)(postgres|sql|mongo|redis|supabase|neon|database|db)"
+  ],
+  "input_patterns": [
+    "(?i)\\bdrop\\s+(table|database|schema|index|view|collection|user|role)\\b",
+    "(?i)\\bdelete\\s+from\\b",
+    "(?i)\\btruncate\\s+(table\\s+)?[a-z_\"`]",
+    "(?i)\\balter\\s+table\\s+\\S+\\s+drop\\b",
+    "\\b(deleteMany|deleteOne|dropDatabase|dropCollection)\\b",
+    "(?i)\\b(flushall|flushdb)\\b"
+  ],
+  "vectors": [
+    {
+      "server": "postgres",
+      "tool": "query",
+      "input": "{\"sql\":\"DROP TABLE users;\"}",
+      "matches": true
+    },
+    {
+      "server": "postgres",
+      "tool": "execute",
+      "input": "{\"sql\":\"delete from sessions where 1=1\"}",
+      "matches": true
+    },
+    {
+      "server": "mysql",
+      "tool": "run_sql",
+      "input": "{\"query\":\"TRUNCATE TABLE audit_log\"}",
+      "matches": true
+    },
+    {
+      "server": "sqlite",
+      "tool": "query",
+      "input": "{\"sql\":\"ALTER TABLE users DROP COLUMN email\"}",
+      "matches": true
+    },
+    {
+      "server": "mongodb",
+      "tool": "run",
+      "input": "{\"operation\":\"db.users.deleteMany({})\"}",
+      "matches": true
+    },
+    {
+      "server": "redis",
+      "tool": "command",
+      "input": "{\"args\":[\"FLUSHALL\"]}",
+      "matches": true
+    },
+    {
+      "server": "supabase",
+      "tool": "execute_sql",
+      "input": "{\"query\":\"drop schema public cascade\"}",
+      "matches": true
+    },
+    {
+      "server": "my-db",
+      "tool": "query",
+      "input": "{\"sql\":\"DROP TABLE orders\"}",
+      "matches": true
+    },
+    {
+      "server": "postgres",
+      "tool": "query",
+      "input": "{\"sql\":\"SELECT * FROM deleted_items\"}",
+      "matches": false
+    },
+    {
+      "server": "postgres",
+      "tool": "query",
+      "input": "{\"sql\":\"SELECT id FROM users WHERE dropped_at IS NULL\"}",
+      "matches": false
+    },
+    {
+      "server": "postgres",
+      "tool": "query",
+      "input": "{\"sql\":\"INSERT INTO events VALUES (1)\"}",
+      "matches": false
+    },
+    {
+      "server": "github",
+      "tool": "create_issue",
+      "input": "{\"title\":\"DROP TABLE users breaks staging\"}",
+      "matches": false
+    },
+    {
+      "server": "postgres",
+      "tool": "query",
+      "input": "{\"sql\":\"UPDATE users SET email = NULL\"}",
+      "matches": false
+    },
+    {
+      "server": "warehouse",
+      "tool": "query",
+      "input": "{\"sql\":\"DROP TABLE users\"}",
+      "matches": false
+    }
+  ]
+}

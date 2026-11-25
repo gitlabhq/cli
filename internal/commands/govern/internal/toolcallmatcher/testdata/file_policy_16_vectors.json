@@ -1,0 +1,48 @@
+{
+  "target": "file",
+  "operations": [
+    "delete"
+  ],
+  "path_patterns": [
+    "(^|/)\\.github/workflows/[^/]+\\.ya?ml$",
+    "(^|/)\\.gitlab-ci\\.ya?ml$",
+    "(^|/)\\.gitlab/ci/.+\\.ya?ml$"
+  ],
+  "vectors": [
+    {
+      "operation": "delete",
+      "path": "/repo/.github/workflows/ci.yml",
+      "matches": true
+    },
+    {
+      "operation": "delete",
+      "path": "/repo/.gitlab-ci.yml",
+      "matches": true
+    },
+    {
+      "operation": "delete",
+      "path": "/repo/.gitlab/ci/rails.gitlab-ci.yml",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/.gitlab-ci.yml",
+      "matches": false
+    },
+    {
+      "operation": "delete",
+      "path": "/repo/.github/ISSUE_TEMPLATE/bug.yml",
+      "matches": false
+    },
+    {
+      "operation": "delete",
+      "path": "/repo/docs/ci/.gitlab-ci.yml.md",
+      "matches": false
+    },
+    {
+      "operation": "delete",
+      "path": "/repo/ci/deploy.yml",
+      "matches": false
+    }
+  ]
+}

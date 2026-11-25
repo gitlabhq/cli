@@ -1,0 +1,54 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "(^|/)\\.vault-token$",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.config/op(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/(Library/Application Support|\\.config)/Bitwarden CLI(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.config/bw(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.vault-token",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/op/config",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/Library/Application Support/Bitwarden CLI/data.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.config/Bitwarden CLI/data.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.config/bw/data.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/vault/policy.hcl",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/opera/prefs",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/operator/settings.json",
+      "matches": false
+    }
+  ]
+}

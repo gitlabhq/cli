@@ -1,0 +1,64 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "(nkbihfbeogaeaoehlefnkodbefgpgknn|bfnaelmomeimhlpmgjnjophhpkkoljpa|bhhhlbepdkbapadjdnnojkbgioiodbic)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/(\\.electrum|AppData/Roaming/Electrum)(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/(Library/Application Support|\\.config|AppData/Roaming)/Exodus(/|$)",
+    "(^|/)exodus\\.wallet(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/Library/Application Support/Google/Chrome/Default/Local Extension Settings/nkbihfbeogaeaoehlefnkodbefgpgknn/000003.log",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.config/BraveSoftware/Brave-Browser/Default/Local Extension Settings/bfnaelmomeimhlpmgjnjophhpkkoljpa/LOCK",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "C:/Users/dev/AppData/Local/Google/Chrome/User Data/Default/IndexedDB/chrome-extension_bhhhlbepdkbapadjdnnojkbgioiodbic_0.indexeddb.leveldb/000005.ldb",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.electrum/wallets/default_wallet",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "C:/Users/dev/AppData/Roaming/Electrum/wallets/default_wallet",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/Library/Application Support/Exodus/exodus.wallet/seed.seco",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.config/Exodus/exodus.wallet/passphrase.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/Library/Application Support/Google/Chrome/Default/Bookmarks",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/docs/metamask.md",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/Library/Application Support/Firefox/Profiles/abc.default/storage/default/moz-extension+++0f3c9a2e/idb/store.sqlite",
+      "matches": false
+    }
+  ]
+}

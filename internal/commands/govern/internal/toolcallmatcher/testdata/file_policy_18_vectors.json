@@ -1,0 +1,134 @@
+{
+  "target": "file",
+  "operations": [
+    "write",
+    "edit",
+    "delete"
+  ],
+  "path_patterns": [
+    "(^|/)\\.claude/settings(\\.local)?\\.json$",
+    "(^|/)\\.claude/CLAUDE\\.md$",
+    "(^|/)\\.claude/hooks/",
+    "(^|/)\\.mcp\\.json$",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.claude\\.json$",
+    "^(/Library/Application Support/ClaudeCode|/etc/claude-code|[A-Za-z]:/Program Files/ClaudeCode)/",
+    "(^|/)opencode\\.jsonc?$",
+    "(^|/)\\.opencode/",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.config/opencode(/|$)",
+    "^/etc/opencode/",
+    "/glab/policy-snapshots/",
+    "(^|/)glab-cli/gaig/tool-call-snapshots/"
+  ],
+  "vectors": [
+    {
+      "operation": "edit",
+      "path": "/repo/.claude/settings.json",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/repo/.claude/settings.local.json",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/Users/dev/.claude/settings.json",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/.claude/CLAUDE.md",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/repo/.claude/hooks/pre_tool_use.sh",
+      "matches": true
+    },
+    {
+      "operation": "delete",
+      "path": "/repo/.claude/hooks/guard.py",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/.mcp.json",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/Users/dev/.claude.json",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/Library/Application Support/ClaudeCode/managed-settings.json",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/etc/claude-code/managed-settings.d/10-local.json",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/opencode.json",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/repo/.opencode/plugins/guard.ts",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/Users/dev/.config/opencode/opencode.json",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/Users/dev/Library/Caches/glab/policy-snapshots/gdk.test/group/project.json",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/Users/dev/Library/Application Support/glab-cli/gaig/tool-call-snapshots/gdk.test/group/project.json",
+      "matches": true
+    },
+    {
+      "operation": "delete",
+      "path": "/home/dev/.config/glab-cli/gaig/tool-call-snapshots/gitlab.com/group/project.json",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/Users/dev/Library/Application Support/glab-cli/gaig/identities/gitlab.com.json",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.claude/settings.json",
+      "matches": false
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/CLAUDE.md",
+      "matches": false
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/.claude/commands/review.md",
+      "matches": false
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/docs/claude/settings.json",
+      "matches": false
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/AGENTS.md",
+      "matches": false
+    }
+  ]
+}

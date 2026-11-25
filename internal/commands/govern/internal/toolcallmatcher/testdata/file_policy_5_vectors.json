@@ -1,0 +1,64 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "(^|/)\\.gitconfig$",
+    "(^|/)\\.git-credentials$",
+    "(^|/)\\.git/config$",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.config/git/(config|credentials)$"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.gitconfig",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.git-credentials",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/.git/config",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.git/config",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.config/git/credentials",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.gitignore",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.gitattributes",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.git/HEAD",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/docs/gitconfig.md",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.github/config.yml",
+      "matches": false
+    }
+  ]
+}

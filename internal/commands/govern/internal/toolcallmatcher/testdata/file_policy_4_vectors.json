@@ -1,0 +1,52 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.(aws|azure)(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.config/gcloud(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.aws/credentials",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/home/dev/.aws/config",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.azure/msal_token_cache.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/gcloud/application_default_credentials.json",
+      "matches": true
+    },
+    {
+      "operation": "delete",
+      "path": "/Users/dev/.config/gcloud/credentials.db",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.aws-sam/build.toml",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/infra/.aws/config",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/gcloud-tools/settings.json",
+      "matches": false
+    }
+  ]
+}

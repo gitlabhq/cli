@@ -1,0 +1,59 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.cargo/credentials(\\.toml)?$",
+    "(^|/)\\.pypirc$",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.gem/credentials$",
+    "(^|/)\\.npmrc$"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.cargo/credentials.toml",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.cargo/credentials",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.pypirc",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/Users/dev/.pypirc",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.gem/credentials",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.npmrc",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.cargo/config.toml",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/Cargo.toml",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.gemrc",
+      "matches": false
+    }
+  ]
+}
