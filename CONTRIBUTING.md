@@ -22,9 +22,9 @@ Please do:
 - Open an issue if things aren't working as expected.
 - Open an issue to propose a significant change.
 - Open an issue to propose a feature.
-- Open a merge request to fix a bug.
+- Open a merge request to fix a small bug.
 - Open a merge request to fix documentation about a command.
-- Open a merge request for an issue and leave a comment claiming it.
+- Open a merge request for an issue after you're assigned to it.
 
 Please avoid:
 
@@ -262,7 +262,29 @@ a complete listing of the transformations supported.
 
 1. Create a new branch: `git checkout -b my-branch-name`
 1. Make your change, add tests, and ensure tests pass
-1. Submit a merge request
+1. Submit a merge request that meets the [merge request expectations](#merge-request-expectations)
+
+### Merge request expectations
+
+AI-assisted contributions are welcome. AI makes changes faster to write, but reviewing
+them still takes time, particularly when there is a backlog of changes. These
+expectations apply to every merge request, from team members and community
+contributors alike:
+
+- **You are the author.** You have read the change, you can explain it, and you reply
+  to review comments yourself.
+- **Link an agreed issue.** Except for trivial fixes, such as typos or a small bug fix,
+  link an issue whose direction a maintainer has agreed. Get assigned to it before you
+  start. Community contributors: comment on the issue to ask to be assigned.
+- **Keep it small and focused.** One concern per merge request. Split larger changes,
+  or discuss them in an issue first.
+- **Show that it works.** Add tests for new behavior. In the merge request, show the
+  commands you ran and their output, as text or screenshots. For a bug fix or behavior
+  change, show the output on `main` compared to your branch.
+- **Run the checks.** Run `make check` before you request a review. If you use an
+  agent, point it at [`AGENTS.md`](AGENTS.md).
+- **Disclose AI-generated content.** Follow the
+  [AI-generated contributions guidelines](https://about.gitlab.com/community/contribute/dco-cla/#ai-generated-contributions).
 
 ### Formatting your code
 
