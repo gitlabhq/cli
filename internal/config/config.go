@@ -342,8 +342,10 @@ func (c *fileConfig) GetWithSource(hostname, key string, searchENVVars bool) (st
 	// State glab maintains for itself is written to the global file only, so a
 	// value sitting in a repository's local file would win every read while
 	// every write went to a file that is never read. Skip the local file for
-	// those keys rather than let a stale copy shadow the real one.
-	skipLocal := IsGlobalOnlyKey(key)
+	// those keys rather than let a stale copy shadow the real one. Keys naming
+	// a program are skipped too: the local file may come from an untrusted
+	// checkout.
+	skipLocal := IsGlobalOnlyKey(key) || IsRunsProgramKey(key)
 
 	var (
 		value string

@@ -17,8 +17,7 @@ Updates configuration with the value of a given key.
 Use `glab config set --global` to write to the global configuration.
 Specifying the `--host` flag also saves to the global configuration file.
 
-Keys that glab manages for itself are always written to the global
-configuration, even without `--global`.
+Keys that glab manages for itself, and keys that name a program glab runs (`editor`, `browser`, `glab_pager`), are always written to the global configuration, even without `--global`.
 
 ```plaintext
 glab config set <key> <value> [flags]

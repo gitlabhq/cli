@@ -1164,7 +1164,7 @@ func Test_IsGlobalOnlyKey(t *testing.T) {
 	}
 
 	// Ordinary ScopeGlobal keys are still meant to be set per repository.
-	for _, key := range []string{"git_protocol", "branch_prefix", "editor", "remote_alias"} {
+	for _, key := range []string{"git_protocol", "branch_prefix", "remote_alias"} {
 		assert.Falsef(t, IsGlobalOnlyKey(key), "%s is a user setting, not glab-managed state", key)
 	}
 }
@@ -1184,6 +1184,39 @@ func Test_GetWithSource_GlobalOnlyKeySkipsLocalConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "9.26.0", value, "the global value is the one glab writes and must be the one it reads")
 	assert.Equal(t, ConfigFile(), source)
+}
+
+// A repository's local file can arrive with an untrusted checkout, so it must
+// not choose a program glab executes.
+func Test_GetWithSource_RunsProgramKeySkipsLocalConfig(t *testing.T) {
+	for _, key := range []string{"editor", "browser", "glab_pager"} {
+		t.Run(key, func(t *testing.T) {
+			t.Run("global value wins", func(t *testing.T) {
+				cfg := NewBlankConfig()
+				local, err := cfg.Local()
+				require.NoError(t, err)
+				require.NoError(t, local.SetStringValue(key, "/bin/sh -c id"))
+				require.NoError(t, cfg.Set("", key, "less"))
+
+				value, source, err := cfg.GetWithSource("", key, false)
+				require.NoError(t, err)
+				assert.Equal(t, "less", value)
+				assert.Equal(t, ConfigFile(), source)
+			})
+
+			t.Run("local value alone is ignored", func(t *testing.T) {
+				cfg := NewBlankConfig()
+				local, err := cfg.Local()
+				require.NoError(t, err)
+				require.NoError(t, local.SetStringValue(key, "/bin/sh -c id"))
+
+				value, source, err := cfg.GetWithSource("", key, false)
+				require.NoError(t, err)
+				assert.Empty(t, value)
+				assert.Equal(t, ConfigFile(), source)
+			})
+		})
+	}
 }
 
 // A user setting keeps its existing precedence: local wins over global.

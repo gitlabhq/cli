@@ -39,8 +39,7 @@ func NewCmdSet(f cmdutils.Factory) *cobra.Command {
 		Long: heredoc.Docf(`Use %[1]sglab config set --global%[1]s to write to the global configuration.
 		Specifying the %[1]s--host%[1]s flag also saves to the global configuration file.
 
-		Keys that glab manages for itself are always written to the global
-		configuration, even without %[1]s--global%[1]s.
+		Keys that glab manages for itself, and keys that name a program glab runs (%[1]seditor%[1]s, %[1]sbrowser%[1]s, %[1]sglab_pager%[1]s), are always written to the global configuration, even without %[1]s--global%[1]s.
 		`, "`"),
 		Example: heredoc.Doc(`
 glab config set editor vim
@@ -103,13 +102,19 @@ func (o *options) run() error {
 		return err
 	}
 
-	// A key glab maintains for itself is read from the global file only, so a
-	// local write would land where nothing reads it and the old local value
-	// would keep winning. Route those to the global file instead.
-	routed := !o.isGlobal && o.hostname == "" && config.IsGlobalOnlyKey(o.key)
-	writeGlobal := o.isGlobal || o.hostname != "" || routed
-	if routed {
+	// Keys glab maintains for itself and keys naming a program are read from
+	// the global file only, so a local write would land where nothing reads
+	// it. Route those to the global file instead.
+	routable := !o.isGlobal && o.hostname == ""
+	managed := routable && config.IsGlobalOnlyKey(o.key)
+	runsProgram := routable && config.IsRunsProgramKey(o.key)
+	writeGlobal := o.isGlobal || o.hostname != "" || managed || runsProgram
+	switch {
+	case managed:
 		o.io.LogErrorf("%s %s is managed by glab and is always stored in the global configuration: %s\n",
+			o.io.Color().DotWarnIcon(), o.key, config.ConfigFile())
+	case runsProgram:
+		o.io.LogErrorf("%s %s names a program glab runs, so it is always stored in the global configuration: %s\n",
 			o.io.Color().DotWarnIcon(), o.key, config.ConfigFile())
 	}
 

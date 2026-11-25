@@ -28,10 +28,9 @@ func NewCmdGet(f cmdutils.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <key>",
 		Short: "Prints the value of a given configuration key.",
-		Long: heredoc.Docf(`By default, the lookup order is: environment variables, then the local
-		repository configuration, then the global configuration. Use %[1]s--global%[1]s to
-		read only from the global configuration file, or %[1]s--host%[1]s to read a
-		per-host setting.
+		Long: heredoc.Docf(`By default, the lookup order is: environment variables, then the local repository configuration, then the global configuration. Use %[1]s--global%[1]s to read only from the global configuration file, or %[1]s--host%[1]s to read a per-host setting.
+
+		Keys that glab manages for itself, and keys that name a program glab runs (%[1]seditor%[1]s, %[1]sbrowser%[1]s, %[1]sglab_pager%[1]s), skip the local repository configuration.
 
 		If the key is not set, nothing is printed.
 		`, "`"),
@@ -59,7 +58,7 @@ func NewCmdGet(f cmdutils.Factory) *cobra.Command {
 
 	fl := cmd.Flags()
 	fl.StringVarP(&opts.hostname, "host", "", "", "Get per-host setting.")
-	fl.BoolP("global", "g", false, "Read from global config file (~/.config/glab-cli/config.yml). (default checks 'Environment variables → Local → Global')")
+	fl.BoolP("global", "g", false, "Read from global config file (~/.config/glab-cli/config.yml).")
 
 	return cmd
 }
