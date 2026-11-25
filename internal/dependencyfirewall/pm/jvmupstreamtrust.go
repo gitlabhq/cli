@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,18 +31,18 @@ var (
 	jceksMagic = []byte{0xce, 0xce, 0xce, 0xce}
 )
 
-// jvmTrustAnchors returns the certificates in the truststore a JVM would
-// trust when the -D options in sources set its truststore properties over
-// defaults. Later sources override earlier ones, as later options do on the
-// java command line. Relative paths resolve against dir, the JVM's working
-// directory. Like JSSE, it reads the JDK default under JAVA_HOME when no
-// trustStore is set, and cacerts when the named store is not a readable
-// regular file. It returns an error for a named store it reads but cannot
-// decode. A JDK default it cannot decode is logged only under GLAB_DEBUG,
-// because JDK 17 and earlier ship it as JKS.
-func jvmTrustAnchors(env []string, dir string, defaults map[string]string, sources ...string) ([]*x509.Certificate, error) {
-	props := make(map[string]string, len(defaults)+3)
-	maps.Copy(props, defaults)
+var trustStoreProperties = []string{trustStoreProperty, trustStorePasswordProperty, trustStoreTypeProperty}
+
+// jvmTrustProps returns the truststore properties a JVM started with the -D
+// options in sources has, over those in defaults. Later sources override
+// earlier ones, as later options do on the java command line.
+func jvmTrustProps(defaults map[string]string, sources ...string) map[string]string {
+	props := make(map[string]string, len(trustStoreProperties))
+	for _, name := range trustStoreProperties {
+		if value, ok := defaults[name]; ok {
+			props[name] = value
+		}
+	}
 	for _, src := range sources {
 		for _, arg := range splitJVMArgs(src) {
 			rest, ok := strings.CutPrefix(arg, "-D")
@@ -57,7 +56,17 @@ func jvmTrustAnchors(env []string, dir string, defaults map[string]string, sourc
 			}
 		}
 	}
+	return props
+}
 
+// jvmTrustAnchors returns the certificates in the truststore a JVM with the
+// truststore properties props would trust. Relative paths resolve against
+// dir, the JVM's working directory. Like JSSE, it reads the JDK default under
+// JAVA_HOME when no trustStore is set, and cacerts when the named store is not
+// a readable regular file. It returns an error for a named store it reads but
+// cannot decode. A JDK default it cannot decode is logged only under
+// GLAB_DEBUG, because JDK 17 and earlier ship it as JKS.
+func jvmTrustAnchors(env []string, dir string, props map[string]string) ([]*x509.Certificate, error) {
 	path, password, storeType := props[trustStoreProperty], props[trustStorePasswordProperty], props[trustStoreTypeProperty]
 	if t := strings.ToLower(storeType); strings.HasPrefix(t, "windows-") || strings.HasPrefix(t, "keychainstore") {
 		// The Windows and macOS stores back the system roots that registry
@@ -321,7 +330,7 @@ func mavenArgProperties(env []string, dir string, args []string) map[string]stri
 // set. Maven 3 and gradle apply those over the JVM options, and so over the
 // truststore glab gives them there.
 func argTrustStoreOverride(props map[string]string, format string) error {
-	for _, name := range []string{trustStoreProperty, trustStorePasswordProperty, trustStoreTypeProperty} {
+	for _, name := range trustStoreProperties {
 		if value, ok := props[name]; ok && replacesTrustStore(name, value) {
 			return fmt.Errorf(format, name)
 		}

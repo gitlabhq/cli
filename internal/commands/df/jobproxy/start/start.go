@@ -16,6 +16,7 @@ import (
 
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/cilog"
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/pm"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/session"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
@@ -145,6 +146,7 @@ func (o *options) start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	pm.WarnJobTrustStoreOverrides(os.Environ(), logDir, o.io.LogErrorf)
 	env = append(env, cilog.DirEnv+"="+logDir)
 
 	o.io.LogInfof("%s", session.ShellExports(env))

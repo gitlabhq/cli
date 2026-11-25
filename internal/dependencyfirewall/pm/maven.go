@@ -114,12 +114,16 @@ func (m *mavenManager) CleanupCAFiles(caPath string) {
 // or mvn's own arguments, which replaces glab's in the child.
 func (m *mavenManager) upstreamTrustAnchors(env []string, dir string, args []string) ([]*x509.Certificate, error) {
 	argProps := mavenArgProperties(env, dir, args)
-	certs, err := jvmTrustAnchors(env, dir, argProps,
-		lookupEnv(env, "JAVA_TOOL_OPTIONS"), lookupEnv(env, "JDK_JAVA_OPTIONS"), mavenJVMConfig(env, dir, args),
-		lookupEnv(env, "MAVEN_OPTS"), lookupEnv(env, "MAVEN_DEBUG_OPTS"), lookupEnv(env, "_JAVA_OPTIONS"))
+	certs, err := jvmTrustAnchors(env, dir, mavenTrustProps(env, dir, args, argProps))
 	return certs, errors.Join(err,
 		jvmTrustStoreOverride(env, "mvn", "MAVEN_OPTS", "MAVEN_DEBUG_OPTS", "_JAVA_OPTIONS"),
 		argTrustStoreOverride(argProps, "-D%s in the mvn arguments replaces glab's truststore on Maven 3, so mvn cannot trust the dependency firewall proxy there; set it in MAVEN_OPTS instead"))
+}
+
+func mavenTrustProps(env []string, dir string, args []string, argProps map[string]string) map[string]string {
+	return jvmTrustProps(argProps,
+		lookupEnv(env, "JAVA_TOOL_OPTIONS"), lookupEnv(env, "JDK_JAVA_OPTIONS"), mavenJVMConfig(env, dir, args),
+		lookupEnv(env, "MAVEN_OPTS"), lookupEnv(env, "MAVEN_DEBUG_OPTS"), lookupEnv(env, "_JAVA_OPTIONS"))
 }
 
 func (m *mavenManager) Matcher() proxy.Matcher { return proxy.MavenMatcher{Mirrors: m.mirrors} }

@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"os"
@@ -187,4 +188,42 @@ func TestUpstreamRootCAsMatchesOtherNamesExactly(t *testing.T) {
 	pool, _, err := upstreamRootCAs([]string{"ssl_cert_file=" + writeTestFile(t, "ca.pem", a.pem())}, "", nil)
 	require.NoError(t, err)
 	assert.Nil(t, pool, "OpenSSL reads only SSL_CERT_FILE, so a lowercase name must not add trust")
+}
+
+func TestWarnJobTrustStoreOverrides(t *testing.T) {
+	t.Parallel()
+	const store = "-Djavax.net.ssl.trustStore=/corp.p12"
+	const mavenArgs = "warning: -Djavax.net.ssl.trustStore in .mvn/maven.config or MAVEN_ARGS replaces glab's truststore on Maven 3, so mvn cannot trust the dependency firewall proxy there; set it in MAVEN_OPTS instead\n"
+	cases := []struct {
+		name        string
+		env         []string
+		mavenConfig string
+		want        []string
+	}{
+		{name: "MAVEN_OPTS and GRADLE_OPTS", env: []string{"MAVEN_OPTS=" + store, "GRADLE_OPTS=" + store}},
+		{name: "MAVEN_DEBUG_OPTS", env: []string{"MAVEN_DEBUG_OPTS=" + store}, want: []string{
+			"warning: -Djavax.net.ssl.trustStore in MAVEN_DEBUG_OPTS replaces glab's truststore, so mvn cannot trust the dependency firewall proxy; set it in MAVEN_OPTS instead\n",
+		}},
+		{name: "_JAVA_OPTIONS", env: []string{"_JAVA_OPTIONS=" + store}, want: []string{
+			"warning: -Djavax.net.ssl.trustStore in _JAVA_OPTIONS replaces glab's truststore, so mvn cannot trust the dependency firewall proxy; set it in MAVEN_OPTS instead\n",
+			"warning: -Djavax.net.ssl.trustStore in _JAVA_OPTIONS replaces glab's truststore, so gradle cannot trust the dependency firewall proxy; set it in GRADLE_OPTS instead\n",
+		}},
+		{name: "MAVEN_ARGS", env: []string{"MAVEN_ARGS=" + store}, want: []string{mavenArgs}},
+		{name: ".mvn/maven.config", mavenConfig: store + "\n", want: []string{mavenArgs}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			if c.mavenConfig != "" {
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, ".mvn"), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, ".mvn", "maven.config"), []byte(c.mavenConfig), 0o600))
+			}
+			var got []string
+			WarnJobTrustStoreOverrides(c.env, dir, func(format string, args ...any) {
+				got = append(got, fmt.Sprintf(format, args...))
+			})
+			assert.Equal(t, c.want, got)
+		})
+	}
 }
