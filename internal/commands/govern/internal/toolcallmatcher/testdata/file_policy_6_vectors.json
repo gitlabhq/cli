@@ -1,0 +1,48 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.docker/config\\.json$",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.kube(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.config/helm(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.docker/config.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.kube/config",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/home/dev/.kube/config",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/helm/repositories.yaml",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/docker/config.json",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.docker/daemon.json",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/k8s/.kube/config",
+      "matches": false
+    }
+  ]
+}

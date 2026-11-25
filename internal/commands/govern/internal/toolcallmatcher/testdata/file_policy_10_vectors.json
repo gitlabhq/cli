@@ -1,0 +1,69 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.config/(gh|heroku|vercel|glab-cli)(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.(fly|now)(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/Library/Application Support/(glab-cli|com\\.vercel\\.cli)(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.local/share/com\\.vercel\\.cli(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/gh/hosts.yml",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.fly/config.yml",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/heroku/config.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/glab-cli/config.yml",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/Library/Application Support/glab-cli/config.yml",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/Library/Application Support/com.vercel.cli/auth.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.local/share/com.vercel.cli/auth.json",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.github/workflows/ci.yml",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/fly.toml",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/vercel.json",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.config/ghostty/config",
+      "matches": false
+    }
+  ]
+}

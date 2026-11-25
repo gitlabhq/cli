@@ -1,0 +1,38 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "(^|/)\\.pgpass$",
+    "(^|/)\\.my\\.cnf$",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.mongosh(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.pgpass",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.my.cnf",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.mongosh/mongosh_repl_history",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/config/my.cnf",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/db/schema.sql",
+      "matches": false
+    }
+  ]
+}

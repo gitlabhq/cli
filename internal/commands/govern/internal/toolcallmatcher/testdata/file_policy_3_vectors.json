@@ -1,0 +1,56 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.ssh(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.ssh/id_ed25519",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/home/dev/.ssh/authorized_keys",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/home/dev/.ssh/config",
+      "matches": true
+    },
+    {
+      "operation": "delete",
+      "path": "/root/.ssh/known_hosts",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "C:/Users/dev/.ssh/id_rsa",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/docs/.ssh/example_config",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.sshrc",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/projects/ssh-tools/README.md",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "~/.ssh/id_rsa",
+      "matches": true
+    }
+  ]
+}

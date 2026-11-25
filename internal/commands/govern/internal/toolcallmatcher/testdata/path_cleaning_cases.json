@@ -1,0 +1,96 @@
+{
+  "cases": [
+    {
+      "path": "/repo/.env",
+      "cleaned": "/repo/.env"
+    },
+    {
+      "path": "/repo/../Users/dev/.ssh/id_rsa",
+      "cleaned": "/Users/dev/.ssh/id_rsa"
+    },
+    {
+      "path": "/Users/dev//.ssh/id_rsa",
+      "cleaned": "/Users/dev/.ssh/id_rsa"
+    },
+    {
+      "path": "/Users/dev/./.ssh/id_rsa",
+      "cleaned": "/Users/dev/.ssh/id_rsa"
+    },
+    {
+      "path": "/repo/sub/../.env",
+      "cleaned": "/repo/.env"
+    },
+    {
+      "path": "/repo/.env/",
+      "cleaned": "/repo/.env"
+    },
+    {
+      "path": "/../etc/passwd",
+      "cleaned": "/etc/passwd"
+    },
+    {
+      "path": "/..",
+      "cleaned": "/"
+    },
+    {
+      "path": "//etc/passwd",
+      "cleaned": "/etc/passwd"
+    },
+    {
+      "path": "///etc//passwd",
+      "cleaned": "/etc/passwd"
+    },
+    {
+      "path": "relative/../.env",
+      "cleaned": ".env"
+    },
+    {
+      "path": "../../.env",
+      "cleaned": "../../.env"
+    },
+    {
+      "path": "./.env",
+      "cleaned": ".env"
+    },
+    {
+      "path": ".env",
+      "cleaned": ".env"
+    },
+    {
+      "path": "a/b/../../..",
+      "cleaned": ".."
+    },
+    {
+      "path": "~/.ssh/id_rsa",
+      "cleaned": "~/.ssh/id_rsa"
+    },
+    {
+      "path": "/repo/.../x",
+      "cleaned": "/repo/.../x"
+    },
+    {
+      "path": "/repo/..hidden/x",
+      "cleaned": "/repo/..hidden/x"
+    },
+    {
+      "path": "/repo/a/./b/.././c",
+      "cleaned": "/repo/a/c"
+    },
+    {
+      "path": "/",
+      "cleaned": "/"
+    },
+    {
+      "path": ".",
+      "cleaned": "."
+    },
+    {
+      "path": "/Users/dev/./.ssh/",
+      "cleaned": "/Users/dev/.ssh"
+    },
+    {
+      "path": "~/.ssh/../.aws/credentials",
+      "cleaned": "~/.aws/credentials"
+    }
+  ]
+}

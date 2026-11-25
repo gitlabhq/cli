@@ -1,0 +1,44 @@
+{
+  "target": "file",
+  "operations": [
+    "write",
+    "edit"
+  ],
+  "path_patterns": [
+    "(^|/)\\.github/workflows/[^/]+\\.ya?ml$",
+    "(^|/)\\.gitlab-ci\\.ya?ml$",
+    "(^|/)\\.gitlab/ci/.+\\.ya?ml$"
+  ],
+  "vectors": [
+    {
+      "operation": "edit",
+      "path": "/repo/.gitlab-ci.yml",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/repo/.github/workflows/release.yml",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/.gitlab/ci/rules.gitlab-ci.yml",
+      "matches": true
+    },
+    {
+      "operation": "delete",
+      "path": "/repo/.gitlab-ci.yml",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/.gitlab-ci.yml",
+      "matches": false
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/lib/ci/config.rb",
+      "matches": false
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "target": "file",
+  "operations": [
+    "write",
+    "edit",
+    "delete"
+  ],
+  "path_patterns": [
+    "(^|/)\\.(zshrc|zshenv|zprofile|zlogin|bashrc|bash_profile|bash_login|profile)$",
+    "(^|/)\\.config/fish/config\\.fish$"
+  ],
+  "vectors": [
+    {
+      "operation": "write",
+      "path": "/Users/dev/.zshrc",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/home/dev/.bashrc",
+      "matches": true
+    },
+    {
+      "operation": "delete",
+      "path": "/Users/dev/.profile",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/home/dev/.config/fish/config.fish",
+      "matches": true
+    },
+    {
+      "operation": "edit",
+      "path": "/Users/dev/dotfiles/.zshrc",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.zshrc",
+      "matches": false
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/app/models/profile.rb",
+      "matches": false
+    },
+    {
+      "operation": "edit",
+      "path": "/repo/.bashrc.example",
+      "matches": false
+    },
+    {
+      "operation": "edit",
+      "path": "/Users/dev/.zsh_history",
+      "matches": false
+    }
+  ]
+}

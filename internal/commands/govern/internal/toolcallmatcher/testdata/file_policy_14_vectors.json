@@ -1,0 +1,44 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.gnupg(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/Library/Keychains(/|$)",
+    "^/Library/Keychains(/|$)",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.local/share/keyrings(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.gnupg/private-keys-v1.d/ABCD.key",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/Library/Keychains/login.keychain-db",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Library/Keychains/System.keychain",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.local/share/keyrings/login.keyring",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/keys/public.gpg",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/docs/keychain.md",
+      "matches": false
+    }
+  ]
+}

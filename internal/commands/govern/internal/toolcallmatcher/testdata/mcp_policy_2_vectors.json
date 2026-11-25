@@ -1,0 +1,44 @@
+{
+  "target": "mcp",
+  "server_patterns": [
+    "^(mcp-runcmd-server|mcp-runcommand-server|mcp-runcommand-server2)$"
+  ],
+  "vectors": [
+    {
+      "server": "mcp-runcmd-server",
+      "tool": "run",
+      "input": "{}",
+      "matches": true
+    },
+    {
+      "server": "mcp-runcommand-server",
+      "tool": "execute",
+      "input": "{\"command\":\"id\"}",
+      "matches": true
+    },
+    {
+      "server": "mcp-runcommand-server2",
+      "tool": "run",
+      "input": "{}",
+      "matches": true
+    },
+    {
+      "server": "mcp-runcommand-server-docs",
+      "tool": "search",
+      "input": "{}",
+      "matches": false
+    },
+    {
+      "server": "github",
+      "tool": "create_issue",
+      "input": "{}",
+      "matches": false
+    },
+    {
+      "server": "shell",
+      "tool": "run",
+      "input": "{\"command\":\"id\"}",
+      "matches": false
+    }
+  ]
+}

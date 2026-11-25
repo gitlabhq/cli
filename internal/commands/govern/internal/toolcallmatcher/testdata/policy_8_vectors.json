@@ -1,0 +1,31 @@
+{
+  "blocked_patterns": [
+    "(^|[;&|]\\s*)(npm|yarn|pnpm)\\s+publish(\\s|$)",
+    "(^|[;&|]\\s*)cargo\\s+publish(\\s|$)",
+    "(^|[;&|]\\s*)gem\\s+push(\\s|$)",
+    "(^|[;&|]\\s*)twine\\s+upload(\\s|$)",
+    "(^|[;&|]\\s*)docker\\s+push(\\s|$)",
+    "(^|[;&|]\\s*)docker\\s+buildx\\s+build\\s.*--push(\\s|$)",
+    "(^|[;&|]\\s*)helm\\s+push(\\s|$)"
+  ],
+  "vectors": [
+    { "command": "npm publish", "matches": true },
+    { "command": "npm publish --dry-run", "matches": true },
+    { "command": "cd packages/ui && pnpm publish", "matches": true },
+    { "command": "npm test; yarn publish", "matches": true },
+    { "command": "cargo publish", "matches": true },
+    { "command": "gem push pkg-1.0.0.gem", "matches": true },
+    { "command": "twine upload dist/*", "matches": true },
+    { "command": "docker push registry.example.com/app:1", "matches": true },
+    { "command": "docker buildx build . --push", "matches": true },
+    { "command": "helm push chart.tgz oci://registry.example.com/charts", "matches": true },
+    { "command": "npm install", "matches": false },
+    { "command": "npm run publish-docs", "matches": false },
+    { "command": "echo npm publishing", "matches": false },
+    { "command": "docker pull registry.example.com/app:1", "matches": false },
+    { "command": "git push origin main", "matches": false },
+    { "command": "NPM PUBLISH", "matches": false },
+    { "command": "bash -c \"npm publish\"", "matches": true },
+    { "command": "env NODE_ENV=production npm publish", "matches": true }
+  ]
+}

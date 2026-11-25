@@ -1,0 +1,53 @@
+{
+  "target": "file",
+  "operations": [
+    "any"
+  ],
+  "path_patterns": [
+    "(^|/)\\.(bash|zsh|psql|mysql)_history$",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.local/share/fish/fish_history$",
+    "^(/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:/Users/[^/]+)/\\.zsh_sessions(/|$)"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/Users/dev/.zsh_history",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.bash_history",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/home/dev/.local/share/fish/fish_history",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.psql_history",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/.zsh_sessions/A1B2.history",
+      "matches": true
+    },
+    {
+      "operation": "delete",
+      "path": "/Users/dev/.zsh_history",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/docs/history.md",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/HISTORY.md",
+      "matches": false
+    }
+  ]
+}

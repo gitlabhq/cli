@@ -1,0 +1,61 @@
+{
+  "target": "file",
+  "operations": [
+    "read"
+  ],
+  "path_patterns": [
+    "\\.(key|pem|p12|pfx|crt)$"
+  ],
+  "vectors": [
+    {
+      "operation": "read",
+      "path": "/repo/certs/server.key",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/tls.pem",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/cert.p12",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/Users/dev/signing.pfx",
+      "matches": true
+    },
+    {
+      "operation": "read",
+      "path": "/repo/certs/ca.crt",
+      "matches": true
+    },
+    {
+      "operation": "write",
+      "path": "/repo/certs/server.key",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/app/keys/api_key.rb",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/translations/en.keys",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/docs/pem-format.md",
+      "matches": false
+    },
+    {
+      "operation": "read",
+      "path": "/repo/certs/server.key.example",
+      "matches": false
+    }
+  ]
+}
