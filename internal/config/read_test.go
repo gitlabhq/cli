@@ -42,17 +42,16 @@ func Test_parseConfig_MergesLocalFromExplicitPath(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	seedFile(t, dir, "config.yml", "git_protocol: ssh\neditor: vim\n")
-	seedFile(t, dir, "local.yml", "editor: nano\n")
+	seedFile(t, dir, "config.yml", "git_protocol: ssh\nbranch_prefix: global\n")
+	seedFile(t, dir, "local.yml", "branch_prefix: local\n")
 
 	cfg, err := parseConfig(filepath.Join(dir, "config.yml"), filepath.Join(dir, "local.yml"))
 	require.NoError(t, err)
 
-	// local overrides global for non-host keys (searchENVVars=false keeps this
-	// deterministic and parallel-safe regardless of the ambient $EDITOR).
-	editor, _, err := cfg.GetWithSource("", "editor", false)
+	// local overrides global for non-host keys
+	prefix, _, err := cfg.GetWithSource("", "branch_prefix", false)
 	require.NoError(t, err)
-	assert.Equal(t, "nano", editor)
+	assert.Equal(t, "local", prefix)
 
 	// keys absent from local fall back to global
 	proto, _, err := cfg.GetWithSource("", "git_protocol", false)

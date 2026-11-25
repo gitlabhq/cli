@@ -133,9 +133,10 @@ local:
 	gitProtocol, err := config.Get("", "git_protocol")
 	eq(t, err, nil)
 	eq(t, gitProtocol, "https")
+	// A program to run is never taken from the local section.
 	editor, err := config.Get("", "editor")
 	eq(t, err, nil)
-	eq(t, editor, "nano")
+	eq(t, editor, "vim")
 }
 
 func Test_Get_configReadSequence(t *testing.T) {

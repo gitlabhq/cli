@@ -14,10 +14,9 @@ Prints the value of a given configuration key.
 
 ## Synopsis
 
-By default, the lookup order is: environment variables, then the local
-repository configuration, then the global configuration. Use `--global` to
-read only from the global configuration file, or `--host` to read a
-per-host setting.
+By default, the lookup order is: environment variables, then the local repository configuration, then the global configuration. Use `--global` to read only from the global configuration file, or `--host` to read a per-host setting.
+
+Keys that glab manages for itself, and keys that name a program glab runs (`editor`, `browser`, `glab_pager`), skip the local repository configuration.
 
 If the key is not set, nothing is printed.
 
@@ -38,7 +37,7 @@ notty
 ## Options
 
 ```plaintext
-  -g, --global        Read from global config file (~/.config/glab-cli/config.yml). (default checks 'Environment variables → Local → Global')
+  -g, --global        Read from global config file (~/.config/glab-cli/config.yml).
       --host string   Get per-host setting.
 ```
 

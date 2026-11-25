@@ -60,15 +60,19 @@ type KeyDef struct {
 	// ordinary ScopeGlobal keys such as git_protocol are meant to be set per
 	// repository.
 	GlobalOnly bool
+	// RunsProgram marks a key whose value glab executes. A repository's local
+	// file can arrive with an untrusted checkout or archive, so reads skip it
+	// for these and `config set` routes them to the global file.
+	RunsProgram bool
 }
 
-// globalOnlyKeys is the set of names and aliases whose values glab maintains
-// for itself. Built once from KeySchema so it cannot drift from the schema.
-var globalOnlyKeys = func() map[string]struct{} {
+// keyNames collects the names and aliases of every KeyDef matching keep.
+// Built from KeySchema so the sets cannot drift from the schema.
+func keyNames(keep func(KeyDef) bool) map[string]struct{} {
 	keys := map[string]struct{}{}
 
 	for _, def := range KeySchema {
-		if !def.GlobalOnly {
+		if !keep(def) {
 			continue
 		}
 
@@ -79,12 +83,24 @@ var globalOnlyKeys = func() map[string]struct{} {
 	}
 
 	return keys
-}()
+}
+
+var (
+	globalOnlyKeys  = keyNames(func(def KeyDef) bool { return def.GlobalOnly })
+	runsProgramKeys = keyNames(func(def KeyDef) bool { return def.RunsProgram })
+)
 
 // IsGlobalOnlyKey reports whether key names state glab maintains for itself,
 // which lives only in the global config file.
 func IsGlobalOnlyKey(key string) bool {
 	_, ok := globalOnlyKeys[ConfigKeyEquivalence(key)]
+	return ok
+}
+
+// IsRunsProgramKey reports whether key names a program glab executes, which
+// a repository's local file must not be able to choose.
+func IsRunsProgramKey(key string) bool {
+	_, ok := runsProgramKeys[ConfigKeyEquivalence(key)]
 	return ok
 }
 
@@ -117,18 +133,21 @@ var KeySchema = []KeyDef{
 		UserSettable: true,
 		Aliases:      []string{"visual", "glab_editor"},
 		EnvVars:      []string{"GLAB_EDITOR", "VISUAL", "EDITOR"},
-		Description:  "What editor glab should run when creating issues, merge requests, etc. This global config cannot be overridden by hostname.",
+		Description:  "What editor glab should run when creating issues, merge requests, etc. This global config cannot be overridden by hostname. A repository's local configuration cannot set it.",
+		RunsProgram:  true,
 	},
 	{
 		Name: "browser", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
 		EnvVars:      []string{"GLAB_BROWSER", "BROWSER"},
-		Description:  "What browser glab should run when opening links. This global config cannot be overridden by hostname.",
+		Description:  "What browser glab should run when opening links. This global config cannot be overridden by hostname. A repository's local configuration cannot set it.",
+		RunsProgram:  true,
 	},
 	{
 		Name: "glab_pager", Scope: ScopeGlobal, Type: TypeString,
 		UserSettable: true,
-		Description:  "Your desired pager command to use, such as 'less -R'. Takes precedence over the PAGER environment variable. GLAB_PAGER takes precedence over both.",
+		Description:  "Your desired pager command to use, such as 'less -R'. Takes precedence over the PAGER environment variable. GLAB_PAGER takes precedence over both. A repository's local configuration cannot set it.",
+		RunsProgram:  true,
 	},
 	{
 		Name: "debug", Scope: ScopeGlobal, Type: TypeBool,

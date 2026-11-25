@@ -26,9 +26,9 @@ Configure `glab` at different levels: system-wide, globally (per-user), locally 
 - **Globally** (per-user): run `glab config set --global editor vim`.
   - The global configuration file is available at `~/.config/glab-cli/config.yml` (or `$XDG_CONFIG_HOME/glab-cli/config.yml`).
   - To override this location, set the `GLAB_CONFIG_DIR` environment variable.
-- **The current repository**: run `glab config set editor vim` in any folder in a Git repository.
+- **The current repository**: run `glab config set git_protocol ssh` in any folder in a Git repository.
   - The local configuration file is available at `.git/glab-cli/config.yml` in the current working Git directory.
-- **Per host**: run `glab config set editor vim --host gitlab.example.org`, changing
+- **Per host**: run `glab config set git_protocol ssh --host gitlab.example.org`, changing
   the `--host` parameter to meet your needs.
   - Per-host configuration information is always stored in the global configuration file, with or without the `global` flag.
 
@@ -127,7 +127,7 @@ For more information, see
 | `GITLAB_RELEASE_ASSETS_USE_PACKAGE_REGISTRY` | - | - | Set to true or 1 to upload release assets to the generic package registry of the project. The `--use-package-registry` flag takes precedence. |
 | `GLAB_BRANCH_PREFIX` | `branch_prefix` | - | Prefix used by `glab stack` when naming generated branches. Defaults to the current user's username (from `os/user.Current`), falling back to `glab-stack` if unavailable. |
 | `BRANCH_PREFIX` | `branch_prefix` | - | Alternative name for `GLAB_BRANCH_PREFIX`, checked after it. |
-| `GLAB_BROWSER` | `browser` | - | What browser glab should run when opening links. This global config cannot be overridden by hostname. |
+| `GLAB_BROWSER` | `browser` | - | What browser glab should run when opening links. This global config cannot be overridden by hostname. A repository's local configuration cannot set it. |
 | `BROWSER` | `browser` | - | Alternative name for `GLAB_BROWSER`, checked after it. |
 | `GLAB_CHECK_UPDATE` | `check_update` | `true` | Allow glab to automatically check for updates and notify you when there are new updates. Setting the environment variable to true also forces a check, bypassing the once-a-day interval. |
 | `CHECK_UPDATE` | `check_update` | `true` | Alternative name for `GLAB_CHECK_UPDATE`, checked after it. |
@@ -141,7 +141,7 @@ For more information, see
 | `DUO_CLI_AUTO_DOWNLOAD` | `duo_cli_auto_download` | - | Alternative name for `GLAB_DUO_CLI_AUTO_DOWNLOAD`, checked after it. |
 | `GLAB_DUO_CLI_AUTO_RUN` | `duo_cli_auto_run` | - | Automatically run GitLab Duo CLI without prompting (true/false). Set to true to skip the confirmation prompt. |
 | `DUO_CLI_AUTO_RUN` | `duo_cli_auto_run` | - | Alternative name for `GLAB_DUO_CLI_AUTO_RUN`, checked after it. |
-| `GLAB_EDITOR` | `editor` | - | What editor glab should run when creating issues, merge requests, etc. This global config cannot be overridden by hostname. |
+| `GLAB_EDITOR` | `editor` | - | What editor glab should run when creating issues, merge requests, etc. This global config cannot be overridden by hostname. A repository's local configuration cannot set it. |
 | `VISUAL` | `editor` | - | Alternative name for `GLAB_EDITOR`, checked after it. |
 | `EDITOR` | `editor` | - | Alternative name for `GLAB_EDITOR`, checked after it. |
 | `GLAB_FORCE_HYPERLINKS` | `display_hyperlinks` | - | Set to true to force terminal hyperlinks when not writing to a TTY. |
@@ -161,7 +161,7 @@ For more information, see
 | `ORBIT_CLI_AUTO_DOWNLOAD` | `orbit_cli_auto_download` | - | Alternative name for `GLAB_ORBIT_CLI_AUTO_DOWNLOAD`, checked after it. |
 | `GLAB_ORBIT_CLI_AUTO_RUN` | `orbit_cli_auto_run` | - | Automatically run the GitLab Orbit CLI without prompting (true/false). Set to true to skip the confirmation prompt. |
 | `ORBIT_CLI_AUTO_RUN` | `orbit_cli_auto_run` | - | Alternative name for `GLAB_ORBIT_CLI_AUTO_RUN`, checked after it. |
-| `GLAB_PAGER` | `glab_pager` | - | Your desired pager command to use, such as `less -R`. Takes precedence over the PAGER environment variable. GLAB_PAGER takes precedence over both. |
+| `GLAB_PAGER` | `glab_pager` | - | Your desired pager command to use, such as `less -R`. Takes precedence over the PAGER environment variable. GLAB_PAGER takes precedence over both. A repository's local configuration cannot set it. |
 | `GLAB_SEND_TELEMETRY` | `telemetry` | `true` | Set to false (0) to disable sending usage data to your GitLab instance or true (1) to enable. See <https://docs.gitlab.com/administration/settings/usage_statistics/> for more information. |
 | `GLAB_SHOW_WHATS_NEW` | `show_whats_new` | `true` | Show a one-time post-upgrade banner pointing at `glab whatsnew` when a new version is detected. Not shown when standard error is not a terminal, or when `CI` or `GITLAB_CI` is true. Set `GLAB_SHOW_WHATS_NEW=false` to turn it off. |
 | `NO_COLOR` | - | - | Set to any value to avoid printing ANSI escape sequences for color output. |

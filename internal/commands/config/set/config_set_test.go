@@ -219,6 +219,28 @@ func TestConfigSet_GlobalOnlyKeyWritesGloballyWithoutTheFlag(t *testing.T) {
 	assert.Equal(t, "true", cfg["_written"])
 }
 
+// configStub.Local returns nil, so the value only reaches cfg if the write was
+// routed to the global config.
+func TestConfigSet_RunsProgramKeyWritesGloballyWithoutTheFlag(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{"editor", "visual", "glab_editor", "browser", "glab_pager"} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := configStub{}
+			exec := cmdtest.SetupCmdForTest(t, NewCmdSet, true, cmdtest.WithConfig(cfg))
+
+			out, err := exec(key + " vim")
+			require.NoError(t, err)
+
+			assert.Contains(t, out.Stderr(), "names a program glab runs")
+			assert.Equal(t, "vim", cfg[key])
+			assert.Equal(t, "true", cfg["_written"])
+		})
+	}
+}
+
 func TestConfigSet_ClientIDValidation(t *testing.T) {
 	t.Parallel()
 
