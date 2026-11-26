@@ -7,6 +7,9 @@ import (
 	"errors"
 	"log"
 	"os"
+	"os/exec"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -27,6 +30,89 @@ func TestGlab(t *testing.T) {
 	keyring.MockInit()
 	t.Cleanup(keyring.MockInit)
 	main()
+}
+
+func TestGlabExitCodes(t *testing.T) {
+	const childEnv = "GLAB_TEST_EXIT_CODES_CHILD"
+	if os.Getenv(childEnv) == "1" {
+		// The child runs the real entry point so os.Exit can end the process.
+		os.Args = append(os.Args[:1], os.Args[3:]...)
+		main()
+		os.Exit(0)
+	}
+
+	testBinary, err := os.Executable()
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		name       string
+		args       []string
+		exitCode   int
+		wantStdout string
+		wantStderr string
+		silent     bool
+	}{
+		{
+			name:       "success",
+			args:       []string{"version"},
+			wantStdout: "glab ",
+		},
+		{
+			name:     "silent error",
+			args:     []string{"auth", "git-credential", "store"},
+			exitCode: 1,
+			silent:   true,
+		},
+		{
+			name:       "ordinary error",
+			args:       []string{"alias", "delete", "unknown-test-alias"},
+			exitCode:   1,
+			wantStderr: "no such alias",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			args := append([]string{"-test.run=^TestGlabExitCodes$", "--"}, tt.args...)
+			cmd := exec.CommandContext(t.Context(), testBinary, args...)
+			cmd.Env = slices.DeleteFunc(cmd.Environ(), func(entry string) bool {
+				key, _, _ := strings.Cut(entry, "=")
+				switch strings.ToUpper(key) {
+				case "DEBUG", "NO_PROMPT", "FORCE_HYPERLINKS", "GLAB_DEBUG":
+					return true
+				default:
+					return false
+				}
+			})
+			cmd.Env = append(cmd.Env,
+				childEnv+"=1",
+				"GLAB_CONFIG_DIR="+t.TempDir(),
+				"GLAB_CHECK_UPDATE=false",
+				"GLAB_SEND_TELEMETRY=false",
+				"NO_COLOR=1",
+			)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			err := cmd.Run()
+
+			if tt.exitCode == 0 {
+				require.NoError(t, err, stderr.String())
+			} else {
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				assert.Equal(t, tt.exitCode, exitErr.ExitCode(), stderr.String())
+			}
+			if tt.silent {
+				assert.Empty(t, stdout.String())
+				assert.Empty(t, stderr.String())
+			}
+			if tt.wantStdout != "" {
+				assert.Contains(t, stdout.String(), tt.wantStdout)
+			}
+			if tt.wantStderr != "" {
+				assert.Contains(t, stderr.String(), tt.wantStderr)
+			}
+		})
+	}
 }
 
 func TestMain(m *testing.M) {
