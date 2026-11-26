@@ -73,7 +73,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmdutils.EnableRepoOverride(cmd, f)
 
 	fl := cmd.Flags()
-	fl.StringVarP(&opts.group, "group", "g", "", "Get a deploy token of the group <group> instead of a project.")
+	fl.StringVarP(&opts.group, "group", "g", "", "Get a deploy token of a `group` instead of a project. Accepts a group ID or full path.")
 
 	cmdutils.EnableJSONOutput(cmd, opts.io, &opts.outputFormat)
 	cmd.MarkFlagsMutuallyExclusive("repo", "group")

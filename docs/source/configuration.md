@@ -87,7 +87,7 @@ For more information, see
 |----------|-------------------|---------|-------------|
 | `GITLAB_API_HOST` | `api_host` | `gitlab.com` | Configure host for API endpoint. Defaults to the host itself. |
 | `GITLAB_CLIENT_ID` | `client_id` | - | OAuth application client ID. Required when authenticating with OAuth against a self-managed GitLab instance. |
-| `GITLAB_GROUP` | - | - | Default group for commands that list merge requests, issues, and variables. Used only when `--group` is not given. |
+| `GITLAB_GROUP` | - | - | Default group for supported commands, including `glab mr list`, `glab issue list`, `glab variable list`, `glab deploy-token get`, and `glab deploy-token list`. An explicit `--group` or `--repo` takes precedence. |
 | `GITLAB_HEAD_REPO` | - | - | Source repository for `glab mr create`. Used only when `--head` is not given. |
 | `GITLAB_HOST` | `host` | `gitlab.com` | Default GitLab hostname to use. Inside a repository, a Git remote on another host takes precedence over the config key. A host from an environment variable, such as `GITLAB_HOST`, always wins, and glab errors if no remote matches it. |
 | `GITLAB_URI` | `host` | `gitlab.com` | Alternative name for `GITLAB_HOST`, checked after it. |
