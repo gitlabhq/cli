@@ -632,6 +632,362 @@ func TestIsExcludedSubgroup(t *testing.T) {
 	}
 }
 
+func TestCloneRepositoryHostResolution(t *testing.T) {
+	const (
+		defaultConfig = `---
+hosts:
+  gitlab.com:
+    git_protocol: https
+`
+		hostlessConfig = `---
+git_protocol: https
+`
+		multiHostConfig = `---
+hosts:
+  gitlab.com:
+    git_protocol: https
+  gitlab.example.org:
+    git_protocol: ssh
+  gitlab.other.example:
+    git_protocol: https
+`
+		otherHostConfig = `---
+hosts:
+  gitlab.other.example:
+    git_protocol: https
+`
+		singleLabelHostConfig = `---
+hosts:
+  gitlab.com:
+    git_protocol: https
+  localhost:
+    git_protocol: ssh
+`
+		mixedCaseHostConfig = `---
+hosts:
+  gitlab.com:
+    git_protocol: https
+  GitLab.Example.ORG:
+    git_protocol: ssh
+`
+	)
+
+	testCases := []struct {
+		name            string
+		repoArg         string
+		defaultHost     string
+		config          string
+		wantAPIHost     string
+		wantProjectPath string
+		project         *gitlab.Project
+		wantClone       string
+	}{
+		{
+			name:            "configured custom host selects its API client and protocol",
+			repoArg:         "gitlab.example.org/group/project",
+			defaultHost:     "gitlab.com",
+			config:          multiHostConfig,
+			wantAPIHost:     "gitlab.example.org",
+			wantProjectPath: "group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@gitlab.example.org:group/project.git",
+				HTTPURLToRepo:     "https://gitlab.example.org/group/project.git",
+			},
+			wantClone: "git clone -- git@gitlab.example.org:group/project.git",
+		},
+		{
+			name:            "configured custom host supports nested namespaces",
+			repoArg:         "gitlab.example.org/group/subgroup/project",
+			defaultHost:     "gitlab.com",
+			config:          multiHostConfig,
+			wantAPIHost:     "gitlab.example.org",
+			wantProjectPath: "group/subgroup/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/subgroup/project",
+				SSHURLToRepo:      "git@gitlab.example.org:group/subgroup/project.git",
+				HTTPURLToRepo:     "https://gitlab.example.org/group/subgroup/project.git",
+			},
+			wantClone: "git clone -- git@gitlab.example.org:group/subgroup/project.git",
+		},
+		{
+			name:            "configured host can also be the first namespace",
+			repoArg:         "gitlab.example.org/gitlab.example.org/myrepo",
+			defaultHost:     "gitlab.example.org",
+			config:          multiHostConfig,
+			wantAPIHost:     "gitlab.example.org",
+			wantProjectPath: "gitlab.example.org/myrepo",
+			project: &gitlab.Project{
+				Path:              "myrepo",
+				PathWithNamespace: "gitlab.example.org/myrepo",
+				SSHURLToRepo:      "git@gitlab.example.org:gitlab.example.org/myrepo.git",
+				HTTPURLToRepo:     "https://gitlab.example.org/gitlab.example.org/myrepo.git",
+			},
+			wantClone: "git clone -- git@gitlab.example.org:gitlab.example.org/myrepo.git",
+		},
+		{
+			name:            "unconfigured dotted prefix remains in the default host namespace",
+			repoArg:         "department.example/group/project",
+			defaultHost:     "gitlab.com",
+			config:          defaultConfig,
+			wantAPIHost:     "gitlab.com",
+			wantProjectPath: "department.example/group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "department.example/group/project",
+				SSHURLToRepo:      "git@gitlab.com:department.example/group/project.git",
+				HTTPURLToRepo:     "https://gitlab.com/department.example/group/project.git",
+			},
+			wantClone: "git clone -- https://gitlab.com/department.example/group/project.git",
+		},
+		{
+			name:            "case-mismatched host key remains in the default host namespace",
+			repoArg:         "gitlab.example.org/group/project",
+			defaultHost:     "gitlab.com",
+			config:          mixedCaseHostConfig,
+			wantAPIHost:     "gitlab.com",
+			wantProjectPath: "gitlab.example.org/group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "gitlab.example.org/group/project",
+				SSHURLToRepo:      "git@gitlab.com:gitlab.example.org/group/project.git",
+				HTTPURLToRepo:     "https://gitlab.com/gitlab.example.org/group/project.git",
+			},
+			wantClone: "git clone -- https://gitlab.com/gitlab.example.org/group/project.git",
+		},
+		{
+			name:            "exact mixed-case host key retains its config lookup",
+			repoArg:         "GitLab.Example.ORG/group/project",
+			defaultHost:     "gitlab.com",
+			config:          mixedCaseHostConfig,
+			wantAPIHost:     "GitLab.Example.ORG",
+			wantProjectPath: "group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@gitlab.example.org:group/project.git",
+				HTTPURLToRepo:     "https://gitlab.example.org/group/project.git",
+			},
+			wantClone: "git clone -- git@gitlab.example.org:group/project.git",
+		},
+		{
+			name:            "ordinary repository retains a mixed-case default host",
+			repoArg:         "group/project",
+			defaultHost:     "GitLab.Example.ORG",
+			config:          mixedCaseHostConfig,
+			wantAPIHost:     "GitLab.Example.ORG",
+			wantProjectPath: "group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@gitlab.example.org:group/project.git",
+				HTTPURLToRepo:     "https://gitlab.example.org/group/project.git",
+			},
+			wantClone: "git clone -- git@gitlab.example.org:group/project.git",
+		},
+		{
+			name:            "ordinary owner and repository remain unchanged",
+			repoArg:         "group/project",
+			defaultHost:     "gitlab.com",
+			config:          defaultConfig,
+			wantAPIHost:     "gitlab.com",
+			wantProjectPath: "group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@gitlab.com:group/project.git",
+				HTTPURLToRepo:     "https://gitlab.com/group/project.git",
+			},
+			wantClone: "git clone -- https://gitlab.com/group/project.git",
+		},
+		{
+			name:            "ordinary repository works without a hosts map",
+			repoArg:         "group/project",
+			defaultHost:     "gitlab.com",
+			config:          hostlessConfig,
+			wantAPIHost:     "gitlab.com",
+			wantProjectPath: "group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@gitlab.com:group/project.git",
+				HTTPURLToRepo:     "https://gitlab.com/group/project.git",
+			},
+			wantClone: "git clone -- https://gitlab.com/group/project.git",
+		},
+		{
+			name:            "project ID remains unchanged",
+			repoArg:         "4356677",
+			defaultHost:     "gitlab.com",
+			config:          defaultConfig,
+			wantAPIHost:     "gitlab.com",
+			wantProjectPath: "4356677",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@gitlab.com:group/project.git",
+				HTTPURLToRepo:     "https://gitlab.com/group/project.git",
+			},
+			wantClone: "git clone -- https://gitlab.com/group/project.git",
+		},
+		{
+			name:            "short repository name remains relative to the current user",
+			repoArg:         "project",
+			defaultHost:     "gitlab.com",
+			config:          defaultConfig,
+			wantAPIHost:     "gitlab.com",
+			wantProjectPath: "OWNER/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "OWNER/project",
+				SSHURLToRepo:      "git@gitlab.com:OWNER/project.git",
+				HTTPURLToRepo:     "https://gitlab.com/OWNER/project.git",
+			},
+			wantClone: "git clone -- https://gitlab.com/OWNER/project.git",
+		},
+		{
+			name:        "full URL remains unchanged",
+			repoArg:     "https://gitlab.example.org/group/project",
+			defaultHost: "gitlab.com",
+			config:      multiHostConfig,
+			wantClone:   "git clone -- https://gitlab.example.org/group/project.git",
+		},
+		{
+			name:            "default hostname prefix is recognized",
+			repoArg:         "gitlab.other.example/group/project",
+			defaultHost:     "gitlab.other.example",
+			config:          defaultConfig,
+			wantAPIHost:     "gitlab.other.example",
+			wantProjectPath: "group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@gitlab.other.example:group/project.git",
+				HTTPURLToRepo:     "https://gitlab.other.example/group/project.git",
+			},
+			wantClone: "git clone -- git@gitlab.other.example:group/project.git",
+		},
+		{
+			name:            "configured host prefix overrides a conflicting default hostname",
+			repoArg:         "gitlab.example.org/group/project",
+			defaultHost:     "gitlab.other.example",
+			config:          multiHostConfig,
+			wantAPIHost:     "gitlab.example.org",
+			wantProjectPath: "group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@gitlab.example.org:group/project.git",
+				HTTPURLToRepo:     "https://gitlab.example.org/group/project.git",
+			},
+			wantClone: "git clone -- git@gitlab.example.org:group/project.git",
+		},
+		{
+			name:            "configured gitlab.com prefix overrides a conflicting default hostname",
+			repoArg:         "gitlab.com/group/project",
+			defaultHost:     "gitlab.other.example",
+			config:          multiHostConfig,
+			wantAPIHost:     "gitlab.com",
+			wantProjectPath: "group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@gitlab.com:group/project.git",
+				HTTPURLToRepo:     "https://gitlab.com/group/project.git",
+			},
+			wantClone: "git clone -- https://gitlab.com/group/project.git",
+		},
+		{
+			name:            "unconfigured gitlab.com prefix remains in the self-managed namespace",
+			repoArg:         "gitlab.com/group/project",
+			defaultHost:     "gitlab.other.example",
+			config:          otherHostConfig,
+			wantAPIHost:     "gitlab.other.example",
+			wantProjectPath: "gitlab.com/group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "gitlab.com/group/project",
+				SSHURLToRepo:      "git@gitlab.other.example:gitlab.com/group/project.git",
+				HTTPURLToRepo:     "https://gitlab.other.example/gitlab.com/group/project.git",
+			},
+			wantClone: "git clone -- https://gitlab.other.example/gitlab.com/group/project.git",
+		},
+		{
+			name:            "configured single-label host is recognized",
+			repoArg:         "localhost/group/project",
+			defaultHost:     "gitlab.com",
+			config:          singleLabelHostConfig,
+			wantAPIHost:     "localhost",
+			wantProjectPath: "group/project",
+			project: &gitlab.Project{
+				Path:              "project",
+				PathWithNamespace: "group/project",
+				SSHURLToRepo:      "git@localhost:group/project.git",
+				HTTPURLToRepo:     "https://localhost/group/project.git",
+			},
+			wantClone: "git clone -- git@localhost:group/project.git",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testClient := gitlabtesting.NewTestClient(t)
+			testClient.MockUsers.EXPECT().CurrentUser().Return(&gitlab.User{Username: "OWNER"}, nil, nil).AnyTimes()
+			if tc.wantProjectPath != "" {
+				testClient.MockProjects.EXPECT().GetProject(tc.wantProjectPath, gomock.Any()).Return(tc.project, nil, nil)
+			}
+
+			apiClient := cmdtest.NewTestApiClient(t, nil, "", tc.defaultHost, api.WithGitLabClient(testClient.Client))
+			var apiClientHost string
+
+			cs, restore := test.InitCmdStubber()
+			defer restore()
+			cs.Stub("")
+
+			exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+				return NewCmdClone(f, nil)
+			}, false,
+				cmdtest.WithApiClientFunc(func(repoHost string) (*api.Client, error) {
+					apiClientHost = repoHost
+					return apiClient, nil
+				}),
+				cmdtest.WithConfig(config.NewFromString(tc.config)),
+				func(f *cmdtest.Factory) {
+					f.DefaultHostnameStub = tc.defaultHost
+				},
+			)
+
+			_, err := exec(tc.repoArg)
+
+			require.NoError(t, err)
+			if tc.wantAPIHost != "" {
+				assert.Equal(t, tc.wantAPIHost, apiClientHost)
+			}
+			require.Len(t, cs.Calls, 1)
+			assert.Equal(t, tc.wantClone, strings.Join(cs.Calls[0].Args, " "))
+		})
+	}
+}
+
+func TestCloneRepositoryRejectsTrailingSlash(t *testing.T) {
+	apiCalled := false
+	exec := cmdtest.SetupCmdForTest(t, func(f cmdutils.Factory) *cobra.Command {
+		return NewCmdClone(f, nil)
+	}, false,
+		cmdtest.WithApiClientFunc(func(string) (*api.Client, error) {
+			apiCalled = true
+			return &api.Client{}, nil
+		}),
+		cmdtest.WithConfig(config.NewFromString("hosts:\n  gitlab.example.org: {}\n")),
+	)
+
+	_, err := exec("gitlab.example.org/group/project/")
+
+	require.EqualError(t, err, `expected the "[HOST/]OWNER/[NAMESPACE/]REPO" format, got "gitlab.example.org/group/project/"`)
+	assert.False(t, apiCalled)
+}
+
 func TestGroupCloneExcludeSubgroup(t *testing.T) {
 	projects := []*gitlab.Project{
 		{Path: "api", PathWithNamespace: "mygroup/api", SSHURLToRepo: "git@gitlab.com:mygroup/api.git"},

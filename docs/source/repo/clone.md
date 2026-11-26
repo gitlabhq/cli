@@ -19,6 +19,10 @@ repository by name, namespace/repo path, full URL, or project ID.
 
 The command uses your configured protocol (SSH or HTTPS).
 
+Prefix a namespace path with a hostname to use the default host or another host in your `glab` configuration. Because dots are valid in GitLab group names, an unconfigured hostname-like prefix is treated as part of the namespace; use a full URL to clone from an unconfigured host.
+
+If a group name matches a configured hostname, the hostname takes precedence. Specify both the host and the same-named group, or use a full URL to clone from that group.
+
 To pass Git clone flags, add them after `--`. For example:
 `glab repo clone <repo> -- --branch <branch-name>`
 
@@ -74,8 +78,11 @@ glab repo clone -g everyonecancontribute --archived=false --paginate
 # Clones only active projects in a group
 glab repo clone -g everyonecancontribute --active=true --paginate
 
-# Clones from a GitLab Self-Managed or GitLab Dedicated instance
-GITLAB_HOST=salsa.debian.org glab repo clone myrepo
+# Clones from a configured GitLab Self-Managed or GitLab Dedicated instance
+glab repo clone salsa.debian.org/mygroup/myproject
+
+# Clones from an unconfigured instance using a full URL
+glab repo clone https://salsa.debian.org/mygroup/myproject
 ```
 
 ## Options
