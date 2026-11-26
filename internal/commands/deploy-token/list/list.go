@@ -51,6 +51,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			The output never contains the token value. A token value is shown only once, when the token is created.
 
 			Tokens are listed with their expiry, and whether they have been revoked or have expired. Pass %[1]s--active%[1]s to list only the tokens that are still usable.
+
+			Tokens revoked in the GitLab UI still appear as revoked. Tokens deleted through the REST API no longer appear.
 		`, "`"),
 		Example: heredoc.Doc(`
 			# List the current project's deploy tokens
@@ -85,7 +87,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 	cmdutils.EnableRepoOverride(cmd, f)
 
 	fl := cmd.Flags()
-	fl.StringVarP(&opts.group, "group", "g", "", "List the deploy tokens of the group <group> instead of a project.")
+	fl.StringVarP(&opts.group, "group", "g", "", "List the deploy tokens of a `group` instead of a project. Accepts a group ID or full path.")
 	fl.BoolVarP(&opts.activeOnly, "active", "a", false, "List only the tokens that are neither revoked nor expired.")
 	fl.BoolVarP(&opts.instance, "instance", "i", false, "List every deploy token on the instance instead of a project or group. Requires administrator access.")
 

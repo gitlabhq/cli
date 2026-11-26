@@ -43,7 +43,7 @@ glab deploy-token get 42 --output json
 ## Options
 
 ```plaintext
-  -g, --group string    Get a deploy token of the group <group> instead of a project.
+  -g, --group group     Get a deploy token of a group instead of a project. Accepts a group ID or full path.
       --jq string       Filter JSON output with a jq expression.
   -F, --output string   Format output as: text, json. (default "text")
   -R, --repo string     Select another repository. You can use either OWNER/REPO or GROUP/NAMESPACE/REPO. The full URL or Git URL is also accepted.

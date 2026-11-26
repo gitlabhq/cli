@@ -22,6 +22,8 @@ The output never contains the token value. A token value is shown only once, whe
 
 Tokens are listed with their expiry, and whether they have been revoked or have expired. Pass `--active` to list only the tokens that are still usable.
 
+Tokens revoked in the GitLab UI still appear as revoked. Tokens deleted through the REST API no longer appear.
+
 ```plaintext
 glab deploy-token list [flags]
 ```
@@ -58,7 +60,7 @@ glab deploy-token list --output json
 
 ```plaintext
   -a, --active          List only the tokens that are neither revoked nor expired.
-  -g, --group string    List the deploy tokens of the group <group> instead of a project.
+  -g, --group group     List the deploy tokens of a group instead of a project. Accepts a group ID or full path.
   -i, --instance        List every deploy token on the instance instead of a project or group. Requires administrator access.
       --jq string       Filter JSON output with a jq expression.
   -F, --output string   Format output as: text, json. (default "text")
