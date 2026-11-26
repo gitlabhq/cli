@@ -11,6 +11,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -28,9 +30,79 @@ import (
 	"github.com/stretchr/testify/require"
 	"software.sslmate.com/src/go-pkcs12"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
+
+// Not parallel: it clears GITLAB_CI.
+func TestServeAppliesUnreachableFallbackWhenGitLabReturns502(t *testing.T) {
+	t.Setenv("GITLAB_CI", "")
+	expiresAt := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	gl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/dependency_firewall/enablement") {
+			_, _ = fmt.Fprintf(w, `{"unreachable_fallback":"warn","expires_at":%q}`, expiresAt)
+			return
+		}
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(gl.Close)
+	client, err := gitlab.NewClient("token", gitlab.WithBaseURL(gl.URL+"/api/v4"), gitlab.WithCustomRetryMax(0))
+	require.NoError(t, err)
+
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "tarball")
+	}))
+	t.Cleanup(upstream.Close)
+	upstreamCA := filepath.Join(t.TempDir(), "upstream-ca.pem")
+	require.NoError(t, os.WriteFile(upstreamCA, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: upstream.Certificate().Raw}), 0o600))
+
+	baseDir, stateDir := t.TempDir(), t.TempDir()
+	// The proxy and Serve log from separate goroutines, and the test buffer isn't safe for that.
+	ios, _, _, _ := cmdtest.TestIOStreams(iostreams.WithStderr(io.Discard, false))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(ctx, ServeConfig{
+			Client:     client,
+			ProjectID:  "group/proj",
+			BaseDir:    baseDir,
+			StateDir:   stateDir,
+			CACertPath: upstreamCA,
+			IO:         ios,
+		})
+	}()
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(filepath.Join(stateDir, AddrFile))
+		return err == nil
+	}, 10*time.Second, 20*time.Millisecond, "the job-level proxy never reported ready")
+
+	addr, err := os.ReadFile(filepath.Join(stateDir, AddrFile))
+	require.NoError(t, err)
+	// The proxy's leaf for an IP authority carries a DNS SAN only, so this
+	// client skips hostname verification on its own hop to the proxy.
+	httpClient := &http.Client{Transport: &http.Transport{
+		Proxy:           http.ProxyURL(&url.URL{Scheme: "http", Host: string(addr)}),
+		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}, //nolint:gosec // client -> inspection proxy hop only
+	}}
+	resp, err := httpClient.Get(upstream.URL + "/left-pad/-/left-pad-1.3.0.tgz")
+	require.NoError(t, err)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	httpClient.CloseIdleConnections()
+
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("Serve did not stop after its context was cancelled")
+	}
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "a warn fallback lets the package through")
+}
 
 func TestServeTrustsTheJVMTrustStoreMavenAndGradleWouldLoad(t *testing.T) {
 	registryCert, registryCA := selfSignedServer(t)

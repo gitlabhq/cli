@@ -377,8 +377,6 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	if err != nil {
 		return err
 	}
-	checker := policy.NewCachingChecker(baseChecker, opts.IO.LogErrorf)
-
 	// Read the manager's own outbound proxy before its environment is pointed
 	// at the inspection proxy below.
 	proxyOpts, err := upstreamProxyOptions(manager, os.Environ(), opts.BaseDir, opts.Args)
@@ -404,6 +402,8 @@ func Run(ctx context.Context, manager PackageManager, opts RunOptions) error {
 	}
 	proxyOpts = append(proxyOpts, certOpts...)
 
+	policySummary := policy.LoadSummary(ctx, baseChecker, opts.ProjectID, opts.BaseDir, opts.IO.LogErrorf)
+	checker := policy.NewCachingChecker(baseChecker, opts.IO.LogErrorf, policy.WithUnreachableFallback(policySummary))
 	p, err := proxy.New(manager.Matcher(), checker, opts.ProjectID, proxyOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to create inspection proxy: %w", err)

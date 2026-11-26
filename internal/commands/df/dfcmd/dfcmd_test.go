@@ -31,11 +31,24 @@ import (
 	"github.com/stretchr/testify/require"
 	"software.sslmate.com/src/go-pkcs12"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/config"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/pm"
 	"gitlab.com/gitlab-org/cli/internal/testing/cmdtest"
 )
+
+// newPolicyClient returns a client whose policy endpoints answer 404, so runs
+// that do not exercise the policy never reach a real GitLab.
+func newPolicyClient(t *testing.T) *gitlab.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	client, err := gitlab.NewClient("test-token", gitlab.WithBaseURL(srv.URL+"/api/v4"))
+	require.NoError(t, err)
+	return client
+}
 
 type fakeExecutor struct {
 	gotName string
@@ -165,6 +178,7 @@ func TestForwardsArgsAndRoutesThroughProxy(t *testing.T) {
 		false,
 		cmdtest.WithExecutor(fe),
 		cmdtest.WithBaseRepo("g", "p", "gitlab.com"),
+		cmdtest.WithGitLabClient(newPolicyClient(t)),
 	)
 
 	_, err := run("install --save-dev left-pad")
@@ -192,6 +206,7 @@ func TestExitErrorPropagates(t *testing.T) {
 		false,
 		cmdtest.WithExecutor(fe),
 		cmdtest.WithBaseRepo("g", "p", "gitlab.com"),
+		cmdtest.WithGitLabClient(newPolicyClient(t)),
 	)
 
 	_, err := run("install --save-dev left-pad")
@@ -222,6 +237,7 @@ func TestChildNeverRanErrorIsNotSilenced(t *testing.T) {
 		false,
 		cmdtest.WithExecutor(fe),
 		cmdtest.WithBaseRepo("g", "p", "gitlab.com"),
+		cmdtest.WithGitLabClient(newPolicyClient(t)),
 	)
 
 	_, err := run("install --save-dev left-pad")
@@ -266,11 +282,12 @@ func (f *fetchingExecutor) ExecWithIO(ctx context.Context, _ string, _ []string,
 	return nil
 }
 
-func TestRegistryTrustsCACertForRepoHost(t *testing.T) {
+// fetchFromTrustedRegistry runs install against a TLS registry trusted through
+// ca_cert, and returns the status npm got fetching path through the proxy.
+func fetchFromTrustedRegistry(t *testing.T, client *gitlab.Client, path string) int {
+	t.Helper()
 	t.Chdir(t.TempDir())
 	t.Setenv("GITLAB_CI", "")
-	t.Setenv("GLAB_DF_FAKE_BLOCK", "npm:left-pad@1.3.0")
-
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "ok")
 	}))
@@ -283,7 +300,7 @@ func TestRegistryTrustsCACertForRepoHost(t *testing.T) {
 		  gitlab.example.com:
 		    ca_cert: %s
 	`, caPath))
-	fe := &fetchingExecutor{url: upstream.URL + "/ping"}
+	fe := &fetchingExecutor{url: upstream.URL + path}
 	run := cmdtest.SetupCmdForTest(
 		t,
 		newTestCmd,
@@ -291,11 +308,20 @@ func TestRegistryTrustsCACertForRepoHost(t *testing.T) {
 		cmdtest.WithExecutor(fe),
 		cmdtest.WithConfig(cfg),
 		cmdtest.WithBaseRepo("g", "p", "gitlab.example.com"),
+		cmdtest.WithGitLabClient(client),
 	)
 
 	_, err := run("install")
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, fe.status, "the inspection proxy must trust the registry via ca_cert")
+	return fe.status
+}
+
+func TestRegistryTrustsCACertForRepoHost(t *testing.T) {
+	t.Setenv("GLAB_DF_FAKE_BLOCK", "npm:left-pad@1.3.0")
+
+	status := fetchFromTrustedRegistry(t, newPolicyClient(t), "/ping")
+
+	assert.Equal(t, http.StatusOK, status, "the inspection proxy must trust the registry via ca_cert")
 }
 
 func TestRunFailsWhenClientCertForRepoHostCannotBeLoaded(t *testing.T) {
@@ -359,6 +385,7 @@ func runInstallWithHostConfig(t *testing.T, hostConfig string) (*fakeExecutor, e
 		cmdtest.WithExecutor(fe),
 		cmdtest.WithConfig(cfg),
 		cmdtest.WithBaseRepo("g", "p", "gitlab.example.com"),
+		cmdtest.WithGitLabClient(newPolicyClient(t)),
 	)
 	_, err := run("install")
 	return fe, err
@@ -436,4 +463,21 @@ func TestBaseRepoErrorWithGitInstalledHasNoGitHint(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "git is required")
+}
+
+func TestRunAppliesUnreachableFallbackWhenGitLabReturns502(t *testing.T) {
+	gl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/dependency_firewall/enablement") {
+			_, _ = fmt.Fprintf(w, `{"unreachable_fallback":"warn","expires_at":%q}`, time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
+			return
+		}
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(gl.Close)
+	client, err := gitlab.NewClient("test-token", gitlab.WithBaseURL(gl.URL+"/api/v4"), gitlab.WithCustomRetryMax(0))
+	require.NoError(t, err)
+
+	status := fetchFromTrustedRegistry(t, client, "/left-pad/-/left-pad-1.3.0.tgz")
+
+	assert.Equal(t, http.StatusOK, status, "a warn fallback lets the package through")
 }
