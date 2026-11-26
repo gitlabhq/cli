@@ -30,7 +30,7 @@ When the package manager finishes, the command prints a summary of the packages 
 
 Evaluation results are cached for the length of a run, so a package that appears many times in a dependency tree is evaluated once.
 
-If GitLab can't evaluate a package, the command blocks it. If the Dependency Firewall isn't evaluating the project, the command allows every package.
+If GitLab can't evaluate a package, the command blocks it, unless GitLab doesn't answer and the project's unreachable fallback is allow or warn and hasn't expired. The command stores the fallback in `.gitlab/df/policy-summary.json` each time it reaches GitLab. In CI/CD, cache that file between jobs with `cache:paths`, so a job that starts during an outage still has it. If the Dependency Firewall isn't evaluating the project, the command allows every package.
 
 The proxy checks only the requests it recognizes as package downloads and uploads. It forwards every other request to the host the package manager asked for, so it is not an egress filter and does not limit which hosts the package manager can reach.
 

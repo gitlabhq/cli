@@ -67,7 +67,6 @@ func Serve(ctx context.Context, cfg ServeConfig) error {
 	if err != nil {
 		return err
 	}
-	checker := policy.NewCachingChecker(base, cfg.IO.LogErrorf)
 
 	// Write each verdict to the CI log the instant it is recorded, before the
 	// blocked response reaches the client, so a `ci-summary` that runs right
@@ -91,6 +90,8 @@ func Serve(ctx context.Context, cfg ServeConfig) error {
 		return err
 	}
 	opts = append(opts, certOpts...)
+	policySummary := policy.LoadSummary(ctx, base, cfg.ProjectID, cfg.BaseDir, cfg.IO.LogErrorf)
+	checker := policy.NewCachingChecker(base, cfg.IO.LogErrorf, policy.WithUnreachableFallback(policySummary))
 	p, err := proxy.New(proxy.DefaultMatchers(), checker, cfg.ProjectID, opts...)
 	if err != nil {
 		return err

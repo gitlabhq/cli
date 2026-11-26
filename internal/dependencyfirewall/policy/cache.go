@@ -16,9 +16,11 @@ import (
 type Logf func(format string, a ...any)
 
 // CachingChecker wraps a Checker with per-request memoization and a
-// fail-closed error policy. It is the only place caching and fail-mode live,
-// so both Checker implementations stay simple. Safe for concurrent use: the
-// proxy calls Check from multiple tunnel goroutines.
+// fail-closed error policy, except that an unreachable GitLab can map to the
+// project's unreachable fallback (allow or warn) when a summary applies. It
+// is the only place caching and fail-mode live, so both Checker
+// implementations stay simple. Safe for concurrent use: the proxy calls Check
+// from multiple tunnel goroutines.
 //
 // Concurrent calls for the same request are coalesced: the first caller runs
 // the inner check while the rest block on the entry's sync.Once, so a popular
@@ -54,6 +56,18 @@ type CachingChecker struct {
 	// per-request retryability (it deletes the entry), so the two paths differ
 	// on purpose.
 	notEvaluating map[string]bool
+
+	// summary applies only when isUnreachable; nil keeps the block.
+	summary *Summary
+}
+
+// CachingOption configures a CachingChecker.
+type CachingOption func(*CachingChecker)
+
+// WithUnreachableFallback applies s when GitLab cannot be reached for a
+// check. A nil s is ignored, so callers can pass LoadSummary's result as is.
+func WithUnreachableFallback(s *Summary) CachingOption {
+	return func(c *CachingChecker) { c.summary = s }
 }
 
 // entry memoizes and coalesces a single request. once runs the inner check
@@ -66,19 +80,25 @@ type entry struct {
 }
 
 // NewCachingChecker wraps inner. log may be nil.
-func NewCachingChecker(inner Checker, log Logf) *CachingChecker {
-	return &CachingChecker{
+func NewCachingChecker(inner Checker, log Logf, opts ...CachingOption) *CachingChecker {
+	c := &CachingChecker{
 		inner:         inner,
 		log:           log,
 		cache:         map[Request]*entry{},
 		notEvaluating: map[string]bool{},
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Check returns the policy result for r, memoized per request for the lifetime
 // of the checker. The error return is always nil: an inner failure is mapped
 // to a fail-closed Blocked result rather than surfaced, so callers get a
-// verdict on every path. It is part of the signature only to satisfy Checker.
+// verdict on every path. An unreachable error instead maps to the project's
+// unreachable fallback (allow or warn) when a summary applies. It is part of
+// the signature only to satisfy Checker.
 func (c *CachingChecker) Check(ctx context.Context, r Request) (Result, error) {
 	c.mu.Lock()
 	// A project already observed to be not evaluating short-circuits to allow:
@@ -143,15 +163,27 @@ func (c *CachingChecker) Check(ctx context.Context, r Request) (Result, error) {
 			}
 			e.res = Result{}
 		case err != nil:
-			// Fail closed: a policy decision we cannot obtain is treated as a
-			// block. Drop the entry so the failure stays retryable within the
-			// run instead of memoizing a transient error.
-			if c.log != nil {
-				c.log("warning: dependency firewall policy check failed for %s: %v\n", r.Key(), err)
-			}
+			// Drop the entry so the failure stays retryable within the run
+			// instead of memoizing a transient error.
 			c.mu.Lock()
 			delete(c.cache, r)
 			c.mu.Unlock()
+			if isUnreachable(shared, err) && c.summary.applies(r.ProjectID) {
+				if c.log != nil {
+					c.log("warning: dependency firewall could not reach GitLab for %s, applying the project's %q unreachable fallback: %v\n",
+						r.Key(), c.summary.UnreachableFallback, err)
+				}
+				e.res = Result{
+					Verdict: c.summary.verdict(),
+					Reason:  fmt.Sprintf("GitLab could not be reached, so the project's %q unreachable fallback applied", c.summary.UnreachableFallback),
+				}
+				return
+			}
+			// Fail closed: a policy decision we cannot obtain is treated as a
+			// block.
+			if c.log != nil {
+				c.log("warning: dependency firewall policy check failed for %s: %v\n", r.Key(), err)
+			}
 			e.res = Result{
 				Verdict:     verdict.Blocked,
 				Reason:      fmt.Sprintf("policy check failed: %v", err),

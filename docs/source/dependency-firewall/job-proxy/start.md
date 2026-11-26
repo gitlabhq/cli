@@ -18,6 +18,8 @@ Start the job-level Dependency Firewall proxy as a background process and print 
 
 If the proxy cannot start, the command prints `false`, so the `eval` fails and a CI/CD job (which runs with `set -e`) stops instead of running without the firewall.
 
+The proxy stores the project's unreachable fallback in `.gitlab/df/policy-summary.json`. Cache that file between jobs with `cache:paths`, so a job that starts while GitLab is unreachable can still apply it.
+
 ```plaintext
 glab dependency-firewall job-proxy start [flags]
 ```

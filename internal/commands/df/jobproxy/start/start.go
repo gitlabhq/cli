@@ -17,13 +17,15 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/cmdutils"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/cilog"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/pm"
+	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/policy"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/session"
 	"gitlab.com/gitlab-org/cli/internal/iostreams"
 	"gitlab.com/gitlab-org/cli/internal/mcpannotations"
 )
 
-// readyTimeout bounds how long start waits for the daemon to listen.
-const readyTimeout = 20 * time.Second
+// readyTimeout bounds how long start waits for the daemon to listen. The daemon
+// fetches the policy summary first, so the wait covers that call's CheckTimeout.
+const readyTimeout = policy.CheckTimeout + 20*time.Second
 
 type options struct {
 	io *iostreams.IOStreams
@@ -38,6 +40,8 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 			Start the job-level Dependency Firewall proxy as a background process and print %[1]sexport%[1]s lines that route the current shell through it. Evaluate the output so the exports apply to the rest of the job.
 
 			If the proxy cannot start, the command prints %[1]sfalse%[1]s, so the %[1]seval%[1]s fails and a CI/CD job (which runs with %[1]sset -e%[1]s) stops instead of running without the firewall.
+
+			The proxy stores the project's unreachable fallback in %[1]s.gitlab/df/policy-summary.json%[1]s. Cache that file between jobs with %[1]scache:paths%[1]s, so a job that starts while GitLab is unreachable can still apply it.
 		`, "`"),
 		Example: heredoc.Doc(`
 			# In before_script: route the rest of the CI/CD job through the proxy
