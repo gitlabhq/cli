@@ -110,22 +110,38 @@ func NewWithHost(owner, repo, hostname string) Interface {
 	return rp
 }
 
+type fullNameHostMatcher func(candidate, defaultHostname string, cfg config.Config) (string, bool, error)
+
 // FromFullName extracts the GitLab repository information from the following
 // formats: "OWNER/REPO", "HOST/OWNER/REPO", "HOST/GROUP/NAMESPACE/REPO", and a full URL.
 func FromFullName(nwo string, defaultHostname string, cfg config.Config) (Interface, error) {
+	repo, _, err := fromFullName(nwo, defaultHostname, cfg, matchFullNameHost)
+	return repo, err
+}
+
+// FromFullNameWithConfiguredHosts parses the same formats as FromFullName, but
+// only treats a path prefix as a host when it matches the default or a configured host.
+// It also returns the matched host without normalization for config lookup.
+func FromFullNameWithConfiguredHosts(nwo string, defaultHostname string, cfg config.Config) (Interface, string, error) {
+	return fromFullName(nwo, defaultHostname, cfg, matchConfiguredHost)
+}
+
+func fromFullName(nwo string, defaultHostname string, cfg config.Config, matchHost fullNameHostMatcher) (Interface, string, error) {
 	nwo = strings.TrimSpace(nwo)
 	// check if it's a valid git URL and parse it
 	if git.IsValidURL(nwo) {
 		u, err := git.ParseURL(nwo)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		return FromURL(u, defaultHostname, cfg)
+		repo, err := FromURL(u, defaultHostname, cfg)
+		return repo, u.Host, err
 	}
 	// check if it is valid URL and parse it
 	if utils.IsValidURL(nwo) {
 		u, _ := url.Parse(nwo)
-		return FromURL(u, defaultHostname, cfg)
+		repo, err := FromURL(u, defaultHostname, cfg)
+		return repo, u.Host, err
 	}
 
 	repo := nwo[strings.LastIndex(nwo, "/")+1:]
@@ -133,44 +149,61 @@ func FromFullName(nwo string, defaultHostname string, cfg config.Config) (Interf
 	parts := strings.SplitN(nwoWithoutRepo, "/", 2)
 
 	if repo == "" {
-		return nil, fmt.Errorf(`expected the "[HOST/]OWNER/[NAMESPACE/]REPO" format, got %q`, nwo)
+		return nil, "", fmt.Errorf(`expected the "[HOST/]OWNER/[NAMESPACE/]REPO" format, got %q`, nwo)
 	}
 	if slices.Contains(parts, "") {
-		return nil, fmt.Errorf(`expected the "[HOST/]OWNER/[NAMESPACE/]REPO" format, got %q`, nwo)
+		return nil, "", fmt.Errorf(`expected the "[HOST/]OWNER/[NAMESPACE/]REPO" format, got %q`, nwo)
 	}
 	switch len(parts) {
 	case 2: // GROUP/NAMESPACE/REPO or HOST/OWNER/REPO or //HOST/GROUP/NAMESPACE/REPO
-		// First, checks if the first part matches the default instance host (i.e. gitlab.com) or the
-		// overridden default host (mostly from the GITLAB_HOST env variable)
-		if parts[0] == glinstance.DefaultHostname || parts[0] == defaultHostname {
-			return NewWithHost(parts[1], repo, normalizeHostname(parts[0])), nil
+		host, ok, err := matchHost(parts[0], defaultHostname, cfg)
+		if err != nil {
+			return nil, "", err
 		}
-		// Dots (.) are allowed in group names by GitLab.
-		// So we check if the first part contains a dot.
-		// However, it could be that the user is specifying a hostname but we can't be sure of that
-		// So we check in the list of authenticated hosts and see if it matches any
-		// if not, we assume it is a group name that contains a dot
-		// A colon cannot appear in a group path, so a host with a port but
-		// no dot (for example localhost:3000) is checked the same way.
-		if strings.ContainsAny(parts[0], ".:") && cfg != nil {
-			var rI Interface
-			hosts, _ := cfg.Hosts()
-			if slices.Contains(hosts, parts[0]) {
-				rI = NewWithHost(parts[1], repo, normalizeHostname(parts[0]))
-			}
-			if rI != nil {
-				return rI, nil
-			}
+		if ok {
+			return NewWithHost(parts[1], repo, host), host, nil
 		}
 		// if the first part is not a valid URL, and does not match an
 		// authenticated hostname then we assume it is in
 		// the format GROUP/NAMESPACE/REPO
-		return NewWithGroup(parts[0], parts[1], repo, "", defaultHostname), nil
+		return NewWithGroup(parts[0], parts[1], repo, "", defaultHostname), defaultHostname, nil
 	case 1: // OWNER/REPO
-		return New(parts[0], repo, defaultHostname), nil
+		return New(parts[0], repo, defaultHostname), defaultHostname, nil
 	default:
-		return nil, fmt.Errorf(`expected the "[HOST/]OWNER/[NAMESPACE/]REPO" format, got %q`, nwo)
+		return nil, "", fmt.Errorf(`expected the "[HOST/]OWNER/[NAMESPACE/]REPO" format, got %q`, nwo)
 	}
+}
+
+func matchFullNameHost(candidate, defaultHostname string, cfg config.Config) (string, bool, error) {
+	if candidate == glinstance.DefaultHostname || candidate == defaultHostname {
+		return candidate, true, nil
+	}
+	if !strings.ContainsAny(candidate, ".:") || cfg == nil {
+		return "", false, nil
+	}
+	hosts, _ := cfg.Hosts()
+	return candidate, slices.Contains(hosts, candidate), nil
+}
+
+func matchConfiguredHost(candidate, defaultHostname string, cfg config.Config) (string, bool, error) {
+	if candidate == defaultHostname {
+		return candidate, true, nil
+	}
+	if cfg == nil {
+		return "", false, nil
+	}
+
+	hosts, err := cfg.Hosts()
+	if err != nil {
+		var notFound *config.NotFoundError
+		if !errors.As(err, &notFound) {
+			return "", false, err
+		}
+	}
+	if slices.Contains(hosts, candidate) {
+		return candidate, true, nil
+	}
+	return "", false, nil
 }
 
 // FromURL extracts the GitLab repository information from a git remote URL

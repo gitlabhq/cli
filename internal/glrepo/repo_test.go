@@ -509,6 +509,136 @@ hosts:
 	}
 }
 
+func TestFromFullNameKeepsGitLabComHostCompatibility(t *testing.T) {
+	t.Parallel()
+
+	repo, err := FromFullName("gitlab.com/group/project", "gitlab.other.example", config.NewBlankConfig())
+
+	require.NoError(t, err)
+	assert.Equal(t, "gitlab.com", repo.RepoHost())
+	assert.Equal(t, "group/project", repo.FullName())
+}
+
+func TestFromFullNameWithConfiguredHosts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		input        string
+		defaultHost  string
+		config       string
+		wantHost     string
+		wantLookup   string
+		wantFullName string
+		wantErr      string
+	}{
+		{
+			name:         "configured host with nested namespace",
+			input:        "gitlab.example.org/group/subgroup/project",
+			defaultHost:  "gitlab.com",
+			config:       "hosts:\n  gitlab.example.org: {}\n",
+			wantHost:     "gitlab.example.org",
+			wantLookup:   "gitlab.example.org",
+			wantFullName: "group/subgroup/project",
+		},
+		{
+			name:         "default host need not be configured",
+			input:        "gitlab.other.example/group/project",
+			defaultHost:  "gitlab.other.example",
+			config:       "hosts: {}\n",
+			wantHost:     "gitlab.other.example",
+			wantLookup:   "gitlab.other.example",
+			wantFullName: "group/project",
+		},
+		{
+			name:         "case-mismatched default host remains a namespace",
+			input:        "GITLAB.OTHER.EXAMPLE/group/project",
+			defaultHost:  "gitlab.other.example",
+			config:       "hosts: {}\n",
+			wantHost:     "gitlab.other.example",
+			wantLookup:   "gitlab.other.example",
+			wantFullName: "GITLAB.OTHER.EXAMPLE/group/project",
+		},
+		{
+			name:         "unconfigured dotted prefix remains a namespace",
+			input:        "department.example/group/project",
+			defaultHost:  "gitlab.com",
+			config:       "hosts:\n  gitlab.com: {}\n",
+			wantHost:     "gitlab.com",
+			wantLookup:   "gitlab.com",
+			wantFullName: "department.example/group/project",
+		},
+		{
+			name:         "unconfigured gitlab.com remains a namespace on another default host",
+			input:        "gitlab.com/group/project",
+			defaultHost:  "gitlab.other.example",
+			config:       "hosts:\n  gitlab.other.example: {}\n",
+			wantHost:     "gitlab.other.example",
+			wantLookup:   "gitlab.other.example",
+			wantFullName: "gitlab.com/group/project",
+		},
+		{
+			name:         "configured single-label host",
+			input:        "localhost/group/project",
+			defaultHost:  "gitlab.com",
+			config:       "hosts:\n  localhost: {}\n",
+			wantHost:     "localhost",
+			wantLookup:   "localhost",
+			wantFullName: "group/project",
+		},
+		{
+			name:         "configured mixed-case host retains its lookup key",
+			input:        "GitLab.Example.ORG/group/project",
+			defaultHost:  "gitlab.com",
+			config:       "hosts:\n  GitLab.Example.ORG: {}\n",
+			wantHost:     "gitlab.example.org",
+			wantLookup:   "GitLab.Example.ORG",
+			wantFullName: "group/project",
+		},
+		{
+			name:         "case-mismatched configured host remains a namespace",
+			input:        "gitlab.example.org/group/project",
+			defaultHost:  "gitlab.com",
+			config:       "hosts:\n  GitLab.Example.ORG: {}\n",
+			wantHost:     "gitlab.com",
+			wantLookup:   "gitlab.com",
+			wantFullName: "gitlab.example.org/group/project",
+		},
+		{
+			name:         "full URL keeps its host",
+			input:        "https://unconfigured.example/group/project",
+			defaultHost:  "gitlab.com",
+			config:       "hosts: {}\n",
+			wantHost:     "unconfigured.example",
+			wantLookup:   "unconfigured.example",
+			wantFullName: "group/project",
+		},
+		{
+			name:        "trailing slash is rejected",
+			input:       "gitlab.example.org/group/project/",
+			defaultHost: "gitlab.com",
+			config:      "hosts:\n  gitlab.example.org: {}\n",
+			wantErr:     `expected the "[HOST/]OWNER/[NAMESPACE/]REPO" format, got "gitlab.example.org/group/project/"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo, lookupHost, err := FromFullNameWithConfiguredHosts(tt.input, tt.defaultHost, config.NewFromString(tt.config))
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHost, repo.RepoHost())
+			assert.Equal(t, tt.wantLookup, lookupHost)
+			assert.Equal(t, tt.wantFullName, repo.FullName())
+		})
+	}
+}
+
 func TestFullNameFromURL(t *testing.T) {
 	tests := []struct {
 		remoteURL string

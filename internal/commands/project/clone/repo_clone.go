@@ -115,13 +115,20 @@ func NewCmdClone(f cmdutils.Factory, runE func(*options, *ContextOpts) error) *c
 			# Clones only active projects in a group
 			glab repo clone -g everyonecancontribute --active=true --paginate
 
-			# Clones from a GitLab Self-Managed or GitLab Dedicated instance
-			GITLAB_HOST=salsa.debian.org glab repo clone myrepo`),
+			# Clones from a configured GitLab Self-Managed or GitLab Dedicated instance
+			glab repo clone salsa.debian.org/mygroup/myproject
+
+			# Clones from an unconfigured instance using a full URL
+			glab repo clone https://salsa.debian.org/mygroup/myproject`),
 		Long: heredoc.Docf(`
 		Clone a GitLab repository to your local machine. Specify the
 		repository by name, namespace/repo path, full URL, or project ID.
 
 		The command uses your configured protocol (SSH or HTTPS).
+
+		Prefix a namespace path with a hostname to use the default host or another host in your %[1]sglab%[1]s configuration. Because dots are valid in GitLab group names, an unconfigured hostname-like prefix is treated as part of the namespace; use a full URL to clone from an unconfigured host.
+
+		If a group name matches a configured hostname, the hostname takes precedence. Specify both the host and the same-named group, or use a full URL to clone from that group.
 
 		To pass Git clone flags, add them after %[1]s--%[1]s. For example:
 		%[1]sglab repo clone <repo> -- --branch <branch-name>%[1]s
@@ -193,6 +200,15 @@ func NewCmdClone(f cmdutils.Factory, runE func(*options, *ContextOpts) error) *c
 					opts.apiClient = apiClient
 				}
 			default:
+				if ctxOpts.Repo != "" && strings.ContainsRune(ctxOpts.Repo, '/') {
+					repo, host, err := glrepo.FromFullNameWithConfiguredHosts(ctxOpts.Repo, opts.host, cfg)
+					if err != nil {
+						return err
+					}
+					opts.host = host
+					ctxOpts.Repo = repo.FullName()
+				}
+
 				apiClient, err := f.ApiClient(opts.host)
 				if err != nil {
 					return err
