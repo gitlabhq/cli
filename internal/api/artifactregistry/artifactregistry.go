@@ -1,6 +1,7 @@
 // Package artifactregistry provides a client for exchanging a GitLab session
 // token for a short-lived GitLab Artifact Registry access token via the
-// POST /api/v4/token_exchange endpoint.
+// POST /api/v4/token_exchange endpoint, and RegistryClient, which calls the
+// Artifact Registry itself with that token.
 //
 // It lives under internal/api rather than beside the command that uses it so
 // that the glab auth docker credential helper can consume it too once it

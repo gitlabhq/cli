@@ -1,7 +1,9 @@
 // Package fsx contains small filesystem helpers for callers that need a
 // write to land at a forced permission mode, atomically where the platform
-// allows it: a token-bearing file that must not stay world-readable, or an
-// executable shim that must never be observed in a non-executable state.
+// allows it: a token-bearing file that must not stay world-readable, an
+// executable shim that must never be observed in a non-executable state, or a
+// public file, such as a dnf .repo file, that must stay readable to every
+// user whatever mode an earlier file had.
 //
 // # Why a parallel helper vs. internal/config.WriteFile
 //
@@ -35,9 +37,11 @@
 //     binary link cleanly and keeps blast radius small when the config
 //     subsystem changes.
 //
-// So this package wires renameio directly (already vendored) and layers an
-// explicit os.Chmod on top to defeat WithExistingPermissions() on overwrites.
-// The write itself is atomic on POSIX (tempfile + rename); on Windows the
-// same guarantee is not available and the write degrades to os.WriteFile,
-// which matches how internal/config.WriteFile behaves on that platform.
+// So this package wires renameio directly (already vendored) and sets the
+// mode on the temp file with WithStaticPermissions() before the rename, which
+// replaces WithExistingPermissions(): the file never appears at its path with
+// any other mode, not even between the rename and a later Chmod. The write
+// itself is atomic on POSIX (tempfile + rename); on Windows the same
+// guarantee is not available and the write degrades to os.WriteFile, as
+// internal/config.WriteFile does on that platform, followed by os.Chmod.
 package fsx
