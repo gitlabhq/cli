@@ -150,3 +150,34 @@ func TestWriteJSONFile_CreatesParentAndAppendsNewline(t *testing.T) {
 	assert.True(t, strings.HasSuffix(body, "\n"), "file should end with newline, got %q", body)
 	assert.Contains(t, body, "  \"k\": \"v\"", "expected two-space indent")
 }
+
+func TestWriteWorldReadable_CreatesFileWithMode0644(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes not enforced on Windows")
+	}
+	path := filepath.Join(t.TempDir(), "public")
+
+	require.NoError(t, WriteWorldReadable(path, []byte("key")))
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "key", string(got))
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+}
+
+func TestWriteWorldReadable_ForcesModeRegardlessOfExistingFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes not enforced on Windows")
+	}
+	path := filepath.Join(t.TempDir(), "public")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o600))
+
+	require.NoError(t, WriteWorldReadable(path, []byte("new")))
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+}

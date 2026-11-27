@@ -10,6 +10,7 @@ require (
 	charm.land/lipgloss/v2 v2.1.0
 	git.sr.ht/~timofurrer/ugh v0.1.1
 	github.com/MakeNowJust/heredoc/v2 v2.0.1
+	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/adrg/xdg v0.5.3
 	github.com/avast/retry-go/v5 v5.1.1
@@ -95,6 +96,7 @@ require (
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
 	github.com/d2lang/dagro v0.2.1 // indirect
 	github.com/d2lang/mathjax-go v0.1.0 // indirect

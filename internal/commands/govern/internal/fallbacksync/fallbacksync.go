@@ -24,6 +24,7 @@ import (
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/opencodeplugin"
 	"gitlab.com/gitlab-org/cli/internal/commands/version"
+	"gitlab.com/gitlab-org/cli/internal/systemd"
 )
 
 const (
@@ -131,12 +132,6 @@ func launchdPlist(job Job) string {
 `, launchdLabel, xmlEscape(job.GlabPath), xmlEscape(job.ConfigDir), int(Interval.Seconds()))
 }
 
-// systemdQuoter escapes a value for a double-quoted systemd unit setting.
-// systemd expands % specifiers even within quotes.
-var systemdQuoter = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "%", "%%")
-
-var systemdUnquoter = strings.NewReplacer(`\\`, `\`, `\"`, `"`, "%%", "%")
-
 func systemdService(job Job) string {
 	return fmt.Sprintf(`[Unit]
 Description=GitLab AI agent governance fallback sync
@@ -145,7 +140,7 @@ Description=GitLab AI agent governance fallback sync
 Type=oneshot
 Environment="GLAB_CONFIG_DIR=%s"
 ExecStart="%s" minder audit sync --all --silent
-`, systemdQuoter.Replace(job.ConfigDir), systemdQuoter.Replace(job.GlabPath))
+`, systemd.Quote(job.ConfigDir), systemd.Quote(job.GlabPath))
 }
 
 func systemdTimer() string {
@@ -294,7 +289,7 @@ func ReadInstalled(goos, home string) (Installed, error) {
 		}
 		if path, ok := cutQuoted(rest); ok {
 			legacy := strings.HasPrefix(rest[len(path)+1:], " govern audit sync ")
-			return Installed{GlabPath: systemdUnquoter.Replace(path), Legacy: legacy}, nil
+			return Installed{GlabPath: systemd.Unquote(path), Legacy: legacy}, nil
 		}
 		break
 	}

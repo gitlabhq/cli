@@ -10,44 +10,49 @@ import (
 	"github.com/google/renameio/v2"
 )
 
-// WriteOwnerOnly writes data to path atomically and forces mode 0o600.
+// WriteOwnerOnly writes data to path atomically with mode 0o600.
 //
 // On POSIX the write is a temp-file-plus-rename via renameio, so a reader
 // concurrent with the write either sees the full old file or the full new
 // file — never a half-written mix. If the process dies mid-write, the target
 // is untouched and only an orphaned temp file may be left behind.
 //
-// renameio.WriteFile defaults to WithExistingPermissions(), which preserves
-// the existing mode when the target already exists. That is the wrong policy
-// for token-bearing files (see the package-level doc comment for the full
-// rationale), so we follow the write with an explicit Chmod to guarantee
-// 0o600 in both the create and the overwrite paths.
+// renameio.WriteFile defaults to WithExistingPermissions(), which would give
+// the new bytes the mode of a file someone loosened, until a Chmod after the
+// rename caught up. The mode is set on the temp file instead, so a token is
+// never readable by anyone else, not even briefly.
 //
 // Callers use this for any file that may embed an inline authentication
 // token — for example, .npmrc, .yarnrc.yml, or a patched Pipfile — and for
 // the token-bearing backups those files produce.
 func WriteOwnerOnly(path string, data []byte) error {
-	if err := renameio.WriteFile(path, data, 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
+	return writeWithMode(path, data, 0o600)
 }
 
-// WriteExecutable writes data to path atomically and forces mode 0o700.
-//
-// Unlike WriteOwnerOnly, the executable mode is set on the temp file via
-// renameio.WithStaticPermissions before the atomic rename, not by a Chmod
-// call on path afterward: a reader racing the write — for example, a shim
-// invocation racing a concurrent install — must never observe the file at
-// its final path before it is executable, which a write-then-Chmod sequence
-// cannot guarantee since the file is briefly visible in between at whatever
-// mode the write left it in.
+// WriteExecutable writes data to path atomically with mode 0o700. A reader
+// racing the write — for example, a shim invocation racing a concurrent
+// install — never observes the file at its final path before it is
+// executable.
 //
 // Callers use this for shim scripts that Docker or another tool invokes
 // directly. Never use it for a file that may hold a secret; see
 // WriteOwnerOnly for those.
 func WriteExecutable(path string, data []byte) error {
-	t, err := renameio.NewPendingFile(path, renameio.WithStaticPermissions(0o700))
+	return writeWithMode(path, data, 0o700)
+}
+
+// WriteWorldReadable writes data to path atomically with mode 0o644, for a
+// public file that another, unprivileged user has to read, such as a dnf
+// .repo file or a public key. Never use it for a file that may hold a secret.
+func WriteWorldReadable(path string, data []byte) error {
+	return writeWithMode(path, data, 0o644)
+}
+
+// writeWithMode sets mode on the temp file before the atomic rename, so the
+// file never appears at path with any other mode, whatever mode an existing
+// file had.
+func writeWithMode(path string, data []byte, mode os.FileMode) error {
+	t, err := renameio.NewPendingFile(path, renameio.WithStaticPermissions(mode))
 	if err != nil {
 		return err
 	}

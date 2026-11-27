@@ -22,24 +22,28 @@ import (
 // engine core targets Linux CI runners where the atomicity and mode
 // guarantees actually hold.
 func WriteOwnerOnly(path string, data []byte) error {
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
+	return writeWithMode(path, data, 0o600)
 }
 
-// WriteExecutable writes data to path and forces mode 0o700.
-//
-// Atomic replace is not available on Windows (see WriteOwnerOnly), so this
-// degrades to os.WriteFile + os.Chmod. Windows does not enforce POSIX
-// execute bits, so the Chmod call is best-effort and the file is briefly
-// visible at its final path in a non-executable state; callers targeting
-// Windows must not rely on this function's atomicity guarantee.
+// WriteExecutable writes data to path and forces mode 0o700. Windows does not
+// enforce POSIX execute bits, and the write is not atomic, so the file is
+// briefly visible at its final path in a non-executable state; see
+// WriteOwnerOnly.
 func WriteExecutable(path string, data []byte) error {
-	if err := os.WriteFile(path, data, 0o700); err != nil { // #nosec G302 -- 0o700 is intentional: owner rwx, no group/other access, for an executable shim
+	return writeWithMode(path, data, 0o700)
+}
+
+// WriteWorldReadable writes data to path and forces mode 0o644. It is not atomic
+// on Windows; see WriteOwnerOnly.
+func WriteWorldReadable(path string, data []byte) error {
+	return writeWithMode(path, data, 0o644)
+}
+
+func writeWithMode(path string, data []byte, mode os.FileMode) error {
+	if err := os.WriteFile(path, data, mode); err != nil {
 		return err
 	}
-	return os.Chmod(path, 0o700)
+	return os.Chmod(path, mode)
 }
 
 // WriteJSONFile creates path's parent directory (0o755), marshals v with
