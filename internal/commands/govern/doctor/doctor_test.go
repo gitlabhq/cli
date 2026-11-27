@@ -55,7 +55,7 @@ func TestCheckClaudeHooks_HooksPresent(t *testing.T) {
 	result := checkClaudeHooks()
 
 	assert.True(t, result.ok)
-	assert.Equal(t, "Stop and SessionEnd hooks installed", result.message)
+	assert.Equal(t, "Stop and SessionEnd hooks installed in ~/.claude/settings.json", result.message)
 }
 
 func TestCheckClaudeHooks_HooksFromBeforeTheRename(t *testing.T) {
@@ -511,7 +511,7 @@ func TestChecks_ReportHomeDirError(t *testing.T) {
 
 	hooks := checkClaudeHooks()
 	assert.False(t, hooks.ok)
-	assert.Contains(t, hooks.message, "home directory: $HOME is not defined")
+	assert.Contains(t, hooks.message, "could not find home directory: $HOME is not defined")
 
 	fallback := checkFallbackSync(t.Context(), nil, "linux", testBuild, time.Now())
 	assert.False(t, fallback.ok)
@@ -642,4 +642,80 @@ func TestCheckClaudeHooks_UnreadableAgents(t *testing.T) {
 			assert.Equal(t, tc.wantFix, result.fix, "uninstalling only helps when setup's own lists are unreadable")
 		})
 	}
+}
+
+func TestCheckClaudeHooks_AbsolutePathHooksInClaudeConfigDir(t *testing.T) {
+	home, configDir := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	hooks := map[string][]claudehooks.HookGroup{}
+	claudehooks.AddHook(hooks, "Stop", "/opt/homebrew/bin/glab "+claudehooks.StopHookArgs)
+	claudehooks.AddHook(hooks, "SessionEnd", "/opt/homebrew/bin/glab "+claudehooks.SessionEndHookArgs)
+	hooksJSON, err := claudehooks.MarshalHooks(hooks)
+	require.NoError(t, err)
+	require.NoError(t, claudehooks.WriteSettings(filepath.Join(configDir, "settings.json"), map[string]json.RawMessage{"hooks": hooksJSON}))
+
+	result := checkClaudeHooks()
+
+	assert.True(t, result.ok, result.message)
+	assert.Equal(t, "Stop and SessionEnd hooks installed in "+filepath.Join(configDir, "settings.json"), result.message)
+}
+
+func TestCheckClaudeHooks_MessagesNameClaudeConfigDir(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, "cc")
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	// Recorded agents keep doctor from reading the settings file to find them.
+	require.NoError(t, fallbacksync.SetHookAgents([]string{"claude-code"}))
+
+	result := checkClaudeHooks()
+	assert.False(t, result.ok)
+	assert.Equal(t, "~/cc/settings.json not found", result.message)
+
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "settings.json"), []byte("{not json"), 0o644))
+	result = checkClaudeHooks()
+	assert.Equal(t, "could not parse ~/cc/settings.json", result.message)
+
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "settings.json"), []byte("{}"), 0o644))
+	result = checkClaudeHooks()
+	assert.Equal(t, "missing hooks in ~/cc/settings.json: Stop, SessionEnd", result.message)
+
+	require.NoError(t, os.RemoveAll(configDir))
+	result = checkClaudeHooks()
+	assert.Equal(t, "No hook-based agent detected (~/cc not found); run 'glab minder setup' after installing a supported agent", result.message)
+}
+
+// Claude Code resolves a relative CLAUDE_CONFIG_DIR from each session's
+// directory, so hooks found from this one say nothing about other sessions.
+func TestCheckClaudeHooks_RelativeClaudeConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Chdir(dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", "cc")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "cc"), 0o755))
+	hooks := map[string][]claudehooks.HookGroup{}
+	claudehooks.AddHook(hooks, "Stop", claudehooks.StopHookCommand)
+	claudehooks.AddHook(hooks, "SessionEnd", claudehooks.SessionEndHookCommand)
+	hooksJSON, err := claudehooks.MarshalHooks(hooks)
+	require.NoError(t, err)
+	require.NoError(t, claudehooks.WriteSettings(filepath.Join(dir, "cc", "settings.json"), map[string]json.RawMessage{"hooks": hooksJSON}))
+
+	result := checkClaudeHooks()
+	assert.False(t, result.ok)
+	assert.Equal(t, `set CLAUDE_CONFIG_DIR to an absolute path: Claude Code resolves a relative value ("cc") from each session's directory`, result.message)
+	assert.Equal(t, "Set CLAUDE_CONFIG_DIR to an absolute path, or unset it, and run: glab minder setup", result.fix)
+}
+
+func TestCheckClaudeHooks_RelativeClaudeConfigDirNotChosen(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	t.Setenv("CLAUDE_CONFIG_DIR", "cc")
+	require.NoError(t, fallbacksync.SetHookAgents([]string{"opencode"}))
+
+	result := checkClaudeHooks()
+	assert.True(t, result.ok, "the value matters only when Claude Code sessions are synced")
+	assert.Contains(t, result.message, "Claude Code sessions are not synced")
 }

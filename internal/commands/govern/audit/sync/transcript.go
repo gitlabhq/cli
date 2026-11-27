@@ -14,30 +14,62 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/claudehooks"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/gaig"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/redact"
 	"gitlab.com/gitlab-org/cli/internal/commands/govern/internal/syncstate"
+	"gitlab.com/gitlab-org/cli/internal/dbg"
 	"gitlab.com/gitlab-org/cli/internal/dependencyfirewall/fsx"
 )
 
-// claudeProjectsDir returns the base directory for Claude Code project transcripts.
+// claudeProjectsDir returns the base directory for Claude Code project
+// transcripts, in Claude Code's configuration directory.
 func claudeProjectsDir() (string, error) {
-	home, err := os.UserHomeDir()
+	dir, err := claudehooks.ConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("could not find home directory: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, ".claude", "projects"), nil
+	return filepath.Join(dir, "projects"), nil
 }
 
+// maxProjectDirLen is the longest project directory name Claude Code uses
+// before it cuts the name and adds a hash of the path.
+const maxProjectDirLen = 200
+
 // cwdToProjectHash converts the current working directory path to the
-// directory name Claude Code uses for storing transcripts.
-// e.g. /Users/jean/gdk/gitlab -> -Users-jean-gdk-gitlab
+// directory name Claude Code uses for storing transcripts, as Claude Code
+// does it: each UTF-16 code unit other than an ASCII letter or digit becomes
+// "-", and a longer name is cut and given the path's 32-bit string hash.
+// e.g. /Users/jean/.gdk/gitlab -> -Users-jean--gdk-gitlab
 func cwdToProjectHash(cwd string) string {
-	return strings.ReplaceAll(cwd, string(filepath.Separator), "-")
+	units := utf16.Encode([]rune(cwd))
+	name := make([]byte, len(units))
+	var hash int32
+	for i, u := range units {
+		hash = 31*hash + int32(u)
+		switch {
+		case u >= 'a' && u <= 'z', u >= 'A' && u <= 'Z', u >= '0' && u <= '9':
+			name[i] = byte(u)
+		default:
+			name[i] = '-'
+		}
+	}
+	if len(name) <= maxProjectDirLen {
+		return string(name)
+	}
+	return string(name[:maxProjectDirLen]) + "-" + strconv.FormatInt(abs(int64(hash)), 36)
+}
+
+func abs(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // transcriptPath returns the path to the JSONL transcript for a given session.
@@ -490,7 +522,12 @@ func findTranscriptForSession(sessionID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return findTranscriptIn(base, sessionID)
+}
 
+// findTranscriptIn finds the transcript of sessionID in base, a projects
+// directory of Claude Code.
+func findTranscriptIn(base, sessionID string) (string, error) {
 	dirs, err := os.ReadDir(base)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -728,10 +765,22 @@ func (claudeCode) recorded(sessionID, path string) (transcript, string, error) {
 	}
 	// The recorded path is derived from the hook's working directory, which
 	// differs from the session's project directory if the agent changed
-	// directory.
-	found, err := findTranscriptForSession(sessionID)
-	if err != nil {
-		return nil, "", err
+	// directory. The hooks of another Claude Code configuration record a
+	// path in that configuration's projects directory, so it is searched
+	// first.
+	found := ""
+	if projects := filepath.Dir(filepath.Dir(path)); filepath.Base(projects) == "projects" {
+		var err error
+		if found, err = findTranscriptIn(projects, sessionID); err != nil {
+			// The job's own configuration may still have it.
+			dbg.Debugf("could not search %s for session %s: %v", projects, sessionID, err)
+		}
+	}
+	if found == "" {
+		var err error
+		if found, err = findTranscriptForSession(sessionID); err != nil {
+			return nil, "", err
+		}
 	}
 	if found == "" {
 		return claudeTranscript{path: path}, path, nil
@@ -809,7 +858,7 @@ func (claudeCode) pausedReason() (string, error) {
 		return "", err
 	}
 	if !installed {
-		return "the glab Stop hook is not installed in ~/" + claudehooks.SettingsFile, nil
+		return "the glab Stop hook is not installed in " + claudehooks.DisplayPath(settings), nil
 	}
 	return "", nil
 }

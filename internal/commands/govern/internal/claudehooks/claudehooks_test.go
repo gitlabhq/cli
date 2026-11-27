@@ -50,7 +50,7 @@ func TestSyncHookInstalled(t *testing.T) {
 	assert.True(t, installed)
 
 	hooks = map[string][]HookGroup{}
-	AddHook(hooks, "Stop", legacyStopHookCommand)
+	AddHook(hooks, "Stop", "glab "+legacyStopHookArgs)
 	hooksJSON, err = json.Marshal(hooks)
 	require.NoError(t, err)
 	require.NoError(t, WriteSettings(path, map[string]json.RawMessage{"hooks": hooksJSON}))
@@ -140,8 +140,8 @@ func TestInstallGlabHooks_ReplacesLegacyHooks(t *testing.T) {
 	t.Parallel()
 
 	hooks := map[string][]HookGroup{}
-	AddHook(hooks, "Stop", legacyStopHookCommand)
-	AddHook(hooks, "SessionEnd", legacySessionEndHookCommand)
+	AddHook(hooks, "Stop", "glab "+legacyStopHookArgs)
+	AddHook(hooks, "SessionEnd", "glab "+legacySessionEndHookArgs)
 	AddHook(hooks, "Stop", "echo user-hook")
 	assert.True(t, LegacyHookPresent(hooks))
 	assert.True(t, GlabHookPresent(hooks, "Stop"), "legacy hooks still sync")
@@ -162,8 +162,8 @@ func TestRemoveGlabHooks_RemovesCurrentAndLegacyHooks(t *testing.T) {
 
 	hooks := map[string][]HookGroup{}
 	AddHook(hooks, "Stop", StopHookCommand)
-	AddHook(hooks, "Stop", legacyStopHookCommand)
-	AddHook(hooks, "SessionEnd", legacySessionEndHookCommand)
+	AddHook(hooks, "Stop", "glab "+legacyStopHookArgs)
+	AddHook(hooks, "SessionEnd", "glab "+legacySessionEndHookArgs)
 	AddHook(hooks, "Stop", "echo user-hook")
 
 	assert.True(t, RemoveGlabHooks(hooks))
@@ -172,4 +172,89 @@ func TestRemoveGlabHooks_RemovesCurrentAndLegacyHooks(t *testing.T) {
 	assert.False(t, GlabHookPresent(hooks, "Stop"))
 	assert.False(t, GlabHookPresent(hooks, "SessionEnd"))
 	assert.True(t, HookPresent(hooks, "Stop", "echo user-hook"))
+}
+
+func TestGlabHookPresent_MatchesAnyGlabPath(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"glab " + StopHookArgs,
+		"glab " + legacyStopHookArgs,
+		"/usr/local/bin/glab " + StopHookArgs,
+		"'/Users/me/My Tools/glab' " + legacyStopHookArgs,
+	} {
+		hooks := map[string][]HookGroup{}
+		AddHook(hooks, "Stop", command)
+		assert.True(t, GlabHookPresent(hooks, "Stop"), command)
+		assert.False(t, GlabHookPresent(hooks, "SessionEnd"), command)
+		assert.Equal(t, MatchesGlabCommand(command, legacyStopHookArgs), LegacyHookPresent(hooks), command)
+	}
+}
+
+func TestMatchesGlabCommand(t *testing.T) {
+	t.Parallel()
+
+	for command, want := range map[string]bool{
+		"glab " + StopHookArgs:                            true,
+		"/usr/local/bin/glab " + StopHookArgs:             true,
+		"'/Users/me/My Tools/glab' " + StopHookArgs:       true,
+		`'/Users/me/it'\''s/glab' ` + StopHookArgs:        true,
+		`C:\Program\glab.exe ` + StopHookArgs:             true,
+		`'C:\Program Files\GLAB.EXE' ` + StopHookArgs:     true,
+		"foo " + StopHookArgs:                             false,
+		"/usr/bin/notglab " + StopHookArgs:                false,
+		"echo glab " + StopHookArgs:                       false,
+		"'/Users/me/My Tools/glab' extra " + StopHookArgs: false,
+		StopHookArgs:                             false,
+		"glab " + SessionEndHookArgs:             false,
+		"glab " + StopHookArgs + " && echo done": false,
+	} {
+		assert.Equal(t, want, MatchesGlabCommand(command, StopHookArgs), command)
+	}
+}
+
+func TestHooks_UnchangedGroupsKeepTheirKeyOrder(t *testing.T) {
+	foreign := `{"matcher":"","hooks":[{"type":"command","command":"/opt/glab agent hook claude-code"}]}`
+	mixed := `{"matcher":"","hooks":[{"type":"command","command":"echo other"},{"type":"command","command":"glab minder session start"}]}`
+	var hooks map[string][]HookGroup
+	require.NoError(t, json.Unmarshal([]byte(`{"SessionStart":[`+foreign+`,`+mixed+`]}`), &hooks))
+
+	AddHook(hooks, "Stop", StopHookCommand)
+	RemoveHook(hooks, "SessionStart", "glab minder session start")
+	data, err := MarshalHooks(hooks)
+	require.NoError(t, err)
+
+	assert.Equal(t,
+		`{"SessionStart":[`+foreign+`,{"hooks":[{"type":"command","command":"echo other"}],"matcher":""}],"Stop":[{"hooks":[{"type":"command","command":"`+StopHookCommand+`"}]}]}`,
+		string(data), "the unchanged group is written as read; the changed one is re-encoded")
+}
+
+func TestSettingsPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	path, err := SettingsPath()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, ".claude", "settings.json"), path)
+
+	configDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	path, err = SettingsPath()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(configDir, "settings.json"), path, "Claude Code reads settings.json in CLAUDE_CONFIG_DIR")
+}
+
+func TestDisplayPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	assert.Equal(t, "~/.claude/settings.json", DisplayPath(filepath.Join(home, ".claude", "settings.json")))
+	assert.Equal(t, "/elsewhere/settings.json", DisplayPath("/elsewhere/settings.json"))
+
+	t.Setenv("HOME", home+"/")
+	assert.Equal(t, "~/.claude/settings.json", DisplayPath(filepath.Join(home, ".claude", "settings.json")), "a HOME with a trailing slash")
+
+	t.Setenv("HOME", home)
+	assert.Equal(t, filepath.Join(home, ".claude", "settings.json"), displayPath("windows", filepath.Join(home, ".claude", "settings.json")), "Windows paths are not shortened to ~/")
 }

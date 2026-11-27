@@ -207,6 +207,70 @@ func TestRunSetup_FallbackSyncFailureIsAWarning(t *testing.T) {
 	assert.Contains(t, stdout.String(), "Setup complete")
 }
 
+// Claude Code resolves a relative CLAUDE_CONFIG_DIR from each session's
+// directory, so no single settings file or job value would match it.
+func TestRunSetup_RefusesRelativeClaudeConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	t.Chdir(dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", "cc")
+
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	err := runSetup(t.Context(), &options{io: ios, yes: true, noFallbackSync: true})
+	require.EqualError(t, err, `set CLAUDE_CONFIG_DIR to an absolute path: Claude Code resolves a relative value ("cc") from each session's directory`)
+	assert.NoFileExists(t, filepath.Join(dir, "cc", "settings.json"))
+}
+
+func TestRunSetup_RelativeClaudeConfigDirWithoutClaudeCode(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	t.Chdir(dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", "cc")
+
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	mExec.EXPECT().LookPath("glab").Return("", errors.New("not found")).AnyTimes()
+	mExec.EXPECT().ExecWithCombinedOutput(gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(nil, nil).AnyTimes()
+	exec := cmdtest.SetupCmdForTest(t, NewCmd, false, cmdtest.WithExecutor(mExec))
+
+	_, err := exec("--yes --agents codex")
+	require.NoError(t, err, "setup touches no Claude Code settings")
+	agents, err := fallbacksync.DiscoveredAgents()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex"}, agents)
+	assert.NoFileExists(t, filepath.Join(dir, "cc", "settings.json"))
+}
+
+// Uninstall leaves the hooks of a relative value alone, since it would edit
+// the settings of only the sessions started in this directory, but still
+// removes the rest, because uninstall is the way to recover.
+func TestRunUninstall_RelativeClaudeConfigDirRemovesTheRest(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("GLAB_CONFIG_DIR", filepath.Join(dir, "glab"))
+	t.Chdir(dir)
+	ios, _, _, _ := cmdtest.TestIOStreams()
+	require.NoError(t, runSetup(t.Context(), &options{io: ios, yes: true, noFallbackSync: true, agents: []string{"claude-code", "opencode"}, agentsChanged: true}))
+	plugin := filepath.Join(dir, ".config", "opencode", "plugins", opencodeplugin.FileName)
+	require.FileExists(t, plugin)
+	settings := filepath.Join(dir, ".claude", "settings.json")
+	before, err := os.ReadFile(settings)
+	require.NoError(t, err)
+
+	t.Setenv("CLAUDE_CONFIG_DIR", ".claude")
+	mExec := cmdtest.NewMockExecutor(gomock.NewController(t))
+	mExec.EXPECT().
+		ExecWithCombinedOutput(gomock.Any(), "systemctl", []string{"--user", "is-active", "--quiet", "glab-govern-audit-sync.timer"}, nil).
+		Return(nil, &exec.ExitError{})
+	err = runUninstall(t.Context(), &options{io: ios, executor: mExec, yes: true, goos: "linux"})
+	require.ErrorContains(t, err, "set CLAUDE_CONFIG_DIR to an absolute path")
+	assert.NoFileExists(t, plugin, "the OpenCode plugin is removed")
+	after, err := os.ReadFile(settings)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "the Claude Code hooks stay")
+}
+
 func TestSetup_NoFallbackSync(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -877,40 +941,42 @@ func TestSetupPrompt(t *testing.T) {
 			"Common token and key formats are replaced first, but other secrets in them are uploaded as they are. "+
 			"glab also keeps a local record of each agent session in its configuration directory, with the session ID, the agent, the transcript path, how far it was synced, and the folders the hooks ran in and their projects, including sessions outside GitLab repositories, which are never uploaded. "+
 			"Only activity from now on will be uploaded, not earlier sessions or the earlier turns of sessions you resume. Do you wish to continue?",
-		setupPrompt("linux", false, plan{claudeHooks: true, uploads: uploadScope{fromNow: []string{"claude-code"}}}), "every setup says what is uploaded and what is kept, not only --agents")
+		setupPrompt("linux", "~/.claude/settings.json", false, plan{claudeHooks: true, uploads: uploadScope{fromNow: []string{"claude-code"}}}), "every setup says what is uploaded and what is kept, not only --agents")
+	assert.Contains(t, setupPrompt("linux", "~/cc/settings.json", true, plan{claudeHooks: true}), "glab will install agent session hooks in ~/cc/settings.json.", "the file Claude Code reads")
 
-	withAgents := setupPrompt("linux", false, plan{claudeHooks: true, discovered: []string{"codex", "cursor"}, uploads: uploadScope{fromNow: []string{"claude-code", "codex", "cursor"}}})
+	withAgents := setupPrompt("linux", "~/.claude/settings.json", false, plan{claudeHooks: true, discovered: []string{"codex", "cursor"}, uploads: uploadScope{fromNow: []string{"claude-code", "codex", "cursor"}}})
 	assert.Contains(t, withAgents, "including your prompts and each tool call's arguments, such as commands and the contents of files the agent writes. When the agent works in more than one repository, a session is split across their projects that are on the same GitLab instance and in the same top-level group as the project the session started in, and its activity in other repositories is not uploaded. Common token and key formats are replaced first, but other secrets in them are uploaded as they are")
 	assert.Contains(t, withAgents, "with the session ID, the agent, the transcript path, how far it was synced, and the folders the hooks ran in and their projects,")
 	assert.Contains(t, withAgents, "The job will also upload your codex and cursor sessions the same way. Only activity from now on will be uploaded, not earlier sessions or the earlier turns of sessions you resume. Do you wish to continue?")
 
-	hooksOnly := setupPrompt("linux", true, plan{claudeHooks: true, discovered: []string{"codex"}})
+	hooksOnly := setupPrompt("linux", "~/.claude/settings.json", true, plan{claudeHooks: true, discovered: []string{"codex"}})
 	assert.Contains(t, hooksOnly, "including your prompts and each tool call's arguments")
 	assert.NotContains(t, hooksOnly, "codex", "without the job, enabled agents are not synced")
 
-	assert.Contains(t, setupPrompt("linux", false, plan{claudeHooks: true, openCodePlugin: "/h/.config/opencode/plugins/glab-govern.js"}),
+	assert.Contains(t, setupPrompt("linux", "~/.claude/settings.json", false, plan{claudeHooks: true, openCodePlugin: "/h/.config/opencode/plugins/glab-govern.js"}),
 		"glab will install agent session hooks in ~/.claude/settings.json, an OpenCode plugin in /h/.config/opencode/plugins/glab-govern.js that runs for all your OpenCode sessions, and a systemd user timer")
-	assert.Contains(t, setupPrompt("linux", true, plan{openCodePlugin: "/p.js"}),
+	assert.Contains(t, setupPrompt("linux", "~/.claude/settings.json", true, plan{openCodePlugin: "/p.js"}),
 		"glab will install an OpenCode plugin in /p.js that runs for all your OpenCode sessions. Agent sessions")
 }
 
 func TestUninstallPrompt(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "glab will remove the agent session hooks from ~/.claude/settings.json and the fallback periodic sync job. Do you wish to continue?", uninstallPrompt(true, "", true, nil, false))
-	assert.Equal(t, "glab will remove the fallback periodic sync job. Do you wish to continue?", uninstallPrompt(false, "", true, nil, false))
+	assert.Equal(t, "glab will remove the agent session hooks from ~/.claude/settings.json and the fallback periodic sync job. Do you wish to continue?", uninstallPrompt("~/.claude/settings.json", "", true, nil, false))
+	assert.Equal(t, "glab will remove the fallback periodic sync job. Do you wish to continue?", uninstallPrompt("", "", true, nil, false))
 	assert.Equal(t, "glab will remove the agent session hooks from ~/.claude/settings.json and the fallback periodic sync job. It will also stop syncing codex and cursor sessions. Do you wish to continue?",
-		uninstallPrompt(true, "", true, []string{"codex", "cursor"}, false))
+		uninstallPrompt("~/.claude/settings.json", "", true, []string{"codex", "cursor"}, false))
 	assert.Equal(t, "glab will remove the agent session hooks from ~/.claude/settings.json, the OpenCode plugin at /p.js, and the fallback periodic sync job. It will also stop syncing codex sessions. Do you wish to continue?",
-		uninstallPrompt(true, "/p.js", true, []string{"codex"}, false))
+		uninstallPrompt("~/.claude/settings.json", "/p.js", true, []string{"codex"}, false))
 	assert.Equal(t, "glab will remove the fallback periodic sync job and glab's local records of your agent sessions. Do you wish to continue?",
-		uninstallPrompt(false, "", true, nil, true))
+		uninstallPrompt("", "", true, nil, true))
+	assert.Equal(t, "glab will remove the agent session hooks from ~/cc/settings.json. Do you wish to continue?", uninstallPrompt("~/cc/settings.json", "", false, nil, false), "the file that holds the hooks")
 	assert.Equal(t, "glab will remove glab's local records of your agent sessions. Do you wish to continue?",
-		uninstallPrompt(false, "", false, nil, true), "a job that isn't installed isn't listed")
+		uninstallPrompt("", "", false, nil, true), "a job that isn't installed isn't listed")
 	assert.Equal(t, "glab will stop syncing codex sessions. Do you wish to continue?",
-		uninstallPrompt(false, "", false, []string{"codex"}, false))
+		uninstallPrompt("", "", false, []string{"codex"}, false))
 	assert.Equal(t, "glab will turn off session discovery. Do you wish to continue?",
-		uninstallPrompt(false, "", false, nil, false))
+		uninstallPrompt("", "", false, nil, false))
 }
 
 func TestRunSetup_NamesAgentsEnabledEarlier(t *testing.T) {
@@ -1300,7 +1366,7 @@ func TestRunSetup_DiscoveredAgentsWithoutJobFailBeforePrompt(t *testing.T) {
 func TestSetupPrompt_JobOnly(t *testing.T) {
 	t.Parallel()
 
-	assert.Contains(t, setupPrompt("linux", false, plan{discovered: []string{"codex"}}),
+	assert.Contains(t, setupPrompt("linux", "~/.claude/settings.json", false, plan{discovered: []string{"codex"}}),
 		"glab will install a systemd user timer (~/.config/systemd/user/glab-govern-audit-sync.timer) that syncs sessions")
 }
 

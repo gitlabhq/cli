@@ -60,7 +60,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Choose the agents to sync with %[1]s--agents%[1]s. Without it, setup syncs the agents set up by an earlier run, or Claude Code if there are none. For each agent, setup installs:
 
-			- Claude Code (%[1]sclaude-code%[1]s): a Stop hook in %[1]s~/.claude/settings.json%[1]s, which syncs the session after every agent turn, and a SessionEnd hook, which syncs the session and marks it completed.
+			- Claude Code (%[1]sclaude-code%[1]s): a Stop hook in %[1]s~/.claude/settings.json%[1]s (in %[1]s$CLAUDE_CONFIG_DIR%[1]s when it is set, which must then be an absolute path), which syncs the session after every agent turn, and a SessionEnd hook, which syncs the session and marks it completed.
 			- OpenCode (%[1]sopencode%[1]s), version 1.4 or later: a plugin in %[1]s~/.config/opencode/plugins/glab-govern.js%[1]s (under %[1]s$XDG_CONFIG_HOME%[1]s when it is set), which syncs the session every time it goes idle. OpenCode loads it for all your sessions, in every project. Later setups keep it up to date.
 			- Codex (%[1]scodex%[1]s) and Cursor (%[1]scursor%[1]s): nothing. The fallback periodic sync finds their sessions by scanning their transcripts in %[1]s~/.codex/sessions%[1]s and %[1]s~/.cursor/projects%[1]s, and uploads those from repositories on GitLab hosts you are logged in to with glab. Their sessions are marked completed once they have been idle for 24 hours.
 
@@ -80,7 +80,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run %[1]sglab minder doctor%[1]s afterwards to verify the setup.
 
-			Run %[1]sglab minder setup --uninstall%[1]s to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also removes glab's local records of your agent sessions and forgets the agents you set up and when, so the next setup starts with Claude Code again. Other hooks and settings in %[1]s~/.claude/settings.json%[1]s, and other OpenCode plugins, are left unchanged.
+			Run %[1]sglab minder setup --uninstall%[1]s to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also removes glab's local records of your agent sessions and forgets the agents you set up and when, so the next setup starts with Claude Code again. Other hooks and settings in Claude Code's %[1]ssettings.json%[1]s, and other OpenCode plugins, are left unchanged.
 
 			Setup and uninstall are for a person to confirm. When glab detects that a coding agent runs it, setup and uninstall refuse to run, with or without %[1]s--yes%[1]s, and the user must run them in their own terminal. glab detects agents from the environment variables they set, so it does not detect an agent that sets none.
 		`, "`") + text.ExperimentalString,
@@ -241,10 +241,12 @@ func (s uploadScope) prompt() string {
 	return prompt
 }
 
-func setupPrompt(goos string, noFallbackSync bool, p plan) string {
+// setupPrompt describes what setup installs. settings is the Claude Code
+// settings file that gets the hooks.
+func setupPrompt(goos, settings string, noFallbackSync bool, p plan) string {
 	var items []string
 	if p.claudeHooks {
-		items = append(items, "agent session hooks in ~/.claude/settings.json")
+		items = append(items, "agent session hooks in "+settings)
 	}
 	if p.openCodePlugin != "" {
 		items = append(items, "an OpenCode plugin in "+opencodeplugin.Display(p.openCodePlugin)+" that runs for all your OpenCode sessions")
@@ -261,10 +263,13 @@ func setupPrompt(goos string, noFallbackSync bool, p plan) string {
 	return prompt + p.uploads.prompt() + ". Do you wish to continue?"
 }
 
-func uninstallPrompt(hooks bool, openCodePlugin string, job bool, agents []string, sessionState bool) string {
+// uninstallPrompt describes what uninstall removes. settings is the
+// settings file that holds glab's hooks, or "" if it holds none, and
+// openCodePlugin is the OpenCode plugin glab installed, or "".
+func uninstallPrompt(settings string, openCodePlugin string, job bool, agents []string, sessionState bool) string {
 	var items []string
-	if hooks {
-		items = append(items, "the agent session hooks from ~/.claude/settings.json")
+	if settings != "" {
+		items = append(items, "the agent session hooks from "+settings)
 	}
 	if openCodePlugin != "" {
 		items = append(items, "the OpenCode plugin at "+opencodeplugin.Display(openCodePlugin))
@@ -364,8 +369,13 @@ func runSetup(ctx context.Context, opts *options) error {
 	if err != nil {
 		return err
 	}
+	if p.claudeHooks {
+		if err := claudehooks.CheckConfigDir(); err != nil {
+			return err
+		}
+	}
 
-	confirmed, err := confirm(ctx, opts, setupPrompt(opts.goos, opts.noFallbackSync, p))
+	confirmed, err := confirm(ctx, opts, setupPrompt(opts.goos, settingsDisplay(opts), opts.noFallbackSync, p))
 	if err != nil {
 		return err
 	}
@@ -390,7 +400,7 @@ func runSetup(ctx context.Context, opts *options) error {
 		if err := installClaudeHooks(opts); err != nil {
 			return fmt.Errorf("failed to install agent session hooks: %w", err)
 		}
-		io.LogInfof("%s Hooks installed in ~/%s\n", c.GreenCheck(), claudehooks.SettingsFile)
+		io.LogInfof("%s Hooks installed in %s\n", c.GreenCheck(), settingsDisplay(opts))
 	}
 	if p.openCodePlugin != "" {
 		if _, err := opencodeplugin.Install(p.openCodePlugin); err != nil {
@@ -558,14 +568,14 @@ func runUninstall(ctx context.Context, opts *options) error {
 	removeState := statePresent && hooksErr == nil && pluginErr == nil
 	if !jobPresent && !hooksPresent && openCodePlugin == "" && len(agents) == 0 && !unreadable && !removeState {
 		if hooksErr != nil || pluginErr != nil || stateErr != nil {
-			return errors.Join(uninstallReadErrors(hooksErr, pluginErr, stateErr)...)
+			return errors.Join(uninstallReadErrors(opts, hooksErr, pluginErr, stateErr)...)
 		}
 		forgetHookAgents()
 		io.LogInfo("Nothing to uninstall: no hooks, OpenCode plugin, or fallback periodic sync job found.")
 		return nil
 	}
 	if hooksErr != nil {
-		io.LogErrorf("warning: could not read ~/%s, so its hooks will not be removed: %v\n", claudehooks.SettingsFile, hooksErr)
+		io.LogErrorf("warning: could not read %s, so its hooks will not be removed: %v\n", settingsDisplay(opts), hooksErr)
 	}
 	if pluginErr != nil {
 		io.LogErrorf("warning: could not check for the OpenCode plugin, so it will not be removed: %v\n", pluginErr)
@@ -574,7 +584,7 @@ func runUninstall(ctx context.Context, opts *options) error {
 		io.LogErrorf("warning: could not check glab's local records of your agent sessions, so they will not be removed: %v\n", stateErr)
 	}
 
-	confirmed, err := confirm(ctx, opts, uninstallPrompt(hooksPresent, openCodePlugin, jobPresent, agents, removeState))
+	confirmed, err := confirm(ctx, opts, uninstallPrompt(hooksSettings(hooksPresent, opts), openCodePlugin, jobPresent, agents, removeState))
 	if err != nil {
 		return err
 	}
@@ -625,7 +635,7 @@ func runUninstall(ctx context.Context, opts *options) error {
 		case err != nil:
 			return fmt.Errorf("failed to remove agent session hooks: %w", err)
 		case removed:
-			io.LogInfof("%s Hooks removed from ~/%s\n", c.GreenCheck(), claudehooks.SettingsFile)
+			io.LogInfof("%s Hooks removed from %s\n", c.GreenCheck(), settingsDisplay(opts))
 		default:
 			io.LogInfo("No agent session hooks found.")
 		}
@@ -638,7 +648,7 @@ func runUninstall(ctx context.Context, opts *options) error {
 		}
 		io.LogInfof("%s Local records of your agent sessions removed.\n", c.GreenCheck())
 	}
-	return errors.Join(uninstallReadErrors(hooksErr, pluginErr, stateErr)...)
+	return errors.Join(uninstallReadErrors(opts, hooksErr, pluginErr, stateErr)...)
 }
 
 func sessionStatePresent() (bool, error) {
@@ -654,10 +664,10 @@ func sessionStatePresent() (bool, error) {
 
 // uninstallReadErrors reports what uninstall left in place because it could
 // not be read.
-func uninstallReadErrors(hooksErr, pluginErr, stateErr error) []error {
+func uninstallReadErrors(opts *options, hooksErr, pluginErr, stateErr error) []error {
 	var errs []error
 	if hooksErr != nil {
-		errs = append(errs, fmt.Errorf("the agent session hooks were not removed; fix ~/%s and run 'glab minder setup --uninstall' again: %w", claudehooks.SettingsFile, hooksErr))
+		errs = append(errs, fmt.Errorf("the agent session hooks were not removed; fix %s and run 'glab minder setup --uninstall' again: %w", settingsDisplay(opts), hooksErr))
 	}
 	if pluginErr != nil {
 		errs = append(errs, fmt.Errorf("the OpenCode plugin may still be installed; fix it and run 'glab minder setup --uninstall' again: %w", pluginErr))
@@ -691,6 +701,11 @@ func installedOpenCodePlugin() (string, error) {
 }
 
 func claudeHooksInstalled(opts *options) (bool, error) {
+	// A relative CLAUDE_CONFIG_DIR names no one settings file, so its hooks
+	// are reported as unreadable and the rest is still removed.
+	if err := claudehooks.CheckConfigDir(); err != nil {
+		return false, err
+	}
 	path, err := settingsPath(opts)
 	if err != nil {
 		return false, err
@@ -725,11 +740,28 @@ func jobMayBePresent(ctx context.Context, opts *options, home string) bool {
 	return state.Loaded
 }
 
+func hooksSettings(present bool, opts *options) string {
+	if !present {
+		return ""
+	}
+	return settingsDisplay(opts)
+}
+
 func settingsPath(opts *options) (string, error) {
 	if opts != nil && opts.settingsPathOverride != "" {
 		return opts.settingsPathOverride, nil
 	}
 	return claudehooks.SettingsPath()
+}
+
+// settingsDisplay is the settings file's path for messages, with the home
+// directory shown as ~.
+func settingsDisplay(opts *options) string {
+	path, err := settingsPath(opts)
+	if err != nil {
+		return "~/" + claudehooks.SettingsFile
+	}
+	return claudehooks.DisplayPath(path)
 }
 
 func installClaudeHooks(opts *options) error {
