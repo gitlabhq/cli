@@ -271,8 +271,8 @@ them still takes time, particularly when there is a backlog of changes. These
 expectations apply to every merge request, from team members and community
 contributors alike:
 
-- **You are the author.** You have read the change, you can explain it, and you reply
-  to review comments yourself.
+- **You are the author.** You have read the change and you can explain it. An agent
+  can reply to review comments for you, but you must read and understand every reply.
 - **Link an agreed issue.** Except for trivial fixes, such as typos or a small bug fix,
   link an issue whose direction a maintainer has agreed. Get assigned to it before you
   start. Community contributors: comment on the issue to ask to be assigned.

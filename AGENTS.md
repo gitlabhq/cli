@@ -65,6 +65,11 @@ infer from reading the tree.
   - Add a new inline diff comment:
     `glab mr note create --file <path> --line <N>` (or `--line N:M`, or
     `--old-line N` for a deletion).
+- **Opening an MR** — before you open one, point the human at
+  [merge request expectations](CONTRIBUTING.md#merge-request-expectations).
+  In particular, they must read and be able to explain the change. You can
+  reply to review comments for them, but only with replies they have read,
+  understand, and agree with.
 - **Creating an MR that references an issue** — add
   `/copy_metadata #<issue-id>` on its own line in the description.
   GitLab copies the issue's labels and milestone, so the

@@ -68,6 +68,26 @@ its URL, as the commands in this guide do.
    PSIRT decides whether the fix needs a CVE.
 1. When the fix is ready to release, merge it.
 
+### Keep the public text neutral
+
+Users stay exposed until they update, so the public record of a fix shouldn't explain
+how to exploit it. When the fix reaches canonical `main`, more than the merge request
+description becomes public:
+
+- The canonical merge request's title, which becomes the commit message on `main`,
+  and the release notes.
+- Every commit message, including the security merge request's title. The
+  public merge request lists them all, even when it's squashed.
+- Comments and threads on the canonical merge request.
+- Code comments, test names, and test descriptions.
+
+Describe what the change does, not the attack it prevents. For example, write
+`fix(config): restrict which keys repository config can set`, not
+`fix(config): stop a malicious repository running arbitrary commands`.
+
+Keep the vulnerability details in the confidential issue and the security merge
+request, which stay private.
+
 ### Merge into canonical `main`
 
 The merge request to `gitlab-org/cli` is public, so open it only when you're ready to
@@ -81,8 +101,8 @@ glab mr create --repo gitlab-org/cli --head gitlab-org/security/cli \
 ```
 
 Pass `--description` so `glab` doesn't prompt for a template. Don't use `--fill`. It
-pushes and adds a `gitlab-org/cli` remote. The description is public, so don't
-describe the vulnerability in it.
+pushes and adds a `gitlab-org/cli` remote. The title, description, and commits are
+public, so follow [keep the public text neutral](#keep-the-public-text-neutral).
 
 In the UI, go to **Code > Merge requests > New merge request** in
 `gitlab-org/security/cli`, select `gitlab-org/security/cli` and `main` as the source,
