@@ -13,7 +13,7 @@ _This notice should stay as the first item in the CONTRIBUTING.md file._
 ---
 
 Thank you for your interest in contributing to the GitLab CLI! This guide details how to contribute
-to this extension in a way that is easy for everyone. These are mostly guidelines, not rules.
+to this project in a way that is easy for everyone. These are mostly guidelines, not rules.
 Use your best judgement, and feel free to propose changes to this document in a merge request.
 
 Please do:
@@ -47,7 +47,7 @@ GitLab team members who want to review or maintain the CLI can follow the
 
 ### Reporting Issues
 
-Create a [new issue from the "Default" template](https://gitlab.com/gitlab-org/cli/-/issues/new?issuable_template=Default) and follow the instructions in the template.
+Create a [new issue from the "Bug" template](https://gitlab.com/gitlab-org/cli/-/issues/new?issuable_template=Bug) and follow the instructions in the template.
 
 ### Dependency management
 
@@ -86,9 +86,9 @@ These findings are not actionable on their own, but a
 
 Read about the contribution process in [`development_process.md`](docs/development_process.md). This document explains how we review and release changes.
 
-If your merge request is trivial (fixing typos, fixing a bug with 20 lines of code), create a merge request.
+If your merge request is a trivial fix, such as a typo or a small bug fix, create a merge request.
 
-If your merge request is large, create an issue first. See [Reporting Issues](#reporting-issues) and [Proposing Features](#proposing-features). In the issue, the project maintainers can help you scope the work and make you more efficient.
+Otherwise, create an issue first. See [Reporting Issues](#reporting-issues) and [Proposing Features](#proposing-features). In the issue, the project maintainers can help you scope the work and make you more efficient.
 
 ### Developing with Workspaces
 
@@ -129,17 +129,17 @@ glab follows the [GitLab Go upgrade guide](https://docs.gitlab.com/development/g
 
 `scripts/check-go-version.sh` enforces these rules in CI.
 
-### Git hooks with Lefthook (optional)
+### Git hooks with Lefthook
 
-This project supports [Lefthook](https://github.com/evilmartians/lefthook) for managing Git hooks. Lefthook helps catch issues before pushing to CI by running checks locally.
+This project uses [Lefthook](https://github.com/evilmartians/lefthook) to manage Git hooks. Before you push, the hooks run many of the checks that CI runs, so we recommend installing them.
 
 #### Quick setup
 
 1. Install development tools using [mise](https://mise.jdx.dev/):
 
-   ```bash
+   ```shell
    # Install mise if you don't have it
-   curl https://mise.run | sh
+   curl "https://mise.run" | sh
 
    # Install all development tools (includes lefthook)
    make bootstrap
@@ -154,7 +154,13 @@ This project supports [Lefthook](https://github.com/evilmartians/lefthook) for m
 
 - **pre-commit**: Formats and lints Go code (golangci-lint with gofumpt/goimports), lints shell scripts (shellcheck), auto-fixes Markdown formatting (markdownlint), checks and regenerates documentation if command files changed (blocks commit until docs are staged)
 - **commit-msg**: Validates commit messages follow [conventional commits](https://www.conventionalcommits.org/) format
-- **pre-push**: Runs documentation validation (markdownlint, rumdl, vale, lychee) on changed files
+- **pre-push**: Runs the following checks:
+  - Builds the project
+  - Lints Go code changed since `origin/main`
+  - Runs tests for changed packages (`make test-changed`)
+  - Runs `make check-embed` and `make check-args`
+  - Checks that generated docs and Go code are up to date
+  - Validates documentation (markdownlint, rumdl, vale, lychee) on changed files
 
 #### Graceful degradation
 
@@ -164,7 +170,7 @@ If a required tool is not installed, the hook will display a warning and skip th
 
 If you need to skip hooks temporarily:
 
-```bash
+```shell
 # Skip all hooks for one commit
 LEFTHOOK=0 git commit -m "message"
 
@@ -177,7 +183,7 @@ LEFTHOOK_EXCLUDE=pre-push git push
 
 ### Running tests
 
-Run tests with: `go test ./...` or `make test`.
+Run tests with `make test`. It clears environment variables such as `GITLAB_TOKEN` and `CI_*` that would otherwise change test results. To run all tests and linters, use `make check`.
 
 There are some integration tests that perform real API requests to `https://gitlab.com`.
 If the environment variables `GITLAB_TEST_HOST` and `GITLAB_TOKEN_TEST` are not set, the integration tests will fail in CI if
@@ -260,6 +266,9 @@ a complete listing of the transformations supported.
 
 ### Submitting a merge request
 
+1. If you aren't a project member, [request access](https://contributors.gitlab.com/start)
+   to the [community fork](https://gitlab.com/gitlab-community/gitlab-org/cli) and work
+   there. You can also [fork the project](https://gitlab.com/gitlab-org/cli/-/forks/new) yourself.
 1. Create a new branch: `git checkout -b my-branch-name`
 1. Make your change, add tests, and ensure tests pass
 1. Submit a merge request that meets the [merge request expectations](#merge-request-expectations)
@@ -338,15 +347,12 @@ If your MR contains multiple commits but only one logical change, the [Squash co
 
 #### `<type>`
 
-This describes the kind of change that this commit is providing
+The type describes the kind of change:
 
-- **feat:** A new feature (adding a new component, providing new variants for an existing component, etc.).
-- **fix:** A bug fix (correcting a styling issue, addressing a bug in a component's API, etc.).
-  When updating non-dev dependencies, mark your changes with the `fix:` type.
+- **feat:** A new feature, such as a new command or flag.
+- **fix:** A bug fix.
 - **docs:** Documentation-only changes.
-- **style:** Changes that do not affect the meaning of the code
-  (whitespace, formatting, missing semicolons, etc). _Not_ to be used for UI changes as those are
-  meaningful changes, consider using `feat:` of `fix:` instead.
+- **style:** Changes that do not affect the meaning of the code, such as whitespace or formatting.
 - **refactor:** A code change that neither fixes a bug nor adds a feature.
 - **perf:** A code change that improves performance.
 - **test:** Adding missing tests or correcting existing tests.
@@ -356,57 +362,43 @@ This describes the kind of change that this commit is providing
   updating dev dependencies.
 - **revert:** Reverts a previous commit.
 
-Each commit type can have an optional scope to specify the place of the commit change: `type(scope):`. It is up to you to add or omit a commit's scope. When a commit affects a specific component, use the component's PascalCase name as the commit's scope. For example:
-
-```plaintext
-feat(statusbar): automatically switch pipelines
-```
-
 #### `<scope>`
 
-Scope can be anything specifying the place of the commit change. For example events, kafka, userModel, authorization, authentication, loginPage, etc
+The scope is optional. Use the command or area the change affects, in lowercase,
+for example `mr`, `ci`, `auth`, `config`, or `deps`:
+
+```plaintext
+feat(mr): selectively fill title or description on update
+```
 
 #### `<description>`
 
-This is a very short description of the change
+Describe the change briefly:
 
-- `use imperative, present tense: “change” not “changed” nor “changes”`
-- `don't capitalize the first letter`
-- `no dot (.) at the end`
+- Use the imperative, present tense: "change", not "changed" or "changes".
+- Don't capitalize the first letter.
+- Don't end with a period.
 
 ### Message Body
 
-Just as in the description, use imperative, present tense: “change” not “changed” nor “changes.” Include motivation for the change and contrast it with previous behavior.
+Just as in the description, use the imperative, present tense. Include the motivation for the change and contrast it with previous behavior.
 
-#### More info on writing good Git commit messages
-
-- [Writing Git commit messages](http://365git.tumblr.com/post/3308646748/writing-git-commit-messages)
-- [A Note About Git Commit Messages](http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html)
+For more guidance, see [A Note About Git Commit Messages](https://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html).
 
 ### Message Footer
 
-Finished, fixed or delivered stories should be listed on a separate line in the footer prefixed with "Finishes", "Fixes" , or "Delivers" keyword like this:
-
-`[(Finishes|Fixes|Delivers) #ISSUE_ID]`
+Reference the issue the commit closes or relates to in the footer, for example
+`Closes #123` or `Related to #123`.
 
 ### Message Example
 
-```shell
-feat(kafka): implement exactly once delivery
+```plaintext
+fix(mr): make --wip an alias for --draft
 
-- ensure every event published to kafka is delivered exactly once
-- implement error handling for failed delivery
+`mr create --wip` prefixed the title with `WIP:`, which GitLab no longer
+treats as a draft. Make --wip an alias for --draft so it adds `Draft:`.
 
-Delivers #065
-```
-
-```shell
-fix(login): allow provided user preferences to override default preferences
-
-- This allows the preferences associated with a user account to
-override and customize the default app preferences like theme or timezone.
-
-Fixes #025
+Closes #8790
 ```
 
 ### Linting
@@ -437,7 +429,7 @@ development environment.
 
 After your workspace is running, you can start developing:
 
-```bash
+```shell
 # Build the CLI binary
 make
 
