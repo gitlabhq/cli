@@ -41,7 +41,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			If the proxy cannot start, the command prints %[1]sfalse%[1]s, so the %[1]seval%[1]s fails and a CI/CD job (which runs with %[1]sset -e%[1]s) stops instead of running without the firewall.
 
-			The proxy stores the project's unreachable fallback in %[1]s.gitlab/df/policy-summary.json%[1]s. Cache that file between jobs with %[1]scache:paths%[1]s, so a job that starts while GitLab is unreachable can still apply it.
+			The proxy stores the project's unreachable fallback in %[1]s.gitlab/df/policy-summary.json%[1]s. Cache that file between jobs with %[1]scache:paths%[1]s, so a job that starts while GitLab is unreachable can still apply it. The stored copy is used only when Git confirms it isn't committed, so the job needs %[1]sgit%[1]s and a checkout of the repository. A job with %[1]sGIT_STRATEGY: none%[1]s gets no fallback.
 		`, "`"),
 		Example: heredoc.Doc(`
 			# In before_script: route the rest of the CI/CD job through the proxy

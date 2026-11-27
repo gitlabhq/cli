@@ -47,7 +47,7 @@ func NewCmd(f cmdutils.Factory) *cobra.Command {
 
 			Evaluation results are cached for the length of a run, so a package that appears many times in a dependency tree is evaluated once.
 
-			If GitLab can't evaluate a package, the command blocks it, unless GitLab doesn't answer and the project's unreachable fallback is allow or warn and hasn't expired. The command stores the fallback in %[1]s.gitlab/df/policy-summary.json%[1]s each time it reaches GitLab. In CI/CD, cache that file between jobs with %[1]scache:paths%[1]s, so a job that starts during an outage still has it. If the Dependency Firewall isn't evaluating the project, the command allows every package.
+			If GitLab can't evaluate a package, the command blocks it, unless GitLab doesn't answer and the project's unreachable fallback is allow or warn and hasn't expired. The command stores the fallback in %[1]s.gitlab/df/policy-summary.json%[1]s each time it reaches GitLab. In CI/CD, cache that file between jobs with %[1]scache:paths%[1]s, so a job that starts during an outage still has it. The stored copy is used only when Git confirms it isn't committed, so the job needs %[1]sgit%[1]s and a checkout of the repository. A job with %[1]sGIT_STRATEGY: none%[1]s gets no fallback. If the Dependency Firewall isn't evaluating the project, the command allows every package.
 
 			The proxy checks only the requests it recognizes as package downloads and uploads. It forwards every other request to the host the package manager asked for, so it is not an egress filter and does not limit which hosts the package manager can reach.
 
