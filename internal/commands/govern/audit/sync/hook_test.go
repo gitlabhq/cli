@@ -258,7 +258,7 @@ func TestRunSync_CodexHookSession(t *testing.T) {
 	project := projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}
 	assert.Equal(t, sessionMeta{
 		AgentType: "codex", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: path,
-		Parts:        []sessionPart{{projectRef: project, Key: "th-1-42"}},
+		Parts:        []sessionPart{{projectRef: project, Key: "th-1-42", ProjectID: 42, SessionID: 99}},
 		FirstProject: project,
 		Folders:      map[string]projectRef{dir: project},
 		PendingCalls: map[string]projectRef{"call_1": project},
@@ -368,7 +368,7 @@ func TestRunSync_CursorHookSession(t *testing.T) {
 	project := projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}
 	assert.Equal(t, sessionMeta{
 		AgentType: "cursor", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: path,
-		Parts:        []sessionPart{{projectRef: project, Key: "conv-1-42"}},
+		Parts:        []sessionPart{{projectRef: project, Key: "conv-1-42", ProjectID: 42, SessionID: 99}},
 		FirstProject: project,
 		Folders:      map[string]projectRef{dir: project},
 	}, *meta)

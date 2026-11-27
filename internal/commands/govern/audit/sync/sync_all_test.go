@@ -55,15 +55,17 @@ type fakeGitLab struct {
 	// parent key that its parts share.
 	sessionsCreated []string
 	// sessions holds the GitLab sessions created, by ID.
-	sessions map[int]fakeSession
+	sessions     map[int]fakeSession
+	sessionsMade int
 	// eventsBySession holds the posted events by GitLab session ID.
 	eventsBySession map[int][]auditEventRequest
 	// completedSessions holds the IDs of the completed sessions.
 	completedSessions []int
-	// sessionStatusFor and identityStatusFor, when set, answer those
-	// endpoints of a project, by ID, with that HTTP status.
+	// sessionStatusFor, identityStatusFor and completeStatusFor, when set,
+	// answer those endpoints of a project, by ID, with that HTTP status.
 	sessionStatusFor  map[int64]int
 	identityStatusFor map[int64]int
+	completeStatusFor map[int64]int
 	sessionRequests   []sessionRequest
 	agentTypes        []string
 	syncTypes         []string
@@ -201,6 +203,10 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		var body auditEventsRequest
 		_ = json.Unmarshal(raw, &body)
+		if _, ok := f.sessions[body.SessionID]; !ok && f.sessionsMade > 0 {
+			writeStatus(w, http.StatusNotFound)
+			return
+		}
 		if limit := f.exceededJSONLimit(raw, body); limit != "" {
 			f.auditRejections++
 			w.WriteHeader(http.StatusBadRequest)
@@ -216,7 +222,15 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if f.failWithBadGateway(w, "complete") {
 			return
 		}
+		if status := f.completeStatusFor[projectID(path)]; status != 0 {
+			writeStatus(w, status)
+			return
+		}
 		id, _ := strconv.Atoi(path[strings.LastIndex(path, "/")+1:])
+		if _, ok := f.sessions[id]; !ok && f.sessionsMade > 0 {
+			writeStatus(w, http.StatusNotFound)
+			return
+		}
 		f.completedSessions = append(f.completedSessions, id)
 		f.completed++
 		_, _ = io.WriteString(w, `{}`)
@@ -239,9 +253,17 @@ func (f *fakeGitLab) session(project int64, req sessionRequest) int {
 			return id
 		}
 	}
-	id := 99 + len(f.sessions)
+	id := 99 + f.sessionsMade
+	f.sessionsMade++
 	f.sessions[id] = fakeSession{projectID: project, request: req}
 	return id
+}
+
+// deleteSession deletes a GitLab session, as GitLab does past its retention.
+func (f *fakeGitLab) deleteSession(id int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.sessions, id)
 }
 
 // sessionIn returns the ID of the session with idempotency key key in the

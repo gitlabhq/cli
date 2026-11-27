@@ -258,6 +258,10 @@ type sessionPart struct {
 	projectRef
 	// Key is the idempotency key the GitLab session was created with.
 	Key string `json:"key,omitempty"`
+	// ProjectID and SessionID identify the GitLab session, so that later
+	// syncs post to it without creating it again.
+	ProjectID int64 `json:"project_id,omitempty"`
+	SessionID int   `json:"session_id,omitempty"`
 	// Unsupported reports that the project's GitLab instance does not accept
 	// the agent type, so the session's activity there is never uploaded, not
 	// even after an upgrade.
