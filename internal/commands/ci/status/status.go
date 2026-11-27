@@ -215,16 +215,12 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 
 				switch {
 				case inProgress && live:
-					updatedPipeline, err := ciutils.GetPipelineWithFallback(ctx, client, repoName, branch, opts.io)
+					updatedPipeline, _, err := client.Pipelines.GetPipeline(repoName, runningPipeline.ID, gitlab.WithContext(ctx))
 					if err != nil {
-						// Final fallback: refresh current pipeline by ID
-						updatedPipeline, _, err = client.Pipelines.GetPipeline(repoName, runningPipeline.ID, gitlab.WithContext(ctx))
-						if err != nil {
-							if ctx.Err() != nil {
-								break loop
-							}
-							return err
+						if ctx.Err() != nil {
+							break loop
 						}
+						return err
 					}
 					runningPipeline = updatedPipeline
 
@@ -310,11 +306,13 @@ func NewCmdStatus(f cmdutils.Factory) *cobra.Command {
 // isLivePollableStatus reports whether a pipeline status represents an
 // in-progress state that --live should keep polling. Terminal statuses
 // (success, failed, skipped, canceled) and statuses requiring user action
-// (manual) are excluded — they don't progress on their own.
+// (manual) are excluded — they don't progress on their own. Canceling is
+// polled until it becomes canceled, so the canceled-supersede check can run.
 func isLivePollableStatus(status string) bool {
 	switch status {
 	case string(gitlab.Created), string(gitlab.WaitingForResource), string(gitlab.Preparing),
-		string(gitlab.Pending), string(gitlab.Running), string(gitlab.Scheduled):
+		string(gitlab.Pending), string(gitlab.Running), string(gitlab.Scheduled),
+		string(gitlab.Canceling):
 		return true
 	}
 	return false

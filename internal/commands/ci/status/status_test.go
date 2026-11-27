@@ -318,6 +318,7 @@ func Test_isLivePollableStatus(t *testing.T) {
 		{"pending", true},
 		{"running", true},
 		{"scheduled", true},
+		{"canceling", true},
 		{"success", false},
 		{"failed", false},
 		{"canceled", false},
@@ -412,6 +413,253 @@ func TestCiStatusCommand_Live_CanceledNoNewerPipeline(t *testing.T) {
 		tc.MockJobs.EXPECT().
 			ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any()).
 			Return([]*gitlab.Job{{ID: 1, Name: "test"}}, nil, nil),
+	)
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdStatus, false,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithBranch("main"),
+	)
+
+	_, err := exec("--live")
+	require.NoError(t, err)
+}
+
+func TestCiStatusCommand_Live_RefreshesMRPipelineByID(t *testing.T) {
+	// Intentionally not t.Parallel(): see comment in
+	// TestCiStatusCommand_Live_CanceledSuperseded.
+
+	// The branch has no pipeline, so the first lookup falls back to the merge
+	// request. Each refresh after that gets the pipeline by ID only.
+	tc := gitlabtesting.NewTestClient(t)
+
+	gomock.InOrder(
+		tc.MockPipelines.EXPECT().
+			GetLatestPipeline("OWNER/REPO", &gitlab.GetLatestPipelineOptions{Ref: new("feature")}, gomock.Any()).
+			Return(nil, nil, errors.New("not found")),
+		tc.MockMergeRequests.EXPECT().
+			ListProjectMergeRequests("OWNER/REPO", gomock.Any()).
+			Return([]*gitlab.BasicMergeRequest{{IID: 1}}, nil, nil),
+		tc.MockMergeRequests.EXPECT().
+			GetMergeRequest("OWNER/REPO", int64(1), gomock.Any()).
+			Return(&gitlab.MergeRequest{
+				BasicMergeRequest: gitlab.BasicMergeRequest{IID: 1},
+				HeadPipeline:      &gitlab.Pipeline{ID: 2, Status: "running"},
+			}, nil, nil),
+		tc.MockPipelines.EXPECT().
+			GetPipeline("OWNER/REPO", int64(2), gomock.Any()).
+			Return(&gitlab.Pipeline{ID: 2, Status: "running"}, nil, nil),
+
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(2), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Job{
+				{ID: 1, Name: "test", Stage: "test", Status: "running"},
+			}, &gitlab.Response{NextPage: 0}, nil),
+		tc.MockPipelines.EXPECT().
+			GetPipeline("OWNER/REPO", int64(2), gomock.Any()).
+			Return(&gitlab.Pipeline{ID: 2, Status: "success"}, nil, nil),
+
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(2), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Job{
+				{ID: 1, Name: "test", Stage: "test", Status: "success"},
+			}, &gitlab.Response{NextPage: 0}, nil),
+	)
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdStatus, false,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithBranch("feature"),
+	)
+
+	_, err := exec("--live")
+	require.NoError(t, err)
+}
+
+func TestCiStatusCommand_Live_KeepsWatchingPipelineWhenNewerOneStarts(t *testing.T) {
+	tests := []struct {
+		name              string
+		allowLatestLookup bool
+	}{
+		{name: "latest pipeline is not looked up after startup", allowLatestLookup: false},
+		{name: "newer latest pipeline is ignored", allowLatestLookup: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tc := gitlabtesting.NewTestClient(t)
+
+			gomock.InOrder(
+				tc.MockPipelines.EXPECT().
+					GetLatestPipeline("OWNER/REPO", &gitlab.GetLatestPipelineOptions{Ref: new("main")}, gomock.Any()).
+					Return(&gitlab.Pipeline{ID: 1, Status: "running"}, nil, nil),
+				tc.MockJobs.EXPECT().
+					ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any()).
+					Return([]*gitlab.Job{{ID: 1, Name: "test"}}, nil, nil),
+
+				tc.MockJobs.EXPECT().
+					ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.Job{
+						{ID: 1, Name: "test", Stage: "test", Status: "running"},
+					}, &gitlab.Response{NextPage: 0}, nil),
+				tc.MockPipelines.EXPECT().
+					GetPipeline("OWNER/REPO", int64(1), gomock.Any()).
+					Return(&gitlab.Pipeline{ID: 1, Status: "running"}, nil, nil),
+
+				tc.MockJobs.EXPECT().
+					ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.Job{
+						{ID: 1, Name: "test", Stage: "test", Status: "running"},
+					}, &gitlab.Response{NextPage: 0}, nil),
+				tc.MockPipelines.EXPECT().
+					GetPipeline("OWNER/REPO", int64(1), gomock.Any()).
+					Return(&gitlab.Pipeline{ID: 1, Status: "success"}, nil, nil),
+
+				tc.MockJobs.EXPECT().
+					ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+					Return([]*gitlab.Job{
+						{ID: 1, Name: "test", Stage: "test", Status: "success"},
+					}, &gitlab.Response{NextPage: 0}, nil),
+			)
+
+			latestLookup := tc.MockPipelines.EXPECT().
+				GetLatestPipeline("OWNER/REPO", &gitlab.GetLatestPipelineOptions{Ref: new("main")}, gomock.Any()).
+				Return(&gitlab.Pipeline{ID: 2, Status: "running"}, nil, nil)
+			if tt.allowLatestLookup {
+				latestLookup.AnyTimes()
+			} else {
+				latestLookup.Times(0)
+			}
+			tc.MockPipelines.EXPECT().
+				GetPipeline("OWNER/REPO", int64(2), gomock.Any()).
+				Times(0)
+
+			exec := cmdtest.SetupCmdForTest(t, NewCmdStatus, false,
+				cmdtest.WithGitLabClient(tc.Client),
+				cmdtest.WithBranch("main"),
+			)
+
+			_, err := exec("--live")
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCiStatusCommand_Live_RefreshError(t *testing.T) {
+	// Intentionally not t.Parallel(): see comment in
+	// TestCiStatusCommand_Live_CanceledSuperseded.
+	tc := gitlabtesting.NewTestClient(t)
+
+	gomock.InOrder(
+		tc.MockPipelines.EXPECT().
+			GetLatestPipeline("OWNER/REPO", &gitlab.GetLatestPipelineOptions{Ref: new("main")}, gomock.Any()).
+			Return(&gitlab.Pipeline{ID: 1, Status: "running"}, nil, nil),
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any()).
+			Return([]*gitlab.Job{{ID: 1, Name: "test"}}, nil, nil),
+
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Job{
+				{ID: 1, Name: "test", Stage: "test", Status: "running"},
+			}, &gitlab.Response{NextPage: 0}, nil),
+		tc.MockPipelines.EXPECT().
+			GetPipeline("OWNER/REPO", int64(1), gomock.Any()).
+			Return(nil, nil, errors.New("500 Internal Server Error")),
+	)
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdStatus, false,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithBranch("main"),
+	)
+
+	_, err := exec("--live")
+	require.EqualError(t, err, "500 Internal Server Error")
+}
+
+func TestCiStatusCommand_Live_CanceledSupersededRefreshesNewPipeline(t *testing.T) {
+	// Intentionally not t.Parallel(): see comment in
+	// TestCiStatusCommand_Live_CanceledSuperseded.
+
+	// After switching to the newer pipeline, the refresh must use its ID, not
+	// the canceled one's.
+	tc := gitlabtesting.NewTestClient(t)
+
+	gomock.InOrder(
+		tc.MockPipelines.EXPECT().
+			GetLatestPipeline("OWNER/REPO", &gitlab.GetLatestPipelineOptions{Ref: new("main")}, gomock.Any()).
+			Return(&gitlab.Pipeline{ID: 1, Status: "canceled"}, nil, nil),
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any()).
+			Return([]*gitlab.Job{{ID: 1, Name: "test"}}, nil, nil),
+
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Job{
+				{ID: 1, Name: "test", Stage: "test", Status: "canceled"},
+			}, &gitlab.Response{NextPage: 0}, nil),
+
+		tc.MockPipelines.EXPECT().
+			GetLatestPipeline("OWNER/REPO", &gitlab.GetLatestPipelineOptions{Ref: new("main")}, gomock.Any()).
+			Return(&gitlab.Pipeline{ID: 2, Status: "running"}, nil, nil),
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(2), gomock.Any()).
+			Return([]*gitlab.Job{{ID: 2, Name: "test"}}, nil, nil),
+
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(2), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Job{
+				{ID: 2, Name: "test", Stage: "test", Status: "running"},
+			}, &gitlab.Response{NextPage: 0}, nil),
+		tc.MockPipelines.EXPECT().
+			GetPipeline("OWNER/REPO", int64(2), gomock.Any()).
+			Return(&gitlab.Pipeline{ID: 2, Status: "success"}, nil, nil),
+
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(2), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Job{
+				{ID: 2, Name: "test", Stage: "test", Status: "success"},
+			}, &gitlab.Response{NextPage: 0}, nil),
+	)
+
+	exec := cmdtest.SetupCmdForTest(t, NewCmdStatus, false,
+		cmdtest.WithGitLabClient(tc.Client),
+		cmdtest.WithBranch("main"),
+	)
+
+	_, err := exec("--live")
+	require.NoError(t, err)
+}
+
+func TestCiStatusCommand_Live_CancelingSwitchesToNewerPipelineOnceCanceled(t *testing.T) {
+	tc := gitlabtesting.NewTestClient(t)
+
+	gomock.InOrder(
+		tc.MockPipelines.EXPECT().
+			GetLatestPipeline("OWNER/REPO", &gitlab.GetLatestPipelineOptions{Ref: new("main")}, gomock.Any()).
+			Return(&gitlab.Pipeline{ID: 1, Status: "canceling"}, nil, nil),
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any()).
+			Return([]*gitlab.Job{{ID: 1, Name: "test"}}, nil, nil),
+
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Job{
+				{ID: 1, Name: "test", Stage: "test", Status: "canceling"},
+			}, &gitlab.Response{NextPage: 0}, nil),
+		tc.MockPipelines.EXPECT().
+			GetPipeline("OWNER/REPO", int64(1), gomock.Any()).
+			Return(&gitlab.Pipeline{ID: 1, Status: "canceled"}, nil, nil),
+
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(1), gomock.Any(), gomock.Any()).
+			Return([]*gitlab.Job{
+				{ID: 1, Name: "test", Stage: "test", Status: "canceled"},
+			}, &gitlab.Response{NextPage: 0}, nil),
+		tc.MockPipelines.EXPECT().
+			GetLatestPipeline("OWNER/REPO", &gitlab.GetLatestPipelineOptions{Ref: new("main")}, gomock.Any()).
+			Return(&gitlab.Pipeline{ID: 2, Status: "success"}, nil, nil),
+		tc.MockJobs.EXPECT().
+			ListPipelineJobs("OWNER/REPO", int64(2), gomock.Any()).
+			Return([]*gitlab.Job{{ID: 2, Name: "test"}}, nil, nil),
 	)
 
 	exec := cmdtest.SetupCmdForTest(t, NewCmdStatus, false,
