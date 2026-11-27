@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -169,8 +168,8 @@ func TestSync_ClaudeCodeSessionThatMovesToAnotherProject(t *testing.T) {
 			meta, err := readSessionMeta("sess-1")
 			require.NoError(t, err)
 			assert.ElementsMatch(t, []sessionPart{
-				{projectRef: projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}, Key: "sess-1-42"},
-				{projectRef: projectRef{Host: testHost, PathWithNamespace: "my-group/other"}, Key: "sess-1-43"},
+				{projectRef: projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}, Key: "sess-1-42", ProjectID: 42, SessionID: env.fake.sessionIn(42, "sess-1-42")},
+				{projectRef: projectRef{Host: testHost, PathWithNamespace: "my-group/other"}, Key: "sess-1-43", ProjectID: 43, SessionID: env.fake.sessionIn(43, "sess-1-43")},
 			}, meta.Parts)
 		})
 	}
@@ -309,7 +308,10 @@ func TestSync_SessionFromAnEarlierGlabKeepsItsGitLabSession(t *testing.T) {
 			assert.Equal(t, []string{eventToolInvoked + " toolu_3", eventToolResponse + " toolu_3"}, env.fake.postedTo(43, "sess-1-43"))
 			meta, err := readSessionMeta("sess-1")
 			require.NoError(t, err)
-			assert.True(t, slices.Contains(meta.Parts, sessionPart{projectRef: projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}, Key: "sess-1"}))
+			assert.Contains(t, meta.Parts, sessionPart{
+				projectRef: projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"},
+				Key:        "sess-1", ProjectID: 42, SessionID: env.fake.sessionIn(42, "sess-1"),
+			})
 		})
 	}
 }
@@ -667,4 +669,345 @@ func TestSync_HookInAnotherTopLevelGroupDoesNotMoveTheAnchor(t *testing.T) {
 			assert.Equal(t, projectRef{Host: testHost, PathWithNamespace: "my-group/my-project"}, meta.FirstProject, "the first project does not change")
 		})
 	}
+}
+
+func TestSync_CompletesEveryProjectTheSessionWorkedIn(t *testing.T) {
+	tests := []struct {
+		name string
+		// complete ends the session the way the path does, after its earlier
+		// syncs.
+		complete func(t *testing.T, env *syncAllEnv, transcript string)
+	}{
+		{
+			name: "SessionEnd hook",
+			complete: func(t *testing.T, env *syncAllEnv, _ string) {
+				t.Helper()
+				t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+				_, err := env.exec("-R " + testHost + "/my-group/my-project --silent --complete")
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "idle in the fallback sync",
+			complete: func(t *testing.T, env *syncAllEnv, transcript string) {
+				t.Helper()
+				t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+				idle := time.Now().Add(-idleCompleteAfter - time.Hour)
+				require.NoError(t, os.Chtimes(transcript, idle, idle))
+				_, err := env.exec("--all")
+				require.NoError(t, err)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newSyncAllEnv(t, true)
+			env.fake.projects["my-group/other"] = 43
+			env.expectRemote("/work/a", "my-group/my-project")
+			env.expectRemote("/work/b", "my-group/other")
+			env.expectRemote("/work/b", "my-group/other")
+			transcript := writeClaudeTranscriptIn(t, claudeCall{"toolu_1", "/work/a"})
+			t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+			_, err := env.exec("-R " + testHost + "/my-group/my-project --silent")
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(transcript, claudeTranscriptIn(t,
+				claudeCall{"toolu_1", "/work/a"}, claudeCall{"toolu_2", "/work/b"}), 0o644))
+			_, err = env.exec("-R " + testHost + "/my-group/my-project --silent")
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(transcript, claudeTranscriptIn(t,
+				claudeCall{"toolu_1", "/work/a"}, claudeCall{"toolu_2", "/work/b"}, claudeCall{"toolu_3", "/work/b"}), 0o644))
+
+			tt.complete(t, env, transcript)
+
+			assert.ElementsMatch(t, []int{env.fake.sessionIn(42, "sess-1-42"), env.fake.sessionIn(43, "sess-1-43")}, env.fake.completedSessions,
+				"the project the last turn did not touch is completed too")
+			assert.Equal(t, []string{eventToolInvoked + " toolu_2", eventToolResponse + " toolu_2", eventToolInvoked + " toolu_3", eventToolResponse + " toolu_3"},
+				env.fake.postedTo(43, "sess-1-43"))
+			meta, err := readSessionMeta("sess-1")
+			require.NoError(t, err)
+			assert.NotNil(t, meta.CompletedAt)
+		})
+	}
+}
+
+func TestSyncAll_SessionStaysOpenUntilEveryProjectIsCompleted(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.fake.projects["my-group/other"] = 43
+	env.fake.completeStatusFor = map[int64]int{43: http.StatusUnauthorized}
+	env.expectRemote("/work/a", "my-group/my-project")
+	env.expectRemote("/work/b", "my-group/other")
+	transcript := writeClaudeTranscriptIn(t, claudeCall{"toolu_1", "/work/a"}, claudeCall{"toolu_2", "/work/b"})
+	require.NoError(t, writeSessionMeta("sess-1", sessionMeta{
+		AgentType: "claude-code", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: transcript,
+	}))
+	idle := time.Now().Add(-idleCompleteAfter - time.Hour)
+	require.NoError(t, os.Chtimes(transcript, idle, idle))
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	meta, err := readSessionMeta("sess-1")
+	require.NoError(t, err)
+	assert.Nil(t, meta.CompletedAt, "a project that could not be completed is retried")
+	assert.Zero(t, readStatus(t).SessionsCompleted)
+	assertCursorAtEnd(t, transcript)
+
+	env.fake.completeStatusFor = nil
+	_, err = env.exec("--all")
+	require.NoError(t, err)
+
+	assert.Contains(t, env.fake.completedSessions, env.fake.sessionIn(43, "sess-1-43"))
+	assert.Equal(t, 1, readStatus(t).SessionsCompleted)
+	assert.Equal(t, 4, env.fake.eventsPosted, "events are not posted again")
+}
+
+func TestSyncAll_ReportsWhyAProjectWasNotSynced(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.fake.projects["my-group/other"] = 43
+	env.fake.projects["my-group/off"] = 44
+	env.fake.sessionStatusFor = map[int64]int{43: http.StatusForbidden, 44: http.StatusNotFound}
+	env.expectRemote("/work/a", "my-group/my-project")
+	env.expectRemote("/work/b", "my-group/other")
+	env.expectRemote("/work/c", "my-group/off")
+	env.expectNoRepository("/home/me")
+	transcript := writeClaudeTranscriptIn(t,
+		claudeCall{"toolu_1", "/work/a"}, claudeCall{"toolu_2", "/work/b"}, claudeCall{"toolu_3", "/work/c"}, claudeCall{"toolu_4", "/home/me"})
+	require.NoError(t, writeSessionMeta("sess-1", sessionMeta{
+		AgentType: "claude-code", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: transcript,
+	}))
+
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+
+	status := readStatus(t)
+	assert.Equal(t, 1, status.SessionsSynced)
+	assert.Equal(t, 2, status.EventsPosted)
+	require.Len(t, status.Errors, 1)
+	assert.Contains(t, status.Errors[0], "session sess-1: project "+testHost+"/my-group/other refused the session")
+	assert.Equal(t, []string{testHost + "/my-group/off"}, status.GovernanceNotEnabled)
+	assert.Equal(t, []string{"claude-code activity in folders without a GitLab project in the session's top-level groups"}, status.Skipped)
+	assertCursorAtEnd(t, transcript)
+}
+
+func TestRunSync_SaysWhyAProjectWasNotSynced(t *testing.T) {
+	env := newSyncAllEnv(t, true)
+	env.fake.projects["my-group/other"] = 43
+	env.fake.projects["my-group/off"] = 44
+	env.fake.sessionStatusFor = map[int64]int{43: http.StatusForbidden, 44: http.StatusNotFound}
+	env.expectRemote("/work/b", "my-group/other")
+	env.expectRemote("/work/c", "my-group/off")
+	env.expectNoRepository("/home/me")
+	writeClaudeTranscriptIn(t, claudeCall{"toolu_2", "/work/b"}, claudeCall{"toolu_3", "/work/c"}, claudeCall{"toolu_4", "/home/me"})
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+
+	out, err := env.exec("-R " + testHost + "/my-group/my-project")
+	require.NoError(t, err)
+
+	assert.Contains(t, out.String(), "Not syncing the activity in folders without a GitLab project in the session's top-level groups.")
+	assert.Contains(t, out.String(), testHost+"/my-group/off: "+governanceNotEnabled)
+	assert.Contains(t, out.Stderr(), "warning: project "+testHost+"/my-group/other refused the session")
+}
+
+func TestSync_SessionEndWithoutActivityCreatesNoSession(t *testing.T) {
+	tests := []struct {
+		name string
+		end  func(t *testing.T, env *syncAllEnv, transcript string)
+	}{
+		{
+			name: "SessionEnd hook",
+			end: func(t *testing.T, env *syncAllEnv, _ string) {
+				t.Helper()
+				t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+				_, err := env.exec("-R " + testHost + "/my-group/my-project --silent --complete")
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "idle in the fallback sync",
+			end: func(t *testing.T, env *syncAllEnv, transcript string) {
+				t.Helper()
+				require.NoError(t, writeSessionMeta("sess-1", sessionMeta{
+					AgentType: "claude-code", PathWithNamespace: "my-group/my-project", Host: testHost, Transcript: transcript,
+				}))
+				idle := time.Now().Add(-idleCompleteAfter - time.Hour)
+				require.NoError(t, os.Chtimes(transcript, idle, idle))
+				_, err := env.exec("--all")
+				require.NoError(t, err)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newSyncAllEnv(t, true)
+			transcript := writeClaudeTranscriptIn(t)
+
+			tt.end(t, env, transcript)
+
+			assert.Empty(t, env.fake.sessionRequests, "a session with no activity is not created on GitLab")
+			meta, err := readSessionMeta("sess-1")
+			require.NoError(t, err)
+			assert.Nil(t, meta.CompletedAt, "a session with nothing uploaded is kept, in case the user resumes it")
+		})
+	}
+}
+
+func TestSync_PostsToAKnownGitLabSessionWithoutLookingItUp(t *testing.T) {
+	for _, path := range claudeSyncPaths {
+		t.Run(path.name, func(t *testing.T) {
+			env := newSyncAllEnv(t, true)
+			env.fake.projects["my-group/other"] = 43
+			env.expectRemote("/work/b", "my-group/other")
+			env.expectRemote("/work/b", "my-group/other")
+			transcript := writeClaudeTranscriptIn(t, claudeCall{"toolu_1", "/work/b"})
+			path.sync(t, env)
+			lookups, identities, sessions := env.fake.projectLookups["my-group/other"], env.fake.identityRequests, len(env.fake.sessionRequests)
+
+			appendToFile(t, transcript, claudeTranscriptIn(t, claudeCall{"toolu_2", "/work/b"}))
+			path.sync(t, env)
+
+			assert.Equal(t, lookups, env.fake.projectLookups["my-group/other"])
+			assert.Equal(t, identities, env.fake.identityRequests)
+			assert.Len(t, env.fake.sessionRequests, sessions, "GitLab limits how often sessions are created")
+			assert.Equal(t, []string{
+				eventToolInvoked + " toolu_1", eventToolResponse + " toolu_1",
+				eventToolInvoked + " toolu_2", eventToolResponse + " toolu_2",
+			}, env.fake.postedTo(43, "sess-1-43"))
+		})
+	}
+}
+
+func TestSync_GitLabSessionThatIsGoneIsCreatedAgain(t *testing.T) {
+	for _, path := range claudeSyncPaths {
+		t.Run(path.name, func(t *testing.T) {
+			env := newSyncAllEnv(t, true)
+			transcript := writeClaudeTranscriptIn(t, claudeCall{"toolu_1", ""})
+			path.sync(t, env)
+			gone := env.fake.sessionIn(42, "sess-1-42")
+			require.NotZero(t, gone)
+			env.fake.deleteSession(gone)
+
+			appendToFile(t, transcript, claudeTranscriptIn(t, claudeCall{"toolu_2", ""}))
+			path.sync(t, env)
+
+			again := env.fake.sessionIn(42, "sess-1-42")
+			require.NotZero(t, again, "the session is created again under its key")
+			assert.Equal(t, []string{eventToolInvoked + " toolu_2", eventToolResponse + " toolu_2"}, env.fake.postedTo(42, "sess-1-42"))
+			assertCursorAtEnd(t, transcript)
+			meta, err := readSessionMeta("sess-1")
+			require.NoError(t, err)
+			part, ok := meta.part(meta.project())
+			require.True(t, ok)
+			assert.Equal(t, again, part.SessionID)
+			assert.Empty(t, readStatusIfAny(t).GovernanceNotEnabled, "a session that is gone is not governance being off")
+		})
+	}
+}
+
+func TestSync_GitLabSessionThatIsGoneIsCreatedAgainToComplete(t *testing.T) {
+	for _, path := range claudeSyncPaths {
+		t.Run(path.name, func(t *testing.T) {
+			env := newSyncAllEnv(t, true)
+			transcript := writeClaudeTranscriptIn(t, claudeCall{"toolu_1", ""})
+			path.sync(t, env)
+			gone := env.fake.sessionIn(42, "sess-1-42")
+			require.NotZero(t, gone)
+			env.fake.deleteSession(gone)
+
+			completeWithoutNewActivity(t, env, path.name, transcript)
+
+			again := env.fake.sessionIn(42, "sess-1-42")
+			require.NotZero(t, again, "the session is created again under its key")
+			assert.NotEqual(t, gone, again)
+			assert.Equal(t, []int{again}, env.fake.completedSessions, "the new session is completed")
+			meta, err := readSessionMeta("sess-1")
+			require.NoError(t, err)
+			part, ok := meta.part(meta.project())
+			require.True(t, ok)
+			assert.Equal(t, again, part.SessionID)
+			assert.NotNil(t, meta.CompletedAt)
+		})
+	}
+}
+
+func TestSync_SessionIsNotCompletedWhileGovernanceIsOff(t *testing.T) {
+	for _, path := range claudeSyncPaths {
+		t.Run(path.name, func(t *testing.T) {
+			env := newSyncAllEnv(t, true)
+			transcript := writeClaudeTranscriptIn(t, claudeCall{"toolu_1", ""})
+			path.sync(t, env)
+			env.fake.deleteSession(env.fake.sessionIn(42, "sess-1-42"))
+			env.fake.sessionStatus = http.StatusNotFound
+			env.fake.identityStatus = http.StatusNotFound
+
+			completeWithoutNewActivity(t, env, path.name, transcript)
+
+			assert.Empty(t, env.fake.completedSessions)
+			meta, err := readSessionMeta("sess-1")
+			require.NoError(t, err)
+			assert.Nil(t, meta.CompletedAt, "the session waits until governance is back on")
+			if path.name != "hook" {
+				assert.NotEmpty(t, readStatusIfAny(t).GovernanceNotEnabled)
+			}
+
+			env.fake.sessionStatus = 0
+			env.fake.identityStatus = 0
+			completeWithoutNewActivity(t, env, path.name, transcript)
+
+			again := env.fake.sessionIn(42, "sess-1-42")
+			require.NotZero(t, again)
+			assert.Equal(t, []int{again}, env.fake.completedSessions)
+			meta, err = readSessionMeta("sess-1")
+			require.NoError(t, err)
+			assert.NotNil(t, meta.CompletedAt)
+		})
+	}
+}
+
+func TestSync_SessionInAProjectThatIsGoneIsCompleted(t *testing.T) {
+	for _, path := range claudeSyncPaths {
+		t.Run(path.name, func(t *testing.T) {
+			env := newSyncAllEnv(t, true)
+			env.fake.projects["my-group/other"] = 43
+			env.expectRemote("/work/b", "my-group/other")
+			transcript := writeClaudeTranscriptIn(t, claudeCall{"toolu_1", ""}, claudeCall{"toolu_2", "/work/b"})
+			path.sync(t, env)
+			env.fake.deleteSession(env.fake.sessionIn(43, "sess-1-43"))
+			delete(env.fake.projects, "my-group/other")
+
+			completeWithoutNewActivity(t, env, path.name, transcript)
+
+			assert.Equal(t, []int{env.fake.sessionIn(42, "sess-1-42")}, env.fake.completedSessions)
+			meta, err := readSessionMeta("sess-1")
+			require.NoError(t, err)
+			assert.NotNil(t, meta.CompletedAt, "a project that is gone does not keep the session open")
+		})
+	}
+}
+
+// completeWithoutNewActivity ends the session the way the hook or the
+// fallback sync named by path does, with nothing new in transcript.
+func completeWithoutNewActivity(t *testing.T, env *syncAllEnv, path, transcript string) {
+	t.Helper()
+	if path == "hook" {
+		t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+		_, err := env.exec("-R " + testHost + "/my-group/my-project --silent --complete")
+		require.NoError(t, err)
+		return
+	}
+	idle := time.Now().Add(-idleCompleteAfter - time.Hour)
+	require.NoError(t, os.Chtimes(transcript, idle, idle))
+	_, err := env.exec("--all")
+	require.NoError(t, err)
+}
+
+// readStatusIfAny returns the status of the last --all run, or an empty one
+// when only hooks ran.
+func readStatusIfAny(t *testing.T) *fallbacksync.Status {
+	t.Helper()
+	status, err := fallbacksync.ReadStatus()
+	if errors.Is(err, fallbacksync.ErrNoStatus) {
+		return &fallbacksync.Status{}
+	}
+	require.NoError(t, err)
+	return status
 }

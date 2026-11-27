@@ -388,7 +388,7 @@ func syncSession(ctx context.Context, s *syncer, sessionID string, src transcrip
 		return fmt.Errorf("could not read the session: %w", err)
 	}
 
-	if p.data.empty() && (!opts.complete || !p.uploadedTo(meta, sessionID)) {
+	if p.data.empty() && (!opts.complete || !p.uploadedTo(meta)) {
 		if !opts.silent {
 			opts.io.LogInfo("No new entries to sync.")
 		}
@@ -446,7 +446,14 @@ type partResult struct {
 	err            error
 	eventsPosted   int
 	eventsTooLarge int
+	client         *api.Client
+	projectID      int64
 	glSessionID    int
+	// reused is set when the part used the GitLab session recorded for it,
+	// without creating it.
+	reused bool
+	// data is the part's activity in this read.
+	data *sessionData
 	// recorded is the part to keep in the session record, once its GitLab
 	// session exists or its instance does not accept the agent type.
 	recorded *sessionPart
@@ -618,7 +625,7 @@ func (s *syncer) pushSession(ctx context.Context, sessionID, agentType string, s
 		s.opts.io.LogErrorf("warning: could not update the sync position: %v\n", err)
 	}
 	if complete {
-		s.completeParts(ctx, &res, src)
+		s.completeParts(ctx, &res, src, sessionID, agentType, meta)
 		if res.completed {
 			if err := markSessionCompleted(sessionID, time.Now()); err != nil && !s.opts.silent {
 				s.opts.io.LogErrorf("warning: could not record session completion: %v\n", err)
@@ -631,7 +638,14 @@ func (s *syncer) pushSession(ctx context.Context, sessionID, agentType string, s
 // completeParts marks the GitLab session of every synced part completed. The
 // parts include every project the session synced to, not only those in the
 // last read.
-func (s *syncer) completeParts(ctx context.Context, res *pushResult, src transcript) {
+//
+// A 404 for a session the part reused can mean that GitLab no longer has it.
+// The part then creates it again under its key and completes the new session.
+// When creating it answers 404 too, governance is off, and the session is not
+// completed until it is back on. A failure that can pass also leaves it open.
+// A project that is gone or refuses the session ends the part, as it does
+// when the part is pushed.
+func (s *syncer) completeParts(ctx context.Context, res *pushResult, src transcript, sessionID, agentType string, meta *sessionMeta) {
 	sum, err := src.checksum(ctx)
 	if err != nil && !s.opts.silent {
 		s.opts.io.LogErrorf("warning: could not compute transcript checksum: %v\n", err)
@@ -642,9 +656,13 @@ func (s *syncer) completeParts(ctx context.Context, res *pushResult, src transcr
 		if part.outcome != partSynced {
 			continue
 		}
-		t, err := s.target(part.project)
-		if err == nil {
-			err = completeSession(ctx, t.client, t.project.ID, part.glSessionID, sum)
+		err := completeSession(ctx, part.client, part.projectID, part.glSessionID, sum)
+		if err != nil && part.reused && gitlab.HasStatusCode(err, http.StatusNotFound) {
+			if !s.recreatePart(ctx, part, sessionID, agentType, meta) {
+				res.completed = res.completed && part.outcome != partNotEnabled && part.outcome != partFailed
+				continue
+			}
+			err = completeSession(ctx, part.client, part.projectID, part.glSessionID, sum)
 		}
 		if err != nil {
 			part.outcome, part.err = partFailure(part.project, fmt.Errorf("could not complete session: %w", err), false)
@@ -657,9 +675,56 @@ func (s *syncer) completeParts(ctx context.Context, res *pushResult, src transcr
 	}
 }
 
+// recreatePart creates the GitLab session of part again under its key and
+// records it, and reports whether it now exists.
+func (s *syncer) recreatePart(ctx context.Context, part *partResult, sessionID, agentType string, meta *sessionMeta) bool {
+	// Only what describes the session, as its events are already posted.
+	described := &sessionData{}
+	if part.data != nil {
+		described = &sessionData{
+			SessionID: part.data.SessionID, Goal: part.data.Goal,
+			StartedAt: part.data.StartedAt, AgentVersion: part.data.AgentVersion,
+		}
+	}
+	fresh := s.createPart(ctx, sessionID, agentType, projectData{project: part.project, data: described}, meta)
+	fresh.eventsPosted, fresh.eventsTooLarge, fresh.data = part.eventsPosted, part.eventsTooLarge, part.data
+	*part = fresh
+	if fresh.recorded != nil {
+		err := updateSessionMeta(sessionID, func(m *sessionMeta) { m.recordPart(*fresh.recorded) })
+		if err != nil && !s.opts.silent {
+			s.opts.io.LogErrorf("warning: could not record the session's GitLab sessions: %v\n", err)
+		}
+	}
+	return fresh.outcome == partSynced
+}
+
 // pushPart uploads one project's part of a session.
 func (s *syncer) pushPart(ctx context.Context, sessionID, agentType string, part projectData, meta *sessionMeta) partResult {
-	res := partResult{project: part.project}
+	res := partResult{project: part.project, data: part.data}
+	if recorded, ok := meta.part(part.project); ok && recorded.SessionID > 0 {
+		client, err := s.opts.apiClient(part.project.Host)
+		if err != nil {
+			res.outcome, res.err = partFailed, fmt.Errorf("could not create client for %s: %w", part.project.Host, err)
+			res.reportOnce = "client " + part.project.Host
+			return res
+		}
+		res.client, res.projectID, res.glSessionID = client, recorded.ProjectID, recorded.SessionID
+		res.reused = true
+		s.postEvents(ctx, &res, agentType, part.data)
+		if res.outcome != partNotEnabled {
+			return res
+		}
+		// GitLab also answers 404 for a session it no longer has, for example
+		// past its retention. Creating it again under its key tells the two
+		// apart, as that answers 404 only while governance is off.
+	}
+	return s.createPart(ctx, sessionID, agentType, part, meta)
+}
+
+// createPart creates, or finds under its key, the GitLab session of part and
+// posts its events.
+func (s *syncer) createPart(ctx context.Context, sessionID, agentType string, part projectData, meta *sessionMeta) partResult {
+	res := partResult{project: part.project, data: part.data}
 	t, err := s.target(part.project)
 	switch {
 	case errors.Is(err, gitlab.ErrNotFound):
@@ -695,31 +760,35 @@ func (s *syncer) pushPart(ctx context.Context, sessionID, agentType string, part
 		}
 		return res
 	}
-	res.recorded = &sessionPart{projectRef: part.project, Key: key}
-	res.glSessionID = glSessionID
+	res.recorded = &sessionPart{projectRef: part.project, Key: key, ProjectID: t.project.ID, SessionID: glSessionID}
+	res.client, res.projectID, res.glSessionID = t.client, t.project.ID, glSessionID
 	if !s.opts.silent {
 		s.opts.io.LogInfof("Session: %d (%s)\n", glSessionID, part.project)
 	}
+	s.postEvents(ctx, &res, agentType, part.data)
+	return res
+}
 
-	events := auditEvents(agentType, part.data, time.Now())
+// postEvents posts data to the GitLab session of res.
+func (s *syncer) postEvents(ctx context.Context, res *partResult, agentType string, data *sessionData) {
+	events := auditEvents(agentType, data, time.Now())
 	if len(events) == 0 {
-		return res
+		return
 	}
-	poster := auditEventPoster{client: t.client, projectID: t.project.ID, sessionID: glSessionID, opts: s.opts}
+	poster := auditEventPoster{client: res.client, projectID: res.projectID, sessionID: res.glSessionID, opts: s.opts}
 	tooLarge, err := poster.post(ctx, events)
 	res.eventsTooLarge = tooLarge
 	if err != nil {
-		res.outcome, res.err = partFailure(part.project, fmt.Errorf("could not post audit events: %w", err), false)
-		return res
+		res.outcome, res.err = partFailure(res.project, fmt.Errorf("could not post audit events: %w", err), false)
+		return
 	}
 	res.eventsPosted = len(events) - tooLarge
 	if !s.opts.silent {
-		s.opts.io.LogInfof("Posted %d audit events\n", res.eventsPosted)
+		s.opts.io.LogInfof("Posted %d audit events to %s\n", res.eventsPosted, res.project)
 		if tooLarge > 0 {
 			s.opts.io.LogErrorf("warning: skipped %d audit events too large for GitLab to accept\n", tooLarge)
 		}
 	}
-	return res
 }
 
 // target returns the GitLab project p, looking it up once per run.
@@ -994,7 +1063,7 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 			recordErr(sessionID, err)
 			continue
 		}
-		if !p.uploadedTo(meta, sessionID) && now.Sub(last) > gaig.MaxEventAge {
+		if !p.uploadedTo(meta) && now.Sub(last) > gaig.MaxEventAge {
 			// GitLab accepts no events this old, so a session with nothing
 			// uploaded would arrive empty. It is marked completed locally so it
 			// is not checked again. A session that has synced still goes
@@ -1005,7 +1074,7 @@ func syncAllSessions(ctx context.Context, opts *options) error {
 			continue
 		}
 		idle := now.Sub(last) > idleCompleteAfter
-		if p.data.empty() && (!idle || !p.uploadedTo(meta, sessionID)) {
+		if p.data.empty() && (!idle || !p.uploadedTo(meta)) {
 			continue
 		}
 
