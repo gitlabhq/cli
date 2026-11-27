@@ -202,21 +202,12 @@ func checkClaudeHooks() checkResult {
 		return checkResult{name: "Agent session hooks", ok: true, message: "Claude Code sessions are not synced; run 'glab minder setup --agents claude-code' to sync them"}
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
+	if err := claudehooks.CheckConfigDir(); err != nil {
 		return checkResult{
 			name:    "Agent session hooks",
 			ok:      false,
-			message: fmt.Sprintf("could not determine home directory: %v", err),
-		}
-	}
-
-	claudeDir := filepath.Join(home, ".claude")
-	if _, err := os.Stat(claudeDir); errors.Is(err, fs.ErrNotExist) {
-		return checkResult{
-			name:    "Agent session hooks",
-			ok:      true,
-			message: "No hook-based agent detected (~/.claude not found); run 'glab minder setup' after installing a supported agent",
+			message: err.Error(),
+			fix:     "Set CLAUDE_CONFIG_DIR to an absolute path, or unset it, and run: glab minder setup",
 		}
 	}
 
@@ -225,7 +216,17 @@ func checkClaudeHooks() checkResult {
 		return checkResult{
 			name:    "Agent session hooks",
 			ok:      false,
-			message: fmt.Sprintf("could not determine home directory: %v", err),
+			message: err.Error(),
+		}
+	}
+
+	// The directory of the settings file: ~/.claude, or CLAUDE_CONFIG_DIR.
+	claudeDir := filepath.Dir(path)
+	if _, err := os.Stat(claudeDir); errors.Is(err, fs.ErrNotExist) {
+		return checkResult{
+			name:    "Agent session hooks",
+			ok:      true,
+			message: fmt.Sprintf("No hook-based agent detected (%s not found); run 'glab minder setup' after installing a supported agent", claudehooks.DisplayPath(claudeDir)),
 		}
 	}
 
@@ -233,7 +234,7 @@ func checkClaudeHooks() checkResult {
 		return checkResult{
 			name:    "Agent session hooks",
 			ok:      false,
-			message: fmt.Sprintf("%s not found", claudehooks.SettingsFile),
+			message: fmt.Sprintf("%s not found", claudehooks.DisplayPath(path)),
 			fix:     "Run: glab minder setup",
 		}
 	}
@@ -243,7 +244,7 @@ func checkClaudeHooks() checkResult {
 		return checkResult{
 			name:    "Agent session hooks",
 			ok:      false,
-			message: fmt.Sprintf("could not parse %s", claudehooks.SettingsFile),
+			message: fmt.Sprintf("could not parse %s", claudehooks.DisplayPath(path)),
 			fix:     "Run: glab minder setup",
 		}
 	}
@@ -253,7 +254,7 @@ func checkClaudeHooks() checkResult {
 		return checkResult{
 			name:    "Agent session hooks",
 			ok:      false,
-			message: fmt.Sprintf("could not parse hooks in %s", claudehooks.SettingsFile),
+			message: fmt.Sprintf("could not parse hooks in %s", claudehooks.DisplayPath(path)),
 			fix:     "Run: glab minder setup",
 		}
 	}
@@ -270,7 +271,7 @@ func checkClaudeHooks() checkResult {
 		return checkResult{
 			name:    "Agent session hooks",
 			ok:      false,
-			message: fmt.Sprintf("missing hooks: %s", strings.Join(missingHooks, ", ")),
+			message: fmt.Sprintf("missing hooks in %s: %s", claudehooks.DisplayPath(path), strings.Join(missingHooks, ", ")),
 			fix:     "Run: glab minder setup",
 		}
 	}
@@ -280,14 +281,14 @@ func checkClaudeHooks() checkResult {
 		return checkResult{
 			name:    "Agent session hooks",
 			ok:      true,
-			message: "Stop and SessionEnd hooks installed, but they run 'glab govern'; run 'glab minder setup' to update them",
+			message: "Stop and SessionEnd hooks installed in " + claudehooks.DisplayPath(path) + ", but they run 'glab govern'; run 'glab minder setup' to update them",
 		}
 	}
 
 	return checkResult{
 		name:    "Agent session hooks",
 		ok:      true,
-		message: "Stop and SessionEnd hooks installed",
+		message: "Stop and SessionEnd hooks installed in " + claudehooks.DisplayPath(path),
 	}
 }
 

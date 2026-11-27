@@ -10,31 +10,75 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"slices"
+	"strings"
 )
 
 const (
-	// SettingsFile is the path to the Claude Code settings file relative to the home directory.
+	// SettingsFile is the path to the Claude Code settings file relative to
+	// the home directory, used when CLAUDE_CONFIG_DIR is not set.
 	SettingsFile = ".claude/settings.json"
 
-	// StopHookCommand fires after every Claude Code turn.
-	StopHookCommand = "glab minder audit sync --silent >/dev/null 2>&1 &"
+	// StopHookArgs are the glab arguments of the hook that fires after
+	// every Claude Code turn.
+	StopHookArgs = "minder audit sync --silent >/dev/null 2>&1 &"
 
-	// SessionEndHookCommand fires when a Claude Code session ends.
-	SessionEndHookCommand = "glab minder audit sync --silent --complete >/dev/null 2>&1 &"
+	// SessionEndHookArgs are the glab arguments of the hook that fires when
+	// a Claude Code session ends.
+	SessionEndHookArgs = "minder audit sync --silent --complete >/dev/null 2>&1 &"
 
-	// legacyStopHookCommand and legacySessionEndHookCommand are the hooks that
-	// glab versions before the rename to glab minder installed. They still run,
-	// through the hidden glab govern command, until setup replaces them.
-	legacyStopHookCommand       = "glab govern audit sync --silent >/dev/null 2>&1 &"
-	legacySessionEndHookCommand = "glab govern audit sync --silent --complete >/dev/null 2>&1 &"
+	// StopHookCommand and SessionEndHookCommand are the hooks with a bare
+	// glab, as setup writes them. Setup, uninstall and doctor match a hook by
+	// its arguments, so that a glab at another path is recognized too.
+	StopHookCommand       = "glab " + StopHookArgs
+	SessionEndHookCommand = "glab " + SessionEndHookArgs
+
+	// legacyStopHookArgs and legacySessionEndHookArgs are the arguments of
+	// the hooks that glab versions before the rename to glab minder
+	// installed. They still run, through the hidden glab govern command,
+	// until setup replaces them.
+	legacyStopHookArgs       = "govern audit sync --silent >/dev/null 2>&1 &"
+	legacySessionEndHookArgs = "govern audit sync --silent --complete >/dev/null 2>&1 &"
 )
 
-// hookCommands maps each hook event to the command setup installs for it, and
-// the command that earlier glab versions installed.
-var hookCommands = map[string]struct{ current, legacy string }{
-	"Stop":       {StopHookCommand, legacyStopHookCommand},
-	"SessionEnd": {SessionEndHookCommand, legacySessionEndHookCommand},
+// glabHook is a hook that setup installs: glab with args, for event. The
+// hooks that glab versions before the rename installed run glab with
+// legacyArgs instead.
+type glabHook struct{ event, args, legacyArgs string }
+
+// glabHooks are the hooks that setup installs, in the order it adds them.
+var glabHooks = []glabHook{
+	{"Stop", StopHookArgs, legacyStopHookArgs},
+	{"SessionEnd", SessionEndHookArgs, legacySessionEndHookArgs},
+}
+
+// matches reports whether command runs glab, by any path, with the hook's
+// arguments or its legacy ones.
+func (h glabHook) matches(command string) bool {
+	return MatchesGlabCommand(command, h.args) || h.legacy(command)
+}
+
+// legacy reports whether command runs glab, by any path, with the hook's
+// legacy arguments.
+func (h glabHook) legacy(command string) bool {
+	return MatchesGlabCommand(command, h.legacyArgs)
+}
+
+// MatchesGlabCommand reports whether command runs glab, by any path, with
+// args, so that a glab moved by an upgrade is still recognized. Another
+// program run with the same arguments does not match.
+func MatchesGlabCommand(command, args string) bool {
+	program, ok := strings.CutSuffix(command, " "+args)
+	if !ok {
+		return false
+	}
+	if len(program) >= 2 && strings.HasPrefix(program, "'") && strings.HasSuffix(program, "'") {
+		program = strings.ReplaceAll(program[1:len(program)-1], `'\''`, "'")
+	}
+	name := program[strings.LastIndexAny(program, `/\`)+1:]
+	return name == "glab" || strings.EqualFold(name, "glab.exe")
 }
 
 // HookEntry mirrors the Claude Code hook entry format.
@@ -71,6 +115,9 @@ type HookGroup struct {
 	Matcher string      `json:"matcher,omitempty"`
 	Hooks   []HookEntry `json:"hooks"`
 	unknown map[string]json.RawMessage
+	// raw is the group as read. An unchanged group is written back as raw,
+	// so that another tool's entries, such as EAP's, keep their key order.
+	raw json.RawMessage
 }
 
 func (g *HookGroup) UnmarshalJSON(data []byte) error {
@@ -82,12 +129,30 @@ func (g *HookGroup) UnmarshalJSON(data []byte) error {
 	}
 	*g = HookGroup(k)
 	g.unknown = unknown
+	g.raw = slices.Clone(data)
 	return nil
 }
 
 func (g HookGroup) MarshalJSON() ([]byte, error) {
 	type known HookGroup
-	return joinUnknown(known(g), g.unknown)
+	encoded, err := joinUnknown(known(g), g.unknown)
+	if err != nil || g.raw == nil || !jsonEqual(encoded, g.raw) {
+		return encoded, err
+	}
+	buf := &bytes.Buffer{}
+	if json.Compact(buf, g.raw) == nil {
+		return buf.Bytes(), nil
+	}
+	return encoded, nil
+}
+
+// jsonEqual reports whether a and b encode the same value.
+func jsonEqual(a, b []byte) bool {
+	var va, vb any
+	if json.Unmarshal(a, &va) != nil || json.Unmarshal(b, &vb) != nil {
+		return false
+	}
+	return reflect.DeepEqual(va, vb)
 }
 
 // splitUnknown decodes data into known and returns the fields that known
@@ -152,13 +217,55 @@ func MarshalHooks(hooks map[string][]HookGroup) (json.RawMessage, error) {
 	return marshal(hooks)
 }
 
-// SettingsPath returns the absolute path to the Claude Code settings file.
-func SettingsPath() (string, error) {
+// ConfigDir returns Claude Code's configuration directory, as Claude Code
+// finds it: CLAUDE_CONFIG_DIR when that is set, and otherwise ~/.claude.
+func ConfigDir() (string, error) {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return dir, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("could not find home directory: %w", err)
 	}
-	return filepath.Join(home, SettingsFile), nil
+	return filepath.Join(home, ".claude"), nil
+}
+
+// SettingsPath returns the path to the Claude Code user settings file:
+// settings.json in ConfigDir.
+func SettingsPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "settings.json"), nil
+}
+
+// CheckConfigDir refuses a relative CLAUDE_CONFIG_DIR. Claude Code resolves
+// it from each session's directory, so no one settings file matches it.
+func CheckConfigDir() error {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" && !filepath.IsAbs(dir) {
+		return fmt.Errorf("set CLAUDE_CONFIG_DIR to an absolute path: Claude Code resolves a relative value (%q) from each session's directory", dir)
+	}
+	return nil
+}
+
+// DisplayPath shows path for messages, with the home directory as ~.
+func DisplayPath(path string) string {
+	return displayPath(runtime.GOOS, path)
+}
+
+// displayPath shows a Windows path unchanged, rather than as ~/ followed by
+// backslashes.
+func displayPath(goos, path string) string {
+	if goos == "windows" {
+		return path
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if rel, ok := strings.CutPrefix(path, filepath.Clean(home)+string(filepath.Separator)); ok {
+			return "~/" + rel
+		}
+	}
+	return path
 }
 
 // LoadRawSettings reads the Claude Code settings file as a raw JSON map,
@@ -241,13 +348,15 @@ func WriteSettings(path string, raw map[string]json.RawMessage) error {
 // HookPresent reports whether a hook with the given command exists for the given event
 // in the provided hooks map.
 func HookPresent(hooks map[string][]HookGroup, event, command string) bool {
-	groups, ok := hooks[event]
-	if !ok {
-		return false
-	}
-	for _, group := range groups {
+	return hookPresentFunc(hooks, event, func(c string) bool { return c == command })
+}
+
+// hookPresentFunc reports whether a hook whose command matches exists for
+// event.
+func hookPresentFunc(hooks map[string][]HookGroup, event string, match func(command string) bool) bool {
+	for _, group := range hooks[event] {
 		for _, hook := range group.Hooks {
-			if hook.Command == command {
+			if match(hook.Command) {
 				return true
 			}
 		}
@@ -282,42 +391,64 @@ func SyncHookInstalled(path string) (bool, error) {
 }
 
 // GlabHookPresent reports whether glab's hook for event, current or legacy,
-// is present in hooks.
+// is present in hooks, run by any glab path.
 func GlabHookPresent(hooks map[string][]HookGroup, event string) bool {
-	commands := hookCommands[event]
-	return HookPresent(hooks, event, commands.current) || HookPresent(hooks, event, commands.legacy)
-}
-
-// LegacyHookPresent reports whether hooks still has a hook that an earlier glab
-// version installed, which runs glab govern instead of glab minder.
-func LegacyHookPresent(hooks map[string][]HookGroup) bool {
-	for event, commands := range hookCommands {
-		if HookPresent(hooks, event, commands.legacy) {
+	for _, h := range glabHooks {
+		if h.event == event && hookPresentFunc(hooks, event, h.matches) {
 			return true
 		}
 	}
 	return false
 }
 
-// InstallGlabHooks adds glab's hooks to hooks and removes the legacy ones they
-// replace, so that a session is not synced twice. It mutates hooks in place
-// and returns whether anything changed.
+// LegacyHookPresent reports whether hooks still has a hook that an earlier glab
+// version installed, which runs glab govern instead of glab minder.
+func LegacyHookPresent(hooks map[string][]HookGroup) bool {
+	for _, h := range glabHooks {
+		if hookPresentFunc(hooks, h.event, h.legacy) {
+			return true
+		}
+	}
+	return false
+}
+
+// InstallGlabHooks leaves one of each of glab's hooks in hooks, so that a
+// session is not synced twice. A single hook that already runs glab, by any
+// path, with the hook's arguments is kept; legacy and duplicate ones are
+// replaced. It mutates hooks in place and returns whether anything changed.
 func InstallGlabHooks(hooks map[string][]HookGroup) bool {
 	changed := false
-	for event, commands := range hookCommands {
-		changed = RemoveHook(hooks, event, commands.legacy) || changed
-		changed = AddHook(hooks, event, commands.current) || changed
+	for _, h := range glabHooks {
+		if countHooks(hooks, h.event, h.matches) == 1 && !hookPresentFunc(hooks, h.event, h.legacy) {
+			continue
+		}
+		removeHookFunc(hooks, h.event, h.matches)
+		AddHook(hooks, h.event, "glab "+h.args)
+		changed = true
 	}
 	return changed
 }
 
-// RemoveGlabHooks removes glab's hooks, current and legacy, from hooks. It
-// mutates hooks in place and returns whether anything changed.
+// countHooks returns how many hooks for event match.
+func countHooks(hooks map[string][]HookGroup, event string, match func(command string) bool) int {
+	n := 0
+	for _, group := range hooks[event] {
+		for _, hook := range group.Hooks {
+			if match(hook.Command) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// RemoveGlabHooks removes glab's hooks, current and legacy, run by any glab
+// path, from hooks. It mutates hooks in place and returns whether anything
+// changed.
 func RemoveGlabHooks(hooks map[string][]HookGroup) bool {
 	changed := false
-	for event, commands := range hookCommands {
-		changed = RemoveHook(hooks, event, commands.current) || changed
-		changed = RemoveHook(hooks, event, commands.legacy) || changed
+	for _, h := range glabHooks {
+		changed = removeHookFunc(hooks, h.event, h.matches) || changed
 	}
 	return changed
 }
@@ -326,11 +457,16 @@ func RemoveGlabHooks(hooks map[string][]HookGroup) bool {
 // without hooks are dropped, and so is the event when no groups remain.
 // It mutates hooks in place and returns whether anything changed.
 func RemoveHook(hooks map[string][]HookGroup, event, command string) bool {
+	return removeHookFunc(hooks, event, func(c string) bool { return c == command })
+}
+
+// removeHookFunc is RemoveHook for every hook whose command matches.
+func removeHookFunc(hooks map[string][]HookGroup, event string, match func(command string) bool) bool {
 	changed := false
 	var kept []HookGroup
 	for _, group := range hooks[event] {
 		entries := slices.DeleteFunc(slices.Clone(group.Hooks), func(e HookEntry) bool {
-			return e.Command == command
+			return match(e.Command)
 		})
 		if len(entries) != len(group.Hooks) {
 			changed = true

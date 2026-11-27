@@ -18,7 +18,7 @@ Configure the current machine for AI governance session capture.
 
 Choose the agents to sync with `--agents`. Without it, setup syncs the agents set up by an earlier run, or Claude Code if there are none. For each agent, setup installs:
 
-- Claude Code (`claude-code`): a Stop hook in `~/.claude/settings.json`, which syncs the session after every agent turn, and a SessionEnd hook, which syncs the session and marks it completed.
+- Claude Code (`claude-code`): a Stop hook in `~/.claude/settings.json` (in `$CLAUDE_CONFIG_DIR` when it is set, which must then be an absolute path), which syncs the session after every agent turn, and a SessionEnd hook, which syncs the session and marks it completed.
 - OpenCode (`opencode`), version 1.4 or later: a plugin in `~/.config/opencode/plugins/glab-govern.js` (under `$XDG_CONFIG_HOME` when it is set), which syncs the session every time it goes idle. OpenCode loads it for all your sessions, in every project. Later setups keep it up to date.
 - Codex (`codex`) and Cursor (`cursor`): nothing. The fallback periodic sync finds their sessions by scanning their transcripts in `~/.codex/sessions` and `~/.cursor/projects`, and uploads those from repositories on GitLab hosts you are logged in to with glab. Their sessions are marked completed once they have been idle for 24 hours.
 
@@ -38,7 +38,7 @@ Run setup again with `--agents` to add agents. Agents set up by an earlier run s
 
 Safe to run multiple times: existing hooks are not duplicated, and an existing fallback periodic sync job is replaced. Run `glab minder doctor` afterwards to verify the setup.
 
-Run `glab minder setup --uninstall` to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also removes glab's local records of your agent sessions and forgets the agents you set up and when, so the next setup starts with Claude Code again. Other hooks and settings in `~/.claude/settings.json`, and other OpenCode plugins, are left unchanged.
+Run `glab minder setup --uninstall` to remove everything setup installed: the hooks, the OpenCode plugin, the fallback periodic sync job, and Codex and Cursor session syncing. It also removes glab's local records of your agent sessions and forgets the agents you set up and when, so the next setup starts with Claude Code again. Other hooks and settings in Claude Code's `settings.json`, and other OpenCode plugins, are left unchanged.
 
 Setup and uninstall are for a person to confirm. When glab detects that a coding agent runs it, setup and uninstall refuse to run, with or without `--yes`, and the user must run them in their own terminal. glab detects agents from the environment variables they set, so it does not detect an agent that sets none.
 

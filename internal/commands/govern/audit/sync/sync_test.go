@@ -64,6 +64,8 @@ func TestDeterministicUUID(t *testing.T) {
 	})
 }
 
+// The expected names come from Claude Code 2.1.306's own function, run with
+// node.
 func TestCwdToProjectHash(t *testing.T) {
 	t.Parallel()
 
@@ -73,6 +75,10 @@ func TestCwdToProjectHash(t *testing.T) {
 
 	assert.Equal(t, strings.ReplaceAll(input1, sep, "-"), cwdToProjectHash(input1))
 	assert.Equal(t, strings.ReplaceAll(input2, sep, "-"), cwdToProjectHash(input2))
+	assert.Equal(t, "-Users-jean-gdk-gitlab", cwdToProjectHash("/Users/jean/gdk/gitlab"))
+	assert.Equal(t, "-Users-me--swe-harness-x-y-z", cwdToProjectHash("/Users/me/.swe-harness/x_y z"), "dots, underscores and spaces")
+	assert.Equal(t, "-Users-me-caf----", cwdToProjectHash("/Users/me/café/😀"), "one dash per UTF-16 code unit")
+	assert.Equal(t, "-Users-me-"+strings.Repeat("project-", 23)+"projec-o6xyte", cwdToProjectHash("/Users/me/"+strings.Repeat("project-", 30)+"end"), "a long name is cut and hashed")
 }
 
 func TestParseTranscript(t *testing.T) {
@@ -374,6 +380,76 @@ func TestFindTranscriptForSession(t *testing.T) {
 	found, err := findTranscriptForSession("test-session-123")
 	require.NoError(t, err)
 	assert.Equal(t, transcriptPath, found)
+}
+
+// Claude Code keeps its transcripts in CLAUDE_CONFIG_DIR when that is set.
+func TestFindTranscriptForSession_ClaudeConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	configDir := filepath.Join(dir, "cc")
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	legacy := filepath.Join(dir, ".claude", "projects", "-work", "test-session-123.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o755))
+	require.NoError(t, os.WriteFile(legacy, []byte("{}"), 0o644))
+
+	found, err := findTranscriptForSession("test-session-123")
+	require.NoError(t, err)
+	assert.Empty(t, found, "~/.claude is another configuration's")
+
+	want := filepath.Join(configDir, "projects", "-work", "test-session-123.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(want), 0o755))
+	require.NoError(t, os.WriteFile(want, []byte("{}"), 0o644))
+	found, err = findTranscriptForSession("test-session-123")
+	require.NoError(t, err)
+	assert.Equal(t, want, found)
+}
+
+// With CLAUDE_CONFIG_DIR set, the job still syncs sessions that the hooks of
+// ~/.claude recorded. A moved transcript of one is found in ~/.claude, so the
+// session is not forgotten.
+func TestClaudeCodeRecorded_SearchesTheRecordingConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "cc"))
+	projects := filepath.Join(dir, ".claude", "projects")
+	moved := filepath.Join(projects, "-work-sub", "s1.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(moved), 0o755))
+	require.NoError(t, os.WriteFile(moved, []byte("{}"), 0o644))
+
+	_, locator, err := claudeCode{}.recorded("s1", filepath.Join(projects, "-work", "s1.jsonl"))
+	require.NoError(t, err)
+	assert.Equal(t, moved, locator)
+
+	// Only a projects directory is searched.
+	other := filepath.Join(dir, "other", "-work-sub", "s2.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(other), 0o755))
+	require.NoError(t, os.WriteFile(other, []byte("{}"), 0o644))
+	recorded := filepath.Join(dir, "other", "-work", "s2.jsonl")
+	_, locator, err = claudeCode{}.recorded("s2", recorded)
+	require.NoError(t, err)
+	assert.Equal(t, recorded, locator)
+}
+
+// A projects directory that cannot be read does not stop the search of the
+// job's own configuration.
+func TestClaudeCodeRecorded_UnreadableRecordingConfiguration(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read a directory without permissions")
+	}
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "cc"))
+	projects := filepath.Join(dir, ".claude", "projects")
+	require.NoError(t, os.MkdirAll(projects, 0o755))
+	require.NoError(t, os.Chmod(projects, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(projects, 0o755) })
+	moved := filepath.Join(dir, "cc", "projects", "-work-sub", "s1.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(moved), 0o755))
+	require.NoError(t, os.WriteFile(moved, []byte("{}"), 0o644))
+
+	_, locator, err := claudeCode{}.recorded("s1", filepath.Join(projects, "-work", "s1.jsonl"))
+	require.NoError(t, err)
+	assert.Equal(t, moved, locator)
 }
 
 func TestFindTranscriptForSession_NotFound(t *testing.T) {
