@@ -20,6 +20,8 @@ to standard output.
 All `include` directives are resolved,
 and any extended jobs are flattened into their final form.
 
+When `--job` is specified, glab prints the resolved shell script for that job.
+
 By default, glab compiles the `.gitlab-ci.yml` file in the
 current directory. To compile a different file, pass its path as an
 argument.
@@ -42,6 +44,15 @@ glab ci config compile .gitlab-ci.yml
 # Compile a file at a relative path
 glab ci config compile path/to/.gitlab-ci.yml
 
+# Extract script for a specific job
+glab ci config compile --job test-job
+
+```
+
+## Options
+
+```plaintext
+      --job string   Job name to extract script for.
 ```
 
 ## Options inherited from parent commands
